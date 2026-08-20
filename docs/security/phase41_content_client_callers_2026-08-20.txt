@@ -1,0 +1,30 @@
+
+=== questionApi ===
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/questions/QuestionPage.tsx:10:import { questionApi } from './services/question-api';
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/questions/QuestionPage.tsx:52:    queryFn: () => questionApi.getByLecture(lectureId!),
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/questions/QuestionPage.tsx:71:      return questionApi.answer(questionId, optionId, duration);
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/questions/QuestionPage.tsx:90:      questionApi.report(questionId, reason, desc),
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/questions/QuestionPage.tsx:101:      questionApi.toggleFavorite(questionId, isFav),
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/questions/services/question-api.ts:3:export const questionApi = {
+
+=== examApi ===
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/exams/pages/ExamPage.tsx:10:import { examApi } from '../services/exam-api';
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/exams/pages/ExamPage.tsx:58:    mutationFn: () => examApi.start(examId!, 'test'),
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/exams/pages/ExamPage.tsx:111:      return examApi.submit(session!.sessionId, answerList);
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/exams/pages/ExamReviewPage.tsx:5:import { examApi } from '../services/exam-api';
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/exams/pages/ExamReviewPage.tsx:13:    queryFn: () => examApi.getReview(sessionId!),
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/exams/services/exam-api.ts:3:export const examApi = {
+
+=== libraryApi ===
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/library/services/library-api.ts:27:export const libraryApi = {
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/library/LibraryPage.tsx:10:import { libraryApi, type LibraryFile, type FileAccess } from './services/library-api';
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/library/LibraryPage.tsx:32:    queryFn: () => libraryApi.getFiles(subjectId, filterType),
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/library/LibraryPage.tsx:149:    libraryApi.getAccess(file.id)
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/library/LibraryPage.tsx:160:        libraryApi.recordView(file.id, duration);
+
+=== offlineApi ===
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/offline/services/offline-api.ts:33:export const offlineApi = {
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/offline/hooks/useOffline.ts:3:import { offlineApi, type OfflineAnswer } from '../services/offline-api';
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/offline/hooks/useOffline.ts:75:      const pkg = await offlineApi.download(subjectId, examId);
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/offline/hooks/useOffline.ts:167:          const result = await offlineApi.sync(packageId, apiAnswers);
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/offline/hooks/useOffline.ts:196:    await offlineApi.deletePackage(packageId).catch(() => {}); // Best effort

@@ -1,0 +1,5 @@
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/offline/services/offline-api.ts:35:    const res = await apiClient.post('/offline/download', { subjectId, examId });
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/offline/services/offline-api.ts:40:    const res = await apiClient.post('/offline/sync', { packageId, examSessionId, answers });
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/features/offline/services/offline-api.ts:45:    const res = await apiClient.get('/offline/packages');
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/app/router.tsx:44:          <Route path="/exams/:examId" element={<ExamPage />} />
+/home/ubuntu/cms_project_review/CMS_Production_Release_v1.0/CMS_Source/apps/student-web/src/app/router.tsx:45:          <Route path="/exams/:sessionId/review" element={<ExamReviewPage />} />

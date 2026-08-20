@@ -1,0 +1,164 @@
+# ============================================================
+# CMS Platform — Production Docker Compose
+# Usage: docker compose -f docker-compose.prod.yml up -d
+# ============================================================
+name: cms-platform-prod
+
+services:
+  # ============== PostgreSQL 16 ==============
+  postgres:
+    image: postgres:16-alpine
+    container_name: cms-postgres-prod
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
+      TZ: Asia/Riyadh
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - cms-internal
+    # Don't expose PostgreSQL externally in production
+    expose:
+      - "5432"
+
+  # ============== Redis 7 ==============
+  redis:
+    image: redis:7-alpine
+    container_name: cms-redis-prod
+    restart: always
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD}
+      --rename-command FLUSHDB ""
+      --rename-command FLUSHALL ""
+      --rename-command DEBUG ""
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cms-internal
+    expose:
+      - "6379"
+
+  # ============== Backend API ==============
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: cms-api-prod
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD}"
+      Jwt__Secret: "${JWT_SECRET}"
+      Jwt__Issuer: "${JWT_ISSUER:-CMS}"
+      Jwt__Audience: "${JWT_AUDIENCE:-CMS-Users}"
+      Jwt__AccessTokenExpiryMinutes: "15"
+      Jwt__RefreshTokenExpiryDays: "7"
+      Cors__StudentApp: "${CORS_STUDENT_APP}"
+      Cors__AdminApp: "${CORS_ADMIN_APP}"
+      Cloudflare__R2__AccountId: "${R2_ACCOUNT_ID}"
+      Cloudflare__R2__AccessKey: "${R2_ACCESS_KEY}"
+      Cloudflare__R2__SecretKey: "${R2_SECRET_KEY}"
+      Cloudflare__R2__BucketName: "${R2_BUCKET_NAME}"
+      Cloudflare__R2__PublicUrl: "${R2_PUBLIC_URL}"
+      WhatsApp__Token: "${WHATSAPP_TOKEN}"
+      WhatsApp__PhoneNumberId: "${WHATSAPP_PHONE_ID}"
+      Firebase__ProjectId: "${FIREBASE_PROJECT_ID}"
+      TZ: Asia/Riyadh
+    expose:
+      - "8080"
+    volumes:
+      - api_logs:/app/logs
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - cms-internal
+      - cms-external
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+  # ============== Frontend (Nginx) ==============
+  web:
+    build:
+      context: .
+      dockerfile: ./apps/student-web/Dockerfile
+      args:
+        VITE_API_URL: "${VITE_API_URL:-/api/v1}"
+        VITE_APP_ENV: "production"
+        VITE_APP_VERSION: "${APP_VERSION:-1.0.0}"
+    container_name: cms-web-prod
+    restart: always
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx-prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - cms-external
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+
+networks:
+  cms-internal:
+    driver: bridge
+    internal: true
+    name: cms-internal
+  cms-external:
+    driver: bridge
+    name: cms-external
+
+volumes:
+  postgres_data:
+    name: cms-postgres-data-prod
+  redis_data:
+    name: cms-redis-data-prod
+  api_logs:
+    name: cms-api-logs-prod

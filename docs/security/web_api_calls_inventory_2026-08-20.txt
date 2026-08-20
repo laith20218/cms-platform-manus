@@ -1,0 +1,61 @@
+apps/student-web/src/features/exams/services/exam-api.ts:6:    const res = await apiClient.get(`/exams/by-subject/${subjectId}`, await entitlementRequestConfig());
+apps/student-web/src/features/exams/services/exam-api.ts:11:    const res = await apiClient.get(`/exams/${id}`, await entitlementRequestConfig());
+apps/student-web/src/features/exams/services/exam-api.ts:16:    const res = await apiClient.post(`/exams/${examId}/start`, { mode }, await entitlementRequestConfig());
+apps/student-web/src/features/exams/services/exam-api.ts:21:    const res = await apiClient.post(`/exams/sessions/${sessionId}/submit`, { answers }, await entitlementRequestConfig());
+apps/student-web/src/features/exams/services/exam-api.ts:26:    const res = await apiClient.get(`/exams/sessions/${sessionId}/results`, await entitlementRequestConfig());
+apps/student-web/src/features/exams/services/exam-api.ts:31:    const res = await apiClient.get(`/exams/sessions/${sessionId}/review`, await entitlementRequestConfig());
+apps/student-web/src/features/notifications/services/notification-api.ts:17:    const res = await apiClient.get('/notifications', { params: { unreadOnly, page, pageSize } });
+apps/student-web/src/features/notifications/services/notification-api.ts:22:    const res = await apiClient.get('/notifications/unread-count');
+apps/student-web/src/features/notifications/services/notification-api.ts:27:    await apiClient.patch(`/notifications/${id}/read`);
+apps/student-web/src/features/notifications/services/notification-api.ts:31:    await apiClient.post('/notifications/mark-all-read');
+apps/student-web/src/features/notifications/services/notification-api.ts:35:    await apiClient.post('/notifications/push-token', { token, platform });
+apps/student-web/src/features/security/useContentProtection.ts:17:      apiClient.post('/security/log', {
+apps/student-web/src/features/security/useContentProtection.ts:26:      apiClient.post('/security/log', {
+apps/student-web/src/features/security/useContentProtection.ts:69:        apiClient.post('/security/log', {
+apps/student-web/src/features/security/useContentProtection.ts:109:        apiClient.post('/security/log', {
+apps/student-web/src/features/security/useContentProtection.ts:189:        apiClient.post('/security/log', {
+apps/student-web/src/features/security/useContentProtection.ts:242:    apiClient.post('/security/log', { eventType, severity, description }).catch(() => {});
+apps/student-web/src/features/admin/services/admin-api.ts:55:    const res = await apiClient.get('/admin/dashboard');
+apps/student-web/src/features/admin/services/admin-api.ts:59:    const res = await apiClient.get('/admin/recent-activity', { params: { count } });
+apps/student-web/src/features/admin/services/admin-api.ts:63:    const res = await apiClient.get('/admin/revenue', { params: { months } });
+apps/student-web/src/features/admin/services/admin-api.ts:67:    const res = await apiClient.get('/admin/student-growth', { params: { days } });
+apps/student-web/src/features/admin/services/admin-api.ts:71:    const res = await apiClient.get('/admin/top-subjects', { params: { count } });
+apps/student-web/src/features/admin/services/admin-api.ts:75:    const res = await apiClient.get('/admin/reports/summary');
+apps/student-web/src/features/admin/services/admin-api.ts:79:    await apiClient.post(`/admin/students/${studentId}/ban`, { reason, banUntil });
+apps/student-web/src/features/admin/services/admin-api.ts:82:    await apiClient.post(`/admin/students/${studentId}/unban`);
+apps/student-web/src/features/admin/services/admin-api.ts:85:    const res = await apiClient.post('/admin/codes/generate', data);
+apps/student-web/src/features/auth/services/auth-api.ts:22:    const res = await apiClient.get('/auth/me');
+apps/student-web/src/features/auth/services/auth-api.ts:35:    const res = await apiClient.post('/auth/register', {
+apps/student-web/src/features/auth/services/auth-api.ts:44:    const res = await apiClient.post('/auth/verify-otp', { phone, otpCode, installationId });
+apps/student-web/src/features/auth/services/auth-api.ts:49:    await apiClient.post('/auth/resend-otp', { phone, installationId: getOrCreateInstallationId() });
+apps/student-web/src/features/auth/services/auth-api.ts:53:    const res = await apiClient.post('/auth/login', {
+apps/student-web/src/features/auth/services/auth-api.ts:63:    const res = await apiClient.post('/auth/refresh', { refreshToken });
+apps/student-web/src/features/auth/services/auth-api.ts:68:    await apiClient.post('/auth/logout');
+apps/student-web/src/features/auth/services/auth-api.ts:72:    await apiClient.post('/auth/forgot-password', { phone });
+apps/student-web/src/features/auth/services/auth-api.ts:76:    await apiClient.post('/auth/reset-password', { phone, otpCode, newPassword });
+apps/student-web/src/features/auth/services/auth-api.ts:80:    await apiClient.post('/auth/change-password', { currentPassword, newPassword });
+apps/student-web/src/features/stats/services/stats-api.ts:33:    const res = await apiClient.get('/stats/me', { params: { period } });
+apps/student-web/src/features/stats/services/stats-api.ts:38:    const res = await apiClient.get('/stats/leaderboard', { params: { scope, scopeId, period, count } });
+apps/student-web/src/features/stats/services/stats-api.ts:43:    const res = await apiClient.get('/stats/global');
+apps/student-web/src/features/subjects/services/academic-api.ts:6:    const res = await apiClient.get('/universities', { params: { page, pageSize } });
+apps/student-web/src/features/subjects/services/academic-api.ts:10:    const res = await apiClient.get(`/universities/${universityId}/colleges`);
+apps/student-web/src/features/subjects/services/academic-api.ts:14:    const res = await apiClient.get(`/colleges/${collegeId}/years`);
+apps/student-web/src/features/subjects/services/academic-api.ts:18:    const res = await apiClient.get(`/years/${yearId}/semesters`);
+apps/student-web/src/features/subjects/services/academic-api.ts:22:    const res = await apiClient.get(`/semesters/${semesterId}/subjects`);
+apps/student-web/src/features/subjects/services/academic-api.ts:26:    const res = await apiClient.get(`/subjects/${slug}`);
+apps/student-web/src/features/subjects/services/academic-api.ts:30:    const res = await apiClient.get(`/subjects/${subjectId}/lectures`, await entitlementRequestConfig());
+apps/student-web/src/features/library/services/library-api.ts:31:    const res = await apiClient.get(`/library/subject/${subjectId}`, { ...config, params: { type, page, pageSize } });
+apps/student-web/src/features/library/services/library-api.ts:36:    const res = await apiClient.get(`/library/${id}`, await entitlementRequestConfig());
+apps/student-web/src/features/library/services/library-api.ts:41:    const res = await apiClient.post(`/library/${id}/access`, undefined, await entitlementRequestConfig());
+apps/student-web/src/features/library/services/library-api.ts:46:    await apiClient.post(`/library/${id}/view`, { durationSeconds, pagesViewed, completionPercentage }, await entitlementRequestConfig());
+apps/student-web/src/features/offline/services/offline-api.ts:65:    const res = await apiClient.post('/offline/download', { subjectId, examId }, {
+apps/student-web/src/features/offline/services/offline-api.ts:75:    const res = await apiClient.post('/offline/sync', { packageId, examSessionId, answers });
+apps/student-web/src/features/offline/services/offline-api.ts:80:    const res = await apiClient.get('/offline/packages');
+apps/student-web/src/features/offline/services/offline-api.ts:85:    await apiClient.delete(`/offline/packages/${packageId}`);
+apps/student-web/src/features/questions/services/question-api.ts:7:    const res = await apiClient.get(`/questions`, { ...config, params: { lectureId } });
+apps/student-web/src/features/questions/services/question-api.ts:12:    const res = await apiClient.get(`/questions/${id}`, await entitlementRequestConfig());
+apps/student-web/src/features/questions/services/question-api.ts:17:    const res = await apiClient.post(`/questions/${questionId}/answer`, {
+apps/student-web/src/features/questions/services/question-api.ts:24:    await apiClient.post(`/questions/${questionId}/report`, { reasonType, description });
+apps/student-web/src/features/questions/services/question-api.ts:29:      await apiClient.delete(`/favorites/${questionId}`);
+apps/student-web/src/features/questions/services/question-api.ts:31:      await apiClient.post('/favorites', { questionId });
+apps/student-web/src/hooks/usePermission.tsx:26:      const res = await apiClient.get('/auth/admin/me/permissions');

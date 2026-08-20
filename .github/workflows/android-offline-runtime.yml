@@ -1,0 +1,99 @@
+name: Android Offline Runtime
+
+on:
+  pull_request:
+    paths:
+      - 'apps/android/**'
+      - '.github/workflows/android-offline-runtime.yml'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'apps/android/**'
+      - '.github/workflows/android-offline-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-offline-runtime-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  connected-instrumentation:
+    name: API 35 connected instrumentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
+    steps:
+      - name: Checkout
+        # actions/checkout v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Set up JDK 21
+        # actions/setup-java v4.7.1
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Enable KVM access
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+
+      - name: Assemble app and instrumentation APK
+        working-directory: apps/android
+        run: |
+          set -euo pipefail
+          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
+
+      - name: Run Android 35 connected instrumentation
+        # ReactiveCircus/android-emulator-runner v2 (peeled commit SHA)
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: aosp_atd
+          arch: x86_64
+          profile: pixel_2
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          working-directory: apps/android
+          script: |
+            set -euo pipefail
+            adb wait-for-device
+            test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+            adb shell getprop ro.build.version.sdk
+            ./gradlew :app:connectedDebugAndroidTest --console=plain
+
+      - name: Collect Android runtime diagnostics
+        if: always()
+        working-directory: apps/android
+        run: |
+          set -uo pipefail
+          mkdir -p build/reports/phase45-runtime
+          adb devices -l > build/reports/phase45-runtime/adb-devices.txt 2>&1 || true
+          adb shell getprop > build/reports/phase45-runtime/device-properties.txt 2>&1 || true
+          adb logcat -d -v threadtime > build/reports/phase45-runtime/logcat.txt 2>&1 || true
+          find app/build/outputs -type f -name '*.apk' -print0 | xargs -0 -r sha256sum > build/reports/phase45-runtime/apk-sha256.txt
+          printf 'commit=%s\nrun_id=%s\napi=35\ntarget=aosp_atd\narch=x86_64\n' "${GITHUB_SHA}" "${GITHUB_RUN_ID}" > build/reports/phase45-runtime/runtime-identity.txt
+
+      - name: Upload Android runtime evidence
+        if: always()
+        # actions/upload-artifact v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-offline-runtime-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            apps/android/app/build/reports/androidTests/
+            apps/android/app/build/outputs/androidTest-results/
+            apps/android/build/reports/phase45-runtime/
+            apps/android/app/build/outputs/apk/debug/app-debug.apk
+            apps/android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk

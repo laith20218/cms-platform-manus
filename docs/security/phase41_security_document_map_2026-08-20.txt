@@ -1,0 +1,326 @@
+
+=== ANDROID_SECURITY_READINESS.md ===
+# CMS — Android Security Readiness Assessment
+**القرار:** **NOT READY** لتطوير تطبيق Android يتعامل مع محتوى مدفوع أو تنزيلات Offline على أساس Backend الحالي.  
+## ما يمكن إعادة استخدامه
+## ما يجب إصلاحه قبل أي Android client
+## تخزين Android المقترح لاحقاً
+## ما يمكن وما لا يمكن حمايته
+## بوابة البدء
+
+=== CRYPTOGRAPHY_ARCHITECTURE.md ===
+# معمارية التشفير — CMS
+## الهدف والنطاق
+## مخطط المواد المشفرة
+## JWT
+## دورة refresh token
+## 2FA ومنع إعادة الاستخدام
+## حدود التصميم
+
+=== FINAL_PHASE_39_TO_PHASE_40_REPORT_2026-08-20.md ===
+# FINAL PHASE 39 → PHASE 40 REPORT
+> **الحكم التنفيذي:** أغلقت Phase 39 وظيفياً بعد إزالة ثلاثة عوائق حقيقية: route إداري مكرر، رابط recovery ميت، وdead-end ناشئ عن OTP غير المفعلة. أصبحت OTP **مؤجلة ومعطلة افتراضياً** ولا يولَّد رمز أو يُرسل أو يُطلب من المستخدم. أُنجزت Phase 40 بالتحقق من نموذج الجلسات الموجود وإضافة دليل PostgreSQL لانتهاء refresh session. اجتاز Backend **79/79** اختباراً، وواجهة الطالب **9/9**، كما اجتازت أدلة المتصفح **2/2** للوضع الافتراضي المؤجل و**17/17** في fixture اختبارية تفعل OTP حصراً لاختبار الضوابط المستقبلية.
+## 1. Phase 39 Status
+### الحالة النهائية
+### المتطلبات المكتملة
+### المتطلبات المؤجلة
+> **OTP STATUS = DEFERRED / DISABLED**
+## 2. Hidden Blocker Audit
+## 3. Code & Files Integrity
+### الملفات التي تغيرت
+## 4. API Integrity
+## 5. Testing Report
+## 6. OTP
+## 7. Phase 40
+### ما نُفذ وتحقق
+## 8. Remaining Issues
+### BLOCKERS
+### NON-BLOCKING
+### DEFERRED
+## 9. Final Integrity Assessment
+## References
+
+=== KEY_MANAGEMENT.md ===
+# إدارة المفاتيح والأسرار — CMS
+## المبدأ
+## سجل المواد وملكية الإدارة
+## بروتوكول التدوير
+## تدوير JWT بدون توقف غير مبرر
+## ضوابط المصدر وCI
+## شرط رفع الحاجز الحالي
+
+=== OFFLINE_PACKAGE_FORMAT.md ===
+# مواصفة حزمة Offline — حالة معطّلة في Phase 34
+## الحالة الحالية
+> **قاعدة الإفراج:** لا يعاد تمكين offline feature لحل خطأ build أو ضغط إصدار. يلزم اعتماد أمني مستقل واختبار اختراق وقرار مالك المنتج.
+## تنسيق مقترح قبل التمكين
+## ضوابط الأمان المطلوبة
+## متطلبات الاختبار قبل الإطلاق
+## قرار Phase 34
+
+=== ONLINE_ENCRYPTION.md ===
+# حماية البيانات أثناء الاتصال — CMS
+## نطاق الحماية
+## المتطلبات الملزمة
+## الرؤوس والسياسات في Phase 34
+## تشغيل الإنتاج
+## منع التسرب في التشغيل
+
+=== PHASE_34_FINAL_REPORT.md ===
+# تقرير الإغلاق الأمني — Phase 34
+> **قرار الحالة:** اكتمل التنفيذ والتحقق المحليان لأعمال Phase 34، لكن لا يجوز إعلان الإغلاق الإنتاجي النهائي. تظل بوابة الإنتاج **BLOCKED** إلى أن ينفذ مالك البيئة تدوير الأسرار الخارجية ويثبت نشر الإعدادات الجديدة وتشغيل بوابات CI البعيدة.
+## الملخص التنفيذي
+## التغييرات الأمنية المنفذة
+## أدلة التحقق المحلية
+## الترحيل وقاعدة البيانات
+## الحواجز الخارجية الإلزامية
+## القرار
+
+=== PHASE_34_IMPLEMENTATION_STATUS.md ===
+# حالة التنفيذ — Phase 34
+**الحالة المحلية:** مكتمل ومتحقق  
+## مكتمل ومتحقق
+## الحواجز الخارجية
+## مراجع الأدلة
+
+=== PHASE_34_VERIFICATION_MATRIX.md ===
+# مصفوفة التحقق — Phase 34
+## ملحق أدلة الملفات
+
+=== PHASE_35_COMPREHENSIVE_REPORT.md ===
+# تقرير Phase 35 الشامل — HTTP Integration Closure
+## الحكم التنفيذي
+> **قرار البوابة: GO لمرحلة Phase 35.** أثبتت الأدلة HTTP السبعة أن الإصدار والتجديد ينجحان وأن الاستحقاق المفقود أو المنتهي أو المحرف أو الصادر لجهاز مختلف أو الخارج عن نطاق المادة يُرفض قبل استدعاء handler المحتوى. بقي Offline معطلاً افتراضياً.
+## ملفات التنفيذ والتحقق
+## نتائج سيناريوهات HTTP P0
+## أدلة التشغيل الأخيرة
+## الضوابط التي بقيت محفوظة
+## الملاحظات غير المانعة
+## القرار النهائي
+**GO — Phase 35 مغلقة من منظور Backend Security وHTTP Signed Entitlement Integration.**
+
+=== PHASE_36_COMPREHENSIVE_REPORT.md ===
+# تقرير Phase 36 الشامل — Content Protection & Offline Packages
+## الحكم التنفيذي
+## حالة حواجز P0
+## مصفوفة اختبارات HTTP المطلوبة
+## ما تم تنفيذه
+## الأدلة التشغيلية
+## ملاحظات غير مانعة
+## القرار النهائي
+> **NO-GO — Phase 36 لم تُغلق بعد. Offline يبقى غير قابل للتفعيل.**
+
+=== PHASE_39_AND_40_FINAL_REAUDIT_REPORT.md ===
+# PHASE 39 + PHASE 40 FINAL REPORT
+> **الحكم التنفيذي:** تدقيق Phase 39 كشف عيبين منطقيين حقيقيين في تدفق إعادة تعيين كلمة المرور، وتم إصلاحهما وإعادة اختبارهـما حياً. إلا أن إرسال رموز OTP الفعلية عبر WhatsApp ما زال غير منفذ في مساري التسجيل واستعادة كلمة المرور؛ الكود يولد الرمز ويخزنه في Redis لكنه لا يرسل أي رسالة، بينما إعدادات WhatsApp فارغة/مثالية. لذلك Phase 39 **ليست مغلقة** وفق شرط “لا TODO حرج ولا وظيفة مستخدم ناقصة”. وبما أن بوابة Phase 39 فشلت، فإن Phase 40 **لم تبدأ**.
+## 1. Phase 39 Status
+### الحالة ونسبة الإنجاز الفعلية
+**الحالة: PARTIAL.** لا توجد نسبة رسمية في مواصفات المشروع، ولذلك لا أستخدم رقماً كبديل عن البوابة. ومع ذلك، من قائمة تدقيق التشغيل ذات السبعة عشر سيناريوً، اجتاز **17/17** في بيئة حية محلية. هذا يثبت منطق الهوية والجلسات، لكنه لا يثبت قابلية مستخدم حقيقي لتلقي رمز OTP. لذلك لا تتحول النتيجة إلى CLOSED.
+### المتطلبات المكتملة
+### المتطلبات التي أصلحت في هذه الجولة
+### المتطلبات غير القابلة للتحقق والمشاكل المتبقية
+## 2. Files Audit
+## 3. Code Audit
+## 4. API Audit
+## 5. Tests
+## 6. Phase 39 Closure Decision
+# ❌ NOT CLOSED
+## 7. Phase 40 Implementation
+## 8. Final System Integrity
+## 9. Remaining Risks
+## 10. Final Verdict
+## References
+
+=== PHASE_39_P0_FINAL_INTEGRITY_AND_CONTRACT_REPORT.md ===
+# Phase 39 P0 — Final Play Integrity Contract & Offline Verifier Status
+## 1. الحكم التنفيذي
+> **قرار P0 النهائي: NO-GO للإطلاق أو تفعيل Offline.**
+## 2. ما تم تنفيذه وإثباته
+## 3. Backend Play Integrity Endpoint
+### العقد
+### سياسة fail-closed الحالية
+### اختبارات HTTP
+## 4. Backend ↔ Android Contract Test
+### التسلسل القابل لإعادة التشغيل
+### نطاق fixture
+## 5. استعادة Android Module وفحوصاته
+## 6. الحواجز الخارجية مقابل الحواجز الداخلية
+### External Blockers
+### Repository Blockers / Gaps قابلة للإغلاق داخلياً
+## 7. ما يمكن إغلاقه لاحقاً وشروط القبول
+## 8. القرار النهائي والخطوة التالية
+## References
+
+=== PHASE_39_SAME_IDENTITY_AUDIT_AND_GATE_REPORT.md ===
+# Phase 39 — Same Identity Audit and Phase 40 Gate Decision
+**الحكم التنفيذي:** **PARTIAL — لا تبدأ Phase 40 بعد.**
+## 1. Executive Summary
+## 2. Phase 39 Status
+**الحالة: PARTIAL.**
+## 3. تعريف Same Identity كما نُفذ فعلياً
+## 4. المشاكل المكتشفة والإصلاحات وإعادة التحقق
+## 5. API Audit — Identity and Session Surface
+## 6. Logical Consistency Scenarios
+## 7. Testing Results
+## 8. File Integrity and Changes
+## 9. Remaining Problems and Unverified Items
+## 10. Phase 40 Decision
+## 11. Final Verdict
+
+=== PHASE_39_TO_40_FINAL_VERIFICATION_REPORT.md ===
+# PHASE 39 → PHASE 40 FINAL VERIFICATION REPORT
+> **Executive verdict.** Phase 39 is closed because the complete identity and session journey was executed against a real Browser, API, PostgreSQL, and Redis stack. The final suite passed **15/15 Browser E2E scenarios**, including registration, academic selection, six-digit OTP, wrong/expired/replayed OTP, resend from the UI, concurrent OTP submission, login, protected routes, hydration, refresh rotation and replay, logout, cross-tab revocation, browser restart, installation mismatch, 401, 403, and network failure. Phase 40 is not implemented: the project documentation, all repository files, and the supplied original prompt contain only the name “Same Sessions” and an instruction to read its specification; they contain no requirements, acceptance criteria, API contract, data model, or original Phase 40 brief. Implementing it would therefore be invention, which the governing task explicitly prohibits.
+## 1. What Was Actually Changed
+## 2. Phase 39 Audit
+## 3. Tests Executed
+## 4. Browser E2E Evidence
+## 5. API Verification
+## 6. File Integrity
+## 7. Security Review
+## 8. Regression Review
+## 9. Phase 39 Gate Decision
+## 10. Phase 40 Implementation
+## 11. Phase 40 Tests
+## 12. Remaining Issues
+## 13. Evidence Quality
+## 14. Final Risk Assessment
+## References
+
+=== PRODUCTION_SECURITY_GATE.md ===
+# بوابة الأمن للإنتاج — Phase 34
+## القرار الحالي
+> **DECISION: BLOCKED — لا يصرح بالنشر الإنتاجي النهائي في هذه الحالة.**
+## معايير الدخول للإنتاج
+## إجراء رفع الحظر
+## ممنوعات الإغلاق
+## توقيع القبول المطلوب
+
+=== PROJECT_PHASE_39_TO_40_FINAL_REPORT.md ===
+# PROJECT PHASE 39 → PHASE 40 FINAL REPORT
+> **قاعدة التقرير:** كل بند أدناه مصنف وفق دليل قابل لإعادة التنفيذ. لا يعني وجود ملف أو endpoint أو نجاح build وحده أن السلوك مكتمل.
+## 1. PHASE 39 STATUS
+**الحالة: BLOCKED FROM CLOSURE.**
+## 2. PHASE 39 REQUIREMENTS AUDIT
+## 3. FILE INTEGRITY
+### الملفات المفحوصة والمعدلة
+### عناصر متبقية في file/config integrity
+## 4. CODE INTEGRITY
+## 5. API AUDIT
+## 6. TEST RESULTS
+## 7. LOGICAL VALIDATION
+## 8. REGRESSION CHECK
+## 9. PHASE 39 CLOSURE
+## 10. PHASE 40 IMPLEMENTATION
+## 11. PHASE 40 TEST RESULTS
+## 12. REMAINING RISKS
+## 13. FINAL VERDICT
+
+=== SECRETS_POLICY.md ===
+# CMS Secrets & Environment Policy — Phase 34
+## الغرض
+## القاعدة التشغيلية
+## ملفات البيئة
+## منع التسرب
+## الملكية والتدوير
+
+=== SECRET_ROTATION.md ===
+# CMS Secret Rotation Runbook — Phase 34
+**الحالة:** خطة تنفيذ؛ لا يعني هذا الملف أن التدوير الخارجي قد تم.  
+## 1. التحضير
+## 2. ترتيب التدوير
+## 3. JWT Key Rotation
+## 4. التحقق بعد التدوير
+## 5. Rollback
+
+=== SECURITY_ARCHITECTURE_PROPOSAL.md ===
+# CMS — Security Architecture Proposal for Phase 34+
+**الحالة:** مقترح تصميم فقط. لا يمثل تنفيذاً ولا يغيّر أي ملف برمجي.  
+## مبادئ التصميم
+## البنية المستهدفة
+## 1. Authentication and Sessions
+## 2. Authorization and Entitlement
+### قرار الوصول المطلوب
+### الأداء
+## 3. Device and Installation Binding
+## 4. Offline Packages
+### Format مقترح
+## 5. Content and File Security
+## 6. Audit, Telemetry, and Notifications
+## 7. Rate Limiting and Capacity
+## ترتيب التنفيذ المقترح
+
+=== SECURITY_AUDIT_PHASE_33.md ===
+# CMS — Phase 33 Comprehensive Security Audit
+## Executive Summary
+> **قرار البوابة:** لا يجوز الانتقال إلى نشر إنتاجي أو بدء عميل Android/Windows قبل معالجة النتائج الحرجة، تدوير الأسرار المحتملة، وإثبات بناء واختبار قابلين لإعادة الإنتاج.
+## Overall Security Score — 27 / 100
+## Security Maturity
+## ما بُني فعلياً وما لم يثبت
+## أعلى النتائج التي تمنع النشر
+## التقييم المطلوب للمكونات
+## Android وWindows
+## اعتبارات الأداء والأمان عند 3,000 مستخدم متزامن
+## حدود التدقيق
+## Deliverables
+## Final Phase Gate
+**Phase 33 مكتملة كمرحلة تدقيق وتوثيق فقط** بعد إنشاء هذه المخرجات وتحديث سجلات المشروع. لا يعني ذلك أن المنصة جاهزة؛ بل يعني أن المخاطر أصبحت موثقة ومصنفة لقرار Phase 34.
+> **التوصية النهائية:** افتح Phase 34 فقط بعد اعتمادك الرسمي لنتائج التدقيق، وابدأ بإصلاحات P0 وفق الترتيب: secrets rotation → refresh/session security → entitlement enforcement → admin scope enforcement → build/test reproducibility.
+
+=== SECURITY_FINDINGS.md ===
+# CMS — Phase 33 Security Findings Register
+> **قاعدة التفسير:** تشير كلمة **مُثبت** إلى سلوك ظاهر في الشيفرة. وتشير كلمة **غير متحقق منه** إلى إعداد خارجي لا يمكن إثبات حالته من حزمة المصدر وحدها، مثل خصوصية bucket في Cloudflare R2 أو فعالية قواعد WAF المنشورة.
+## ملخص الترتيب
+## النتائج الحرجة
+### SEC-001 — تجاوز المصادقة عبر Refresh Token غير مُتحقق منه
+### SEC-002 — غياب التحقق الخلفي من الاستحقاق الأكاديمي والاشتراك للمحتوى المدفوع
+### SEC-003 — حدود صلاحيات المدير والنطاق الإداري غير مفروضة فعلياً
+## النتائج العالية
+### SEC-004 — مواد سرية غير صورية موجودة في حزمة الإصدار
+### SEC-005 — محرك Offline يخزن المحتوى والمفتاح في IndexedDB بصيغة واضحة
+### SEC-006 — ربط الأجهزة موجود ككود لكنه غير مدمج في المصادقة أو التحقق من JWT
+### SEC-007 — الإبطال وتدوير الجلسات غير فعالين
+### SEC-008 — المصادقة الثنائية للإدارة لا تتحقق من TOTP فعلياً
+### SEC-009 — الرفع المباشر إلى R2 لا يطبق تحقق ملف أو فحص برمجيات خبيثة قبل النشر
+## النتائج المتوسطة
+### SEC-010 — Tokens محفوظة في localStorage وسطح XSS غير منضبط تماماً
+### SEC-011 — حماية المحتوى في المتصفح قابلة للتجاوز وتقاريرها غير موصولة بخادم
+### SEC-012 — ضبط المعدل المعلن للمصادقة غير موصول بالـpipeline بصورة مثبتة
+### SEC-013 — حزم Offline لا تتحقق من الملكية أو محتوى الحزمة عند المزامنة
+### SEC-014 — وضع CSP والرؤوس الأمنية غير متسق بين التطبيق والواجهة
+### SEC-015 — سلامة الاعتماديات والنشر غير قابلة لإعادة الإنتاج
+## النتائج المنخفضة والمعلوماتية
+### SEC-016 — سجلات الأمان قد تحتوي بيانات شخصية ولا توجد سياسة احتفاظ ظاهرة
+### SEC-017 — إعدادات R2 وRedis وحالة قاعدة البيانات الخارجية غير قابلة للتحقق من المصدر وحده
+### SEC-018 — لا توجد تطبيقات Android أو Windows فعلية ضمن المصدر للمراجعة
+## ملاحظات إيجابية مثبتة
+**الحكم التنفيذي:** يجب معالجة SEC-001 وSEC-002 وSEC-003 وSEC-004 قبل اعتبار أي بيئة متصلة بالمستخدمين جاهزة للاختبار المفتوح أو الإنتاج.
+## ملحق حالة Phase 34 — 2026-08-18
+> **قرار الإنتاج لا يتغير:** الحواجز الخارجية، ولا سيما تدوير الأسرار والتحقق البعيد، تمنع إعلان الإغلاق الإنتاجي النهائي رغم اكتمال الأدلة المحلية.
+
+=== SECURITY_MATRIX.md ===
+# CMS — Phase 33 Security Matrix
+## التغطية حسب وضع التنفيذ
+> **بوابة Phase 34:** لا يبدأ hardening العلاجي قبل تدوير الأسرار المحتملة وإغلاق SEC-001 وSEC-002 وSEC-003، ثم تثبيت بناء قابل لإعادة الإنتاج.
+
+=== SECURITY_REMEDIATION_MATRIX.md ===
+# مصفوفة معالجة النتائج الأمنية — Phase 34
+## قواعد الإغلاق
+
+=== THREAT_MODEL.md ===
+# نموذج التهديد — CMS Phase 34
+## الأصول ومناطق الثقة
+## الجهات والمهاجمون المفترضون
+## مصفوفة التهديدات
+## افتراضات وحدود
+## المخاطر المتبقية
+
+=== WINDOWS_SECURITY_READINESS.md ===
+# CMS — Windows Security Readiness Assessment
+**القرار:** **NOT READY** لتطبيق Windows مكتبي يتعامل مع اشتراكات ومحتوى محمي بالوضع الحالي.  
+## ملاءمة WebView2
+## متطلبات Windows قبل التنفيذ
+### 1. هوية وجلسة منفصلتان عن localStorage
+### 2. Offline محمي على مستوى التطبيق
+### 3. WebView2 hardening
+### 4. حدود حماية المحتوى الواقعية
+## بوابة البدء

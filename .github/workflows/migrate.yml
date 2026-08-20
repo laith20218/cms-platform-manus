@@ -1,0 +1,88 @@
+# ============================================================
+# CMS Platform — Database Migration Workflow
+# Manually triggerable to run EF Core migrations
+# ============================================================
+name: Database Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        default: 'staging'
+        options:
+          - staging
+          - production
+      action:
+        description: 'Migration action'
+        required: true
+        type: choice
+        default: 'apply'
+        options:
+          - apply
+          - rollback
+          - generate
+      migration_name:
+        description: 'Migration name (for generate action)'
+        required: false
+        type: string
+        default: ''
+
+env:
+  DOTNET_VERSION: '9.0'
+
+jobs:
+  migrate:
+    name: Database Migration
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install EF Tool
+        run: dotnet tool install --global dotnet-ef --version 9.*
+
+      - name: Restore dependencies
+        run: dotnet restore apps/api/CMS.sln
+
+      - name: Generate Migration
+        if: github.event.inputs.action == 'generate'
+        run: |
+          cd apps/api
+          dotnet ef migrations add ${{ github.event.inputs.migration_name }} \
+            --project src/CMS.Infrastructure \
+            --startup-project src/CMS.Api
+
+      - name: Apply Migration
+        if: github.event.inputs.action == 'apply'
+        run: |
+          cd apps/api
+          dotnet ef database update \
+            --project src/CMS.Infrastructure \
+            --startup-project src/CMS.Api \
+            --connection "${{ secrets.DATABASE_CONNECTION_STRING }}"
+
+      - name: Rollback Migration
+        if: github.event.inputs.action == 'rollback'
+        run: |
+          cd apps/api
+          dotnet ef database update ${{ github.event.inputs.migration_name }} \
+            --project src/CMS.Infrastructure \
+            --startup-project src/CMS.Api \
+            --connection "${{ secrets.DATABASE_CONNECTION_STRING }}"
+
+      - name: Verify Migration
+        if: github.event.inputs.action == 'apply'
+        run: |
+          cd apps/api
+          dotnet ef migrations list \
+            --project src/CMS.Infrastructure \
+            --startup-project src/CMS.Api \
+            --connection "${{ secrets.DATABASE_CONNECTION_STRING }}"

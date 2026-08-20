@@ -1,0 +1,2 @@
+web: dotnet CMS.Api.dll
+release: dotnet ef database update --project src/CMS.Infrastructure --startup-project src/CMS.Api --no-build

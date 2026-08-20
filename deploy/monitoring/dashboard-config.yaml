@@ -1,0 +1,212 @@
+# ============================================================
+# CMS Platform — Monitoring Dashboard Configuration
+# Grafana-style dashboard for production metrics
+# ============================================================
+
+dashboard:
+  title: "CMS Platform — Production Overview"
+  refresh: 30s
+  time:
+    from: now-6h
+    to: now
+
+  # ─── Row 1: Service Status ───
+  rows:
+    - title: "Service Status"
+      panels:
+        - title: "API Health"
+          type: stat
+          query: api.health.status
+          thresholds:
+            - { value: 0, color: red, label: DOWN }
+            - { value: 1, color: green, label: UP }
+          
+        - title: "Frontend Health"
+          type: stat
+          query: web.health.status
+          
+        - title: "Database Health"
+          type: stat
+          query: db.health.status
+          
+        - title: "Redis Health"
+          type: stat
+          query: redis.health.status
+
+  # ─── Row 2: Response Times ───
+  rows:
+    - title: "Response Times (ms)"
+      panels:
+        - title: "API Latency (p50, p95, p99)"
+          type: graph
+          query: api.latency.percentiles
+          legend: [p50, p95, p99]
+          yaxes: [{ format: ms, min: 0 }]
+          thresholds:
+            - { value: 200, color: green }
+            - { value: 500, color: yellow }
+            - { value: 1000, color: red }
+          
+        - title: "Frontend TTFB"
+          type: graph
+          query: web.ttfb
+          
+        - title: "Database Query Time"
+          type: graph
+          query: db.query.avg_time
+
+  # ─── Row 3: Traffic ───
+  rows:
+    - title: "Traffic"
+      panels:
+        - title: "Requests/sec"
+          type: graph
+          query: api.requests.rate
+          
+        - title: "Active Users"
+          type: graph
+          query: api.users.active
+          
+        - title: "Requests by Endpoint"
+          type: pie
+          query: api.requests.by_endpoint
+
+  # ─── Row 4: Errors ───
+  rows:
+    - title: "Errors"
+      panels:
+        - title: "Error Rate (%)"
+          type: graph
+          query: api.errors.rate
+          thresholds:
+            - { value: 0.1, color: green }
+            - { value: 1, color: yellow }
+            - { value: 5, color: red }
+          
+        - title: "5xx Errors"
+          type: graph
+          query: api.errors.5xx
+          
+        - title: "Sentry Issues"
+          type: graph
+          query: sentry.issues.count
+
+  # ─── Row 5: Resources ───
+  rows:
+    - title: "Resources"
+      panels:
+        - title: "API CPU Usage (%)"
+          type: gauge
+          query: api.cpu.usage
+          thresholds:
+            - { value: 50, color: green }
+            - { value: 75, color: yellow }
+            - { value: 90, color: red }
+          
+        - title: "API Memory Usage (%)"
+          type: gauge
+          query: api.memory.usage
+          
+        - title: "DB Connections"
+          type: graph
+          query: db.connections.active
+          
+        - title: "Redis Memory"
+          type: graph
+          query: redis.memory.used
+
+  # ─── Row 6: Business Metrics ───
+  rows:
+    - title: "Business Metrics"
+      panels:
+        - title: "Total Students"
+          type: stat
+          query: business.students.total
+          
+        - title: "Today's New Registrations"
+          type: stat
+          query: business.students.new_today
+          
+        - title: "Questions Answered Today"
+          type: stat
+          query: business.questions.answered_today
+          
+        - title: "Active Exams"
+          type: stat
+          query: business.exams.active
+
+# ============================================================
+# ALERTING RULES
+# ============================================================
+
+alerts:
+  # P0 - Critical (Page immediately)
+  - name: "API Down"
+    query: api.health.status == 0
+    for: 1m
+    severity: critical
+    notify: [slack, sms, phone]
+    channel: "#alerts-critical"
+    
+  - name: "Database Down"
+    query: db.health.status == 0
+    for: 30s
+    severity: critical
+    notify: [slack, sms, phone]
+    
+  - name: "High Error Rate"
+    query: api.errors.rate > 5
+    for: 2m
+    severity: critical
+    notify: [slack, sms]
+    
+  - name: "API Very Slow"
+    query: api.latency.p95 > 2000
+    for: 5m
+    severity: critical
+    notify: [slack]
+
+  # P1 - Warning (Slack only)
+  - name: "API Slow"
+    query: api.latency.p95 > 500
+    for: 5m
+    severity: warning
+    notify: [slack]
+    channel: "#alerts-info"
+    
+  - name: "High CPU"
+    query: api.cpu.usage > 80
+    for: 10m
+    severity: warning
+    notify: [slack]
+    
+  - name: "High Memory"
+    query: api.memory.usage > 85
+    for: 10m
+    severity: warning
+    notify: [slack]
+    
+  - name: "DB Connections High"
+    query: db.connections.active > 80
+    for: 5m
+    severity: warning
+    notify: [slack]
+    
+  - name: "Redis Memory High"
+    query: redis.memory.used > 80
+    for: 5m
+    severity: warning
+    notify: [slack]
+
+  # P2 - Info
+  - name: "Spike in Traffic"
+    query: rate(api.requests.rate[5m]) > 1000
+    for: 1m
+    severity: info
+    notify: [slack]
+    
+  - name: "New Sentry Issue"
+    query: increase(sentry.issues.count[5m]) > 0
+    for: 0s
+    severity: info
+    notify: [slack]

@@ -1,0 +1,25 @@
+{
+  "name": "cms-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CMS - College Medical System - منصة تعليمية طبية متكاملة (Production Ready)",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "dev:student": "pnpm --filter @cms/student-web dev",
+    "dev:api": "cd apps/api && dotnet watch --project src/CMS.Api",
+    "build:student": "pnpm --filter @cms/student-web build",
+    "build:ui": "pnpm --filter @cms/ui build"
+  },
+  "devDependencies": {
+    "turbo": "^2.1.0",
+    "workbox-build": "^7.4.1"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.12.0"
+}

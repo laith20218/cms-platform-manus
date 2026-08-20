@@ -1,0 +1,128 @@
+# ============================================================
+# CMS Platform — .gitignore
+# ============================================================
+
+# === Environment & Secrets ===
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.staging
+*.env
+!.env.example
+!.env.production.template
+
+# === Node.js ===
+node_modules/
+.pnp
+.pnp.js
+pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-lock.yaml.bak
+
+# === Build Outputs ===
+dist/
+build/
+out/
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+.turbo/
+*.tsbuildinfo
+
+# === .NET / C# ===
+bin/
+obj/
+*.dll
+*.pdb
+*.exe
+*.user
+*.suo
+*.cache
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# === Test Coverage ===
+coverage/
+*.lcov
+.nyc_output/
+test-results/
+test-output/
+
+# === Logs ===
+logs/
+*.log
+pnpm-debug.log*
+
+# === Temporary Files ===
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*~
+
+# === OS Files ===
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# === IDE / Editors ===
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+.settings/
+.project
+.classpath
+
+# === Docker ===
+docker-compose.override.yml
+
+# === Deployment TLS Material ===
+# Certificates and private keys must be injected by the target certificate store.
+deploy/nginx/certs/
+*.pem
+*.key
+
+# === Database ===
+*.db
+*.sqlite
+*.sqlite3
+db/
+data/
+
+# === Uploads (generated) ===
+uploads/
+apps/api/src/CMS.Api/uploads/
+apps/api/src/CMS.Api/logs/
+
+# === Misc ===
+.history/
+*.pid
+*.seed
+*.pid.lock
+.grunt
+bower_components
+yarn.lock.bak
+
+# === Project-Specific (sandbox artifacts) ===
+skills/
+tool-results/
+upload/
+download/
+SECRET ONLY/
+dump.rdb
+apps/android/.gradle/
+apps/android/local.properties
+apps/student-web/playwright-report/ 

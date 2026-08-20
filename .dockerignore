@@ -1,0 +1,28 @@
+# Local development
+.env
+.env.local
+.env.*.local
+
+# But keep templates
+!.env.example
+!.env.production
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+logs/
+*.log
+
+# Cache
+.cache/
+node_modules/
+dist/
+
+# Build artifacts must never replace restore outputs inside container stages.
+**/bin/
+**/obj/
+
+# Workspace-local dependency and output directories must not overwrite pnpm links in image stages.
+**/node_modules/
+**/dist/

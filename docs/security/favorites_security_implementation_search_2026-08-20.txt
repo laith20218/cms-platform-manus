@@ -1,0 +1,54 @@
+apps/api/src/CMS.Domain/Entities/UserEntities.cs:63:    public ICollection<Favorite> Favorites { get; private set; } = new List<Favorite>();
+apps/api/src/CMS.Domain/Entities/OperationalEntities.cs:71:    public int FavoritesCount { get; set; }
+apps/api/src/CMS.Domain/Entities/OperationalEntities.cs:78:    public ICollection<Favorite> Favorites { get; set; } = new List<Favorite>();
+apps/api/src/CMS.Domain/Entities/OperationalEntities.cs:122:public class Favorite : BaseEntity
+apps/api/src/CMS.Application/Interfaces/IRepositories.cs:182:    Task LogSecurityEventAsync(
+apps/api/src/CMS.Application/Interfaces/IApplicationDbContext.cs:35:    DbSet<Favorite> Favorites { get; }
+apps/api/src/CMS.Application/DTOs/Questions/QuestionDtos.cs:17:    bool IsFavorite,
+apps/api/src/CMS.Application/DTOs/Questions/QuestionDtos.cs:30:    bool IsFavorite
+apps/api/src/CMS.Application/DTOs/Questions/QuestionDtos.cs:180:    bool IsFavorite,
+apps/api/src/CMS.Application/DTOs/Stats/StatsDtos.cs:12:    int FavoriteCount,
+apps/api/src/CMS.Application/DTOs/Library/LibraryDtos.cs:19:    int FavoritesCount,
+apps/api/src/CMS.Application/DTOs/Library/LibraryDtos.cs:33:    bool IsFavorite
+apps/api/src/CMS.Application/Handlers/Stats/StatsHandlers.cs:60:        var favoriteCount = await _db.Favorites.CountAsync(f => f.StudentId == req.StudentId, ct);
+apps/api/src/CMS.Application/Handlers/Stats/StatsHandlers.cs:83:            studyTimeMinutes, examsCompleted, favoriteCount,
+apps/api/src/CMS.Application/Handlers/Auth/AuthHandlers.cs:251:            await _audit.LogSecurityEventAsync(null, null, SecurityEventType.LoginFailed, SecuritySeverity.Warning, "Login failed: invalid credentials", ct: ct);
+apps/api/src/CMS.Application/Handlers/Auth/AuthHandlers.cs:263:            await _audit.LogSecurityEventAsync(student.Id, null, SecurityEventType.LoginFailed, SecuritySeverity.Warning, "Login failed: invalid credentials", ct: ct);
+apps/api/src/CMS.Application/Handlers/Auth/AuthHandlers.cs:370:            await _audit.LogSecurityEventAsync(student.Id, null, SecurityEventType.PasswordResetRequested, SecuritySeverity.Info, "credential_reset=requested", ct: ct);
+apps/api/src/CMS.Application/Handlers/Auth/AuthHandlers.cs:435:        await _audit.LogSecurityEventAsync(student.Id, null, SecurityEventType.PasswordChanged, SecuritySeverity.Warning, "credential_reset=completed", ct: ct);
+apps/api/src/CMS.Application/Handlers/Auth/AuthHandlers.cs:479:        await _audit.LogSecurityEventAsync(student.Id, null, SecurityEventType.PasswordChanged, SecuritySeverity.Warning, "credential_change=completed", ct: ct);
+apps/api/src/CMS.Application/Handlers/Admin/AdminHandlers.cs:80:                await _audit.LogSecurityEventAsync(null, admin.Id, SecurityEventType.MfaFailed, SecuritySeverity.Warning,
+apps/api/src/CMS.Application/Handlers/Admin/AdminHandlers.cs:88:                await _audit.LogSecurityEventAsync(null, admin.Id, SecurityEventType.MfaFailed, SecuritySeverity.Warning,
+apps/api/src/CMS.Application/Handlers/Admin/AdminHandlers.cs:232:        await _audit.LogSecurityEventAsync(null, admin.Id, SecurityEventType.MfaEnabled, SecuritySeverity.Warning,
+apps/api/src/CMS.Application/Handlers/Admin/AdminHandlers.cs:340:        await _audit.LogSecurityEventAsync(
+apps/api/src/CMS.Application/Handlers/Admin/AdminHandlers.cs:375:        await _audit.LogSecurityEventAsync(
+apps/api/src/CMS.Application/Handlers/Library/LibraryHandlers.cs:68:            f.ViewsCount, false // TODO: Check if student favorited
+apps/api/src/CMS.Application/Handlers/Library/LibraryHandlers.cs:256:        f.YoutubeVideoId, f.Tags, f.ViewsCount, f.FavoritesCount,
+apps/api/src/CMS.Application/Handlers/Dashboard/DashboardHandlers.cs:278:        await _audit.LogSecurityEventAsync(student.Id, req.AdminId, SecurityEventType.AdminAction, SecuritySeverity.Warning,
+apps/api/src/CMS.Application/Handlers/Dashboard/DashboardHandlers.cs:291:        await _audit.LogSecurityEventAsync(student.Id, req.AdminId, SecurityEventType.AdminAction, SecuritySeverity.Warning,
+apps/api/src/CMS.Application/Handlers/Offline/OfflineHandlers.cs:124:        await _audit.LogSecurityEventAsync(req.StudentId, null, SecurityEventType.OfflinePackageCreated, SecuritySeverity.Info, "Offline package issued", ct: ct);
+apps/api/src/CMS.Application/Handlers/Offline/OfflineHandlers.cs:177:            await _audit.LogSecurityEventAsync(req.StudentId, null, SecurityEventType.OfflineSyncRejected, SecuritySeverity.Warning, "Offline sync rejected by package ownership or lifecycle state", ct: ct);
+apps/api/src/CMS.Application/Handlers/Offline/OfflineHandlers.cs:185:            await _audit.LogSecurityEventAsync(req.StudentId, null, SecurityEventType.OfflineSyncRejected, SecuritySeverity.Warning, "Offline sync rejected by manifest validation", ct: ct);
+apps/api/src/CMS.Application/Handlers/Offline/OfflineHandlers.cs:378:        await _audit.LogSecurityEventAsync(req.StudentId, null, SecurityEventType.OfflinePackageRevoked, SecuritySeverity.Warning, "Offline package revoked", ct: ct);
+apps/api/src/CMS.Application/Handlers/Subscriptions/SubscriptionHandlers.cs:72:        await _audit.LogSecurityEventAsync(
+apps/api/src/CMS.Application/Handlers/Subscriptions/SubscriptionHandlers.cs:94:        await _audit.LogSecurityEventAsync(
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:66:        await _securityService.LogSecurityEventAsync(userId, null, SecurityEventType.SessionCreated, SecuritySeverity.Info, "Session created", null, null, installation.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:67:        await _securityService.LogSecurityEventAsync(userId, null, SecurityEventType.LoginSuccess, SecuritySeverity.Info, "Login succeeded", null, null, installation.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:113:            await _securityService.LogSecurityEventAsync(session.UserId, null, SecurityEventType.RefreshReuse, SecuritySeverity.Critical, "Refresh token reuse detected; session family revoked", null, null, session.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:133:        await _securityService.LogSecurityEventAsync(successor.UserId, null, SecurityEventType.Refresh, SecuritySeverity.Info, "Refresh token rotated", null, null, successor.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:148:        await _securityService.LogSecurityEventAsync(session.UserId, null, SecurityEventType.SessionRevoked, SecuritySeverity.Warning, "Session revoked", null, null, session.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:150:            await _securityService.LogSecurityEventAsync(session.UserId, null, SecurityEventType.Logout, SecuritySeverity.Info, "Logout completed", null, null, session.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:163:                await _securityService.LogSecurityEventAsync(session.UserId, null, SecurityEventType.SessionRevoked, SecuritySeverity.Warning, "All active sessions revoked", null, null, session.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:66:            await LogSecurityEventAsync(
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:98:            await LogSecurityEventAsync(studentId, null, SecurityEventType.DeviceRegistered, SecuritySeverity.Info,
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:104:        await LogSecurityEventAsync(
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:117:    public async Task LogSecurityEventAsync(
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:192:            await LogSecurityEventAsync(studentId, null, SecurityEventType.SecurityAlert, SecuritySeverity.Critical, reason, ipAddress, ct: ct);
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:205:            await LogSecurityEventAsync(studentId, null, SecurityEventType.SecurityAlert, SecuritySeverity.Critical, reason, ipAddress, ct: ct);
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:218:            await LogSecurityEventAsync(studentId, null, SecurityEventType.SecurityAlert, SecuritySeverity.Critical, reason, ipAddress, ct: ct);
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:231:            await LogSecurityEventAsync(studentId, null, SecurityEventType.SecurityAlert, SecuritySeverity.Critical, reason, ipAddress, ct: ct);
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:277:        await LogSecurityEventAsync(
+apps/api/src/CMS.Infrastructure/Persistence/ApplicationDbContext.cs:44:    public DbSet<Favorite> Favorites => Set<Favorite>();
+apps/api/src/CMS.Api/Controllers/LibraryController.cs:83:            await _audit.LogSecurityEventAsync(studentId.Value, null, SecurityEventType.FileAccessDenied, SecuritySeverity.Warning, "Library file access denied", ct: ct);
+apps/api/src/CMS.Api/Controllers/LibraryController.cs:88:        await _audit.LogSecurityEventAsync(studentId.Value, null, SecurityEventType.FileAccess, SecuritySeverity.Info, "Library file access granted", ct: ct);
+apps/api/src/CMS.Api/Controllers/LibraryController.cs:127:        await _audit.LogSecurityEventAsync(studentId, null, SecurityEventType.EntitlementDenied, SecuritySeverity.Warning, "Entitlement validation denied access", ct: ct);

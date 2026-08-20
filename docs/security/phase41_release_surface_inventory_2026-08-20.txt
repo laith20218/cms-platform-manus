@@ -1,0 +1,52 @@
+=== MANIFESTS ===
+apps/api/CMS.sln
+apps/student-web/package.json
+package.json
+packages/types/package.json
+packages/ui/package.json
+packages/utils/package.json
+pnpm-lock.yaml
+tools/Phase36ContractVector/Phase36ContractVector.csproj
+=== DEPLOYMENT ===
+.env.example
+.github/workflows/ci.yml
+.github/workflows/health-check.yml
+.github/workflows/launch.yml
+.github/workflows/migrate.yml
+apps/api/Dockerfile
+apps/api/Dockerfile.dev
+apps/api/Procfile
+apps/api/railway.json
+apps/student-web/Dockerfile
+apps/student-web/Dockerfile.dev
+apps/student-web/vercel.json
+docker-compose.prod.yml
+docker-compose.yml
+railway.toml
+=== MIGRATIONS ===
+20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs
+20260818172242_Phase34SecuritySessionsAndEntitlements.cs
+20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs
+20260818175606_Phase35AuthenticationDeviceHardening.cs
+20260819082719_Phase36OfflinePackageLifecycle.Designer.cs
+20260819082719_Phase36OfflinePackageLifecycle.cs
+20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs
+20260819082951_Phase36OfflineKeyReleaseToken.cs
+20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs
+20260819085707_Phase36OfflineKeyReleaseLog.cs
+ApplicationDbContextModelSnapshot.cs
+=== TOP-LEVEL APPS ===
+android
+android/.gradle
+android/.kotlin
+android/app
+android/gradle
+api
+api/src
+student-web
+student-web/dist
+student-web/e2e
+student-web/node_modules
+student-web/playwright-report
+student-web/src
+student-web/test-results

@@ -1,0 +1,297 @@
+@import "tailwindcss";
+
+/* ============================================
+   CMS Design Tokens - CSS Variables
+   من docs/VISUAL_IDENTITY.md
+   ============================================ */
+:root {
+  /* ========== Primary (Medical Blue) ========== */
+  --c-primary-50: #E3F2FD;
+  --c-primary-100: #BBDEFB;
+  --c-primary-200: #90CAF9;
+  --c-primary-300: #64B5F6;
+  --c-primary-400: #42A5F5;
+  --c-primary-500: #2196F3;
+  --c-primary-600: #1E88E5;
+  --c-primary-700: #1976D2;
+  --c-primary-800: #1565C0;
+  --c-primary-900: #0D47A1;
+
+  /* ========== Accent (Cyan) ========== */
+  --c-accent-50: #E0F7FA;
+  --c-accent-100: #B2EBF2;
+  --c-accent-200: #80DEEA;
+  --c-accent-300: #4DD0E1;
+  --c-accent-400: #26C6DA;
+  --c-accent-500: #00BCD4;
+  --c-accent-600: #00ACC1;
+  --c-accent-700: #0097A7;
+  --c-accent-800: #00838F;
+  --c-accent-900: #006064;
+
+  /* ========== Success (Green) ========== */
+  --c-success-50: #E8F5E9;
+  --c-success-100: #C8E6C9;
+  --c-success-200: #A5D6A7;
+  --c-success-300: #81C784;
+  --c-success-400: #66BB6A;
+  --c-success-500: #00C853;
+  --c-success-600: #00B248;
+  --c-success-700: #009C40;
+  --c-success-800: #008638;
+  --c-success-900: #006828;
+
+  /* ========== Danger (Red) ========== */
+  --c-danger-50: #FFEBEE;
+  --c-danger-100: #FFCDD2;
+  --c-danger-200: #EF9A9A;
+  --c-danger-300: #E57373;
+  --c-danger-400: #EF5350;
+  --c-danger-500: #FF5252;
+  --c-danger-600: #E63946;
+  --c-danger-700: #C62828;
+  --c-danger-800: #B71C1C;
+  --c-danger-900: #8E0000;
+
+  /* ========== Warning (Amber) ========== */
+  --c-warning-50: #FFF8E1;
+  --c-warning-100: #FFECB3;
+  --c-warning-200: #FFE082;
+  --c-warning-300: #FFD54F;
+  --c-warning-400: #FFCA28;
+  --c-warning-500: #FFB300;
+  --c-warning-600: #FFA000;
+  --c-warning-700: #FF8F00;
+  --c-warning-800: #FF6F00;
+  --c-warning-900: #FF3D00;
+
+  /* ========== Info (Light Blue) ========== */
+  --c-info-50: #E1F5FE;
+  --c-info-100: #B3E5FC;
+  --c-info-200: #81D4FA;
+  --c-info-300: #4FC3F7;
+  --c-info-400: #29B6F6;
+  --c-info-500: #03A9F4;
+  --c-info-600: #039BE5;
+  --c-info-700: #0288D1;
+  --c-info-800: #0277BD;
+  --c-info-900: #01579B;
+
+  /* ========== Neutral (Slate) ========== */
+  --c-neutral-50: #F8FAFC;
+  --c-neutral-100: #F1F5F9;
+  --c-neutral-200: #E2E8F0;
+  --c-neutral-300: #CBD5E1;
+  --c-neutral-400: #94A3B8;
+  --c-neutral-500: #64748B;
+  --c-neutral-600: #475569;
+  --c-neutral-700: #334155;
+  --c-neutral-800: #1E293B;
+  --c-neutral-900: #0F172A;
+
+  /* ========== System Colors ========== */
+  --c-bg: #EEF6FF;
+  --c-medical-white: #F8FBFF;
+  --c-surface: #FFFFFF;
+  --c-glass: rgba(255, 255, 255, 0.65);
+  --c-glass-strong: rgba(255, 255, 255, 0.82);
+  --c-overlay: rgba(15, 23, 42, 0.50);
+
+  /* ========== Text ========== */
+  --c-text: #0F172A;
+  --c-text-soft: #334155;
+  --c-text-muted: #64748B;
+  --c-text-faint: #94A3B8;
+  --c-text-brand: #1976D2;
+  --c-text-on-primary: #FFFFFF;
+
+  /* ========== Borders ========== */
+  --c-border: rgba(15, 23, 42, 0.08);
+  --c-border-strong: rgba(15, 23, 42, 0.14);
+  --c-border-glass: rgba(255, 255, 255, 0.50);
+
+  /* ========== Typography ========== */
+  --font-arabic: 'Cairo', 'Tajawal', 'Noto Sans Arabic', system-ui, sans-serif;
+  --font-latin: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  --font-sans: var(--font-arabic), var(--font-latin);
+
+  /* ========== Spacing (4px baseline) ========== */
+  --s-0: 0;
+  --s-px: 1px;
+  --s-0-5: 2px;
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+  --s-20: 80px;
+  --s-24: 96px;
+  --s-32: 128px;
+
+  /* ========== Border Radius ========== */
+  --r-none: 0;
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-2xl: 28px;
+  --r-3xl: 36px;
+  --r-full: 9999px;
+
+  /* ========== Shadows ========== */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 2px 4px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 8px rgba(15, 23, 42, 0.06), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 8px 16px rgba(15, 23, 42, 0.08), 0 4px 8px rgba(15, 23, 42, 0.04);
+  --shadow-xl: 0 12px 24px rgba(15, 23, 42, 0.10), 0 8px 16px rgba(15, 23, 42, 0.06);
+  --shadow-2xl: 0 20px 40px rgba(15, 23, 42, 0.12), 0 12px 24px rgba(15, 23, 42, 0.08);
+  --shadow-glass: 0 8px 32px rgba(25, 118, 210, 0.10);
+  --shadow-glow-primary: 0 0 0 4px rgba(25, 118, 210, 0.15);
+  --shadow-glow-accent: 0 0 0 4px rgba(0, 188, 212, 0.15);
+  --shadow-glow-success: 0 0 0 4px rgba(0, 200, 83, 0.15);
+  --shadow-glow-danger: 0 0 0 4px rgba(255, 82, 82, 0.15);
+  --shadow-inner: inset 0 2px 4px rgba(15, 23, 42, 0.06);
+
+  /* ========== Gradients ========== */
+  --grad-primary: linear-gradient(135deg, #1976D2 0%, #00BCD4 100%);
+  --grad-dawn: linear-gradient(180deg, #1565C0 0%, #42A5F5 50%, #EEF6FF 100%);
+  --grad-glass: linear-gradient(135deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.45) 100%);
+  --grad-success: linear-gradient(135deg, #00C853 0%, #00E676 100%);
+  --grad-celebration: linear-gradient(135deg, #00BCD4 0%, #00C853 100%);
+  --grad-warning: linear-gradient(135deg, #FFB300 0%, #FFCA28 100%);
+  --grad-danger: linear-gradient(135deg, #FF5252 0%, #FF8A80 100%);
+  --grad-glow: radial-gradient(circle at 30% 20%, rgba(25,118,210,0.10) 0%, transparent 50%);
+
+  /* ========== Z-Index ========== */
+  --z-base: 0;
+  --z-dropdown: 1000;
+  --z-sticky: 1100;
+  --z-banner: 1200;
+  --z-overlay: 1300;
+  --z-drawer: 1400;
+  --z-modal: 1500;
+  --z-popover: 1600;
+  --z-toast: 1700;
+  --z-tooltip: 1800;
+  --z-max: 9999;
+
+  /* ========== Transitions ========== */
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.5, 1.5, 0.5, 1);
+
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+}
+
+/* ============================================
+   Dark Mode
+   ============================================ */
+[data-theme="dark"] {
+  --c-bg: #0B1220;
+  --c-medical-white: #0F172A;
+  --c-surface: #1A2438;
+  --c-glass: rgba(30, 41, 59, 0.65);
+  --c-glass-strong: rgba(30, 41, 59, 0.82);
+
+  --c-text: #F1F5F9;
+  --c-text-soft: #CBD5E1;
+  --c-text-muted: #94A3B8;
+  --c-text-faint: #64748B;
+
+  --c-border: rgba(255, 255, 255, 0.08);
+  --c-border-strong: rgba(255, 255, 255, 0.14);
+  --c-border-glass: rgba(255, 255, 255, 0.10);
+
+  --c-primary-700: #42A5F5;
+  --c-success-500: #00E676;
+  --c-danger-500: #FF8A80;
+  --c-warning-500: #FFCA28;
+
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.30), 0 1px 2px rgba(0, 0, 0, 0.20);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.40), 0 2px 4px rgba(0, 0, 0, 0.30);
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.50), 0 4px 8px rgba(0, 0, 0, 0.40);
+}
+
+/* ============================================
+   Base Styles
+   ============================================ */
+* {
+  border-color: var(--c-border);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--c-bg);
+  color: var(--c-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  margin: 0;
+  min-height: 100vh;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--c-border-strong);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--c-text-muted);
+}
+
+/* Selection */
+::selection {
+  background: rgba(25, 118, 210, 0.20);
+  color: var(--c-text);
+}
+
+/* Focus visible */
+*:focus-visible {
+  outline: 2px solid var(--c-primary-500);
+  outline-offset: 2px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Medical ECG Pattern - Subtle Background */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.02;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='60' viewBox='0 0 200 60'%3E%3Cpath d='M0 30 L40 30 L50 30 L55 10 L60 50 L65 20 L70 30 L120 30 L130 30 L135 5 L140 55 L145 15 L150 30 L200 30' stroke='%231976D2' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 200px 60px;
+}

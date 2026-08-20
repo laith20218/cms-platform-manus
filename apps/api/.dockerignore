@@ -1,0 +1,8 @@
+# Never copy host build artifacts into the API image build context.
+**/bin/
+**/obj/
+
+# Local and secret-bearing files are not part of the image context.
+.env
+.env.*
+*.log

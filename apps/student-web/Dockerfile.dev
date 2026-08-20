@@ -1,0 +1,32 @@
+# ============================================================
+# CMS Student Web — Development Dockerfile (with HMR)
+# ============================================================
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+ENV NODE_ENV=development
+ENV TZ=Asia/Riyadh
+
+COPY package.json pnpm-workspace.yaml turbo.json ./
+COPY apps/student-web/package.json ./apps/student-web/
+COPY packages/ui/package.json ./packages/ui/
+COPY packages/types/package.json ./packages/types/
+COPY packages/utils/package.json ./packages/utils/
+
+RUN pnpm install --frozen-lockfile
+
+COPY apps/student-web/ ./apps/student-web/
+COPY packages/ ./packages/
+
+RUN addgroup -g 1001 -S cms 2>/dev/null || true && \
+    adduser -u 1001 -S -D -H cms -G cms 2>/dev/null || true && \
+    chown -R cms:cms /app
+
+USER cms
+
+EXPOSE 5173
+
+CMD ["pnpm", "--filter", "@cms/student-web", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]

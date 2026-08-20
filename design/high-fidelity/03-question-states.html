@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CMS - تجربة السؤال | High Fidelity Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@200;300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --c-primary-50:#E3F2FD;--c-primary-100:#BBDEFB;--c-primary-300:#64B5F6;
+  --c-primary-400:#42A5F5;--c-primary-500:#2196F3;--c-primary-600:#1E88E5;
+  --c-primary-700:#1976D2;--c-primary-800:#1565C0;
+  --c-accent-500:#00BCD4;
+  --c-success-50:#E8F5E9;--c-success-100:#C8E6C9;--c-success-300:#81C784;
+  --c-success-500:#00C853;--c-success-700:#009C40;
+  --c-danger-50:#FFEBEE;--c-danger-100:#FFCDD2;--c-danger-300:#E57373;
+  --c-danger-500:#FF5252;--c-danger-700:#C62828;
+  --c-warning-500:#FFB300;
+  --c-text:#0F172A;--c-text-soft:#334155;--c-text-muted:#64748B;--c-text-faint:#94A3B8;
+  --c-bg:#EEF6FF;--c-surface:#FFFFFF;
+  --c-glass:rgba(255,255,255,.65);
+  --c-border:rgba(15,23,42,.08);--c-border-strong:rgba(15,23,42,.14);
+  --c-border-glass:rgba(255,255,255,.50);
+  --shadow-sm:0 2px 4px rgba(15,23,42,.06),0 1px 2px rgba(15,23,42,.04);
+  --shadow-md:0 4px 8px rgba(15,23,42,.06),0 2px 4px rgba(15,23,42,.04);
+  --shadow-lg:0 8px 16px rgba(15,23,42,.08),0 4px 8px rgba(15,23,42,.04);
+  --shadow-glass:0 8px 32px rgba(25,118,210,.10);
+  --shadow-glow-primary:0 0 0 4px rgba(25,118,210,.15);
+  --shadow-glow-success:0 0 0 4px rgba(0,200,83,.15);
+  --shadow-glow-danger:0 0 0 4px rgba(255,82,82,.15);
+  --grad-primary:linear-gradient(135deg,#1976D2 0%,#00BCD4 100%);
+  --grad-success:linear-gradient(135deg,#00C853 0%,#00E676 100%);
+  --grad-danger:linear-gradient(135deg,#FF5252 0%,#FF8A80 100%);
+}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:'Cairo','Inter',sans-serif;
+  background:var(--c-bg);color:var(--c-text);
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+  padding:24px;
+}
+
+.page-header{
+  max-width:880px;margin:0 auto 24px;
+  display:flex;justify-content:space-between;align-items:center;
+  flex-wrap:wrap;gap:12px;
+}
+.page-title{
+  font-size:22px;font-weight:800;color:var(--c-text);
+  display:flex;align-items:center;gap:10px;
+}
+.page-title-icon{
+  width:36px;height:36px;border-radius:10px;
+  background:var(--grad-primary);
+  display:flex;align-items:center;justify-content:center;
+  color:white;box-shadow:0 4px 12px rgba(25,118,210,.25);
+}
+.page-title-icon svg{width:20px;height:20px}
+.page-subtitle{font-size:13px;color:var(--c-text-muted);margin-top:4px;font-weight:500}
+
+.section-label{
+  max-width:880px;margin:32px auto 12px;
+  font-size:13px;font-weight:700;color:var(--c-text-soft);
+  display:flex;align-items:center;gap:8px;
+}
+.section-label .badge{
+  background:var(--c-primary-100);color:var(--c-primary-800);
+  font-size:11px;padding:2px 8px;border-radius:6px;
+}
+
+/* Question Card */
+.question-card{
+  max-width:880px;margin:0 auto 24px;
+  background:var(--c-surface);
+  border:1px solid var(--c-border);
+  border-radius:20px;
+  overflow:hidden;
+  box-shadow:var(--shadow-md);
+}
+.question-card.correct{border-color:var(--c-success-500)}
+.question-card.wrong{border-color:var(--c-danger-500)}
+
+/* Card Header */
+.q-header{
+  padding:18px 24px;
+  display:flex;justify-content:space-between;align-items:center;
+  border-bottom:1px solid var(--c-border);
+  background:rgba(238,246,255,.50);
+}
+.q-header-info{display:flex;align-items:center;gap:12px}
+.q-num{
+  width:36px;height:36px;border-radius:10px;
+  background:var(--c-primary-50);color:var(--c-primary-700);
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:13px;font-family:'Inter',sans-serif;
+}
+.q-num.correct{background:var(--c-success-50);color:var(--c-success-700)}
+.q-num.wrong{background:var(--c-danger-50);color:var(--c-danger-700)}
+.q-meta{display:flex;flex-direction:column;line-height:1.3}
+.q-lecture{font-size:13px;font-weight:600;color:var(--c-text-soft)}
+.q-tags{display:flex;gap:6px;margin-top:2px}
+.q-tag{
+  background:var(--c-primary-50);color:var(--c-primary-700);
+  font-size:10px;font-weight:600;
+  padding:2px 8px;border-radius:5px;
+}
+.q-tag.diff-medium{background:rgba(255,179,0,.10);color:var(--c-warning-500)}
+.q-status{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:6px 12px;border-radius:10px;
+  font-size:12px;font-weight:700;
+}
+.q-status.correct{background:var(--c-success-100);color:var(--c-success-700)}
+.q-status.wrong{background:var(--c-danger-100);color:var(--c-danger-700)}
+.q-status svg{width:14px;height:14px}
+
+/* Progress bar */
+.q-progress{
+  height:4px;background:var(--c-bg);
+  display:flex;
+}
+.q-progress-fill{
+  height:100%;background:var(--grad-primary);transition:width .5s;
+}
+.q-progress-fill.correct{background:var(--grad-success)}
+.q-progress-fill.wrong{background:var(--grad-danger)}
+
+/* Card Body */
+.q-body{padding:24px}
+.q-text{
+  font-size:17px;font-weight:600;color:var(--c-text);
+  line-height:1.6;margin-bottom:20px;
+}
+.q-text strong{color:var(--c-primary-700)}
+
+.q-image{
+  background:linear-gradient(135deg,#E3F2FD,#BBDEFB);
+  border-radius:12px;height:180px;
+  display:flex;align-items:center;justify-content:center;
+  margin-bottom:20px;
+  border:1px solid var(--c-border);
+}
+.q-image svg{width:48px;height:48px;color:var(--c-primary-300)}
+
+/* Options */
+.options{display:flex;flex-direction:column;gap:10px}
+.option{
+  display:flex;align-items:center;gap:14px;
+  padding:14px 18px;
+  background:var(--c-surface);
+  border:1.5px solid var(--c-border-strong);
+  border-radius:12px;
+  cursor:pointer;transition:all .2s;
+  position:relative;
+}
+.option:hover{border-color:var(--c-primary-300);background:var(--c-primary-50)}
+.option.selected{border-color:var(--c-primary-500);background:var(--c-primary-50);box-shadow:var(--shadow-glow-primary)}
+.option.correct{border-color:var(--c-success-500);background:var(--c-success-50)}
+.option.correct .option-letter{background:var(--c-success-500);color:white}
+.option.correct .option-check{display:flex}
+.option.wrong{border-color:var(--c-danger-500);background:var(--c-danger-50)}
+.option.wrong .option-letter{background:var(--c-danger-500);color:white}
+.option.wrong .option-x{display:flex}
+.option.disabled{cursor:default;opacity:.7}
+.option.disabled:hover{border-color:var(--c-border-strong);background:var(--c-surface)}
+
+.option-letter{
+  width:32px;height:32px;border-radius:8px;
+  background:var(--c-bg);color:var(--c-text-soft);
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:13px;font-family:'Inter',sans-serif;
+  flex-shrink:0;transition:all .2s;
+}
+.option.selected .option-letter{background:var(--c-primary-700);color:white}
+.option-text{flex:1;font-size:15px;color:var(--c-text);font-weight:500}
+.option-check,.option-x{
+  display:none;
+  width:24px;height:24px;border-radius:50%;
+  align-items:center;justify-content:center;
+  flex-shrink:0;
+}
+.option-check{background:var(--c-success-500);color:white}
+.option-x{background:var(--c-danger-500);color:white}
+.option-check svg,.option-x svg{width:14px;height:14px}
+
+/* Card Actions */
+.q-actions{
+  padding:16px 24px;
+  border-top:1px solid var(--c-border);
+  background:rgba(238,246,255,.30);
+  display:flex;justify-content:space-between;align-items:center;
+  flex-wrap:wrap;gap:12px;
+}
+.q-actions-left{display:flex;gap:8px}
+.q-actions-right{display:flex;gap:8px;align-items:center}
+.action-btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 14px;
+  background:transparent;border:1px solid var(--c-border-strong);
+  border-radius:8px;
+  color:var(--c-text-soft);
+  font-family:inherit;font-size:13px;font-weight:600;
+  cursor:pointer;transition:all .2s;
+}
+.action-btn svg{width:14px;height:14px}
+.action-btn:hover{background:var(--c-primary-50);color:var(--c-primary-700);border-color:var(--c-primary-300)}
+.action-btn.active{background:var(--c-warning-500);color:white;border-color:var(--c-warning-500)}
+.action-btn.active svg{fill:currentColor}
+
+.btn-primary{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:10px 20px;
+  background:var(--grad-primary);
+  color:white;border:none;
+  border-radius:10px;
+  font-family:inherit;font-size:14px;font-weight:700;
+  cursor:pointer;transition:all .2s;
+  box-shadow:0 4px 12px rgba(25,118,210,.25);
+}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(25,118,210,.35)}
+.btn-primary svg{width:16px;height:16px}
+.btn-primary.success{background:var(--grad-success);box-shadow:0 4px 12px rgba(0,200,83,.25)}
+
+/* Stats Bar */
+.q-stats{
+  display:flex;gap:16px;align-items:center;
+  font-size:12px;color:var(--c-text-muted);font-weight:500;
+}
+.q-stat{display:flex;align-items:center;gap:4px}
+.q-stat svg{width:14px;height:14px}
+.q-stat.correct{color:var(--c-success-700)}
+.q-stat.correct svg{color:var(--c-success-500)}
+.q-stat.wrong{color:var(--c-danger-700)}
+.q-stat.wrong svg{color:var(--c-danger-500)}
+
+/* Explanation */
+.explanation{
+  margin-top:20px;
+  background:linear-gradient(135deg,var(--c-primary-50),rgba(0,188,212,.05));
+  border:1px solid rgba(25,118,210,.15);
+  border-radius:14px;
+  padding:20px;
+  animation:slideUp .4s ease-out;
+}
+.explanation-header{
+  display:flex;align-items:center;gap:8px;
+  margin-bottom:12px;
+  padding-bottom:12px;
+  border-bottom:1px solid rgba(25,118,210,.15);
+}
+.explanation-icon{
+  width:32px;height:32px;border-radius:8px;
+  background:var(--grad-primary);
+  display:flex;align-items:center;justify-content:center;
+  color:white;
+}
+.explanation-icon svg{width:16px;height:16px}
+.explanation-title{font-size:15px;font-weight:700;color:var(--c-primary-800)}
+.explanation-body{
+  font-size:14px;line-height:1.7;color:var(--c-text-soft);
+}
+.explanation-body strong{color:var(--c-text);font-weight:700}
+.explanation-reference{
+  margin-top:12px;padding-top:12px;
+  border-top:1px solid rgba(25,118,210,.15);
+  font-size:12px;color:var(--c-text-muted);
+  display:flex;align-items:center;gap:6px;
+}
+.explanation-reference svg{width:14px;height:14px}
+
+@keyframes slideUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+.question-card.wrong{animation:shake .4s}
+
+/* Responsive */
+@media(max-width:640px){
+  body{padding:16px}
+  .q-header{padding:14px 16px}
+  .q-body{padding:18px}
+  .q-actions{padding:14px 16px}
+  .q-text{font-size:15px}
+  .option{padding:12px 14px}
+  .option-text{font-size:14px}
+  .q-stats{flex-wrap:wrap;gap:8px}
+}
+
+/* Screen Info */
+.screen-info{
+  position:fixed;bottom:16px;left:16px;z-index:100;
+  background:rgba(15,23,42,.90);color:white;
+  padding:8px 14px;border-radius:8px;
+  font-size:11px;font-weight:500;
+  font-family:'Inter',sans-serif;
+  display:flex;align-items:center;gap:8px;
+  backdrop-filter:blur(8px);
+}
+.screen-info .dot{width:6px;height:6px;border-radius:50%;background:#00C853;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">
+      <span class="page-title-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </span>
+      تجربة حل السؤال
+    </h1>
+    <p class="page-subtitle">ثلاث حالات: قبل الإجابة • إجابة صحيحة • إجابة خاطئة</p>
+  </div>
+</div>
+
+<!-- ============ STATE 1: Before Answer ============ -->
+<div class="section-label">
+  <span class="badge">1</span>
+  الحالة الأولى: قبل الإجابة (Default)
+</div>
+
+<div class="question-card">
+  <div class="q-header">
+    <div class="q-header-info">
+      <div class="q-num">5</div>
+      <div class="q-meta">
+        <span class="q-lecture">الباطنة / محاضرة 2: أمراض القلب</span>
+        <div class="q-tags">
+          <span class="q-tag">#cardiology</span>
+          <span class="q-tag">#ecg</span>
+          <span class="q-tag diff-medium">متوسط</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="q-progress"><div class="q-progress-fill" style="width:20%"></div></div>
+  
+  <div class="q-body">
+    <p class="q-text">
+      رجل يبلغ من العمر <strong>55 عاماً</strong> يشكو من ألم صدري ضاغط ينتشر للذراع الأيسر، استمر لمدة 30 دقيقة. ما هو التشخيص الأكثر احتمالاً؟
+    </p>
+
+    <div class="q-image" role="img" aria-label="رسم توضيحي لعضلة القلب يُظهر منطقة الاحتشاء">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+    </div>
+
+    <div class="options">
+      <div class="option">
+        <div class="option-letter">A</div>
+        <div class="option-text">ذبحة صدرية مستقرة</div>
+      </div>
+      <div class="option selected">
+        <div class="option-letter">B</div>
+        <div class="option-text">احتشاء عضلة القلب (MI)</div>
+      </div>
+      <div class="option">
+        <div class="option-letter">C</div>
+        <div class="option-text">التهاب التامور</div>
+      </div>
+      <div class="option">
+        <div class="option-letter">D</div>
+        <div class="option-text">تمزق الأبهر</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="q-actions">
+    <div class="q-actions-left">
+      <button class="action-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        مفضلة
+      </button>
+      <button class="action-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+        إبلاغ
+      </button>
+      <button class="action-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        مشاركة
+      </button>
+    </div>
+    <div class="q-actions-right">
+      <div class="q-stats">
+        <span class="q-stat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          18 صحيح
+        </span>
+        <span class="q-stat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          2 خطأ
+        </span>
+      </div>
+      <button class="btn-primary">
+        تأكيد الإجابة
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ STATE 2: Correct Answer ============ -->
+<div class="section-label">
+  <span class="badge" style="background:var(--c-success-100);color:var(--c-success-700)">2</span>
+  الحالة الثانية: إجابة صحيحة ✓
+</div>
+
+<div class="question-card correct">
+  <div class="q-header">
+    <div class="q-header-info">
+      <div class="q-num correct">5</div>
+      <div class="q-meta">
+        <span class="q-lecture">الباطنة / محاضرة 2: أمراض القلب</span>
+        <div class="q-tags">
+          <span class="q-tag">#cardiology</span>
+          <span class="q-tag">#ecg</span>
+          <span class="q-tag diff-medium">متوسط</span>
+        </div>
+      </div>
+    </div>
+    <span class="q-status correct">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      إجابة صحيحة!
+    </span>
+  </div>
+  <div class="q-progress"><div class="q-progress-fill correct" style="width:20%"></div></div>
+  
+  <div class="q-body">
+    <p class="q-text">
+      رجل يبلغ من العمر <strong>55 عاماً</strong> يشكو من ألم صدري ضاغط ينتشر للذراع الأيسر، استمر لمدة 30 دقيقة. ما هو التشخيص الأكثر احتمالاً؟
+    </p>
+
+    <div class="q-image" role="img" aria-label="رسم توضيحي لعضلة القلب يُظهر منطقة الاحتشاء">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+    </div>
+
+    <div class="options">
+      <div class="option disabled">
+        <div class="option-letter">A</div>
+        <div class="option-text">ذبحة صدرية مستقرة</div>
+      </div>
+      <div class="option correct">
+        <div class="option-letter">B</div>
+        <div class="option-text">احتشاء عضلة القلب (MI)</div>
+        <div class="option-check">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+      </div>
+      <div class="option disabled">
+        <div class="option-letter">C</div>
+        <div class="option-text">التهاب التامور</div>
+      </div>
+      <div class="option disabled">
+        <div class="option-letter">D</div>
+        <div class="option-text">تمزق الأبهر</div>
+      </div>
+    </div>
+
+    <!-- Explanation -->
+    <div class="explanation">
+      <div class="explanation-header">
+        <div class="explanation-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        </div>
+        <span class="explanation-title">الشرح</span>
+      </div>
+      <div class="explanation-body">
+        الألم الصدري الضاغط الذي ينتشر للذراع الأيسر ويستمر لأكثر من 20 دقيقة هو <strong>العرض الكلاسيكي لاحتشاء عضلة القلب</strong>. 
+        <br><br>
+        الفرق بين الذبحة المستقرة والاحتشاء:
+        <br>
+        • <strong>الذبحة المستقرة</strong>: ألم يحدث مع المجهود ويخمد بالراحة (＜ 20 دقيقة).
+        <br>
+        • <strong>الاحتشاء (MI)</strong>: ألم مستمر ＞ 20 دقيقة، لا يستجيب للراحة، يصاحبه تغيرات ECG وارتفاع إنزيمات القلب.
+        <br><br>
+        التشخيص التفريقي يشمل أيضاً تمزق الأبهر (ألم شديد نابض) والتهاب التامور (ألم يتغير بالوضع).
+      </div>
+      <div class="explanation-reference">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        المرجع: ديفيدسون - أمراض القلب، ص. 245
+      </div>
+    </div>
+  </div>
+
+  <div class="q-actions">
+    <div class="q-actions-left">
+      <button class="action-btn active">
+        <svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        في المفضلة
+      </button>
+      <button class="action-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+        إبلاغ
+      </button>
+      <button class="action-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        مشاركة
+      </button>
+    </div>
+    <div class="q-actions-right">
+      <div class="q-stats">
+        <span class="q-stat correct">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          19 صحيح
+        </span>
+        <span class="q-stat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          2 خطأ
+        </span>
+      </div>
+      <button class="btn-primary success">
+        التالي
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ STATE 3: Wrong Answer ============ -->
+<div class="section-label">
+  <span class="badge" style="background:var(--c-danger-100);color:var(--c-danger-700)">3</span>
+  الحالة الثالثة: إجابة خاطئة ✗
+</div>
+
+<div class="question-card wrong">
+  <div class="q-header">
+    <div class="q-header-info">
+      <div class="q-num wrong">5</div>
+      <div class="q-meta">
+        <span class="q-lecture">الباطنة / محاضرة 2: أمراض القلب</span>
+        <div class="q-tags">
+          <span class="q-tag">#cardiology</span>
+          <span class="q-tag">#ecg</span>
+          <span class="q-tag diff-medium">متوسط</span>
+        </div>
+      </div>
+    </div>
+    <span class="q-status wrong">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+      إجابة خاطئة
+    </span>
+  </div>
+  <div class="q-progress"><div class="q-progress-fill wrong" style="width:20%"></div></div>
+  
+  <div class="q-body">
+    <p class="q-text">
+      رجل يبلغ من العمر <strong>55 عاماً</strong> يشكو من ألم صدري ضاغط ينتشر للذراع الأيسر، استمر لمدة 30 دقيقة. ما هو التشخيص الأكثر احتمالاً؟
+    </p>
+
+    <div class="q-image" role="img" aria-label="رسم توضيحي لعضلة القلب يُظهر منطقة الاحتشاء">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+    </div>
+
+    <div class="options">
+      <div class="option disabled">
+        <div class="option-letter">A</div>
+        <div class="option-text">ذبحة صدرية مستقرة</div>
+      </div>
+      <div class="option correct">
+        <div class="option-letter">B</div>
+        <div class="option-text">احتشاء عضلة القلب (MI) — الإجابة الصحيحة</div>
+        <div class="option-check">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+      </div>
+      <div class="option wrong">
+        <div class="option-letter">C</div>
+        <div class="option-text">التهاب التامور — إجابتك</div>
+        <div class="option-x">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </div>
+      </div>
+      <div class="option disabled">
+        <div class="option-letter">D</div>
+        <div class="option-text">تمزق الأبهر</div>
+      </div>
+    </div>
+
+    <!-- Explanation -->
+    <div class="explanation">
+      <div class="explanation-header">
+        <div class="explanation-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        </div>
+        <span class="explanation-title">الشرح</span>
+      </div>
+      <div class="explanation-body">
+        الألم الصدري الضاغط الذي ينتشر للذراع الأيسر ويستمر لأكثر من 20 دقيقة هو <strong>العرض الكلاسيكي لاحتشاء عضلة القلب (MI)</strong>.
+        <br><br>
+        لماذا التهاب التامور ليس الإجابة الصحيحة؟
+        <br>
+        • <strong>التهاب التامور</strong>: الألم يتغير مع الوضع (يزداد بالاستلقاء، يخف بالجلوس والانحناء للأمام)، ويصاحبه احتكاك_pericardial.
+        <br>
+        • <strong>الاحتشاء (MI)</strong>: ألم مستمر ＞ 20 دقيقة، ضاغق، ينتشر للذراع الأيسر، مع تعرّق وغثيان.
+        <br><br>
+        راجع الفرق بين الذبحة المستقرة (＜ 20 دقيقة، مع المجهود) والاحتشاء (＞ 20 دقيقة، مستمر).
+      </div>
+      <div class="explanation-reference">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        المرجع: ديفيدسون - أمراض القلب، ص. 245
+      </div>
+    </div>
+  </div>
+
+  <div class="q-actions">
+    <div class="q-actions-left">
+      <button class="action-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        مفضلة
+      </button>
+      <button class="action-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+        إبلاغ
+      </button>
+      <button class="action-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        مشاركة
+      </button>
+    </div>
+    <div class="q-actions-right">
+      <div class="q-stats">
+        <span class="q-stat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          18 صحيح
+        </span>
+        <span class="q-stat wrong">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          3 أخطاء
+        </span>
+      </div>
+      <button class="btn-primary">
+        التالي
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="screen-info">
+  <span class="dot"></span>
+  High Fidelity Design — Question Card / 3 States
+</div>
+
+</body>
+</html>

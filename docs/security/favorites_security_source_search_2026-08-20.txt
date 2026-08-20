@@ -1,0 +1,195 @@
+apps/api/src/CMS.Domain/Entities/UserEntities.cs:63:    public ICollection<Favorite> Favorites { get; private set; } = new List<Favorite>();
+apps/api/src/CMS.Domain/Entities/OperationalEntities.cs:71:    public int FavoritesCount { get; set; }
+apps/api/src/CMS.Domain/Entities/OperationalEntities.cs:78:    public ICollection<Favorite> Favorites { get; set; } = new List<Favorite>();
+apps/api/src/CMS.Domain/Entities/OperationalEntities.cs:122:public class Favorite : BaseEntity
+apps/api/src/CMS.Application/Interfaces/IRepositories.cs:182:    Task LogSecurityEventAsync(
+apps/api/src/CMS.Application/Interfaces/IApplicationDbContext.cs:35:    DbSet<Favorite> Favorites { get; }
+apps/api/src/CMS.Application/DTOs/Questions/QuestionDtos.cs:17:    bool IsFavorite,
+apps/api/src/CMS.Application/DTOs/Questions/QuestionDtos.cs:30:    bool IsFavorite
+apps/api/src/CMS.Application/DTOs/Questions/QuestionDtos.cs:180:    bool IsFavorite,
+apps/api/src/CMS.Application/DTOs/Stats/StatsDtos.cs:12:    int FavoriteCount,
+apps/api/src/CMS.Application/DTOs/Library/LibraryDtos.cs:19:    int FavoritesCount,
+apps/api/src/CMS.Application/DTOs/Library/LibraryDtos.cs:33:    bool IsFavorite
+apps/api/src/CMS.Application/Handlers/Stats/StatsHandlers.cs:60:        var favoriteCount = await _db.Favorites.CountAsync(f => f.StudentId == req.StudentId, ct);
+apps/api/src/CMS.Application/Handlers/Stats/StatsHandlers.cs:83:            studyTimeMinutes, examsCompleted, favoriteCount,
+apps/api/src/CMS.Application/Handlers/Auth/AuthHandlers.cs:251:            await _audit.LogSecurityEventAsync(null, null, SecurityEventType.LoginFailed, SecuritySeverity.Warning, "Login failed: invalid credentials", ct: ct);
+apps/api/src/CMS.Application/Handlers/Auth/AuthHandlers.cs:263:            await _audit.LogSecurityEventAsync(student.Id, null, SecurityEventType.LoginFailed, SecuritySeverity.Warning, "Login failed: invalid credentials", ct: ct);
+apps/api/src/CMS.Application/Handlers/Auth/AuthHandlers.cs:370:            await _audit.LogSecurityEventAsync(student.Id, null, SecurityEventType.PasswordResetRequested, SecuritySeverity.Info, "credential_reset=requested", ct: ct);
+apps/api/src/CMS.Application/Handlers/Auth/AuthHandlers.cs:435:        await _audit.LogSecurityEventAsync(student.Id, null, SecurityEventType.PasswordChanged, SecuritySeverity.Warning, "credential_reset=completed", ct: ct);
+apps/api/src/CMS.Application/Handlers/Auth/AuthHandlers.cs:479:        await _audit.LogSecurityEventAsync(student.Id, null, SecurityEventType.PasswordChanged, SecuritySeverity.Warning, "credential_change=completed", ct: ct);
+apps/api/src/CMS.Application/Handlers/Admin/AdminHandlers.cs:80:                await _audit.LogSecurityEventAsync(null, admin.Id, SecurityEventType.MfaFailed, SecuritySeverity.Warning,
+apps/api/src/CMS.Application/Handlers/Admin/AdminHandlers.cs:88:                await _audit.LogSecurityEventAsync(null, admin.Id, SecurityEventType.MfaFailed, SecuritySeverity.Warning,
+apps/api/src/CMS.Application/Handlers/Admin/AdminHandlers.cs:232:        await _audit.LogSecurityEventAsync(null, admin.Id, SecurityEventType.MfaEnabled, SecuritySeverity.Warning,
+apps/api/src/CMS.Application/Handlers/Admin/AdminHandlers.cs:340:        await _audit.LogSecurityEventAsync(
+apps/api/src/CMS.Application/Handlers/Admin/AdminHandlers.cs:375:        await _audit.LogSecurityEventAsync(
+apps/api/src/CMS.Application/Handlers/Library/LibraryHandlers.cs:68:            f.ViewsCount, false // TODO: Check if student favorited
+apps/api/src/CMS.Application/Handlers/Library/LibraryHandlers.cs:256:        f.YoutubeVideoId, f.Tags, f.ViewsCount, f.FavoritesCount,
+apps/api/src/CMS.Application/Handlers/Dashboard/DashboardHandlers.cs:278:        await _audit.LogSecurityEventAsync(student.Id, req.AdminId, SecurityEventType.AdminAction, SecuritySeverity.Warning,
+apps/api/src/CMS.Application/Handlers/Dashboard/DashboardHandlers.cs:291:        await _audit.LogSecurityEventAsync(student.Id, req.AdminId, SecurityEventType.AdminAction, SecuritySeverity.Warning,
+apps/api/src/CMS.Application/Handlers/Offline/OfflineHandlers.cs:124:        await _audit.LogSecurityEventAsync(req.StudentId, null, SecurityEventType.OfflinePackageCreated, SecuritySeverity.Info, "Offline package issued", ct: ct);
+apps/api/src/CMS.Application/Handlers/Offline/OfflineHandlers.cs:177:            await _audit.LogSecurityEventAsync(req.StudentId, null, SecurityEventType.OfflineSyncRejected, SecuritySeverity.Warning, "Offline sync rejected by package ownership or lifecycle state", ct: ct);
+apps/api/src/CMS.Application/Handlers/Offline/OfflineHandlers.cs:185:            await _audit.LogSecurityEventAsync(req.StudentId, null, SecurityEventType.OfflineSyncRejected, SecuritySeverity.Warning, "Offline sync rejected by manifest validation", ct: ct);
+apps/api/src/CMS.Application/Handlers/Offline/OfflineHandlers.cs:378:        await _audit.LogSecurityEventAsync(req.StudentId, null, SecurityEventType.OfflinePackageRevoked, SecuritySeverity.Warning, "Offline package revoked", ct: ct);
+apps/api/src/CMS.Application/Handlers/Subscriptions/SubscriptionHandlers.cs:72:        await _audit.LogSecurityEventAsync(
+apps/api/src/CMS.Application/Handlers/Subscriptions/SubscriptionHandlers.cs:94:        await _audit.LogSecurityEventAsync(
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:66:        await _securityService.LogSecurityEventAsync(userId, null, SecurityEventType.SessionCreated, SecuritySeverity.Info, "Session created", null, null, installation.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:67:        await _securityService.LogSecurityEventAsync(userId, null, SecurityEventType.LoginSuccess, SecuritySeverity.Info, "Login succeeded", null, null, installation.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:113:            await _securityService.LogSecurityEventAsync(session.UserId, null, SecurityEventType.RefreshReuse, SecuritySeverity.Critical, "Refresh token reuse detected; session family revoked", null, null, session.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:133:        await _securityService.LogSecurityEventAsync(successor.UserId, null, SecurityEventType.Refresh, SecuritySeverity.Info, "Refresh token rotated", null, null, successor.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:148:        await _securityService.LogSecurityEventAsync(session.UserId, null, SecurityEventType.SessionRevoked, SecuritySeverity.Warning, "Session revoked", null, null, session.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:150:            await _securityService.LogSecurityEventAsync(session.UserId, null, SecurityEventType.Logout, SecuritySeverity.Info, "Logout completed", null, null, session.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Security/SessionService.cs:163:                await _securityService.LogSecurityEventAsync(session.UserId, null, SecurityEventType.SessionRevoked, SecuritySeverity.Warning, "All active sessions revoked", null, null, session.InstallationId, ct);
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:66:            await LogSecurityEventAsync(
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:98:            await LogSecurityEventAsync(studentId, null, SecurityEventType.DeviceRegistered, SecuritySeverity.Info,
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:104:        await LogSecurityEventAsync(
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:117:    public async Task LogSecurityEventAsync(
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:192:            await LogSecurityEventAsync(studentId, null, SecurityEventType.SecurityAlert, SecuritySeverity.Critical, reason, ipAddress, ct: ct);
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:205:            await LogSecurityEventAsync(studentId, null, SecurityEventType.SecurityAlert, SecuritySeverity.Critical, reason, ipAddress, ct: ct);
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:218:            await LogSecurityEventAsync(studentId, null, SecurityEventType.SecurityAlert, SecuritySeverity.Critical, reason, ipAddress, ct: ct);
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:231:            await LogSecurityEventAsync(studentId, null, SecurityEventType.SecurityAlert, SecuritySeverity.Critical, reason, ipAddress, ct: ct);
+apps/api/src/CMS.Infrastructure/Services/SecurityService.cs:277:        await LogSecurityEventAsync(
+apps/api/src/CMS.Infrastructure/Persistence/ApplicationDbContext.cs:44:    public DbSet<Favorite> Favorites => Set<Favorite>();
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs:662:                    favorites_count = table.Column<int>(type: "integer", nullable: false),
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs:850:                name: "favorites",
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs:862:                    table.PrimaryKey("pk_favorites", x => x.id);
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs:864:                        name: "fk_favorites_library_files_library_file_id",
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs:869:                        name: "fk_favorites_questions_question_id",
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs:874:                        name: "fk_favorites_students_student_id",
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs:1002:                name: "ix_favorites_library_file_id",
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs:1003:                table: "favorites",
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs:1007:                name: "ix_favorites_question_id",
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs:1008:                table: "favorites",
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs:1012:                name: "ix_favorites_student_id",
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs:1013:                table: "favorites",
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs:1185:                name: "favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:786:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:814:                        .HasName("pk_favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:817:                        .HasDatabaseName("ix_favorites_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:820:                        .HasDatabaseName("ix_favorites_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:823:                        .HasDatabaseName("ix_favorites_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:825:                    b.ToTable("favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:926:                    b.Property<int>("FavoritesCount")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:928:                        .HasColumnName("favorites_count");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:2276:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:2279:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:2281:                        .HasConstraintName("fk_favorites_library_files_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:2286:                        .HasConstraintName("fk_favorites_questions_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:2289:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:2293:                        .HasConstraintName("fk_favorites_students_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:2548:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs:2576:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:787:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:815:                        .HasName("pk_favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:818:                        .HasDatabaseName("ix_favorites_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:821:                        .HasDatabaseName("ix_favorites_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:824:                        .HasDatabaseName("ix_favorites_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:826:                    b.ToTable("favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:927:                    b.Property<int>("FavoritesCount")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:929:                        .HasColumnName("favorites_count");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:2444:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:2447:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:2449:                        .HasConstraintName("fk_favorites_library_files_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:2454:                        .HasConstraintName("fk_favorites_questions_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:2457:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:2461:                        .HasConstraintName("fk_favorites_students_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:2749:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/ApplicationDbContextModelSnapshot.cs:2777:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:786:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:814:                        .HasName("pk_favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:817:                        .HasDatabaseName("ix_favorites_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:820:                        .HasDatabaseName("ix_favorites_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:823:                        .HasDatabaseName("ix_favorites_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:825:                    b.ToTable("favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:926:                    b.Property<int>("FavoritesCount")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:928:                        .HasColumnName("favorites_count");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:2284:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:2287:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:2289:                        .HasConstraintName("fk_favorites_library_files_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:2294:                        .HasConstraintName("fk_favorites_questions_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:2297:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:2301:                        .HasConstraintName("fk_favorites_students_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:2556:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260818175606_Phase35AuthenticationDeviceHardening.Designer.cs:2584:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:786:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:814:                        .HasName("pk_favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:817:                        .HasDatabaseName("ix_favorites_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:820:                        .HasDatabaseName("ix_favorites_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:823:                        .HasDatabaseName("ix_favorites_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:825:                    b.ToTable("favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:926:                    b.Property<int>("FavoritesCount")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:928:                        .HasColumnName("favorites_count");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:2370:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:2373:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:2375:                        .HasConstraintName("fk_favorites_library_files_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:2380:                        .HasConstraintName("fk_favorites_questions_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:2383:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:2387:                        .HasConstraintName("fk_favorites_students_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:2654:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs:2682:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:786:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:814:                        .HasName("pk_favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:817:                        .HasDatabaseName("ix_favorites_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:820:                        .HasDatabaseName("ix_favorites_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:823:                        .HasDatabaseName("ix_favorites_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:825:                    b.ToTable("favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:926:                    b.Property<int>("FavoritesCount")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:928:                        .HasColumnName("favorites_count");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:2375:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:2378:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:2380:                        .HasConstraintName("fk_favorites_library_files_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:2385:                        .HasConstraintName("fk_favorites_questions_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:2388:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:2392:                        .HasConstraintName("fk_favorites_students_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:2659:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs:2687:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:786:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:814:                        .HasName("pk_favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:817:                        .HasDatabaseName("ix_favorites_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:820:                        .HasDatabaseName("ix_favorites_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:823:                        .HasDatabaseName("ix_favorites_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:825:                    b.ToTable("favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:926:                    b.Property<int>("FavoritesCount")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:928:                        .HasColumnName("favorites_count");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:2432:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:2435:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:2437:                        .HasConstraintName("fk_favorites_library_files_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:2442:                        .HasConstraintName("fk_favorites_questions_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:2445:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:2449:                        .HasConstraintName("fk_favorites_students_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:2737:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs:2765:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:786:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:814:                        .HasName("pk_favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:817:                        .HasDatabaseName("ix_favorites_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:820:                        .HasDatabaseName("ix_favorites_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:823:                        .HasDatabaseName("ix_favorites_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:825:                    b.ToTable("favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:926:                    b.Property<int>("FavoritesCount")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:928:                        .HasColumnName("favorites_count");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:2443:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:2446:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:2448:                        .HasConstraintName("fk_favorites_library_files_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:2453:                        .HasConstraintName("fk_favorites_questions_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:2456:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:2460:                        .HasConstraintName("fk_favorites_students_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:2748:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820101804_Phase44AuditCorrelationAndRetention.Designer.cs:2776:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:790:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:818:                        .HasName("pk_favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:821:                        .HasDatabaseName("ix_favorites_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:824:                        .HasDatabaseName("ix_favorites_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:827:                        .HasDatabaseName("ix_favorites_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:829:                    b.ToTable("favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:930:                    b.Property<int>("FavoritesCount")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:932:                        .HasColumnName("favorites_count");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:2447:            modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:2450:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:2452:                        .HasConstraintName("fk_favorites_library_files_library_file_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:2457:                        .HasConstraintName("fk_favorites_questions_question_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:2460:                        .WithMany("Favorites")
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:2464:                        .HasConstraintName("fk_favorites_students_student_id");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:2752:                    b.Navigation("Favorites");
+apps/api/src/CMS.Infrastructure/Persistence/Migrations/20260820112552_Phase45OfflineDevicePublicKey.Designer.cs:2780:                    b.Navigation("Favorites");
+apps/api/src/CMS.Api/Controllers/LibraryController.cs:83:            await _audit.LogSecurityEventAsync(studentId.Value, null, SecurityEventType.FileAccessDenied, SecuritySeverity.Warning, "Library file access denied", ct: ct);
+apps/api/src/CMS.Api/Controllers/LibraryController.cs:88:        await _audit.LogSecurityEventAsync(studentId.Value, null, SecurityEventType.FileAccess, SecuritySeverity.Info, "Library file access granted", ct: ct);
+apps/api/src/CMS.Api/Controllers/LibraryController.cs:127:        await _audit.LogSecurityEventAsync(studentId, null, SecurityEventType.EntitlementDenied, SecuritySeverity.Warning, "Entitlement validation denied access", ct: ct);

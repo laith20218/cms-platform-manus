@@ -1,0 +1,166 @@
+# ============================================================
+# CMS Platform — Full-Stack Docker Compose
+# Usage:
+#   Development:  docker compose -f docker-compose.yml up
+#   Production:   docker compose -f docker-compose.prod.yml up -d
+# ============================================================
+name: cms-platform
+
+services:
+  # ============== PostgreSQL 16 ==============
+  postgres:
+    image: postgres:16-alpine
+    container_name: cms-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cms}
+      POSTGRES_USER: ${POSTGRES_USER:-cms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in your local secret environment}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
+      TZ: Asia/Riyadh
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cms} -d ${POSTGRES_DB:-cms}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - cms-network
+
+  # ============== Redis 7 ==============
+  redis:
+    image: redis:7-alpine
+    container_name: cms-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:?set REDIS_PASSWORD in your local secret environment}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?set REDIS_PASSWORD in your local secret environment}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cms-network
+
+  # ============== Backend API (Dev) ==============
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.dev
+    container_name: cms-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-cms};Username=${POSTGRES_USER:-cms};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in your local secret environment};Include Error Detail=true"
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD in your local secret environment}"
+      Jwt__Secret: "${JWT_SECRET:?set JWT_SECRET in your local secret environment}"
+      Jwt__Issuer: "CMS"
+      Jwt__Audience: "CMS-Users"
+      Cors__StudentApp: "http://localhost:5173"
+      Cors__AdminApp: "http://localhost:5174"
+      TZ: Asia/Riyadh
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./apps/api/src:/src/src:cached
+      - api_logs:/app/logs
+    networks:
+      - cms-network
+
+  # ============== Frontend Student Web (Dev) ==============
+  web:
+    build:
+      context: .
+      dockerfile: ./apps/student-web/Dockerfile.dev
+    container_name: cms-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      VITE_DEV_API_PROXY_TARGET: "http://api:8080"
+      NODE_ENV: development
+      TZ: Asia/Riyadh
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./apps/student-web:/app/apps/student-web:cached
+      - ./packages:/app/packages:cached
+      - web_node_modules:/app/apps/student-web/node_modules
+      - packages_node_modules:/app/packages
+    networks:
+      - cms-network
+
+  # ============== pgAdmin (Optional) ==============
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: cms-pgadmin
+    restart: unless-stopped
+    profiles: ["tools"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@cms.local
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:?set PGADMIN_DEFAULT_PASSWORD in your local secret environment}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - cms-network
+
+  # ============== Redis Insight (Optional) ==============
+  redis-insight:
+    image: redislabs/redisinsight:latest
+    container_name: cms-redis-insight
+    restart: unless-stopped
+    profiles: ["tools"]
+    ports:
+      - "8001:8001"
+    volumes:
+      - redis_insight_data:/db
+    depends_on:
+      - redis
+    networks:
+      - cms-network
+
+# ============== Networks ==============
+networks:
+  cms-network:
+    driver: bridge
+    name: cms-network
+
+# ============== Volumes ==============
+volumes:
+  postgres_data:
+    name: cms-postgres-data
+  redis_data:
+    name: cms-redis-data
+  api_logs:
+    name: cms-api-logs
+  web_node_modules:
+    name: cms-web-node-modules
+  packages_node_modules:
+    name: cms-packages-node-modules
+  pgadmin_data:
+    name: cms-pgadmin-data
+  redis_insight_data:
+    name: cms-redis-insight-data

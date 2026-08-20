@@ -1,0 +1,157 @@
+=== SECURITY DOCUMENT INDEX ===
+ANDROID_SECURITY_READINESS.md	2026-08-18	4884 bytes
+CRYPTOGRAPHY_ARCHITECTURE.md	2026-08-18	4054 bytes
+FINAL_PHASE_39_TO_PHASE_40_REPORT_2026-08-20.md	2026-08-20	18723 bytes
+KEY_MANAGEMENT.md	2026-08-18	4282 bytes
+OFFLINE_PACKAGE_FORMAT.md	2026-08-18	3741 bytes
+ONLINE_ENCRYPTION.md	2026-08-18	2876 bytes
+PHASE_34_FINAL_REPORT.md	2026-08-18	8951 bytes
+PHASE_34_IMPLEMENTATION_STATUS.md	2026-08-18	2464 bytes
+PHASE_34_VERIFICATION_MATRIX.md	2026-08-18	4064 bytes
+PHASE_35_COMPREHENSIVE_REPORT.md	2026-08-19	8382 bytes
+PHASE_36_COMPREHENSIVE_REPORT.md	2026-08-19	8631 bytes
+PHASE_39_AND_40_FINAL_REAUDIT_REPORT.md	2026-08-19	19703 bytes
+PHASE_39_P0_FINAL_INTEGRITY_AND_CONTRACT_REPORT.md	2026-08-19	11860 bytes
+PHASE_39_SAME_IDENTITY_AUDIT_AND_GATE_REPORT.md	2026-08-19	16566 bytes
+PHASE_39_TO_40_FINAL_VERIFICATION_REPORT.md	2026-08-19	20955 bytes
+PRODUCTION_SECURITY_GATE.md	2026-08-18	3984 bytes
+PROJECT_PHASE_39_TO_40_FINAL_REPORT.md	2026-08-19	16986 bytes
+SECRETS_POLICY.md	2026-08-18	3462 bytes
+SECRET_ROTATION.md	2026-08-18	3228 bytes
+SECURITY_ARCHITECTURE_PROPOSAL.md	2026-08-18	10120 bytes
+SECURITY_AUDIT_PHASE_33.md	2026-08-18	11787 bytes
+SECURITY_FINDINGS.md	2026-08-18	28173 bytes
+SECURITY_MATRIX.md	2026-08-18	5811 bytes
+SECURITY_REMEDIATION_MATRIX.md	2026-08-18	4089 bytes
+THREAT_MODEL.md	2026-08-18	4400 bytes
+WINDOWS_SECURITY_READINESS.md	2026-08-18	4290 bytes
+phase39_academic_headers_2026-08-19.txt	2026-08-19	394 bytes
+phase39_academic_response_2026-08-19.json	2026-08-19	60 bytes
+phase39_atomic_otp_consume_build_2026-08-19.log	2026-08-19	2599 bytes
+phase39_backend_2026-08-19.log	2026-08-19	792921 bytes
+phase39_backend_atomic_otp_2026-08-19.log	2026-08-19	641256 bytes
+phase39_backend_otp_binding_2026-08-19.log	2026-08-19	1902789 bytes
+phase39_backend_resend_otp_2026-08-19.log	2026-08-19	1054752 bytes
+phase39_backend_validation_2026-08-19.log	2026-08-19	2683 bytes
+phase39_backend_validation_after_resend_final_2026-08-19.log	2026-08-19	1982 bytes
+phase39_backend_validation_atomic_otp_final_2026-08-19.log	2026-08-19	2819 bytes
+phase39_backend_validation_atomic_otp_final_rerun_2026-08-19.log	2026-08-19	3753 bytes
+phase39_backend_validation_final_2026-08-19.log	2026-08-19	2065 bytes
+phase39_backend_validation_with_postgres_2026-08-19.log	2026-08-19	1154 bytes
+phase39_browser_e2e_all_identity_flows_final_2026-08-19.log	2026-08-19	2796 bytes
+phase39_browser_e2e_atomic_otp_final_2026-08-19.log	2026-08-19	3213 bytes
+phase39_browser_e2e_double_submit_final_2026-08-19.log	2026-08-19	5810 bytes
+phase39_browser_e2e_eighth_2026-08-19.log	2026-08-19	4701 bytes
+phase39_browser_e2e_extended_final_2026-08-19.log	2026-08-19	2361 bytes
+phase39_browser_e2e_fifth_2026-08-19.log	2026-08-19	4678 bytes
+phase39_browser_e2e_final_2026-08-19.log	2026-08-19	1696 bytes
+phase39_browser_e2e_first_2026-08-19.log	2026-08-19	3828 bytes
+phase39_browser_e2e_fourth_2026-08-19.log	2026-08-19	4526 bytes
+phase39_browser_e2e_gate_final_2026-08-19.log	2026-08-19	2587 bytes
+phase39_browser_e2e_ninth_2026-08-19.log	2026-08-19	4351 bytes
+phase39_browser_e2e_otp_binding_2026-08-19.log	2026-08-19	4593 bytes
+phase39_browser_e2e_otp_binding_final_2026-08-19.log	2026-08-19	1914 bytes
+phase39_browser_e2e_resend_race_fixed_final_2026-08-19.log	2026-08-19	3014 bytes
+phase39_browser_e2e_second_2026-08-19.log	2026-08-19	4784 bytes
+phase39_browser_e2e_seventh_2026-08-19.log	2026-08-19	4348 bytes
+phase39_browser_e2e_sixth_2026-08-19.log	2026-08-19	4701 bytes
+phase39_browser_e2e_tenth_2026-08-19.log	2026-08-19	1696 bytes
+phase39_browser_e2e_third_2026-08-19.log	2026-08-19	4784 bytes
+phase39_browser_e2e_with_resend_final_2026-08-19.log	2026-08-19	5964 bytes
+phase39_build_after_otp_deferred_2026-08-19.log	2026-08-20	7436 bytes
+phase39_build_after_otp_test_fixture_updates_2026-08-19.log	2026-08-20	2599 bytes
+phase39_cleanup_2026-08-19.log	2026-08-19	38 bytes
+phase39_e2e_seed.sql	2026-08-19	1385 bytes
+phase39_environment_status_2026-08-19.log	2026-08-19	230 bytes
+phase39_final_backend_validation_otp_deferred_2026-08-20.log	2026-08-20	1982 bytes
+phase39_final_frontend_validation_otp_deferred_2026-08-20.log	2026-08-20	9843 bytes
+phase39_frontend_2026-08-19.log	2026-08-19	14025 bytes
+phase39_frontend_validation_2026-08-19.log	2026-08-19	9858 bytes
+phase39_frontend_validation_after_resend_final_2026-08-19.log	2026-08-19	9843 bytes
+phase39_frontend_validation_atomic_otp_final_2026-08-19.log	2026-08-19	9843 bytes
+phase39_frontend_validation_final_2026-08-19.log	2026-08-19	9437 bytes
+phase39_frontend_validation_final_after_binding_2026-08-19.log	2026-08-19	9504 bytes
+phase39_frontend_validation_final_after_login_e2e_2026-08-19.log	2026-08-19	9746 bytes
+phase39_frontend_validation_gate_final_2026-08-19.log	2026-08-19	9746 bytes
+phase39_frontend_validation_release_candidate_2026-08-19.log	2026-08-19	9826 bytes
+phase39_optin_otp_backend_2026-08-20.log	2026-08-20	79323 bytes
+phase39_optin_otp_browser_e2e_2026-08-20.log	2026-08-20	3623 bytes
+phase39_optin_otp_frontend_2026-08-20.log	2026-08-20	501 bytes
+phase39_otp_binding_build_2026-08-19.log	2026-08-19	2599 bytes
+phase39_otp_deferred_backend_2026-08-19.log	2026-08-20	24495 bytes
+phase39_otp_deferred_browser_e2e_2026-08-19.log	2026-08-20	3364 bytes
+phase39_otp_deferred_browser_e2e_final_2026-08-20.log	2026-08-20	576 bytes
+phase39_otp_deferred_browser_e2e_rerun_2026-08-20.log	2026-08-20	3233 bytes
+phase39_phase40_final_cleanup_2026-08-20.log	2026-08-20	35 bytes
+phase39_phase40_final_frontend_validation_2026-08-20.log	2026-08-20	9843 bytes
+phase39_preflight_2026-08-19.log	2026-08-19	534 bytes
+phase39_reaudit_backend_2026-08-19.log	2026-08-19	152376 bytes
+phase39_reaudit_backend_validation_2026-08-19.log	2026-08-19	1982 bytes
+phase39_reaudit_browser_e2e_2026-08-19.log	2026-08-19	3435 bytes
+phase39_reaudit_browser_e2e_with_reset_ui_2026-08-19.log	2026-08-19	3624 bytes
+phase39_reaudit_build_after_reset_fix_2026-08-19.log	2026-08-19	2599 bytes
+phase39_reaudit_cleanup_2026-08-19.log	2026-08-19	29 bytes
+phase39_reaudit_file_inventory_2026-08-19.txt	2026-08-19	16660 bytes
+phase39_reaudit_frontend_2026-08-19.log	2026-08-19	846 bytes
+phase39_reaudit_frontend_final_validation_2026-08-19.log	2026-08-19	9843 bytes
+phase39_reaudit_frontend_validation_2026-08-19.log	2026-08-19	9843 bytes
+phase39_reaudit_preflight_2026-08-19.log	2026-08-19	534 bytes
+phase39_reaudit_targeted_todo_secret_scan_2026-08-19.log	2026-08-19	4962 bytes
+phase39_reaudit_whatsapp_integration_scan_2026-08-19.log	2026-08-19	1625 bytes
+phase39_resend_otp_build_2026-08-19.log	2026-08-19	2599 bytes
+phase39_transition_auth_contract_scan_2026-08-19.log	2026-08-19	102349 bytes
+phase39_transition_backend_2026-08-19.log	2026-08-20	79331 bytes
+phase39_transition_browser_e2e_2026-08-19.log	2026-08-20	3623 bytes
+phase39_transition_build_admin_login_contract_fix_2026-08-19.log	2026-08-19	2599 bytes
+phase39_transition_build_after_admin_route_dedup_2026-08-19.log	2026-08-19	1212 bytes
+phase39_transition_frontend_2026-08-19.log	2026-08-20	1840 bytes
+phase39_vitest_final_2026-08-19.log	2026-08-19	397 bytes
+phase40_reaudit_spec_discovery_2026-08-19.log	2026-08-19	15847 bytes
+phase40_session_expiry_backend_validation_2026-08-20.log	2026-08-20	3753 bytes
+phase41_preflight_2026-08-20.log	2026-08-20	534 bytes
+phase41_security_surface_inventory_2026-08-20.txt	2026-08-20	32 bytes
+=== ENTITLEMENT/PERMISSION/OFFLINE SOURCES ===
+CMS.Api/Authorization/PermissionAuthorization.cs
+CMS.Api/Controllers/EntitlementsController.cs
+CMS.Api/Controllers/LibraryController.cs
+CMS.Api/Controllers/OfflineController.cs
+CMS.Application/Commands/Library/LibraryCommands.cs
+CMS.Application/Commands/Offline/OfflineCommands.cs
+CMS.Application/DTOs/Library/LibraryDtos.cs
+CMS.Application/DTOs/Offline/OfflineDtos.cs
+CMS.Application/Handlers/Library/LibraryHandlers.cs
+CMS.Application/Handlers/Offline/OfflineHandlers.cs
+CMS.Application/Interfaces/IPermissionService.cs
+CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.Designer.cs
+CMS.Infrastructure/Persistence/Migrations/20260818172242_Phase34SecuritySessionsAndEntitlements.cs
+CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.Designer.cs
+CMS.Infrastructure/Persistence/Migrations/20260819082719_Phase36OfflinePackageLifecycle.cs
+CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.Designer.cs
+CMS.Infrastructure/Persistence/Migrations/20260819082951_Phase36OfflineKeyReleaseToken.cs
+CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.Designer.cs
+CMS.Infrastructure/Persistence/Migrations/20260819085707_Phase36OfflineKeyReleaseLog.cs
+CMS.Infrastructure/Services/EntitlementService.cs
+CMS.Infrastructure/Services/OfflinePackageCryptoService.cs
+CMS.Infrastructure/Services/OfflinePackageLifecycleService.cs
+CMS.Infrastructure/Services/PermissionService.cs
+CMS.Infrastructure/Services/SignedEntitlementService.cs
+CMS.Tests/Integration/SignedEntitlementHttpIntegrationTests.cs
+CMS.Tests/Unit/Services/EntitlementServiceTests.cs
+CMS.Tests/Unit/Services/OfflinePackageCryptoServiceTests.cs
+CMS.Tests/Unit/Services/OfflinePackageLifecycleServiceTests.cs
+CMS.Tests/Unit/Services/SecurityServiceAuditTests.cs
+CMS.Tests/Unit/Services/SignedEntitlementServiceTests.cs
+=== CONTROLLERS ===
+AcademicController.cs
+AdminAuthController.cs
+AdminDashboardController.cs
+AuthController.cs
+EntitlementsController.cs
+ExamsController.cs
+LibraryController.cs
+NotificationsController.cs
+OfflineController.cs
+PlayIntegrityController.cs
+QuestionsController.cs
+SecurityController.cs
+StatsController.cs

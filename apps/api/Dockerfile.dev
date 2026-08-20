@@ -1,0 +1,33 @@
+# ============================================================
+# CMS API — Development Dockerfile (with hot reload)
+# ============================================================
+FROM mcr.microsoft.com/dotnet/sdk:9.0-alpine
+
+WORKDIR /src
+
+RUN apk add --no-cache icu-libs tzdata
+
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
+ENV DOTNET_USE_POLLING_FILE_WATCHER=1
+ENV ASPNETCORE_ENVIRONMENT=Development
+ENV TZ=Asia/Riyadh
+
+COPY CMS.sln ./
+COPY src/CMS.Api/CMS.Api.csproj src/CMS.Api/
+COPY src/CMS.Application/CMS.Application.csproj src/CMS.Application/
+COPY src/CMS.Domain/CMS.Domain.csproj src/CMS.Domain/
+COPY src/CMS.Infrastructure/CMS.Infrastructure.csproj src/CMS.Infrastructure/
+
+RUN dotnet restore src/CMS.Api/CMS.Api.csproj
+
+COPY src/ src/
+
+RUN addgroup -g 1001 -S cms 2>/dev/null || true && \
+    adduser -u 1001 -S -D -H cms -G cms 2>/dev/null || true && \
+    chown -R cms:cms /src
+
+USER cms
+
+EXPOSE 8080
+
+ENTRYPOINT ["dotnet", "watch", "run", "--project", "src/CMS.Api/CMS.Api.csproj", "--urls", "http://0.0.0.0:8080", "--non-interactive"]
