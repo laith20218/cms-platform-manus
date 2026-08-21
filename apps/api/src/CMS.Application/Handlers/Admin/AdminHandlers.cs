@@ -10,6 +10,7 @@ using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
 using CMS.Domain.Enums;
 using CMS.Domain.Exceptions;
+using AdminEntity = CMS.Domain.Entities.Admin;
 
 namespace CMS.Application.Handlers.Admin;
 
@@ -669,7 +670,7 @@ public sealed class AdministratorManagementHandlers :
         return Unit.Value;
     }
 
-    private async Task<Admin> RequireSuperAdminAsync(Guid actorAdminId, CancellationToken ct)
+    private async Task<AdminEntity> RequireSuperAdminAsync(Guid actorAdminId, CancellationToken ct)
     {
         var actor = await _db.Admins.Include(admin => admin.Role)
             .FirstOrDefaultAsync(admin => admin.Id == actorAdminId, ct)
@@ -738,7 +739,7 @@ public sealed class AdministratorManagementHandlers :
         await _cache.RemoveAsync($"scope:{adminId}", ct);
     }
 
-    private static void EnsureTargetIsNotSuperAdmin(Admin target)
+    private static void EnsureTargetIsNotSuperAdmin(AdminEntity target)
     {
         if (target.Role.Name == Roles.SuperAdmin)
             throw new DomainException("لا يمكن تعديل أو تعطيل أو حذف حساب المدير العام", "SUPER_ADMIN_PROTECTED");
@@ -761,7 +762,7 @@ public sealed class AdministratorManagementHandlers :
         return normalized;
     }
 
-    private static AdminManagementDto ToAdminDto(Admin admin, AdminRole role) => new(
+    private static AdminManagementDto ToAdminDto(AdminEntity admin, AdminRole role) => new(
         admin.Id,
         admin.FullName,
         admin.Email,

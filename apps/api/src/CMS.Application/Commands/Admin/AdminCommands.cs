@@ -1,5 +1,6 @@
 using MediatR;
 using CMS.Application.DTOs.Auth;
+using CMS.Application.Commands.Dashboard;
 using CMS.Application.Interfaces;
 
 namespace CMS.Application.Commands.Admin;
