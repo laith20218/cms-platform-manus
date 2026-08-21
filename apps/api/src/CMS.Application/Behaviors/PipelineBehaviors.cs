@@ -53,11 +53,13 @@ public class LoggingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
     {
         var requestName = typeof(TRequest).Name;
 
-        _logger.LogInformation("Handling {RequestName}: {@Request}", requestName, request);
+        // Do not destructure commands or responses here: authentication payloads, reset codes,
+        // access tokens, and encrypted package material must never be written to application logs.
+        _logger.LogInformation("Handling {RequestName}", requestName);
 
         var response = await next();
 
-        _logger.LogInformation("Handled {RequestName}: {@Response}", requestName, response);
+        _logger.LogInformation("Handled {RequestName}", requestName);
 
         return response;
     }
