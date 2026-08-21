@@ -129,14 +129,83 @@ public class AdminDashboardController : ControllerBase
         return NoContent();
     }
 
+    // ===== Super Administrator: Administrator Accounts =====
+
     /// <summary>
-    /// Assign an existing administrator to a role.
+    /// Lists administrator accounts for the super-administrator console.
     /// </summary>
-    [HttpPut("admins/{id:guid}/role")]
-    [Authorize(Policy = Policies.AdminEdit)]
-    public async Task<IActionResult> AssignAdminRole(Guid id, [FromBody] AssignAdminRoleRequestDto dto, CancellationToken ct)
+    [HttpGet("admins")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<ActionResult<PagedResult<AdminManagementDto>>> GetAdmins(
+        [FromQuery] string? search,
+        [FromQuery] Guid? roleId,
+        [FromQuery] bool? isActive,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+        => Ok(await _mediator.Send(new GetAdminsQuery(GetAdminId(), search, roleId, isActive, page, pageSize), ct));
+
+    /// <summary>
+    /// Returns administrator details for editing in the management console.
+    /// </summary>
+    [HttpGet("admins/{id:guid}")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<ActionResult<AdminManagementDto>> GetAdmin(Guid id, CancellationToken ct)
+        => Ok(await _mediator.Send(new GetAdminDetailsQuery(GetAdminId(), id), ct));
+
+    /// <summary>
+    /// Creates an administrator with an initial password and optional academic scope.
+    /// </summary>
+    [HttpPost("admins")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<ActionResult<AdminManagementDto>> CreateAdmin([FromBody] CreateAdminRequestDto dto, CancellationToken ct)
     {
-        await _mediator.Send(new AssignAdminRoleCommand(GetAdminId(), id, dto.RoleId), ct);
+        var created = await _mediator.Send(new CreateAdminCommand(
+            GetAdminId(), dto.Email, dto.Password, dto.FullName, dto.Phone, dto.RoleId,
+            dto.ScopeUniversityId, dto.ScopeCollegeId, dto.ScopeYearId, dto.ScopeSubjectId), ct);
+        return CreatedAtAction(nameof(GetAdmin), new { id = created.Id }, created);
+    }
+
+    /// <summary>
+    /// Updates an administrator's identity, assigned role, and academic scope.
+    /// </summary>
+    [HttpPut("admins/{id:guid}")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<ActionResult<AdminManagementDto>> UpdateAdmin(Guid id, [FromBody] UpdateAdminRequestDto dto, CancellationToken ct)
+        => Ok(await _mediator.Send(new UpdateAdminCommand(
+            GetAdminId(), id, dto.Email, dto.FullName, dto.Phone, dto.RoleId,
+            dto.ScopeUniversityId, dto.ScopeCollegeId, dto.ScopeYearId, dto.ScopeSubjectId), ct));
+
+    /// <summary>
+    /// Enables or disables an administrator. Disabling immediately invalidates every live session.
+    /// </summary>
+    [HttpPost("admins/{id:guid}/status")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<IActionResult> SetAdminStatus(Guid id, [FromBody] SetActiveRequestDto dto, CancellationToken ct)
+    {
+        await _mediator.Send(new SetAdminStatusCommand(GetAdminId(), id, dto.IsActive), ct);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Resets an administrator password and immediately invalidates every live session.
+    /// </summary>
+    [HttpPost("admins/{id:guid}/reset-password")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<IActionResult> ResetAdminPassword(Guid id, [FromBody] ResetAdminPasswordRequestDto dto, CancellationToken ct)
+    {
+        await _mediator.Send(new ResetAdminPasswordCommand(GetAdminId(), id, dto.NewPassword), ct);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Permanently removes an administrator after the acting super administrator re-authenticates.
+    /// </summary>
+    [HttpDelete("admins/{id:guid}")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<IActionResult> DeleteAdmin(Guid id, [FromBody] DeleteAdminRequestDto dto, CancellationToken ct)
+    {
+        await _mediator.Send(new DeleteAdminCommand(GetAdminId(), id, dto.CurrentSuperAdminPassword), ct);
         return NoContent();
     }
 
@@ -149,6 +218,49 @@ public class AdminDashboardController : ControllerBase
     {
         var grants = dto.Permissions.Select(permission => new RolePermissionGrant(permission.Resource, permission.Actions, permission.Scope)).ToList();
         await _mediator.Send(new ReplaceRolePermissionsCommand(GetAdminId(), id, grants), ct);
+        return NoContent();
+    }
+
+    // ===== Super Administrator: Role Lifecycle =====
+
+    /// <summary>
+    /// Lists system and custom roles along with administrator and permission totals.
+    /// </summary>
+    [HttpGet("roles")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<ActionResult<List<AdminRoleManagementDto>>> GetRoles(CancellationToken ct)
+        => Ok(await _mediator.Send(new GetRolesQuery(GetAdminId()), ct));
+
+    /// <summary>
+    /// Creates a custom role with no permissions until its grants are configured.
+    /// </summary>
+    [HttpPost("roles")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<ActionResult<AdminRoleManagementDto>> CreateRole([FromBody] CreateRoleRequestDto dto, CancellationToken ct)
+    {
+        var created = await _mediator.Send(new CreateRoleCommand(GetAdminId(), dto.Name, dto.NameAr, dto.Description), ct);
+        return CreatedAtAction(nameof(GetRoles), null, created);
+    }
+
+    /// <summary>
+    /// Temporarily enables or disables an administrative role. Disabling invalidates assigned sessions.
+    /// </summary>
+    [HttpPost("roles/{id:guid}/status")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<IActionResult> SetRoleStatus(Guid id, [FromBody] SetActiveRequestDto dto, CancellationToken ct)
+    {
+        await _mediator.Send(new SetRoleActiveCommand(GetAdminId(), id, dto.IsActive), ct);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Deletes an unused custom role. Assigned administrators must be moved first.
+    /// </summary>
+    [HttpDelete("roles/{id:guid}")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<IActionResult> DeleteRole(Guid id, CancellationToken ct)
+    {
+        await _mediator.Send(new DeleteRoleCommand(GetAdminId(), id), ct);
         return NoContent();
     }
 
@@ -196,7 +308,6 @@ public class AdminDashboardController : ControllerBase
 
 // ===== Request DTOs =====
 public record BanRequestDto(string Reason, DateTime? BanUntil);
-public record AssignAdminRoleRequestDto(Guid RoleId);
 public record RolePermissionGrantRequestDto(string Resource, List<string> Actions, string Scope);
 public record ReplaceRolePermissionsRequestDto(List<RolePermissionGrantRequestDto> Permissions);
 public record RevokeSubscriptionRequestDto(string Reason);
@@ -208,3 +319,28 @@ public record GenerateCodesRequestDto(
     string? Prefix,
     DateTime? CodeExpiresAt
 );
+public record CreateAdminRequestDto(
+    string Email,
+    string Password,
+    string FullName,
+    string? Phone,
+    Guid RoleId,
+    Guid? ScopeUniversityId,
+    Guid? ScopeCollegeId,
+    Guid? ScopeYearId,
+    Guid? ScopeSubjectId
+);
+public record UpdateAdminRequestDto(
+    string Email,
+    string FullName,
+    string? Phone,
+    Guid RoleId,
+    Guid? ScopeUniversityId,
+    Guid? ScopeCollegeId,
+    Guid? ScopeYearId,
+    Guid? ScopeSubjectId
+);
+public record SetActiveRequestDto(bool IsActive);
+public record ResetAdminPasswordRequestDto(string NewPassword);
+public record DeleteAdminRequestDto(string CurrentSuperAdminPassword);
+public record CreateRoleRequestDto(string Name, string NameAr, string? Description);

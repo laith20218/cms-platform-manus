@@ -142,9 +142,9 @@ public class JwtTokenService : ITokenService
 
         // Existing administrator routes use the broad "admin" role guard, while
         // permission decisions continue to use the persisted, specific role name.
-        // Emit the broad claim only for a known administrative role; students never
-        // receive it and super administrators retain their explicit role claim.
-        if (role is Roles.SuperAdmin or Roles.UniversityAdmin or Roles.CollegeAdmin or Roles.YearAdmin or Roles.SubjectAdmin)
+        // The token service is invoked from separate student and administrator login
+        // flows, so every non-student role is an administrator role, including custom roles.
+        if (role != Roles.Student)
             claims.Add(new Claim(ClaimTypes.Role, "admin"));
 
         var issuer = _configuration["Jwt:Issuer"] ?? throw new InvalidOperationException("JWT issuer not configured");

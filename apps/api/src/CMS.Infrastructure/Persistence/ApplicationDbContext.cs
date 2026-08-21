@@ -104,6 +104,10 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasIndex(x => new { x.StudentId, x.InstallationId, x.Action });
             entity.HasOne(x => x.Package).WithMany().HasForeignKey(x => x.PackageId).OnDelete(DeleteBehavior.Cascade);
         });
+        modelBuilder.Entity<AdminRole>(entity =>
+        {
+            entity.Property(x => x.IsActive).HasDefaultValue(true);
+        });
 
         // Auto snake_case naming
         foreach (var entity in modelBuilder.Model.GetEntityTypes())

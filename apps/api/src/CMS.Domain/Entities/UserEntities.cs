@@ -282,6 +282,34 @@ public class Admin : BaseEntity
         UpdatedAt = DateTime.UtcNow;
     }
 
+    public void UpdateDetails(string email, string fullName, string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+            throw new DomainException("Email is required");
+        if (string.IsNullOrWhiteSpace(fullName))
+            throw new DomainException("Full name is required");
+
+        Email = email.Trim().ToLowerInvariant();
+        FullName = fullName.Trim();
+        Phone = string.IsNullOrWhiteSpace(phone) ? null : phone.Trim();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void ChangePasswordHash(string passwordHash)
+    {
+        if (string.IsNullOrWhiteSpace(passwordHash))
+            throw new DomainException("Password hash is required");
+
+        PasswordHash = passwordHash;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetStatus(AdminStatus status)
+    {
+        Status = status;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public void AssignRole(Guid roleId)
     {
         if (roleId == Guid.Empty)
@@ -319,6 +347,7 @@ public class AdminRole : BaseEntity
     public string NameAr { get; private set; } = string.Empty;
     public string? Description { get; private set; }
     public bool IsSystem { get; private set; }
+    public bool IsActive { get; private set; } = true;
 
     public ICollection<Admin> Admins { get; private set; } = new List<Admin>();
     public ICollection<AdminPermission> Permissions { get; private set; } = new List<AdminPermission>();
@@ -339,6 +368,12 @@ public class AdminRole : BaseEntity
         Permissions.Clear();
         foreach (var permission in permissions)
             Permissions.Add(permission);
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetActive(bool isActive)
+    {
+        IsActive = isActive;
         UpdatedAt = DateTime.UtcNow;
     }
 }

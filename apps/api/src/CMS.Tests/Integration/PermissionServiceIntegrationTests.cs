@@ -68,6 +68,25 @@ public sealed class PermissionServiceIntegrationTests
     }
 
     [Fact]
+    public async Task DisabledRole_DeniesPermissionsAndAcademicScopeImmediately()
+    {
+        await using var db = TestDbHelper.CreateInMemoryContext();
+        var subject = TestDbHelper.GetTestSubject(db);
+        var role = CreateRole("disabled_role", Resources.Students, "[\"view\"]");
+        role.SetActive(false);
+        var admin = Admin.Create("disabled-role-admin@cms.test", "hash", "Disabled Role Admin", role.Id);
+        admin.SetScope(null, subject.Semester.AcademicYear.CollegeId, null, null);
+        db.AddRange(role, admin);
+        await db.SaveChangesAsync();
+
+        var service = new PermissionService(db, new NoCacheService());
+
+        (await service.HasPermissionAsync(admin.Id, Resources.Students, Actions.View)).Should().BeFalse();
+        (await service.GetScopeAsync(admin.Id)).Should().BeNull();
+        (await service.IsInScopeAsync(admin.Id, "subject", subject.Id)).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task GenerateCodesHandler_RejectsSubjectOutsideCreatingAdminsScope()
     {
         await using var db = TestDbHelper.CreateInMemoryContext();

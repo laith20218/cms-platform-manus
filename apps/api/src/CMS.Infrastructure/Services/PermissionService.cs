@@ -37,7 +37,7 @@ public sealed class PermissionService : IPermissionService
                 .ThenInclude(role => role.Permissions)
             .FirstOrDefaultAsync(a => a.Id == adminId, ct);
 
-        if (admin is null || admin.Status != AdminStatus.Active)
+        if (admin is null || admin.Status != AdminStatus.Active || !admin.Role.IsActive)
             return await CachePermissionAsync(cacheKey, false, ct);
 
         if (admin.Role.Name == Roles.SuperAdmin)
@@ -58,7 +58,7 @@ public sealed class PermissionService : IPermissionService
                 .ThenInclude(role => role.Permissions)
             .FirstOrDefaultAsync(a => a.Id == adminId, ct);
 
-        if (admin is null || admin.Status != AdminStatus.Active)
+        if (admin is null || admin.Status != AdminStatus.Active || !admin.Role.IsActive)
             return new();
 
         if (admin.Role.Name == Roles.SuperAdmin)
@@ -97,7 +97,7 @@ public sealed class PermissionService : IPermissionService
             .Include(a => a.Role)
             .FirstOrDefaultAsync(a => a.Id == adminId, ct);
 
-        if (admin is null || admin.Status != AdminStatus.Active)
+        if (admin is null || admin.Status != AdminStatus.Active || !admin.Role.IsActive)
             return null;
 
         var scope = new AdminScope(
