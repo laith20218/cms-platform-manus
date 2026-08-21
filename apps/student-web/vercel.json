@@ -5,7 +5,6 @@
   "framework": "vite",
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
   "devCommand": "pnpm dev",
-  "rootDirectory": "apps/student-web",
   "cleanUrls": true,
   "trailingSlash": false,
   "headers": [
