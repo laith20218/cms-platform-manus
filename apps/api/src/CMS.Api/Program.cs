@@ -1,4 +1,5 @@
 using System.Text;
+using CMS.Api.Health;
 using CMS.Api.Middleware;
 using CMS.Application.DependencyInjection;
 using CMS.Infrastructure.DependencyInjection;
@@ -155,7 +156,7 @@ try
     // === Health Checks ===
     builder.Services.AddHealthChecks()
         .AddNpgSql(builder.Configuration.GetConnectionString("PostgreSQL")!, name: "postgresql", tags: new[] { "ready" })
-        .AddRedis(builder.Configuration.GetConnectionString("Redis")!, name: "redis", tags: new[] { "ready" });
+        .AddCheck<UpstashRedisHealthCheck>("redis", tags: new[] { "ready" });
 
     var app = builder.Build();
 

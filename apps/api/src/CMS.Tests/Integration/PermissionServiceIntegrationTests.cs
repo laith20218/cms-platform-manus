@@ -113,6 +113,7 @@ public sealed class PermissionServiceIntegrationTests
         public Task<T?> GetAsync<T>(string key, CancellationToken ct = default) => Task.FromResult(default(T));
         public Task<T?> GetAndRemoveAsync<T>(string key, CancellationToken ct = default) => Task.FromResult(default(T));
         public Task SetAsync<T>(string key, T value, TimeSpan? expiry = null, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<long> IncrementAsync(string key, TimeSpan? expiry = null, CancellationToken ct = default) => Task.FromResult(1L);
         public Task RemoveAsync(string key, CancellationToken ct = default) => Task.CompletedTask;
         public Task RemoveByPatternAsync(string pattern, CancellationToken ct = default) => Task.CompletedTask;
     }

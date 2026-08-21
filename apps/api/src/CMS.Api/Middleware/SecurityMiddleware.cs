@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Text.Json;
+using CMS.Application.Interfaces;
 
 namespace CMS.Api.Middleware;
 
@@ -142,7 +143,7 @@ public class AuthRateLimitMiddleware
         _logger = logger;
     }
 
-    public async Task InvokeAsync(HttpContext context, StackExchange.Redis.IConnectionMultiplexer redis)
+    public async Task InvokeAsync(HttpContext context, ICacheService cache)
     {
         // Only apply to auth endpoints
         var path = context.Request.Path.Value ?? "";
@@ -154,13 +155,7 @@ public class AuthRateLimitMiddleware
 
         var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var cacheKey = $"ratelimit:auth:{ipAddress}";
-        var db = redis.GetDatabase();
-
-        var current = (int)(await db.StringIncrementAsync(cacheKey));
-        if (current == 1)
-        {
-            await db.KeyExpireAsync(cacheKey, TimeSpan.FromMinutes(1));
-        }
+        var current = await cache.IncrementAsync(cacheKey, TimeSpan.FromMinutes(1), context.RequestAborted);
 
         // Set rate limit headers
         context.Response.Headers["X-RateLimit-Limit"] = "5";

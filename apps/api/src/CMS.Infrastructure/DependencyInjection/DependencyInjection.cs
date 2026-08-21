@@ -29,12 +29,12 @@ public static class DependencyInjection
         services.AddScoped<ICorrelationContext, CorrelationContext>();
         services.AddScoped<ISecurityAuditRetentionService, SecurityAuditRetentionService>();
 
-        // Redis Cache
-        services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
+        // Upstash Redis REST cache
+        services.AddHttpClient("UpstashRedis", client =>
         {
-            var connectionString = configuration.GetConnectionString("Redis") ?? "localhost:6379";
-            return StackExchange.Redis.ConnectionMultiplexer.Connect(connectionString);
+            client.Timeout = TimeSpan.FromSeconds(10);
         });
+        services.AddSingleton<UpstashRedisRestCacheService>();
 
         // Repositories (Scoped - one per request)
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
@@ -52,7 +52,7 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         // External Services (Singleton - stateless)
-        services.AddSingleton<ICacheService, RedisCacheService>();
+        services.AddSingleton<ICacheService>(sp => sp.GetRequiredService<UpstashRedisRestCacheService>());
         services.AddSingleton<IFileStorageService, S3StorageService>();
         services.AddSingleton<IFileScanner, FailClosedFileScanner>();
         services.AddSingleton<ITokenService, JwtTokenService>();

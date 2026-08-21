@@ -448,6 +448,11 @@ internal sealed class OfflineHttpCache : ICacheService
         return Task.FromResult(value is T typed ? typed : default);
     }
     public Task SetAsync<T>(string key, T value, TimeSpan? expiry = null, CancellationToken ct = default) { _values[key] = value; return Task.CompletedTask; }
+    public Task<long> IncrementAsync(string key, TimeSpan? expiry = null, CancellationToken ct = default)
+    {
+        var current = _values.AddOrUpdate(key, 1L, (_, value) => value is long count ? count + 1 : 1L);
+        return Task.FromResult((long)current);
+    }
     public Task RemoveAsync(string key, CancellationToken ct = default) { _values.TryRemove(key, out _); return Task.CompletedTask; }
     public Task RemoveByPatternAsync(string pattern, CancellationToken ct = default) { foreach (var key in _values.Keys.Where(key => key.Contains(pattern.Trim('*')))) _values.TryRemove(key, out _); return Task.CompletedTask; }
 }
