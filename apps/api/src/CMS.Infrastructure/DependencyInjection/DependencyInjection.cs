@@ -53,7 +53,7 @@ public static class DependencyInjection
 
         // External Services (Singleton - stateless)
         services.AddSingleton<ICacheService, RedisCacheService>();
-        services.AddSingleton<IFileStorageService, R2StorageService>();
+        services.AddSingleton<IFileStorageService, S3StorageService>();
         services.AddSingleton<IFileScanner, FailClosedFileScanner>();
         services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddSingleton<SecurityEventBatchService>();

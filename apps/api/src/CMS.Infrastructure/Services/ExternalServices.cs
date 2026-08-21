@@ -55,25 +55,35 @@ public class RedisCacheService : ICacheService
 }
 
 /// <summary>
-/// Cloudflare R2 storage service implementation.
-/// R2 is S3-compatible, so we use AWS SDK.
+/// S3-compatible private object storage implementation.
+/// Supports Supabase Storage and other S3-compatible providers through runtime configuration.
 /// </summary>
-public class R2StorageService : IFileStorageService
+public class S3StorageService : IFileStorageService
 {
     private readonly Amazon.S3.IAmazonS3 _client;
     private readonly string _bucketName;
 
-    public R2StorageService(IConfiguration configuration)
+    public S3StorageService(IConfiguration configuration)
     {
-        var accountId = configuration["Cloudflare:R2:AccountId"];
-        var accessKey = configuration["Cloudflare:R2:AccessKey"];
-        var secretKey = configuration["Cloudflare:R2:SecretKey"];
-        _bucketName = configuration["Cloudflare:R2:BucketName"] ?? "cms-files";
+        var endpoint = configuration["Storage:S3:Endpoint"];
+        var region = configuration["Storage:S3:Region"];
+        var accessKey = configuration["Storage:S3:AccessKey"];
+        var secretKey = configuration["Storage:S3:SecretKey"];
+        _bucketName = configuration["Storage:S3:BucketName"] ?? "cms-files";
+
+        if (string.IsNullOrWhiteSpace(endpoint) ||
+            string.IsNullOrWhiteSpace(region) ||
+            string.IsNullOrWhiteSpace(accessKey) ||
+            string.IsNullOrWhiteSpace(secretKey))
+        {
+            throw new InvalidOperationException("Storage S3 configuration must be supplied at runtime");
+        }
 
         var config = new Amazon.S3.AmazonS3Config
         {
-            ServiceURL = $"https://{accountId}.r2.cloudflarestorage.com",
-            RegionEndpoint = Amazon.RegionEndpoint.USEast1
+            ServiceURL = endpoint.TrimEnd('/'),
+            AuthenticationRegion = region,
+            ForcePathStyle = true
         };
 
         _client = new Amazon.S3.AmazonS3Client(accessKey, secretKey, config);
@@ -88,8 +98,7 @@ public class R2StorageService : IFileStorageService
             BucketName = _bucketName,
             Key = key,
             InputStream = fileStream,
-            ContentType = contentType,
-            CannedACL = Amazon.S3.S3CannedACL.Private
+            ContentType = contentType
         };
 
         await _client.PutObjectAsync(request, ct);
