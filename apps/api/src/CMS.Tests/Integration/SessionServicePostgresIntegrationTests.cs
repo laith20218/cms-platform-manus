@@ -120,4 +120,52 @@ public class SessionServicePostgresIntegrationTests
         (await service.RotateAsync(session.RefreshToken, installationId)).Should().BeNull();
         (await service.IsActiveAsync(session.SessionId, persisted.TokenVersion, installationId)).Should().BeFalse();
     }
+
+    [Fact]
+    public async Task SuperAdminSession_DoesNotCreateOrRequireAStudentDeviceBinding()
+    {
+        var connectionString = Environment.GetEnvironmentVariable(ConnectionVariable);
+        if (string.IsNullOrWhiteSpace(connectionString))
+            throw new InvalidOperationException(
+                $"BLOCKED: set {ConnectionVariable} to run the PostgreSQL session lifecycle integration test.");
+
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseNpgsql(connectionString)
+            .Options;
+        await using var db = new ApplicationDbContext(options);
+        await db.Database.ExecuteSqlRawAsync("TRUNCATE TABLE security_logs, user_sessions, user_installations, device_bindings, students CASCADE;");
+
+        var tokenService = new Mock<ITokenService>();
+        tokenService.Setup(t => t.GenerateAccessToken(
+                It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<int>()))
+            .Returns("test-access-token");
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:RefreshTokenExpiryDays"] = "7",
+                ["Security:Device:SingleActiveDevice"] = "true"
+            })
+            .Build();
+        var cache = new Mock<ICacheService>();
+        var auditBatch = new Mock<ISecurityEventBatch>();
+        var securityService = new SecurityService(db, cache.Object, auditBatch.Object, new CorrelationContext(), configuration);
+        var service = new SessionService(db, tokenService.Object, securityService, configuration);
+        var administratorId = Guid.NewGuid();
+        const string installationId = "super-admin-installation-00000001";
+
+        var initial = await service.CreateAsync(
+            administratorId,
+            "super-admin@example.test",
+            "super_admin",
+            installationId,
+            "Admin Web");
+
+        (await db.DeviceBindings.CountAsync()).Should().Be(0);
+        (await service.IsActiveAsync(initial.SessionId, 1, installationId)).Should().BeTrue();
+
+        var rotated = await service.RotateAsync(initial.RefreshToken, installationId);
+        rotated.Should().NotBeNull();
+        (await service.IsActiveAsync(rotated!.SessionId, 1, installationId)).Should().BeTrue();
+    }
 }

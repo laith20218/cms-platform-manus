@@ -41,9 +41,12 @@ public sealed class SessionService : ISessionService
         string? displayName,
         CancellationToken ct = default)
     {
-        var device = await _securityService.VerifyDeviceBindingAsync(userId, installationId, null, displayName, ct);
-        if (!device.IsValid)
-            throw new UnauthorizedAccessException(device.Reason ?? "هذا الجهاز غير مسجل");
+        if (RequiresStudentDeviceBinding(role))
+        {
+            var device = await _securityService.VerifyDeviceBindingAsync(userId, installationId, null, displayName, ct);
+            if (!device.IsValid)
+                throw new UnauthorizedAccessException(device.Reason ?? "هذا الجهاز غير مسجل");
+        }
 
         var installation = await ResolveInstallationAsync(userId, installationId, displayName, ct);
         if (!installation.IsActive)
@@ -63,8 +66,8 @@ public sealed class SessionService : ISessionService
 
         _db.UserSessions.Add(session);
         await _db.SaveChangesAsync(ct);
-        await _securityService.LogSecurityEventAsync(userId, null, SecurityEventType.SessionCreated, SecuritySeverity.Info, "Session created", null, null, installation.InstallationId, ct);
-        await _securityService.LogSecurityEventAsync(userId, null, SecurityEventType.LoginSuccess, SecuritySeverity.Info, "Login succeeded", null, null, installation.InstallationId, ct);
+        await LogSessionSecurityEventAsync(userId, role, SecurityEventType.SessionCreated, SecuritySeverity.Info, "Session created", installation.InstallationId, ct);
+        await LogSessionSecurityEventAsync(userId, role, SecurityEventType.LoginSuccess, SecuritySeverity.Info, "Login succeeded", installation.InstallationId, ct);
 
         return new SessionTokenPair(
             _tokenService.GenerateAccessToken(userId, subject, role, session.Id, session.InstallationId, session.TokenVersion),
@@ -93,10 +96,13 @@ public sealed class SessionService : ISessionService
         if (installation is null || !installation.IsActive)
             return null;
 
-        var deviceIsActive = await _db.DeviceBindings.AsNoTracking()
-            .AnyAsync(i => i.StudentId == session.UserId && i.DeviceFingerprint == session.InstallationId && i.IsActive, ct);
-        if (!deviceIsActive)
-            return null;
+        if (RequiresStudentDeviceBinding(session.Role))
+        {
+            var deviceIsActive = await _db.DeviceBindings.AsNoTracking()
+                .AnyAsync(i => i.StudentId == session.UserId && i.DeviceFingerprint == session.InstallationId && i.IsActive, ct);
+            if (!deviceIsActive)
+                return null;
+        }
 
         // Consume the old token and create its successor in one database transaction.
         // Only one concurrent caller can consume a refresh token; reuse revokes its family.
@@ -130,7 +136,7 @@ public sealed class SessionService : ISessionService
         _db.UserSessions.Add(successor);
         await _db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
-        await _securityService.LogSecurityEventAsync(successor.UserId, null, SecurityEventType.Refresh, SecuritySeverity.Info, "Refresh token rotated", null, null, successor.InstallationId, ct);
+        await LogSessionSecurityEventAsync(successor.UserId, successor.Role, SecurityEventType.Refresh, SecuritySeverity.Info, "Refresh token rotated", successor.InstallationId, ct);
 
         return new SessionTokenPair(
             _tokenService.GenerateAccessToken(successor.UserId, string.Empty, successor.Role, successor.Id, successor.InstallationId, successor.TokenVersion),
@@ -145,9 +151,9 @@ public sealed class SessionService : ISessionService
         if (session is null) return;
         session.Revoke(reason);
         await _db.SaveChangesAsync(ct);
-        await _securityService.LogSecurityEventAsync(session.UserId, null, SecurityEventType.SessionRevoked, SecuritySeverity.Warning, "Session revoked", null, null, session.InstallationId, ct);
+        await LogSessionSecurityEventAsync(session.UserId, session.Role, SecurityEventType.SessionRevoked, SecuritySeverity.Warning, "Session revoked", session.InstallationId, ct);
         if (string.Equals(reason, "logout", StringComparison.OrdinalIgnoreCase))
-            await _securityService.LogSecurityEventAsync(session.UserId, null, SecurityEventType.Logout, SecuritySeverity.Info, "Logout completed", null, null, session.InstallationId, ct);
+            await LogSessionSecurityEventAsync(session.UserId, session.Role, SecurityEventType.Logout, SecuritySeverity.Info, "Logout completed", session.InstallationId, ct);
     }
 
     public async Task RevokeAllForUserAsync(Guid userId, string reason, CancellationToken ct = default)
@@ -160,7 +166,7 @@ public sealed class SessionService : ISessionService
         {
             await _db.SaveChangesAsync(ct);
             foreach (var session in sessions)
-                await _securityService.LogSecurityEventAsync(session.UserId, null, SecurityEventType.SessionRevoked, SecuritySeverity.Warning, "All active sessions revoked", null, null, session.InstallationId, ct);
+                await LogSessionSecurityEventAsync(session.UserId, session.Role, SecurityEventType.SessionRevoked, SecuritySeverity.Warning, "All active sessions revoked", session.InstallationId, ct);
         }
     }
 
@@ -172,9 +178,37 @@ public sealed class SessionService : ISessionService
             !FixedTimeEquals(session.InstallationId, installationId))
             return false;
 
+        if (!RequiresStudentDeviceBinding(session.Role))
+            return true;
+
         return await _db.DeviceBindings.AsNoTracking()
             .AnyAsync(i => i.StudentId == session.UserId && i.DeviceFingerprint == installationId && i.IsActive, ct);
     }
+
+    private async Task LogSessionSecurityEventAsync(
+        Guid userId,
+        string role,
+        SecurityEventType eventType,
+        SecuritySeverity severity,
+        string description,
+        string installationId,
+        CancellationToken ct)
+    {
+        var isStudent = RequiresStudentDeviceBinding(role);
+        await _securityService.LogSecurityEventAsync(
+            isStudent ? userId : null,
+            isStudent ? null : userId,
+            eventType,
+            severity,
+            description,
+            null,
+            null,
+            installationId,
+            ct);
+    }
+
+    private static bool RequiresStudentDeviceBinding(string role) =>
+        string.Equals(role, "student", StringComparison.OrdinalIgnoreCase);
 
     private async Task<UserInstallation> ResolveInstallationAsync(Guid userId, string installationId, string? displayName, CancellationToken ct)
     {
