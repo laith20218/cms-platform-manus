@@ -140,6 +140,13 @@ public class JwtTokenService : ITokenService
             new(JwtRegisteredClaimNames.Iat, new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
         };
 
+        // Existing administrator routes use the broad "admin" role guard, while
+        // permission decisions continue to use the persisted, specific role name.
+        // Emit the broad claim only for a known administrative role; students never
+        // receive it and super administrators retain their explicit role claim.
+        if (role is Roles.SuperAdmin or Roles.UniversityAdmin or Roles.CollegeAdmin or Roles.YearAdmin or Roles.SubjectAdmin)
+            claims.Add(new Claim(ClaimTypes.Role, "admin"));
+
         var issuer = _configuration["Jwt:Issuer"] ?? throw new InvalidOperationException("JWT issuer not configured");
         var audience = _configuration["Jwt:Audience"] ?? throw new InvalidOperationException("JWT audience not configured");
         var lifetime = int.TryParse(_configuration["Jwt:AccessTokenExpiryMinutes"], out var configuredMinutes)

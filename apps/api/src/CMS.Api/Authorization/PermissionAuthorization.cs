@@ -51,11 +51,12 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
             return;
         }
 
-        // Check if user is admin (not student)
+        // Reject student tokens early. Scoped administrative roles are validated by
+        // the permission service against their persisted role grants below.
         var roleClaim = context.User.FindFirst("role")?.Value
             ?? context.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
 
-        if (roleClaim != "admin" && roleClaim != "super_admin")
+        if (string.IsNullOrWhiteSpace(roleClaim) || roleClaim == Roles.Student)
         {
             _logger.LogWarning("Permission check failed: User is not an admin. Role: {Role}", roleClaim);
             return;
