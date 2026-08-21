@@ -456,7 +456,7 @@ public sealed class AdministratorManagementHandlers :
         var role = await FindRoleAsync(request.RoleId, ct);
         await ValidateScopeAsync(role, request.ScopeUniversityId, request.ScopeCollegeId, request.ScopeYearId, request.ScopeSubjectId, ct);
 
-        var admin = Admin.Create(email, _passwordHasher.HashPassword(request.Password), request.FullName.Trim(), role.Id);
+        var admin = AdminEntity.Create(email, _passwordHasher.HashPassword(request.Password), request.FullName.Trim(), role.Id);
         admin.UpdateDetails(email, request.FullName, request.Phone);
         admin.SetScope(request.ScopeUniversityId, request.ScopeCollegeId, request.ScopeYearId, request.ScopeSubjectId);
         await _db.Admins.AddAsync(admin, ct);
