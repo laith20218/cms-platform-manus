@@ -9,8 +9,10 @@
     "test": "turbo test",
     "lint": "turbo lint",
     "dev:student": "pnpm --filter @cms/student-web dev",
+    "dev:admin": "pnpm --filter @cms/admin-web dev",
     "dev:api": "cd apps/api && dotnet watch --project src/CMS.Api",
     "build:student": "pnpm --filter @cms/student-web build",
+    "build:admin": "pnpm --filter @cms/admin-web build",
     "build:ui": "pnpm --filter @cms/ui build"
   },
   "devDependencies": {
