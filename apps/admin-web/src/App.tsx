@@ -26,11 +26,11 @@ import {
 } from 'lucide-react';
 import { apiRequest, ApiError, type AdminRecord, type AdminUser, type PagedResult, type RoleRecord, login } from './lib/api';
 
-const BRAND_MARK = '/manus-storage/cms-admin-mark_4cc7aebd.png';
-const FULL_LOGO = '/manus-storage/cms-cliver-medical-student-logo_40b68082.jpg';
-const LOGIN_HERO = '/manus-storage/cms-admin-login-hero_a63d7be3.jpg';
-const OPERATIONS_IMAGE = '/manus-storage/cms-admin-operations_604d87db.jpg';
-const SECURITY_IMAGE = '/manus-storage/cms-admin-security_0bbc583e.jpg';
+const BRAND_MARK = '/brand/cms-admin-mark.png';
+const FULL_LOGO = '/brand/cms-cliver-medical-student-logo.jpg';
+const LOGIN_HERO = '/brand/cms-admin-login-hero.jpg';
+const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
+const SECURITY_IMAGE = '/brand/cms-admin-login-hero.jpg';
 
 type Locale = 'ar' | 'en';
 type View = 'admins' | 'roles' | 'overview';
