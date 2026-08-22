@@ -27,7 +27,7 @@ public class AcademicController : ControllerBase
         _services = services;
     }
 
-    private Guid? GetStudentId() => Guid.TryParse(User.FindFirst("sub")?.Value, out var id) ? id : null;
+    private Guid? GetStudentId() => User.IsInRole("student") && Guid.TryParse(User.FindFirst("sub")?.Value, out var id) ? id : null;
     private Guid GetAdminId() => Guid.Parse(User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
 
     private async Task<bool> CanManageAsync(string resource, string action, string entityType, Guid entityId, CancellationToken ct) =>
@@ -205,12 +205,29 @@ public class AcademicController : ControllerBase
     [HttpGet("subjects/{id:guid}")]
     [Authorize]
     public async Task<ActionResult<SubjectDto>> GetSubject(Guid id, CancellationToken ct)
-        => Ok(await _mediator.Send(new GetSubjectByIdQuery(id, GetStudentId()), ct));
+    {
+        var studentId = GetStudentId();
+        if (studentId.HasValue)
+        {
+            var rejection = await EntitlementRejectionAsync(studentId.Value, id, ct);
+            if (rejection is not null) return rejection;
+        }
+        return Ok(await _mediator.Send(new GetSubjectByIdQuery(id, studentId), ct));
+    }
 
     [HttpGet("subjects/{slug}")]
     [Authorize]
     public async Task<ActionResult<SubjectDto>> GetSubjectBySlug(string slug, CancellationToken ct)
-        => Ok(await _mediator.Send(new GetSubjectBySlugQuery(slug, GetStudentId()), ct));
+    {
+        var studentId = GetStudentId();
+        if (studentId.HasValue)
+        {
+            var subjectId = await SubjectIdForSlugAsync(slug, ct);
+            var rejection = await EntitlementRejectionAsync(studentId.Value, subjectId, ct);
+            if (rejection is not null) return rejection;
+        }
+        return Ok(await _mediator.Send(new GetSubjectBySlugQuery(slug, studentId), ct));
+    }
 
     [HttpPost("subjects")]
     [Authorize(Roles = "admin,super_admin")]
@@ -238,6 +255,18 @@ public class AcademicController : ControllerBase
                 && lecture.Subject.Semester.AcademicYear.College.DeletedAt == null
                 && lecture.Subject.Semester.AcademicYear.College.University.DeletedAt == null)
             .Select(lecture => (Guid?)lecture.SubjectId)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    private async Task<Guid?> SubjectIdForSlugAsync(string slug, CancellationToken ct)
+    {
+        var db = HttpContext.RequestServices.GetRequiredService<IApplicationDbContext>();
+        return await db.Subjects.AsNoTracking()
+            .Where(subject => subject.Slug == slug && subject.DeletedAt == null && subject.Status == "active"
+                && subject.Semester.DeletedAt == null && subject.Semester.AcademicYear.DeletedAt == null
+                && subject.Semester.AcademicYear.College.DeletedAt == null
+                && subject.Semester.AcademicYear.College.University.DeletedAt == null)
+            .Select(subject => (Guid?)subject.Id)
             .FirstOrDefaultAsync(ct);
     }
 

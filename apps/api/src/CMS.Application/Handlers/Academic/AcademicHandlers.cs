@@ -145,7 +145,7 @@ public class AcademicQueryHandlers :
             .Select(item => ToSubjectDto(item))
             .FirstOrDefaultAsync(ct)
             ?? throw new NotFoundException("Subject", req.Id);
-        return await AddProgressAsync(subject, req.StudentId, ct);
+        return await ApplyStudentContentScopeAsync(subject, req.StudentId, ct);
     }
 
     public async Task<SubjectDto> Handle(GetSubjectBySlugQuery req, CancellationToken ct)
@@ -155,7 +155,7 @@ public class AcademicQueryHandlers :
             .Select(item => ToSubjectDto(item))
             .FirstOrDefaultAsync(ct)
             ?? throw new NotFoundException("Subject", req.Slug);
-        return await AddProgressAsync(subject, req.StudentId, ct);
+        return await ApplyStudentContentScopeAsync(subject, req.StudentId, ct);
     }
 
     public async Task<List<LectureDto>> Handle(GetLecturesBySubjectQuery req, CancellationToken ct)
@@ -260,9 +260,29 @@ public class AcademicQueryHandlers :
     private SubjectDto ToSubjectDto(Subject subject) => new(
         subject.Id, subject.SemesterId, subject.NameAr, subject.NameEn, subject.Slug, subject.Code, subject.Description, subject.Icon, subject.Color,
         _db.Questions.Count(question => question.SubjectId == subject.Id && question.Status == Domain.Enums.ContentStatus.Published),
-        _db.Lectures.Count(lecture => lecture.SubjectId == subject.Id && lecture.DeletedAt == null),
+        _db.Lectures.Count(lecture => lecture.SubjectId == subject.Id && lecture.DeletedAt == null && lecture.Status == "active"),
         _db.Exams.Count(exam => exam.SubjectId == subject.Id && exam.Status == Domain.Enums.ContentStatus.Published),
         null, false);
+
+    private async Task<SubjectDto> ApplyStudentContentScopeAsync(SubjectDto subject, Guid? studentId, CancellationToken ct)
+    {
+        if (!studentId.HasValue) return subject;
+        if (!await _entitlements.CanAccessSubjectAsync(studentId.Value, subject.Id, "read", ct))
+            throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
+
+        var canAccessQuestions = await _entitlements.CanAccessSubjectContentAsync(
+            studentId.Value, subject.Id, SubscriptionContentScope.QuestionsExams, ct);
+        var canAccessLectures = await _entitlements.CanAccessSubjectContentAsync(
+            studentId.Value, subject.Id, SubscriptionContentScope.LecturesText, ct);
+        var scoped = subject with
+        {
+            TotalQuestions = canAccessQuestions ? subject.TotalQuestions : 0,
+            TotalExams = canAccessQuestions ? subject.TotalExams : 0,
+            TotalLectures = canAccessLectures ? subject.TotalLectures : 0,
+            UserProgress = null
+        };
+        return canAccessQuestions ? await AddProgressAsync(scoped, studentId, ct) : scoped;
+    }
 
     private async Task<SubjectDto> AddProgressAsync(SubjectDto subject, Guid? studentId, CancellationToken ct)
     {

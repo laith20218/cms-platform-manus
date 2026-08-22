@@ -80,7 +80,7 @@ export const academicApi = {
     return res.data;
   },
   getSubjectBySlug: async (slug: string) => {
-    const res = await apiClient.get<SubjectDetail>(`/subjects/${slug}`);
+    const res = await apiClient.get<SubjectDetail>(`/subjects/${slug}`, await entitlementRequestConfig());
     return res.data;
   },
   getLectures: async (subjectId: string) => {
