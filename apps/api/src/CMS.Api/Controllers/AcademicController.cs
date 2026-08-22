@@ -283,7 +283,7 @@ public class AcademicController : ControllerBase
     public async Task<ActionResult<LectureDto>> CreateLecture([FromBody] CreateLectureDto dto, CancellationToken ct)
     {
         if (!await CanManageAsync(Resources.Lectures, Actions.Create, "subject", dto.SubjectId, ct)) return Forbid();
-        return Ok(await _mediator.Send(new CreateLectureCommand(dto.SubjectId, dto.TitleAr, dto.TitleEn, dto.Slug, dto.LectureNumber, dto.DurationMinutes, GetAdminId()), ct));
+        return Ok(await _mediator.Send(new CreateLectureCommand(dto.SubjectId, dto.TitleAr, dto.TitleEn, dto.Slug, dto.LectureNumber, dto.DurationMinutes, dto.Description, dto.InstructorName, dto.SourceReference, GetAdminId()), ct));
     }
 
     [HttpPut("lectures/{id:guid}")]
@@ -291,7 +291,7 @@ public class AcademicController : ControllerBase
     public async Task<ActionResult<LectureDto>> UpdateLecture(Guid id, [FromBody] UpdateLectureDto dto, CancellationToken ct)
     {
         if (!await CanManageAsync(Resources.Lectures, Actions.Edit, "lecture", id, ct)) return Forbid();
-        return Ok(await _mediator.Send(new UpdateLectureCommand(id, dto.TitleAr, dto.TitleEn, dto.DurationMinutes), ct));
+        return Ok(await _mediator.Send(new UpdateLectureCommand(id, dto.TitleAr, dto.TitleEn, dto.DurationMinutes, dto.Description, dto.InstructorName, dto.SourceReference), ct));
     }
 
     [HttpPost("lectures/{id:guid}/publish")]

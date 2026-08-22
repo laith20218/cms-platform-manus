@@ -166,6 +166,7 @@ public class AcademicQueryHandlers :
             .OrderBy(lecture => lecture.LectureNumber)
             .Select(lecture => new LectureDto(
                 lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, lecture.DurationMinutes,
+                lecture.Description, lecture.InstructorName, lecture.SourceReference,
                 _db.Questions.Count(question => question.LectureId == lecture.Id && question.Status == Domain.Enums.ContentStatus.Published),
                 0, 0, lecture.DeletedAt != null))
             .ToListAsync(ct);
@@ -194,6 +195,7 @@ public class AcademicQueryHandlers :
         return await _db.Lectures.AsNoTracking().Where(item => item.Id == lecture.Id)
             .Select(item => new LectureDto(
                 item.Id, item.SubjectId, item.NameAr, item.NameEn, item.Slug, item.LectureNumber, item.DurationMinutes,
+                item.Description, item.InstructorName, item.SourceReference,
                 _db.Questions.Count(question => question.LectureId == item.Id && question.Status == Domain.Enums.ContentStatus.Published),
                 0, 0, false))
             .SingleAsync(ct);
@@ -353,20 +355,18 @@ public class AcademicCommandHandlers :
     public async Task<LectureDto> Handle(CreateLectureCommand req, CancellationToken ct)
     {
         var lecture = Lecture.Create(req.SubjectId, req.TitleAr, req.Slug, req.LectureNumber);
-        if (req.DurationMinutes.HasValue) typeof(Lecture).GetProperty("DurationMinutes")?.SetValue(lecture, req.DurationMinutes);
+        lecture.UpdateDetails(req.TitleAr, req.TitleEn, req.DurationMinutes, req.Description, req.InstructorName, req.SourceReference);
         await _db.Lectures.AddAsync(lecture, ct);
         await _unitOfWork.SaveChangesAsync(ct);
-        return new LectureDto(lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, req.DurationMinutes, 0, 0, 0, false);
+        return new LectureDto(lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, lecture.DurationMinutes, lecture.Description, lecture.InstructorName, lecture.SourceReference, 0, 0, 0, false);
     }
 
     public async Task<LectureDto> Handle(UpdateLectureCommand req, CancellationToken ct)
     {
         var lecture = await _db.Lectures.FirstOrDefaultAsync(item => item.Id == req.Id && item.DeletedAt == null, ct) ?? throw new NotFoundException("Lecture", req.Id);
-        typeof(Lecture).GetProperty("NameAr")?.SetValue(lecture, req.TitleAr);
-        typeof(Lecture).GetProperty("NameEn")?.SetValue(lecture, req.TitleEn);
-        typeof(Lecture).GetProperty("DurationMinutes")?.SetValue(lecture, req.DurationMinutes);
+        lecture.UpdateDetails(req.TitleAr, req.TitleEn, req.DurationMinutes, req.Description, req.InstructorName, req.SourceReference);
         await _unitOfWork.SaveChangesAsync(ct);
-        return new LectureDto(lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, req.DurationMinutes, 0, 0, 0, false);
+        return new LectureDto(lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, lecture.DurationMinutes, lecture.Description, lecture.InstructorName, lecture.SourceReference, 0, 0, 0, false);
     }
 
     public async Task<LectureDto> Handle(PublishLectureCommand req, CancellationToken ct)
@@ -375,7 +375,7 @@ public class AcademicCommandHandlers :
             ?? throw new NotFoundException("Lecture", req.Id);
         lecture.Publish();
         await _unitOfWork.SaveChangesAsync(ct);
-        return new LectureDto(lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, lecture.DurationMinutes, 0, 0, 0, false);
+        return new LectureDto(lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, lecture.DurationMinutes, lecture.Description, lecture.InstructorName, lecture.SourceReference, 0, 0, 0, false);
     }
 
     public async Task<Unit> Handle(ArchiveAcademicEntityCommand req, CancellationToken ct)

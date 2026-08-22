@@ -106,7 +106,8 @@ public sealed class AdminContentController : ControllerBase
             .OrderBy(lecture => lecture.LectureNumber)
             .Select(lecture => new AdminLectureListItem(
                 lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug,
-                lecture.LectureNumber, lecture.DurationMinutes, lecture.Status, lecture.DeletedAt != null))
+                lecture.LectureNumber, lecture.DurationMinutes, lecture.Description, lecture.InstructorName, lecture.SourceReference,
+                lecture.Status, lecture.DeletedAt != null))
             .ToListAsync(ct);
         return Ok(lectures);
     }
@@ -159,4 +160,4 @@ public record AdminPagedResult<T>(List<T> Items, int Total, int Page, int PageSi
 public record AdminQuestionListItem(Guid Id, string Text, Guid SubjectId, Guid? LectureId, string SubjectName, string? LectureName, string Difficulty, string Status, DateTime CreatedAt);
 public record AdminExamListItem(Guid Id, Guid SubjectId, string SubjectName, string TitleAr, string? TitleEn, string ExamType, int DurationMinutes, int TotalQuestions, string Status, DateTime CreatedAt);
 public record AdminLibraryFileListItem(Guid Id, Guid SubjectId, Guid? LectureId, string SubjectName, string Title, string Type, long FileSize, int? DurationSeconds, string Status, string VirusScanStatus, DateTime CreatedAt);
-public record AdminLectureListItem(Guid Id, Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, string Status, bool IsArchived);
+public record AdminLectureListItem(Guid Id, Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, string? Description, string? InstructorName, string? SourceReference, string Status, bool IsArchived);

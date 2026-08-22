@@ -865,6 +865,14 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("duration_minutes");
 
+                    b.Property<string>("InstructorName")
+                        .HasColumnType("text")
+                        .HasColumnName("instructor_name");
+
+                    b.Property<string>("SourceReference")
+                        .HasColumnType("text")
+                        .HasColumnName("source_reference");
+
                     b.Property<int>("LectureNumber")
                         .HasColumnType("integer")
                         .HasColumnName("lecture_number");

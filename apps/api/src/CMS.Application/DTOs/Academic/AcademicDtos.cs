@@ -96,11 +96,14 @@ public record LectureDto(
     string Slug,
     int LectureNumber,
     int? DurationMinutes,
+    string? Description,
+    string? InstructorName,
+    string? SourceReference,
     int QuestionsCount,
     int UserAnswered,
     double UserProgress,
     bool IsArchived
 );
 
-public record CreateLectureDto(Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes);
-public record UpdateLectureDto(string TitleAr, string? TitleEn, int? DurationMinutes);
+public record CreateLectureDto(Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, string? Description = null, string? InstructorName = null, string? SourceReference = null);
+public record UpdateLectureDto(string TitleAr, string? TitleEn, int? DurationMinutes, string? Description = null, string? InstructorName = null, string? SourceReference = null);

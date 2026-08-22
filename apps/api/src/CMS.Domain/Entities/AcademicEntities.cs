@@ -159,6 +159,8 @@ public class Lecture : LookupEntity
     public Guid SubjectId { get; private set; }
     public int LectureNumber { get; private set; }
     public int? DurationMinutes { get; private set; }
+    public string? InstructorName { get; private set; }
+    public string? SourceReference { get; private set; }
 
     // Navigation
     public Subject Subject { get; private set; } = null!;
@@ -179,6 +181,17 @@ public class Lecture : LookupEntity
     public void Publish()
     {
         Status = "active";
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void UpdateDetails(string titleAr, string? titleEn, int? durationMinutes, string? description, string? instructorName, string? sourceReference)
+    {
+        NameAr = titleAr;
+        NameEn = titleEn;
+        DurationMinutes = durationMinutes;
+        Description = description;
+        InstructorName = instructorName;
+        SourceReference = sourceReference;
         UpdatedAt = DateTime.UtcNow;
     }
 }
