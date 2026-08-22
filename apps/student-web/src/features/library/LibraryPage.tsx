@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
-  FileText, Image as ImageIcon, Video, BookOpen, FileCode,
+  FileText, Image as ImageIcon, Video, BookOpen, FileCode, AudioLines,
   Bookmark, ChevronLeft, Eye, Loader2, X, Download, Shield,
 } from 'lucide-react';
 import { libraryApi, type LibraryFile, type FileAccess } from './services/library-api';
@@ -15,6 +15,7 @@ const typeConfig = {
   html: { icon: FileCode, label: 'HTML', color: 'var(--c-primary-700)', bg: 'var(--c-primary-50)' },
   image: { icon: ImageIcon, label: 'صورة', color: 'var(--c-accent-500)', bg: 'rgba(0,188,212,0.10)' },
   video: { icon: Video, label: 'فيديو', color: 'var(--c-warning-500)', bg: 'rgba(255,179,0,0.10)' },
+  audio: { icon: AudioLines, label: 'صوت', color: 'var(--c-accent-500)', bg: 'rgba(0,188,212,0.10)' },
   summary: { icon: BookOpen, label: 'ملخص', color: 'var(--c-success-500)', bg: 'var(--c-success-50)' },
   comprehensive: { icon: BookOpen, label: 'شامل', color: 'var(--c-primary-700)', bg: 'var(--c-primary-50)' },
   paragraph: { icon: FileText, label: 'فقرة', color: 'var(--c-text-muted)', bg: 'var(--c-neutral-100)' },
@@ -270,8 +271,10 @@ export function FileViewer({ file, onClose }: { file: LibraryFile; onClose: () =
               <iframe src={access.accessUrl} className="w-full h-[70vh]" style={{ border: 'none' }} title={file.title} sandbox="allow-same-origin" />
             ) : file.type === 'video' ? (
               <div className="aspect-video max-w-3xl mx-auto">
-                <iframe src={access.accessUrl} className="w-full h-full rounded-xl" style={{ border: 'none' }} title={file.title} allowFullScreen />
+                {access.accessUrl.includes('youtube.com/embed') ? <iframe src={access.accessUrl} className="w-full h-full rounded-xl" style={{ border: 'none' }} title={file.title} allowFullScreen /> : <video src={access.accessUrl} className="w-full h-full rounded-xl" controls controlsList="nodownload" />}
               </div>
+            ) : file.type === 'audio' ? (
+              <div className="mx-auto flex min-h-56 max-w-3xl items-center justify-center p-8"><audio src={access.accessUrl} className="w-full" controls controlsList="nodownload" /></div>
             ) : file.type === 'image' ? (
               <div className="flex items-center justify-center p-8">
                 <img src={access.accessUrl} alt={file.title} className="max-w-full max-h-[70vh] rounded-xl" />

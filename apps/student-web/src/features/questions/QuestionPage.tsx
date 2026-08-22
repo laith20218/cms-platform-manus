@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -35,7 +35,9 @@ interface AnswerResult {
 }
 
 export default function QuestionPage() {
-  const { lectureId } = useParams<{ lectureId: string }>();
+  const { lectureId, questionId } = useParams<{ lectureId?: string; questionId?: string }>();
+  const [searchParams] = useSearchParams();
+  const focusQuestionId = searchParams.get('focus');
   const navigate = useNavigate();
 
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -48,13 +50,19 @@ export default function QuestionPage() {
 
   // Fetch questions by lecture
   const { data: questionsData, isLoading } = useQuery({
-    queryKey: ['questions', 'lecture', lectureId],
-    queryFn: () => questionApi.getByLecture(lectureId!),
-    enabled: !!lectureId,
+    queryKey: questionId ? ['questions', 'focus', questionId] : ['questions', 'lecture', lectureId],
+    queryFn: () => questionId ? questionApi.getById(questionId) : questionApi.getByLecture(lectureId!),
+    enabled: !!lectureId || !!questionId,
   });
 
-  const questions: QuestionData[] = questionsData?.items || [];
+  const questions: QuestionData[] = questionId ? (questionsData ? [questionsData as QuestionData] : []) : questionsData?.items || [];
   const currentQuestion = questions[currentIndex];
+
+  useEffect(() => {
+    if (!focusQuestionId || questionId || !questions.length) return;
+    const foundIndex = questions.findIndex(question => question.id === focusQuestionId);
+    if (foundIndex >= 0) setCurrentIndex(foundIndex);
+  }, [focusQuestionId, questionId, questions]);
 
   // Reset state when question changes
   useEffect(() => {

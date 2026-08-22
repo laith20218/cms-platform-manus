@@ -36,6 +36,7 @@ public sealed class StudentSearchController : ControllerBase
             return Ok(new StudentSearchResponseDto(Array.Empty<StudentSearchResultDto>()));
 
         var cappedLimit = Math.Clamp(limit, 1, 30);
+        var perKindLimit = Math.Min(10, cappedLimit);
         var activeGrants = _db.StudentSubscriptions.AsNoTracking()
             .Where(subscription => subscription.StudentId == studentId
                 && subscription.Status == SubscriptionStatus.Active
@@ -62,16 +63,20 @@ public sealed class StudentSearchController : ControllerBase
                     || (grant.ScopeType == SubscriptionScopeType.University && grant.ScopeUniversityId == university.Id))
             select subjectEntity.Id;
 
-        var subjectResults = await _db.Subjects.AsNoTracking()
-            .Where(item => entitledSubjectIds.Contains(item.Id)
-                && (item.NameAr.Contains(term) || (item.NameEn != null && item.NameEn.Contains(term))))
-            .OrderBy(item => item.NameAr)
-            .Take(cappedLimit)
-            .Select(item => new StudentSearchResultDto("subject", item.Id, item.NameAr, item.NameEn, item.Slug, null, null))
+        var subjectResults = await (
+            from item in _db.Subjects.AsNoTracking()
+            join semester in _db.Semesters.AsNoTracking() on item.SemesterId equals semester.Id
+            join academicYear in _db.AcademicYears.AsNoTracking() on semester.AcademicYearId equals academicYear.Id
+            join college in _db.Colleges.AsNoTracking() on academicYear.CollegeId equals college.Id
+            join university in _db.Universities.AsNoTracking() on college.UniversityId equals university.Id
+            where entitledSubjectIds.Contains(item.Id)
+                && (item.NameAr.Contains(term) || (item.NameEn != null && item.NameEn.Contains(term)) || (item.Code != null && item.Code.Contains(term)))
+            orderby item.NameAr
+            select new StudentSearchResultDto("subject", item.Id, item.NameAr, item.NameEn, item.Slug,
+                university.NameAr + " · " + college.NameAr + " · " + academicYear.NameAr,
+                null, null, null, null, null))
+            .Take(perKindLimit)
             .ToListAsync(ct);
-
-        var remaining = cappedLimit - subjectResults.Count;
-        if (remaining <= 0) return Ok(new StudentSearchResponseDto(subjectResults));
 
         var lectureResults = await (
             from lecture in _db.Lectures.AsNoTracking()
@@ -81,11 +86,9 @@ public sealed class StudentSearchController : ControllerBase
             join college in _db.Colleges.AsNoTracking() on academicYear.CollegeId equals college.Id
             join university in _db.Universities.AsNoTracking() on college.UniversityId equals university.Id
             where entitledSubjectIds.Contains(academicSubject.Id)
-                && lecture.Status == "active"
-                && lecture.DeletedAt == null
-                && lecture.NameAr.Contains(term)
-                && activeGrants.Any(grant =>
-                    ((grant.ScopeType == SubscriptionScopeType.Subject && grant.ScopeSubjectId == academicSubject.Id)
+                && lecture.Status == "active" && lecture.DeletedAt == null
+                && (lecture.NameAr.Contains(term) || (lecture.NameEn != null && lecture.NameEn.Contains(term)) || (lecture.Description != null && lecture.Description.Contains(term)))
+                && activeGrants.Any(grant => ((grant.ScopeType == SubscriptionScopeType.Subject && grant.ScopeSubjectId == academicSubject.Id)
                     || (grant.ScopeType == SubscriptionScopeType.Semester && grant.ScopeSemesterId == semester.Id)
                     || (grant.ScopeType == SubscriptionScopeType.Year && grant.ScopeYearId == academicYear.Id)
                     || (grant.ScopeType == SubscriptionScopeType.College && grant.ScopeCollegeId == college.Id)
@@ -94,13 +97,69 @@ public sealed class StudentSearchController : ControllerBase
                         || grant.ContentScope == SubscriptionContentScope.FullSubject
                         || grant.ContentScope == SubscriptionContentScope.FullYear))
             orderby lecture.NameAr
-            select new StudentSearchResultDto("lecture", lecture.Id, lecture.NameAr, null, academicSubject.Slug, academicSubject.NameAr, lecture.LectureNumber))
-            .Take(remaining)
+            select new StudentSearchResultDto("lecture", lecture.Id, lecture.NameAr, lecture.Description, academicSubject.Slug,
+                university.NameAr + " · " + college.NameAr + " · " + academicYear.NameAr + " · " + academicSubject.NameAr,
+                academicSubject.NameAr, lecture.Id, academicSubject.Id, lecture.LectureNumber, null))
+            .Take(perKindLimit)
             .ToListAsync(ct);
 
-        return Ok(new StudentSearchResponseDto(subjectResults.Concat(lectureResults).ToList()));
+        var questionResults = await (
+            from question in _db.Questions.AsNoTracking()
+            join academicSubject in _db.Subjects.AsNoTracking() on question.SubjectId equals academicSubject.Id
+            join semester in _db.Semesters.AsNoTracking() on academicSubject.SemesterId equals semester.Id
+            join academicYear in _db.AcademicYears.AsNoTracking() on semester.AcademicYearId equals academicYear.Id
+            join college in _db.Colleges.AsNoTracking() on academicYear.CollegeId equals college.Id
+            join university in _db.Universities.AsNoTracking() on college.UniversityId equals university.Id
+            where entitledSubjectIds.Contains(academicSubject.Id)
+                && question.Status == ContentStatus.Published
+                && (question.Text.Contains(term) || question.Options.Any(option => option.Text.Contains(term)) || (question.Reference != null && question.Reference.Contains(term)) || question.Tags.Any(tag => tag.Contains(term)))
+                && activeGrants.Any(grant => ((grant.ScopeType == SubscriptionScopeType.Subject && grant.ScopeSubjectId == academicSubject.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.Semester && grant.ScopeSemesterId == semester.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.Year && grant.ScopeYearId == academicYear.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.College && grant.ScopeCollegeId == college.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.University && grant.ScopeUniversityId == university.Id))
+                    && (grant.ContentScope == SubscriptionContentScope.QuestionsExams
+                        || grant.ContentScope == SubscriptionContentScope.FullSubject
+                        || grant.ContentScope == SubscriptionContentScope.FullYear))
+            orderby question.UpdatedAt descending
+            select new StudentSearchResultDto("question", question.Id, question.Text, question.Reference, academicSubject.Slug,
+                university.NameAr + " · " + college.NameAr + " · " + academicYear.NameAr + " · " + academicSubject.NameAr,
+                academicSubject.NameAr, question.LectureId, academicSubject.Id, null, null))
+            .Take(perKindLimit)
+            .ToListAsync(ct);
+
+        var fileResults = await (
+            from file in _db.LibraryFiles.AsNoTracking()
+            join academicSubject in _db.Subjects.AsNoTracking() on file.SubjectId equals academicSubject.Id
+            join semester in _db.Semesters.AsNoTracking() on academicSubject.SemesterId equals semester.Id
+            join academicYear in _db.AcademicYears.AsNoTracking() on semester.AcademicYearId equals academicYear.Id
+            join college in _db.Colleges.AsNoTracking() on academicYear.CollegeId equals college.Id
+            join university in _db.Universities.AsNoTracking() on college.UniversityId equals university.Id
+            where entitledSubjectIds.Contains(academicSubject.Id)
+                && file.Status == ContentStatus.Published && file.DeletedAt == null && file.VirusScanStatus == VirusScanStatus.Clean
+                && (file.Title.Contains(term) || (file.Description != null && file.Description.Contains(term)) || file.Tags.Any(tag => tag.Contains(term)))
+                && activeGrants.Any(grant => ((grant.ScopeType == SubscriptionScopeType.Subject && grant.ScopeSubjectId == academicSubject.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.Semester && grant.ScopeSemesterId == semester.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.Year && grant.ScopeYearId == academicYear.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.College && grant.ScopeCollegeId == college.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.University && grant.ScopeUniversityId == university.Id))
+                    && ((file.Type == LibraryFileType.Video || file.Type == LibraryFileType.Audio)
+                        ? (grant.ContentScope == SubscriptionContentScope.VideoAudio || grant.ContentScope == SubscriptionContentScope.FullSubject || grant.ContentScope == SubscriptionContentScope.FullYear)
+                        : (grant.ContentScope == SubscriptionContentScope.LecturesText || grant.ContentScope == SubscriptionContentScope.FullSubject || grant.ContentScope == SubscriptionContentScope.FullYear)))
+            orderby file.UpdatedAt descending
+            select new StudentSearchResultDto(file.Type == LibraryFileType.Video ? "video" : file.Type == LibraryFileType.Audio ? "audio" : file.Type == LibraryFileType.Summary ? "summary" : file.Type == LibraryFileType.Pdf ? "pdf" : file.Type == LibraryFileType.Html ? "html" : file.Type == LibraryFileType.Image ? "image" : file.Type == LibraryFileType.Comprehensive ? "comprehensive" : "paragraph", file.Id, file.Title, file.Description, academicSubject.Slug,
+                university.NameAr + " · " + college.NameAr + " · " + academicYear.NameAr + " · " + academicSubject.NameAr,
+                academicSubject.NameAr, file.LectureId, academicSubject.Id, null, file.Type == LibraryFileType.Video ? "video" : file.Type == LibraryFileType.Audio ? "audio" : file.Type == LibraryFileType.Summary ? "summary" : file.Type == LibraryFileType.Pdf ? "pdf" : file.Type == LibraryFileType.Html ? "html" : file.Type == LibraryFileType.Image ? "image" : file.Type == LibraryFileType.Comprehensive ? "comprehensive" : "paragraph"))
+            .Take(perKindLimit)
+            .ToListAsync(ct);
+
+        var results = subjectResults.Concat(lectureResults).Concat(questionResults).Concat(fileResults).Take(cappedLimit).ToList();
+        return Ok(new StudentSearchResponseDto(results));
     }
+
 }
 
 public sealed record StudentSearchResponseDto(IReadOnlyList<StudentSearchResultDto> Items);
-public sealed record StudentSearchResultDto(string Kind, Guid Id, string Title, string? Subtitle, string SubjectSlug, string? SubjectName, int? LectureNumber);
+public sealed record StudentSearchResultDto(
+    string Kind, Guid Id, string Title, string? Subtitle, string SubjectSlug, string AcademicContext,
+    string? SubjectName, Guid? LectureId, Guid? SubjectId, int? LectureNumber, string? FileType);

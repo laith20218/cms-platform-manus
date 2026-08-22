@@ -45,6 +45,7 @@ export function AppRoutes() {
           <Route path="/subjects/:subjectSlug" element={<SubjectDetailPage />} />
           <Route path="/subjects/:subjectSlug/lectures/:lectureId" element={<LecturePage />} />
           <Route path="/subjects/:subjectSlug/lectures/:lectureId/questions" element={<QuestionPage />} />
+          <Route path="/subjects/:subjectSlug/questions/:questionId" element={<QuestionPage />} />
           <Route path="/favorites" element={<FavoritesPage />} />
           <Route path="/exams/:examId" element={<ExamPage />} />
           <Route path="/exams/:sessionId/review" element={<ExamReviewPage />} />
