@@ -98,6 +98,23 @@ public class AcademicController : ControllerBase
         return Ok(result);
     }
 
+    [HttpPut("colleges/{id:guid}")]
+    [Authorize(Roles = "admin,super_admin")]
+    public async Task<ActionResult<CollegeDto>> UpdateCollege(Guid id, [FromBody] UpdateCollegeDto dto, CancellationToken ct)
+    {
+        if (!await CanManageAsync(Resources.Colleges, Actions.Edit, "college", id, ct)) return Forbid();
+        return Ok(await _mediator.Send(new UpdateCollegeCommand(id, dto.NameAr, dto.NameEn), ct));
+    }
+
+    [HttpDelete("colleges/{id:guid}")]
+    [Authorize(Roles = "admin,super_admin")]
+    public async Task<IActionResult> DeleteCollege(Guid id, CancellationToken ct)
+    {
+        if (!await CanManageAsync(Resources.Colleges, Actions.Delete, "college", id, ct)) return Forbid();
+        await _mediator.Send(new DeleteCollegeCommand(id, GetAdminId()), ct);
+        return NoContent();
+    }
+
     // ===== Academic Years =====
     [HttpGet("colleges/{collegeId:guid}/years")]
     [AllowAnonymous]
@@ -115,6 +132,14 @@ public class AcademicController : ControllerBase
     {
         if (!await CanManageAsync(Resources.Years, Actions.Create, "college", dto.CollegeId, ct)) return Forbid();
         return Ok(await _mediator.Send(new CreateAcademicYearCommand(dto.CollegeId, dto.NameAr, dto.NameEn, dto.Slug, dto.YearNumber, GetAdminId()), ct));
+    }
+
+    [HttpPut("years/{id:guid}")]
+    [Authorize(Roles = "admin,super_admin")]
+    public async Task<ActionResult<AcademicYearDto>> UpdateYear(Guid id, [FromBody] UpdateAcademicYearDto dto, CancellationToken ct)
+    {
+        if (!await CanManageAsync(Resources.Years, Actions.Edit, "year", id, ct)) return Forbid();
+        return Ok(await _mediator.Send(new UpdateAcademicYearCommand(id, dto.NameAr, dto.NameEn), ct));
     }
 
     // ===== Semesters =====

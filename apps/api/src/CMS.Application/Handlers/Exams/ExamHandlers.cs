@@ -89,7 +89,10 @@ public class ExamSessionHandlers :
     IRequestHandler<GetExamResultQuery, ExamResultDto>,
     IRequestHandler<GetExamReviewQuery, ExamReviewDto>,
     IRequestHandler<CreateExamCommand, ExamDto>,
-    IRequestHandler<PublishExamCommand, Unit>
+    IRequestHandler<PublishExamCommand, Unit>,
+    IRequestHandler<UpdateExamCommand, ExamDto>,
+    IRequestHandler<ArchiveExamCommand, Unit>,
+    IRequestHandler<DeleteExamCommand, Unit>
 {
     private readonly IApplicationDbContext _db;
     private readonly IUnitOfWork _unitOfWork;
@@ -379,6 +382,40 @@ public class ExamSessionHandlers :
         var exam = await _db.Exams.FirstOrDefaultAsync(e => e.Id == req.Id, ct)
             ?? throw new NotFoundException("Exam", req.Id);
         exam.Publish();
+        await _unitOfWork.SaveChangesAsync(ct);
+        return Unit.Value;
+    }
+
+    public async Task<ExamDto> Handle(UpdateExamCommand req, CancellationToken ct)
+    {
+        var exam = await _db.Exams.FirstOrDefaultAsync(e => e.Id == req.Id && e.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Exam", req.Id);
+
+        exam.Update(req.TitleAr, req.TitleEn, req.Description, req.DurationMinutes, req.PassingScore, req.AllowReview);
+        await _unitOfWork.SaveChangesAsync(ct);
+
+        return new ExamDto(
+            exam.Id, exam.SubjectId, exam.TitleAr, exam.TitleEn, exam.Slug,
+            exam.Description, exam.ExamType.ToString(), exam.Year,
+            exam.DurationMinutes, exam.TotalQuestions, exam.PassingScore,
+            exam.ShuffleQuestions, exam.ShuffleOptions,
+            exam.ShowResultsImmediately, exam.AllowReview, exam.Status.ToString());
+    }
+
+    public async Task<Unit> Handle(ArchiveExamCommand req, CancellationToken ct)
+    {
+        var exam = await _db.Exams.FirstOrDefaultAsync(e => e.Id == req.Id && e.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Exam", req.Id);
+        exam.Archive();
+        await _unitOfWork.SaveChangesAsync(ct);
+        return Unit.Value;
+    }
+
+    public async Task<Unit> Handle(DeleteExamCommand req, CancellationToken ct)
+    {
+        var exam = await _db.Exams.FirstOrDefaultAsync(e => e.Id == req.Id && e.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Exam", req.Id);
+        exam.SoftDelete(req.DeletedBy);
         await _unitOfWork.SaveChangesAsync(ct);
         return Unit.Value;
     }

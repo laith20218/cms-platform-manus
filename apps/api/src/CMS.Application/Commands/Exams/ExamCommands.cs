@@ -31,3 +31,6 @@ public record CreateExamCommand(
 ) : IRequest<ExamDto>;
 
 public record PublishExamCommand(Guid Id) : IRequest<Unit>;
+public record UpdateExamCommand(Guid Id, string TitleAr, string? TitleEn, string? Description, int DurationMinutes, decimal PassingScore, bool AllowReview) : IRequest<ExamDto>;
+public record ArchiveExamCommand(Guid Id) : IRequest<Unit>;
+public record DeleteExamCommand(Guid Id, Guid DeletedBy) : IRequest<Unit>;

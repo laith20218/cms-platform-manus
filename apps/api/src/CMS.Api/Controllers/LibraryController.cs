@@ -180,6 +180,28 @@ public class LibraryController : ControllerBase
     }
 
     /// <summary>
+    /// Publish a clean, scanned library file for entitled students (admin only).
+    /// </summary>
+    [HttpPost("{id:guid}/publish")]
+    [Authorize(Roles = "admin,super_admin")]
+    public async Task<ActionResult<LibraryFileDto>> PublishFile(Guid id, CancellationToken ct)
+    {
+        if (!await CanManageAsync(Actions.Edit, "library_file", id, ct)) return Forbid();
+        return Ok(await _mediator.Send(new PublishLibraryFileCommand(id, GetAdminId()), ct));
+    }
+
+    /// <summary>
+    /// Archive a library file and immediately remove it from student discovery (admin only).
+    /// </summary>
+    [HttpPost("{id:guid}/archive")]
+    [Authorize(Roles = "admin,super_admin")]
+    public async Task<ActionResult<LibraryFileDto>> ArchiveFile(Guid id, CancellationToken ct)
+    {
+        if (!await CanManageAsync(Actions.Edit, "library_file", id, ct)) return Forbid();
+        return Ok(await _mediator.Send(new ArchiveLibraryFileCommand(id, GetAdminId()), ct));
+    }
+
+    /// <summary>
     /// Delete a library file (soft delete, admin only).
     /// </summary>
     [HttpDelete("{id:guid}")]

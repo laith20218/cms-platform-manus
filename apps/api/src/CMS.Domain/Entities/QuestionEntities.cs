@@ -253,4 +253,36 @@ public class Exam : AuditableEntity
         Status = ContentStatus.Published;
         UpdatedAt = DateTime.UtcNow;
     }
+
+    public void Update(string titleAr, string? titleEn, string? description, int durationMinutes, decimal passingScore, bool allowReview)
+    {
+        if (string.IsNullOrWhiteSpace(titleAr))
+            throw new DomainException("Exam title is required");
+        if (durationMinutes < 1)
+            throw new DomainException("Exam duration must be greater than zero");
+        if (passingScore is < 0 or > 100)
+            throw new DomainException("Passing score must be between 0 and 100");
+
+        TitleAr = titleAr;
+        TitleEn = titleEn;
+        Description = description;
+        DurationMinutes = durationMinutes;
+        PassingScore = passingScore;
+        AllowReview = allowReview;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void Archive()
+    {
+        Status = ContentStatus.Archived;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SoftDelete(Guid deletedBy)
+    {
+        Status = ContentStatus.Deleted;
+        DeletedAt = DateTime.UtcNow;
+        DeletedBy = deletedBy;
+        UpdatedAt = DateTime.UtcNow;
+    }
 }

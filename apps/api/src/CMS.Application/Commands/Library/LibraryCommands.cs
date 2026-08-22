@@ -44,6 +44,8 @@ public record UpdateLibraryFileCommand(
     List<string> Tags, Guid? LectureId
 ) : IRequest<LibraryFileDto>;
 
+public record PublishLibraryFileCommand(Guid Id, Guid PublishedBy) : IRequest<LibraryFileDto>;
+public record ArchiveLibraryFileCommand(Guid Id, Guid ArchivedBy) : IRequest<LibraryFileDto>;
 public record DeleteLibraryFileCommand(Guid Id, Guid DeletedBy) : IRequest<Unit>;
 
 // ===== Paged Result =====

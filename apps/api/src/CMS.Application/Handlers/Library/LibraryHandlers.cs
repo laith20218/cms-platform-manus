@@ -21,6 +21,8 @@ public class LibraryHandlers :
     IRequestHandler<RequestUploadUrlCommand, UploadUrlDto>,
     IRequestHandler<CompleteUploadCommand, LibraryFileDto>,
     IRequestHandler<UpdateLibraryFileCommand, LibraryFileDto>,
+    IRequestHandler<PublishLibraryFileCommand, LibraryFileDto>,
+    IRequestHandler<ArchiveLibraryFileCommand, LibraryFileDto>,
     IRequestHandler<DeleteLibraryFileCommand, Unit>
 {
     private readonly IApplicationDbContext _db;
@@ -223,6 +225,30 @@ public class LibraryHandlers :
         typeof(LibraryFile).GetProperty("Tags")?.SetValue(file, req.Tags);
         typeof(LibraryFile).GetProperty("LectureId")?.SetValue(file, req.LectureId);
 
+        await _unitOfWork.SaveChangesAsync(ct);
+        return MapToDto(file);
+    }
+
+    // ===== Admin: Lifecycle =====
+    public async Task<LibraryFileDto> Handle(PublishLibraryFileCommand req, CancellationToken ct)
+    {
+        var file = await _db.LibraryFiles.FirstOrDefaultAsync(f => f.Id == req.Id && f.DeletedAt == null, ct)
+            ?? throw new NotFoundException("LibraryFile", req.Id);
+
+        if (file.VirusScanStatus != VirusScanStatus.Clean)
+            throw new DomainException("لا يمكن نشر ملف قبل اكتمال الفحص الأمني بنجاح", "FILE_SCAN_NOT_CLEAN");
+
+        file.Status = ContentStatus.Published;
+        await _unitOfWork.SaveChangesAsync(ct);
+        return MapToDto(file);
+    }
+
+    public async Task<LibraryFileDto> Handle(ArchiveLibraryFileCommand req, CancellationToken ct)
+    {
+        var file = await _db.LibraryFiles.FirstOrDefaultAsync(f => f.Id == req.Id && f.DeletedAt == null, ct)
+            ?? throw new NotFoundException("LibraryFile", req.Id);
+
+        file.Status = ContentStatus.Archived;
         await _unitOfWork.SaveChangesAsync(ct);
         return MapToDto(file);
     }

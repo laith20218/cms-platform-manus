@@ -195,6 +195,41 @@ public class ExamsController : ControllerBase
         await _mediator.Send(new PublishExamCommand(id), ct);
         return NoContent();
     }
+
+    /// <summary>
+    /// Update exam configuration and keep its current lifecycle state (admin only).
+    /// </summary>
+    [HttpPut("{id:guid}")]
+    [Authorize(Roles = "admin,super_admin")]
+    public async Task<ActionResult<ExamDto>> UpdateExam(Guid id, [FromBody] UpdateExamRequestDto dto, CancellationToken ct)
+    {
+        if (!await CanManageAsync(Actions.Edit, "exam", id, ct)) return Forbid();
+        return Ok(await _mediator.Send(new UpdateExamCommand(id, dto.TitleAr, dto.TitleEn, dto.Description, dto.DurationMinutes, dto.PassingScore, dto.AllowReview), ct));
+    }
+
+    /// <summary>
+    /// Archive an exam so it is immediately excluded from student discovery (admin only).
+    /// </summary>
+    [HttpPost("{id:guid}/archive")]
+    [Authorize(Roles = "admin,super_admin")]
+    public async Task<IActionResult> ArchiveExam(Guid id, CancellationToken ct)
+    {
+        if (!await CanManageAsync(Actions.Edit, "exam", id, ct)) return Forbid();
+        await _mediator.Send(new ArchiveExamCommand(id), ct);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Soft-delete an exam while retaining audit and historical attempt records (admin only).
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "admin,super_admin")]
+    public async Task<IActionResult> DeleteExam(Guid id, CancellationToken ct)
+    {
+        if (!await CanManageAsync(Actions.Delete, "exam", id, ct)) return Forbid();
+        await _mediator.Send(new DeleteExamCommand(id, GetAdminId()), ct);
+        return NoContent();
+    }
 }
 
 /// <summary>
@@ -208,4 +243,13 @@ public record CreateExamRequestDto(
     int Year,
     int DurationMinutes,
     decimal PassingScore
+);
+
+public record UpdateExamRequestDto(
+    string TitleAr,
+    string? TitleEn,
+    string? Description,
+    int DurationMinutes,
+    decimal PassingScore,
+    bool AllowReview
 );
