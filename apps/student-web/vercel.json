@@ -51,7 +51,7 @@
     }
   ],
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/(.*)", "destination": "/index" }
   ],
   "redirects": [
     { "source": "/home", "destination": "/", "permanent": true },
