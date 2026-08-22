@@ -53,6 +53,10 @@ public sealed class SubscriptionHandlers :
         if (await _db.StudentSubscriptions.AnyAsync(subscription => subscription.StudentId == student.Id && subscription.SubscriptionCodeId == code.Id, ct))
             throw new DomainException("تم استرداد هذا الرمز مسبقًا", "SUBSCRIPTION_CODE_ALREADY_REDEEMED");
 
+        var durationExpiresAt = code.DurationDays > 0 ? now.AddDays(code.DurationDays) : DateTime.MaxValue;
+        var subscriptionExpiresAt = code.CodeExpiresAt.HasValue && code.CodeExpiresAt.Value < durationExpiresAt
+            ? code.CodeExpiresAt.Value
+            : durationExpiresAt;
         var subscription = new StudentSubscription
         {
             StudentId = student.Id,
@@ -66,7 +70,7 @@ public sealed class SubscriptionHandlers :
             ContentScope = code.ContentScope,
             Status = SubscriptionStatus.Active,
             StartsAt = now,
-            ExpiresAt = code.DurationDays > 0 ? now.AddDays(code.DurationDays) : DateTime.MaxValue
+            ExpiresAt = subscriptionExpiresAt
         };
 
         await _unitOfWork.BeginTransactionAsync(ct);
