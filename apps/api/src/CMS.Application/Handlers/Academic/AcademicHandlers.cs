@@ -123,8 +123,9 @@ public class AcademicQueryHandlers :
             .FirstOrDefaultAsync(ct)
         ?? throw new NotFoundException("Semester", req.Id);
 
-    public async Task<List<SubjectDto>> Handle(GetSubjectsBySemesterQuery req, CancellationToken ct) =>
-        await _db.Subjects.AsNoTracking()
+    public async Task<List<SubjectDto>> Handle(GetSubjectsBySemesterQuery req, CancellationToken ct)
+    {
+        var subjects = await _db.Subjects.AsNoTracking()
             .Where(subject => subject.SemesterId == req.SemesterId
                 && (req.IncludeArchived || (subject.DeletedAt == null && subject.Status == "active"))
                 && (req.IncludeArchived || (subject.Semester.DeletedAt == null && subject.Semester.AcademicYear.DeletedAt == null && subject.Semester.AcademicYear.College.DeletedAt == null && subject.Semester.AcademicYear.College.University.DeletedAt == null)))
@@ -137,6 +138,17 @@ public class AcademicQueryHandlers :
                 null,
                 subject.DeletedAt != null))
             .ToListAsync(ct);
+
+        if (!req.StudentId.HasValue) return subjects;
+
+        var visibleSubjects = new List<SubjectDto>();
+        foreach (var subject in subjects)
+        {
+            if (!await _entitlements.CanAccessSubjectAsync(req.StudentId.Value, subject.Id, "read", ct)) continue;
+            visibleSubjects.Add(await ApplyStudentContentScopeAsync(subject, req.StudentId, ct));
+        }
+        return visibleSubjects;
+    }
 
     public async Task<SubjectDto> Handle(GetSubjectByIdQuery req, CancellationToken ct)
     {
