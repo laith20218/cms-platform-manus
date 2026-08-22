@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { apiRequest, ApiError, type AdminRecord, type AdminUser, type PagedResult, type RoleRecord, login } from './lib/api';
 import { AcademicCenter } from './components/AcademicCenter';
+import { CodesCenter } from './components/CodesCenter';
 
 const BRAND_MARK = '/brand/cms-admin-mark.png';
 const FULL_LOGO = '/brand/cms-cliver-medical-student-logo.jpg';
@@ -35,7 +36,7 @@ const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 const SECURITY_IMAGE = '/brand/cms-admin-login-hero.jpg';
 
 type Locale = 'ar' | 'en';
-type View = 'admins' | 'roles' | 'overview' | 'academic';
+type View = 'admins' | 'roles' | 'overview' | 'academic' | 'codes';
 type Dialog =
   | { kind: 'create-admin' }
   | { kind: 'edit-admin'; admin: AdminRecord }
@@ -343,6 +344,7 @@ function App() {
   const navItems: Array<{ key: View; label: string; icon: typeof LayoutDashboard; superOnly?: boolean }> = [
     { key: 'overview', label: copy.overview, icon: LayoutDashboard },
     { key: 'academic', label: isArabic ? 'البنية الأكاديمية' : 'Academic structure', icon: Building2 },
+    { key: 'codes', label: isArabic ? 'رموز الوصول' : 'Access codes', icon: KeyRound },
     { key: 'admins', label: copy.admins, icon: UsersRound, superOnly: true },
     { key: 'roles', label: copy.roles, icon: KeyRound, superOnly: true },
   ];
@@ -357,12 +359,13 @@ function App() {
         <div className="side-bottom"><div className="operator"><div>{user.fullName?.[0] ?? 'C'}</div><span><strong>{user.fullName}</strong><small>{user.role}</small></span></div><button className="sign-out" onClick={signOut}><LogOut size={17} />{copy.signOut}</button></div>
       </aside>
       <section className="workspace">
-        <header className="topbar"><button className="menu-toggle" aria-label="Open navigation" onClick={() => setMobileNavOpen(true)}><Menu /></button><div><p className="eyebrow">{isArabic ? 'مركز العمليات' : 'OPERATIONS CENTER'}</p><h1>{view === 'admins' ? copy.adminList : view === 'roles' ? copy.rolesTitle : view === 'academic' ? (isArabic ? 'البنية الأكاديمية' : 'Academic structure') : copy.overview}</h1></div><div className="top-actions"><button className="language-switch" onClick={() => setLocale(isArabic ? 'en' : 'ar')}><Languages size={16} />{copy.language}</button><button className="notify" aria-label="Notifications"><Bell size={19} /><b>0</b></button><div className="live"><i />{copy.connected}</div></div></header>
+        <header className="topbar"><button className="menu-toggle" aria-label="Open navigation" onClick={() => setMobileNavOpen(true)}><Menu /></button><div><p className="eyebrow">{isArabic ? 'مركز العمليات' : 'OPERATIONS CENTER'}</p><h1>{view === 'admins' ? copy.adminList : view === 'roles' ? copy.rolesTitle : view === 'academic' ? (isArabic ? 'البنية الأكاديمية' : 'Academic structure') : view === 'codes' ? (isArabic ? 'رموز الوصول' : 'Access codes') : copy.overview}</h1></div><div className="top-actions"><button className="language-switch" onClick={() => setLocale(isArabic ? 'en' : 'ar')}><Languages size={16} />{copy.language}</button><button className="notify" aria-label="Notifications"><Bell size={19} /><b>0</b></button><div className="live"><i />{copy.connected}</div></div></header>
         <div className="content">
           {notice && <div className="notice"><Check size={18} /><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice('')}><X size={16} /></button></div>}
           {actionError && <div className="error-banner"><CircleAlert size={18} /><span>{actionError}</span><button aria-label="Dismiss error" onClick={() => setActionError('')}><X size={16} /></button></div>}
           {view === 'overview' && <Overview copy={copy} isArabic={isArabic} isSuperAdmin={isSuperAdmin} onNavigate={setView} />}
           {view === 'academic' && <AcademicCenter token={token} isSuperAdmin={isSuperAdmin} isArabic={isArabic} onError={setActionError} onNotice={setNotice} />}
+          {view === 'codes' && <CodesCenter token={token} isArabic={isArabic} onError={setActionError} onNotice={setNotice} />}
           {view === 'admins' && isSuperAdmin && <AdminsView copy={copy} isArabic={isArabic} admins={admins} roles={roles} total={totalAdmins} query={query} roleFilter={roleFilter} statusFilter={statusFilter} busy={busy} loading={loadingData} scopeText={scopeText} setQuery={setQuery} setRoleFilter={setRoleFilter} setStatusFilter={setStatusFilter} clearFilters={() => { setQuery(''); setRoleFilter(''); setStatusFilter('all'); }} onCreate={openCreateAdmin} onEdit={openEditAdmin} onReset={(admin) => { setActionError(''); setDialog({ kind: 'reset-password', admin }); }} onDelete={(admin) => { setActionError(''); setDialog({ kind: 'delete-admin', admin }); }} onStatus={setAccountStatus} />}
           {view === 'roles' && isSuperAdmin && <RolesView copy={copy} isArabic={isArabic} roles={roles} busy={busy} loading={loadingData} onCreate={() => { setActionError(''); setDialog({ kind: 'create-role' }); }} onStatus={setRoleStatus} onDelete={deleteRole} />}
           {isManagementView && !isSuperAdmin && <section className="access-panel"><ShieldOff size={28} /><h2>{isArabic ? 'الوصول غير متاح' : 'Access unavailable'}</h2><p>{copy.limited}</p></section>}
