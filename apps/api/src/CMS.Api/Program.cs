@@ -46,6 +46,9 @@ try
     builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>
         {
+            // SessionValidationMiddleware reads the custom JWT claims (sid, installation_id, tv)
+            // by their wire names, so incoming claim mapping must remain disabled.
+            options.MapInboundClaims = false;
             options.TokenValidationParameters = new TokenValidationParameters
             {
                 ValidateIssuer = true,
