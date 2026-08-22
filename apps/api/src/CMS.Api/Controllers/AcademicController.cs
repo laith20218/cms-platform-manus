@@ -17,13 +17,11 @@ namespace CMS.Api.Controllers;
 public class AcademicController : ControllerBase
 {
     private readonly MediatR.ISender _mediator;
-    private readonly ISignedEntitlementService _signedEntitlements;
     private readonly IPermissionService _permissions;
 
-    public AcademicController(MediatR.ISender mediator, ISignedEntitlementService signedEntitlements, IPermissionService permissions)
+    public AcademicController(MediatR.ISender mediator, IPermissionService permissions)
     {
         _mediator = mediator;
-        _signedEntitlements = signedEntitlements;
         _permissions = permissions;
     }
 
