@@ -70,11 +70,18 @@ public class LibraryHandlers :
             .ToList();
         var total = files.Count;
         files = files.Skip((req.Page - 1) * req.PageSize).Take(req.PageSize).ToList();
+        var visibleFileIds = files.Select(file => file.Id).ToList();
+        var favoriteFileIds = await _db.Favorites.AsNoTracking()
+            .Where(favorite => favorite.StudentId == req.StudentId
+                && favorite.LibraryFileId.HasValue
+                && visibleFileIds.Contains(favorite.LibraryFileId.Value))
+            .Select(favorite => favorite.LibraryFileId!.Value)
+            .ToHashSetAsync(ct);
 
         var items = files.Select(f => new LibraryFileListItemDto(
             f.Id, f.Type.ToString(), f.Title, f.Description,
             f.FileSize, f.DurationSeconds, f.PagesCount, f.ThumbnailUrl,
-            f.ViewsCount, false // TODO: Check if student favorited
+            f.ViewsCount, favoriteFileIds.Contains(f.Id)
         )).ToList();
 
         return new PagedResult<LibraryFileListItemDto>(items, total, req.Page, req.PageSize, (int)Math.Ceiling(total / (double)req.PageSize));

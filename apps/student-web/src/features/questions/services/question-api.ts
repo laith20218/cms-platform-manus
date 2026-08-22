@@ -1,13 +1,14 @@
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
 
-export interface FavoriteQuestion {
+export interface FavoriteItem {
   favoriteId: string;
-  questionId: string;
+  targetType: 'question' | 'file';
+  targetId: string;
   subjectId: string;
-  text: string;
-  difficulty: string;
-  lectureTitle?: string | null;
+  title: string;
+  subtitle?: string | null;
+  meta: string;
   createdAt: string;
 }
 
@@ -34,7 +35,7 @@ export const questionApi = {
     await apiClient.post(`/questions/${questionId}/report`, { reasonType, description });
   },
 
-  getFavorites: async (): Promise<FavoriteQuestion[]> => {
+  getFavorites: async (): Promise<FavoriteItem[]> => {
     const res = await apiClient.get('/favorites', await entitlementRequestConfig());
     return res.data;
   },
@@ -42,7 +43,7 @@ export const questionApi = {
   toggleFavorite: async (questionId: string, isFavorite: boolean) => {
     const config = await entitlementRequestConfig();
     if (isFavorite) {
-      await apiClient.delete(`/favorites/${questionId}`, config);
+      await apiClient.delete(`/favorites/questions/${questionId}`, config);
     } else {
       await apiClient.post('/favorites', { questionId }, config);
     }

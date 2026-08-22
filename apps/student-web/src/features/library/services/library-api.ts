@@ -45,4 +45,13 @@ export const libraryApi = {
   recordView: async (id: string, durationSeconds: number, pagesViewed?: number, completionPercentage?: number) => {
     await apiClient.post(`/library/${id}/view`, { durationSeconds, pagesViewed, completionPercentage }, await entitlementRequestConfig());
   },
+
+  toggleFavorite: async (fileId: string, isFavorite: boolean) => {
+    const config = await entitlementRequestConfig();
+    if (isFavorite) {
+      await apiClient.delete(`/favorites/files/${fileId}`, config);
+    } else {
+      await apiClient.post('/favorites', { libraryFileId: fileId }, config);
+    }
+  },
 };

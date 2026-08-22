@@ -1,11 +1,11 @@
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
   FileText, Image as ImageIcon, Video, BookOpen, FileCode,
-  ChevronLeft, Eye, Loader2, X, Download, Shield,
+  Bookmark, ChevronLeft, Eye, Loader2, X, Download, Shield,
 } from 'lucide-react';
 import { libraryApi, type LibraryFile, type FileAccess } from './services/library-api';
 import { academicApi } from '@/features/subjects/services/academic-api';
@@ -22,6 +22,7 @@ const typeConfig = {
 
 export default function LibraryPage() {
   const { subjectSlug } = useParams<{ subjectSlug: string }>();
+  const queryClient = useQueryClient();
   const [selectedFile, setSelectedFile] = useState<LibraryFile | null>(null);
   const [filterType, setFilterType] = useState<string | undefined>(undefined);
 
@@ -40,6 +41,14 @@ export default function LibraryPage() {
 
   const isLoading = subjectLoading || filesLoading;
   const files: LibraryFile[] = data?.items || [];
+  const toggleFavorite = useMutation({
+    mutationFn: (file: LibraryFile) => libraryApi.toggleFavorite(file.id, file.isFavorite),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['library', subjectId] });
+      queryClient.invalidateQueries({ queryKey: ['favorites'] });
+    },
+    onError: () => toast.error('تعذر تحديث المفضلة. تحقق من اتصالك واستحقاقك.'),
+  });
 
   return (
     <div className="space-y-5">
@@ -126,7 +135,20 @@ export default function LibraryPage() {
                     <Eye className="w-3.5 h-3.5" />
                     <strong className="text-[var(--c-text-soft)]" lang="en">{file.viewsCount}</strong> مشاهدة
                   </span>
-                  <span lang="en">{formatFileSize(file.fileSize)}</span>
+                  <div className="flex items-center gap-2">
+                    <span lang="en">{formatFileSize(file.fileSize)}</span>
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleFavorite.mutate(file);
+                      }}
+                      disabled={toggleFavorite.isPending}
+                      aria-label={file.isFavorite ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة'}
+                      className={`rounded-md p-1 transition-colors disabled:opacity-50 ${file.isFavorite ? 'text-[var(--c-primary-700)]' : 'text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]'}`}
+                    >
+                      <Bookmark className="h-4 w-4" fill={file.isFavorite ? 'currentColor' : 'none'} />
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             );
