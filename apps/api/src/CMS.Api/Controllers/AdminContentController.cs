@@ -105,7 +105,7 @@ public sealed class AdminContentController : ControllerBase
             .Where(lecture => lecture.SubjectId == subjectId && lecture.DeletedAt == null)
             .OrderBy(lecture => lecture.LectureNumber)
             .Select(lecture => new AdminLectureListItem(
-                lecture.Id, lecture.SubjectId, lecture.TitleAr, lecture.TitleEn, lecture.Slug,
+                lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug,
                 lecture.LectureNumber, lecture.DurationMinutes, lecture.Status))
             .ToListAsync(ct);
         return Ok(lectures);
