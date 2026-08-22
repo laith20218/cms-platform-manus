@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using CMS.Application.Commands.Dashboard;
@@ -381,7 +382,6 @@ public class AdminManagementHandlers :
 
         var codes = new List<string>();
         var codeEntities = new List<SubscriptionCode>();
-        var random = new Random();
         const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // No 0, O, 1, I, L
 
         for (int i = 0; i < req.Quantity; i++)
@@ -389,7 +389,7 @@ public class AdminManagementHandlers :
             string code;
             do {
                 code = new string(Enumerable.Repeat(chars, 12)
-                    .Select(s => s[random.Next(s.Length)]).ToArray());
+                    .Select(s => s[RandomNumberGenerator.GetInt32(s.Length)]).ToArray());
             } while (await _db.SubscriptionCodes.AnyAsync(c => c.Code == code, ct));
 
             var prefix = req.Prefix ?? "";
