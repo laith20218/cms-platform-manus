@@ -26,6 +26,7 @@ public interface IApplicationDbContext
 
     DbSet<LibraryFile> LibraryFiles { get; }
     DbSet<LibraryView> LibraryViews { get; }
+    DbSet<LectureCompletion> LectureCompletions { get; }
 
     DbSet<Student> Students { get; }
     DbSet<Admin> Admins { get; }

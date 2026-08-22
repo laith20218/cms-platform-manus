@@ -50,7 +50,12 @@ export interface LectureSummary {
   titleAr: string;
   questionsCount: number;
   durationMinutes?: number | null;
+  description?: string | null;
+  instructorName?: string | null;
+  sourceReference?: string | null;
   userProgress?: number;
+  isCompleted: boolean;
+  completedAt?: string | null;
 }
 
 export const academicApi = {
@@ -81,5 +86,12 @@ export const academicApi = {
   getLectures: async (subjectId: string) => {
     const res = await apiClient.get<LectureSummary[]>(`/subjects/${subjectId}/lectures`, await entitlementRequestConfig());
     return res.data;
+  },
+  getLecture: async (lectureId: string) => {
+    const res = await apiClient.get<LectureSummary>(`/lectures/${lectureId}`, await entitlementRequestConfig());
+    return res.data;
+  },
+  completeLecture: async (lectureId: string) => {
+    await apiClient.post(`/lectures/${lectureId}/complete`, undefined, await entitlementRequestConfig());
   },
 };

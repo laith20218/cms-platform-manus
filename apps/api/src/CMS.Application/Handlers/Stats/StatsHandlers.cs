@@ -59,6 +59,13 @@ public class StatsHandlers :
             .CountAsync(s => s.StudentId == req.StudentId && s.Status == ExamSessionStatus.Completed && s.CompletedAt >= cutoff, ct);
 
         var favoriteCount = await _db.Favorites.CountAsync(f => f.StudentId == req.StudentId, ct);
+        var completedLectures = await _db.LectureCompletions.AsNoTracking()
+            .CountAsync(completion => completion.StudentId == req.StudentId && completion.CompletedAt >= cutoff, ct);
+        var readFiles = await _db.LibraryViews.AsNoTracking()
+            .Where(view => view.StudentId == req.StudentId && view.ViewedAt >= cutoff)
+            .Select(view => view.FileId)
+            .Distinct()
+            .CountAsync(ct);
 
         // By subject. Completion counts unique answered questions against the
         // currently published bank, never raw attempts (which may be repeated).
@@ -102,7 +109,7 @@ public class StatsHandlers :
             totalQuestions, correctAnswers, accuracy,
             student.CurrentStreak, student.LongestStreak,
             studyTimeMinutes, examsCompleted, favoriteCount,
-            bySubject, byDifficulty
+            bySubject, byDifficulty, completedLectures, readFiles
         );
 
         await _cache.SetAsync(cacheKey, result, TimeSpan.FromMinutes(5), ct);

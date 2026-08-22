@@ -95,6 +95,20 @@ public class LibraryView : BaseEntity
 }
 
 /// <summary>
+/// An explicit acknowledgement by a student that a lecture has been completed.
+/// One durable record exists for each student and lecture pair.
+/// </summary>
+public class LectureCompletion : BaseEntity
+{
+    public Guid StudentId { get; set; }
+    public Guid LectureId { get; set; }
+    public DateTime CompletedAt { get; set; } = DateTime.UtcNow;
+
+    public Student Student { get; set; } = null!;
+    public Lecture Lecture { get; set; } = null!;
+}
+
+/// <summary>
 /// A device trusted for a student account. A single active binding enforces the device-control policy.
 /// </summary>
 public class DeviceBinding : BaseEntity

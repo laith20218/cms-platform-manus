@@ -53,6 +53,21 @@ public class LibraryController : ControllerBase
     }
 
     /// <summary>
+    /// Get the published text assets explicitly linked to one lecture.
+    /// </summary>
+    [HttpGet("lectures/{lectureId:guid}/text-files")]
+    [Authorize]
+    public async Task<IActionResult> GetLectureTextFiles(Guid lectureId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+        var subjectId = await SubjectIdForLectureAsync(lectureId, ct);
+        var rejection = await EntitlementRejectionAsync(studentId.Value, subjectId, ct);
+        if (rejection is not null) return rejection;
+        return Ok(await _mediator.Send(new GetLectureTextFilesQuery(studentId.Value, lectureId, page, pageSize), ct));
+    }
+
+    /// <summary>
     /// Get a single library file details.
     /// </summary>
     [HttpGet("{id:guid}")]
@@ -111,6 +126,19 @@ public class LibraryController : ControllerBase
         return await db.LibraryFiles.AsNoTracking()
             .Where(file => file.Id == fileId)
             .Select(file => (Guid?)file.SubjectId)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    private async Task<Guid?> SubjectIdForLectureAsync(Guid lectureId, CancellationToken ct)
+    {
+        var db = HttpContext.RequestServices.GetRequiredService<IApplicationDbContext>();
+        return await db.Lectures.AsNoTracking()
+            .Where(lecture => lecture.Id == lectureId && lecture.DeletedAt == null && lecture.Status == "active"
+                && lecture.Subject.DeletedAt == null && lecture.Subject.Semester.DeletedAt == null
+                && lecture.Subject.Semester.AcademicYear.DeletedAt == null
+                && lecture.Subject.Semester.AcademicYear.College.DeletedAt == null
+                && lecture.Subject.Semester.AcademicYear.College.University.DeletedAt == null)
+            .Select(lecture => (Guid?)lecture.SubjectId)
             .FirstOrDefaultAsync(ct);
     }
 

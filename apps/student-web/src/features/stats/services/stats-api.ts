@@ -9,6 +9,8 @@ export interface StudentStats {
   studyTimeMinutes: number;
   examsCompleted: number;
   favoriteCount: number;
+  completedLectures: number;
+  readFiles: number;
   bySubject: { subjectId: string; subjectName: string; questionsAnswered: number; accuracy: number; completedPercentage: number }[];
   byDifficulty: { easy: { answered: number; accuracy: number }; medium: { answered: number; accuracy: number }; hard: { answered: number; accuracy: number } };
 }

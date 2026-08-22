@@ -15,6 +15,7 @@ namespace CMS.Application.Handlers.Library;
 /// </summary>
 public class LibraryHandlers :
     IRequestHandler<GetLibraryFilesQuery, PagedResult<LibraryFileListItemDto>>,
+    IRequestHandler<GetLectureTextFilesQuery, PagedResult<LibraryFileListItemDto>>,
     IRequestHandler<GetLibraryFileByIdQuery, LibraryFileDto>,
     IRequestHandler<GetFileAccessCommand, FileAccessDto>,
     IRequestHandler<RecordFileViewCommand, Unit>,
@@ -84,6 +85,44 @@ public class LibraryHandlers :
             f.ViewsCount, favoriteFileIds.Contains(f.Id)
         )).ToList();
 
+        return new PagedResult<LibraryFileListItemDto>(items, total, req.Page, req.PageSize, (int)Math.Ceiling(total / (double)req.PageSize));
+    }
+
+    public async Task<PagedResult<LibraryFileListItemDto>> Handle(GetLectureTextFilesQuery req, CancellationToken ct)
+    {
+        var lecture = await _db.Lectures.AsNoTracking()
+            .Where(item => item.Id == req.LectureId && item.DeletedAt == null && item.Status == "active"
+                && item.Subject.DeletedAt == null && item.Subject.Semester.DeletedAt == null
+                && item.Subject.Semester.AcademicYear.DeletedAt == null
+                && item.Subject.Semester.AcademicYear.College.DeletedAt == null
+                && item.Subject.Semester.AcademicYear.College.University.DeletedAt == null)
+            .Select(item => new { item.Id, item.SubjectId })
+            .FirstOrDefaultAsync(ct)
+            ?? throw new NotFoundException("Lecture", req.LectureId);
+        if (!await _entitlements.CanAccessSubjectContentAsync(req.StudentId, lecture.SubjectId, SubscriptionContentScope.LecturesText, ct))
+            throw new ForbiddenException("لا تملك صلاحية الوصول إلى ملفات هذه المحاضرة");
+
+        var files = await _db.LibraryFiles.AsNoTracking()
+            .Where(file => file.LectureId == lecture.Id
+                && file.Status == ContentStatus.Published
+                && file.DeletedAt == null
+                && file.Type != LibraryFileType.Video
+                && file.Type != LibraryFileType.Audio)
+            .OrderByDescending(file => file.CreatedAt)
+            .ToListAsync(ct);
+        var total = files.Count;
+        files = files.Skip((req.Page - 1) * req.PageSize).Take(req.PageSize).ToList();
+        var visibleFileIds = files.Select(file => file.Id).ToList();
+        var favoriteFileIds = await _db.Favorites.AsNoTracking()
+            .Where(favorite => favorite.StudentId == req.StudentId
+                && favorite.LibraryFileId.HasValue
+                && visibleFileIds.Contains(favorite.LibraryFileId.Value))
+            .Select(favorite => favorite.LibraryFileId!.Value)
+            .ToHashSetAsync(ct);
+        var items = files.Select(file => new LibraryFileListItemDto(
+            file.Id, file.Type.ToString(), file.Title, file.Description,
+            file.FileSize, file.DurationSeconds, file.PagesCount, file.ThumbnailUrl,
+            file.ViewsCount, favoriteFileIds.Contains(file.Id))).ToList();
         return new PagedResult<LibraryFileListItemDto>(items, total, req.Page, req.PageSize, (int)Math.Ceiling(total / (double)req.PageSize));
     }
 

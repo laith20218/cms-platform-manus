@@ -13,6 +13,7 @@ const ResetPasswordPage = lazy(() => import('@/features/auth/pages/ResetPassword
 const DashboardPage = lazy(() => import('@/features/dashboard/DashboardPage').then(({ DashboardPage }) => ({ default: DashboardPage })));
 const SubjectsPage = lazy(() => import('@/features/subjects/SubjectsPage'));
 const SubjectDetailPage = lazy(() => import('@/features/subjects/SubjectDetailPage'));
+const LecturePage = lazy(() => import('@/features/subjects/LecturePage'));
 const QuestionPage = lazy(() => import('@/features/questions/QuestionPage'));
 const FavoritesPage = lazy(() => import('@/features/questions/FavoritesPage'));
 const ExamPage = lazy(() => import('@/features/exams/pages/ExamPage'));
@@ -42,7 +43,8 @@ export function AppRoutes() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/subjects" element={<SubjectsPage />} />
           <Route path="/subjects/:subjectSlug" element={<SubjectDetailPage />} />
-          <Route path="/subjects/:subjectSlug/lectures/:lectureId" element={<QuestionPage />} />
+          <Route path="/subjects/:subjectSlug/lectures/:lectureId" element={<LecturePage />} />
+          <Route path="/subjects/:subjectSlug/lectures/:lectureId/questions" element={<QuestionPage />} />
           <Route path="/favorites" element={<FavoritesPage />} />
           <Route path="/exams/:examId" element={<ExamPage />} />
           <Route path="/exams/:sessionId/review" element={<ExamReviewPage />} />

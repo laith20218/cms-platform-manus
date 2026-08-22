@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import {
-  Target, Flame, Clock, BarChart3, Trophy, Star, ChevronLeft,
+  Target, Flame, Clock, BarChart3, Trophy, Star, ChevronLeft, FileCheck2,
   TrendingUp, Loader2, BookOpen, Award,
 } from 'lucide-react';
 import { statsApi } from '../services/stats-api';
@@ -35,6 +35,8 @@ export default function StatsPage() {
     { icon: Trophy, label: 'أطول سلسلة', value: stats.longestStreak, color: 'primary' },
     { icon: Clock, label: 'وقت الدراسة', value: formatTime(stats.studyTimeMinutes), color: 'accent' },
     { icon: BarChart3, label: 'اختبارات مكتملة', value: stats.examsCompleted, color: 'success' },
+    { icon: BookOpen, label: 'محاضرات مكتملة', value: stats.completedLectures, color: 'success' },
+    { icon: FileCheck2, label: 'ملفات مقروءة', value: stats.readFiles, color: 'accent' },
     { icon: Star, label: 'المفضلة', value: stats.favoriteCount, color: 'warning' },
     { icon: Award, label: 'الأسئلة الصحيحة', value: stats.correctAnswers, color: 'primary' },
   ];

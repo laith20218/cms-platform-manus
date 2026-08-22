@@ -167,7 +167,7 @@ export default function LibraryPage() {
 }
 
 // ===== File Viewer Component =====
-function FileViewer({ file, onClose }: { file: LibraryFile; onClose: () => void }) {
+export function FileViewer({ file, onClose }: { file: LibraryFile; onClose: () => void }) {
   const [access, setAccess] = useState<FileAccess | null>(null);
   const [loading, setLoading] = useState(true);
   const [viewStartTime] = useState(Date.now());

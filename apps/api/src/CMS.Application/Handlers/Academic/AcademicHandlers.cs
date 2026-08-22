@@ -26,15 +26,18 @@ public class AcademicQueryHandlers :
     IRequestHandler<GetSubjectByIdQuery, SubjectDto>,
     IRequestHandler<GetSubjectBySlugQuery, SubjectDto>,
     IRequestHandler<GetLecturesBySubjectQuery, List<LectureDto>>,
-    IRequestHandler<GetLectureByIdQuery, LectureDto>
+    IRequestHandler<GetLectureByIdQuery, LectureDto>,
+    IRequestHandler<CompleteLectureCommand, Unit>
 {
     private readonly IApplicationDbContext _db;
     private readonly IEntitlementService _entitlements;
+    private readonly ICacheService _cache;
 
-    public AcademicQueryHandlers(IApplicationDbContext db, IEntitlementService entitlements)
+    public AcademicQueryHandlers(IApplicationDbContext db, IEntitlementService entitlements, ICacheService cache)
     {
         _db = db;
         _entitlements = entitlements;
+        _cache = cache;
     }
 
     public async Task<PagedResult<UniversityDto>> Handle(GetUniversitiesQuery req, CancellationToken ct)
@@ -179,6 +182,15 @@ public class AcademicQueryHandlers :
             var total = lecture.QuestionsCount;
             lectures[lectures.IndexOf(lecture)] = lecture with { UserAnswered = answered, UserProgress = total > 0 ? answered * 100.0 / total : 0 };
         }
+
+        var completedAtByLecture = await _db.LectureCompletions.AsNoTracking()
+            .Where(completion => completion.StudentId == req.StudentId.Value && lectures.Select(lecture => lecture.Id).Contains(completion.LectureId))
+            .ToDictionaryAsync(completion => completion.LectureId, completion => completion.CompletedAt, ct);
+        for (var index = 0; index < lectures.Count; index++)
+        {
+            if (completedAtByLecture.TryGetValue(lectures[index].Id, out var completedAt))
+                lectures[index] = lectures[index] with { IsCompleted = true, CompletedAt = completedAt };
+        }
         return lectures;
     }
 
@@ -195,13 +207,49 @@ public class AcademicQueryHandlers :
                 req.StudentId, lecture.SubjectId, SubscriptionContentScope.LecturesText, ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
 
-        return await _db.Lectures.AsNoTracking().Where(item => item.Id == lecture.Id)
+        var result = await _db.Lectures.AsNoTracking().Where(item => item.Id == lecture.Id)
             .Select(item => new LectureDto(
                 item.Id, item.SubjectId, item.NameAr, item.NameEn, item.Slug, item.LectureNumber, item.DurationMinutes,
                 item.Description, item.InstructorName, item.SourceReference,
                 _db.Questions.Count(question => question.LectureId == item.Id && question.Status == Domain.Enums.ContentStatus.Published),
                 0, 0, false))
             .SingleAsync(ct);
+        var completedAt = await _db.LectureCompletions.AsNoTracking()
+            .Where(completion => completion.StudentId == req.StudentId && completion.LectureId == lecture.Id)
+            .Select(completion => (DateTime?)completion.CompletedAt)
+            .FirstOrDefaultAsync(ct);
+        return completedAt.HasValue ? result with { IsCompleted = true, CompletedAt = completedAt } : result;
+    }
+
+    public async Task<Unit> Handle(CompleteLectureCommand req, CancellationToken ct)
+    {
+        var lecture = await _db.Lectures.AsNoTracking()
+            .Where(item => item.Id == req.LectureId && item.DeletedAt == null && item.Status == "active"
+                && item.Subject.DeletedAt == null && item.Subject.Semester.DeletedAt == null
+                && item.Subject.Semester.AcademicYear.DeletedAt == null
+                && item.Subject.Semester.AcademicYear.College.DeletedAt == null
+                && item.Subject.Semester.AcademicYear.College.University.DeletedAt == null)
+            .Select(item => new { item.Id, item.SubjectId })
+            .FirstOrDefaultAsync(ct)
+            ?? throw new NotFoundException("Lecture", req.LectureId);
+
+        if (!await _entitlements.CanAccessSubjectContentAsync(
+                req.StudentId, lecture.SubjectId, SubscriptionContentScope.LecturesText, ct))
+            throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المحاضرة");
+
+        var alreadyCompleted = await _db.LectureCompletions.AsNoTracking()
+            .AnyAsync(completion => completion.StudentId == req.StudentId && completion.LectureId == lecture.Id, ct);
+        if (alreadyCompleted) return Unit.Value;
+
+        _db.LectureCompletions.Add(new LectureCompletion
+        {
+            StudentId = req.StudentId,
+            LectureId = lecture.Id,
+            CompletedAt = DateTime.UtcNow
+        });
+        await _db.SaveChangesAsync(ct);
+        await _cache.RemoveByPatternAsync($"stats:student:{req.StudentId}:*", ct);
+        return Unit.Value;
     }
 
     private IQueryable<Subject> VisibleSubjectQuery() => _db.Subjects.AsNoTracking().Where(subject =>

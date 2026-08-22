@@ -278,6 +278,19 @@ public class AcademicController : ControllerBase
         return Ok(await _mediator.Send(new GetLectureByIdQuery(id, studentId.Value), ct));
     }
 
+    [HttpPost("lectures/{id:guid}/complete")]
+    [Authorize]
+    public async Task<IActionResult> CompleteLecture(Guid id, CancellationToken ct)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+        var subjectId = await SubjectIdForLectureAsync(id, ct);
+        var rejection = await EntitlementRejectionAsync(studentId.Value, subjectId, ct);
+        if (rejection is not null) return rejection;
+        await _mediator.Send(new CompleteLectureCommand(id, studentId.Value), ct);
+        return NoContent();
+    }
+
     [HttpPost("lectures")]
     [Authorize(Roles = "admin,super_admin")]
     public async Task<ActionResult<LectureDto>> CreateLecture([FromBody] CreateLectureDto dto, CancellationToken ct)

@@ -34,6 +34,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     // Library
     public DbSet<LibraryFile> LibraryFiles => Set<LibraryFile>();
     public DbSet<LibraryView> LibraryViews => Set<LibraryView>();
+    public DbSet<LectureCompletion> LectureCompletions => Set<LectureCompletion>();
 
     // Users
     public DbSet<Student> Students => Set<Student>();
@@ -85,6 +86,11 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         {
             entity.HasIndex(x => new { x.StudentId, x.SubscriptionCodeId }).IsUnique();
             entity.HasIndex(x => new { x.StudentId, x.Status, x.ExpiresAt });
+        });
+        modelBuilder.Entity<LectureCompletion>(entity =>
+        {
+            entity.HasIndex(x => new { x.StudentId, x.LectureId }).IsUnique();
+            entity.HasIndex(x => new { x.StudentId, x.CompletedAt });
         });
         modelBuilder.Entity<SecurityLog>(entity =>
         {

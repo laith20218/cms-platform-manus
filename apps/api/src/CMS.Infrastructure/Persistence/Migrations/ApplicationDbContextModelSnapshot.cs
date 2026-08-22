@@ -1086,6 +1086,49 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.ToTable("library_views");
                 });
 
+            modelBuilder.Entity("CMS.Domain.Entities.LectureCompletion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("LectureId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lecture_id");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("student_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_lecture_completions");
+
+                    b.HasIndex("LectureId")
+                        .HasDatabaseName("ix_lecture_completions_lecture_id");
+
+                    b.HasIndex("StudentId", "CompletedAt")
+                        .HasDatabaseName("ix_lecture_completions_student_id_completed_at");
+
+                    b.HasIndex("StudentId", "LectureId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_lecture_completions_student_id_lecture_id");
+
+                    b.ToTable("lecture_completions");
+                });
+
             modelBuilder.Entity("CMS.Domain.Entities.Notification", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2521,6 +2564,27 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_lectures_subjects_subject_id");
 
                     b.Navigation("Subject");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.LectureCompletion", b =>
+                {
+                    b.HasOne("CMS.Domain.Entities.Lecture", "Lecture")
+                        .WithMany()
+                        .HasForeignKey("LectureId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_lecture_completions_lectures_lecture_id");
+
+                    b.HasOne("CMS.Domain.Entities.Student", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_lecture_completions_students_student_id");
+
+                    b.Navigation("Lecture");
+
+                    b.Navigation("Student");
                 });
 
             modelBuilder.Entity("CMS.Domain.Entities.LibraryFile", b =>

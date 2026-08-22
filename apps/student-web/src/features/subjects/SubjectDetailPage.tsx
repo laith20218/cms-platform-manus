@@ -102,7 +102,9 @@ export default function SubjectDetailPage() {
                     </div>
                   </div>
                 </div>
-                {lec.userProgress !== undefined && lec.questionsCount > 0 && (
+                {lec.isCompleted ? (
+                  <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--c-success-50)] px-2.5 py-1 text-xs font-bold text-[var(--c-success-700)]"><BookOpen className="h-3.5 w-3.5" />مكتملة</div>
+                ) : lec.userProgress !== undefined && lec.questionsCount > 0 && (
                   <div>
                     <div className="flex justify-between text-xs mb-1">
                       <span className="text-[var(--c-text-muted)]">تقدّمك</span>

@@ -47,6 +47,7 @@ public record UpdateSubjectCommand(Guid Id, string NameAr, string? NameEn, strin
 // ===== Lectures =====
 public record GetLecturesBySubjectQuery(Guid SubjectId, Guid? StudentId = null, bool IncludeArchived = false) : IRequest<List<LectureDto>>;
 public record GetLectureByIdQuery(Guid Id, Guid StudentId) : IRequest<LectureDto>;
+public record CompleteLectureCommand(Guid LectureId, Guid StudentId) : IRequest<Unit>;
 public record CreateLectureCommand(Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, string? Description, string? InstructorName, string? SourceReference, Guid CreatedBy) : IRequest<LectureDto>;
 public record UpdateLectureCommand(Guid Id, string TitleAr, string? TitleEn, int? DurationMinutes, string? Description, string? InstructorName, string? SourceReference) : IRequest<LectureDto>;
 public record PublishLectureCommand(Guid Id, Guid PublishedBy) : IRequest<LectureDto>;

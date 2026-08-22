@@ -1,6 +1,14 @@
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
 
+interface PagedLibraryFiles {
+  items: LibraryFile[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export interface LibraryFile {
   id: string;
   type: string; // pdf, html, image, video, summary, comprehensive, paragraph
@@ -29,6 +37,11 @@ export const libraryApi = {
   getFiles: async (subjectId: string, type?: string, page = 1, pageSize = 20) => {
     const config = await entitlementRequestConfig();
     const res = await apiClient.get(`/library/subject/${subjectId}`, { ...config, params: { type, page, pageSize } });
+    return res.data;
+  },
+
+  getLectureTextFiles: async (lectureId: string, page = 1, pageSize = 20) => {
+    const res = await apiClient.get<PagedLibraryFiles>(`/library/lectures/${lectureId}/text-files`, { ...(await entitlementRequestConfig()), params: { page, pageSize } });
     return res.data;
   },
 

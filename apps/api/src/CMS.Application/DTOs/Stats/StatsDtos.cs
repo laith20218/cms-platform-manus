@@ -11,7 +11,9 @@ public record StudentStatsDto(
     int ExamsCompleted,
     int FavoriteCount,
     List<SubjectStatsDto> BySubject,
-    DifficultyStatsDto ByDifficulty
+    DifficultyStatsDto ByDifficulty,
+    int CompletedLectures,
+    int ReadFiles
 );
 
 public record SubjectStatsDto(

@@ -102,7 +102,9 @@ public record LectureDto(
     int QuestionsCount,
     int UserAnswered,
     double UserProgress,
-    bool IsArchived
+    bool IsArchived,
+    bool IsCompleted = false,
+    DateTime? CompletedAt = null
 );
 
 public record CreateLectureDto(Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, string? Description = null, string? InstructorName = null, string? SourceReference = null);

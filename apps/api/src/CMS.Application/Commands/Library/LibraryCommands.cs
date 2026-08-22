@@ -12,6 +12,13 @@ public record GetLibraryFilesQuery(
     int PageSize = 20
 ) : IRequest<PagedResult<LibraryFileListItemDto>>;
 
+public record GetLectureTextFilesQuery(
+    Guid StudentId,
+    Guid LectureId,
+    int Page = 1,
+    int PageSize = 20
+) : IRequest<PagedResult<LibraryFileListItemDto>>;
+
 public record GetLibraryFileByIdQuery(Guid Id, Guid? StudentId) : IRequest<LibraryFileDto>;
 
 // ===== Access =====
