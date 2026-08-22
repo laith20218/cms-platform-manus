@@ -28,7 +28,11 @@ public class QuestionQueryHandlers :
     public async Task<PagedResult<QuestionListItemDto>> Handle(GetQuestionsQuery req, CancellationToken ct)
     {
         if (!req.StudentId.HasValue || !req.SubjectId.HasValue
-            || !await _entitlements.CanAccessSubjectAsync(req.StudentId.Value, req.SubjectId.Value, "read", ct))
+            || !await _entitlements.CanAccessSubjectContentAsync(
+                req.StudentId.Value,
+                req.SubjectId.Value,
+                SubscriptionContentScope.QuestionsExams,
+                ct))
             throw new ForbiddenException("لا تملك صلاحية الوصول إلى هذه المادة");
 
         var query = _db.Questions.AsNoTracking()
@@ -126,8 +130,20 @@ public class QuestionQueryHandlers :
 
     public async Task<List<QuestionListItemDto>> Handle(GetQuestionsByLectureQuery req, CancellationToken ct)
     {
+        var subjectId = await _db.Lectures.AsNoTracking()
+            .Where(lecture => lecture.Id == req.LectureId && lecture.Status == "active" && lecture.DeletedAt == null)
+            .Select(lecture => (Guid?)lecture.SubjectId)
+            .FirstOrDefaultAsync(ct);
+        if (!req.StudentId.HasValue || !subjectId.HasValue
+            || !await _entitlements.CanAccessSubjectContentAsync(
+                req.StudentId.Value,
+                subjectId.Value,
+                SubscriptionContentScope.QuestionsExams,
+                ct))
+            throw new ForbiddenException("لا تملك صلاحية الوصول إلى أسئلة هذه المحاضرة");
+
         var questions = await _db.Questions.AsNoTracking()
-            .Where(q => q.LectureId == req.LectureId && q.Status == ContentStatus.Published)
+            .Where(q => q.LectureId == req.LectureId && q.SubjectId == subjectId.Value && q.Status == ContentStatus.Published)
             .OrderBy(q => q.CreatedAt)
             .Include(q => q.Lecture)
             .ToListAsync(ct);
