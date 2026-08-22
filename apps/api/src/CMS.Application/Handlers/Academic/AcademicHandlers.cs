@@ -4,6 +4,7 @@ using CMS.Application.Commands.Academic;
 using CMS.Application.DTOs.Academic;
 using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
+using CMS.Domain.Enums;
 using CMS.Domain.Exceptions;
 
 namespace CMS.Application.Handlers.Academic;
@@ -156,7 +157,8 @@ public class AcademicQueryHandlers :
 
     public async Task<List<LectureDto>> Handle(GetLecturesBySubjectQuery req, CancellationToken ct)
     {
-        if (!req.StudentId.HasValue || !await _entitlements.CanAccessSubjectAsync(req.StudentId.Value, req.SubjectId, "read_lecture", ct))
+        if (!req.StudentId.HasValue || !await _entitlements.CanAccessSubjectContentAsync(
+                req.StudentId.Value, req.SubjectId, SubscriptionContentScope.LecturesText, ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
 
         var lectures = await _db.Lectures.AsNoTracking()
@@ -189,7 +191,8 @@ public class AcademicQueryHandlers :
             .FirstOrDefaultAsync(ct)
             ?? throw new NotFoundException("Lecture", req.Id);
 
-        if (!await _entitlements.CanAccessSubjectAsync(req.StudentId, lecture.SubjectId, "read_lecture", ct))
+        if (!await _entitlements.CanAccessSubjectContentAsync(
+                req.StudentId, lecture.SubjectId, SubscriptionContentScope.LecturesText, ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
 
         return await _db.Lectures.AsNoTracking().Where(item => item.Id == lecture.Id)
