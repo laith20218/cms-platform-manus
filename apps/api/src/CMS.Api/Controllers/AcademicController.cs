@@ -18,11 +18,13 @@ public class AcademicController : ControllerBase
 {
     private readonly MediatR.ISender _mediator;
     private readonly IPermissionService _permissions;
+    private readonly IServiceProvider _services;
 
-    public AcademicController(MediatR.ISender mediator, IPermissionService permissions)
+    public AcademicController(MediatR.ISender mediator, IPermissionService permissions, IServiceProvider services)
     {
         _mediator = mediator;
         _permissions = permissions;
+        _services = services;
     }
 
     private Guid? GetStudentId() => Guid.TryParse(User.FindFirst("sub")?.Value, out var id) ? id : null;
@@ -208,7 +210,8 @@ public class AcademicController : ControllerBase
             ?? Request.Headers["X-Device-Fingerprint"].FirstOrDefault();
         if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(installationId)) return Unauthorized();
 
-        var validation = await _signedEntitlements.ValidateAsync(token, studentId, installationId, subjectId, ct);
+        var signedEntitlements = _services.GetRequiredService<ISignedEntitlementService>();
+        var validation = await signedEntitlements.ValidateAsync(token, studentId, installationId, subjectId, ct);
         return validation.IsValid ? null : Forbid();
     }
 
