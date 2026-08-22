@@ -27,7 +27,8 @@ public class ExamQueryHandlers :
 
     public async Task<List<ExamListItemDto>> Handle(GetExamsBySubjectQuery req, CancellationToken ct)
     {
-        if (!req.StudentId.HasValue || !await _entitlements.CanAccessSubjectAsync(req.StudentId.Value, req.SubjectId, "read", ct))
+        if (!req.StudentId.HasValue || !await _entitlements.CanAccessSubjectContentAsync(
+                req.StudentId.Value, req.SubjectId, SubscriptionContentScope.QuestionsExams, ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
 
         var exams = await _db.Exams.AsNoTracking()
@@ -67,7 +68,8 @@ public class ExamQueryHandlers :
             .FirstOrDefaultAsync(e => e.Id == req.Id && e.Status == ContentStatus.Published && e.DeletedAt == null, ct)
             ?? throw new NotFoundException("Exam", req.Id);
 
-        if (!await _entitlements.CanAccessSubjectAsync(req.StudentId, exam.SubjectId, "read", ct))
+        if (!await _entitlements.CanAccessSubjectContentAsync(
+                req.StudentId, exam.SubjectId, SubscriptionContentScope.QuestionsExams, ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
 
         return new ExamDto(
@@ -116,7 +118,8 @@ public class ExamSessionHandlers :
             .FirstOrDefaultAsync(e => e.Id == req.ExamId && e.Status == ContentStatus.Published, ct)
             ?? throw new NotFoundException("Exam", req.ExamId);
 
-        if (!await _entitlements.CanAccessSubjectAsync(req.StudentId, exam.SubjectId, "start_exam", ct))
+        if (!await _entitlements.CanAccessSubjectContentAsync(
+                req.StudentId, exam.SubjectId, SubscriptionContentScope.QuestionsExams, ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
 
         // Check if student already has an in-progress session
@@ -274,7 +277,8 @@ public class ExamSessionHandlers :
         if (session.Status != ExamSessionStatus.Completed)
             throw new ConflictException("لم يتم تسليم هذا الاختبار بعد");
 
-        if (!await _entitlements.CanAccessSubjectAsync(req.StudentId, session.Exam.SubjectId, "read_result", ct))
+        if (!await _entitlements.CanAccessSubjectContentAsync(
+                req.StudentId, session.Exam.SubjectId, SubscriptionContentScope.QuestionsExams, ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
 
         // Recalculate weak topics from attempt logs
@@ -326,7 +330,8 @@ public class ExamSessionHandlers :
         if (!session.Exam.AllowReview)
             throw new ForbiddenException("هذا الاختبار لا يدعم المراجعة");
 
-        if (!await _entitlements.CanAccessSubjectAsync(req.StudentId, session.Exam.SubjectId, "review", ct))
+        if (!await _entitlements.CanAccessSubjectContentAsync(
+                req.StudentId, session.Exam.SubjectId, SubscriptionContentScope.QuestionsExams, ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
 
         var attempts = await _db.AttemptLogs
