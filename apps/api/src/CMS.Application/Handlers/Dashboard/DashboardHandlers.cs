@@ -388,6 +388,7 @@ public class AdminManagementHandlers :
         var codes = new List<string>();
         var codeEntities = new List<SubscriptionCode>();
         const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // No 0, O, 1, I, L
+        var prefix = req.Prefix?.Trim().ToUpperInvariant() ?? "";
 
         for (int i = 0; i < req.Quantity; i++)
         {
@@ -397,7 +398,6 @@ public class AdminManagementHandlers :
                     .Select(s => s[RandomNumberGenerator.GetInt32(s.Length)]).ToArray());
             } while (await _db.SubscriptionCodes.AnyAsync(c => c.Code == code, ct));
 
-            var prefix = req.Prefix ?? "";
             var fullCode = prefix + code;
 
             var codeEntity = new SubscriptionCode
