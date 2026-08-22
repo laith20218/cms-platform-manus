@@ -8,6 +8,7 @@ import {
   ChevronLeft, Eye, Loader2, X, Download, Shield,
 } from 'lucide-react';
 import { libraryApi, type LibraryFile, type FileAccess } from './services/library-api';
+import { academicApi } from '@/features/subjects/services/academic-api';
 
 const typeConfig = {
   pdf: { icon: FileText, label: 'PDF', color: 'var(--c-danger-500)', bg: 'rgba(255,82,82,0.10)' },
@@ -24,14 +25,20 @@ export default function LibraryPage() {
   const [selectedFile, setSelectedFile] = useState<LibraryFile | null>(null);
   const [filterType, setFilterType] = useState<string | undefined>(undefined);
 
-  // Get subject ID from slug (simplified - in production, fetch subject by slug)
-  const subjectId = '00000000-0000-0000-0000-000000000001'; // Placeholder
+  const { data: subject, isLoading: subjectLoading } = useQuery({
+    queryKey: ['subject', subjectSlug],
+    queryFn: () => academicApi.getSubjectBySlug(subjectSlug!),
+    enabled: !!subjectSlug,
+  });
+  const subjectId = subject?.id;
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading: filesLoading } = useQuery({
     queryKey: ['library', subjectId, filterType],
-    queryFn: () => libraryApi.getFiles(subjectId, filterType),
+    queryFn: () => libraryApi.getFiles(subjectId!, filterType),
+    enabled: !!subjectId,
   });
 
+  const isLoading = subjectLoading || filesLoading;
   const files: LibraryFile[] = data?.items || [];
 
   return (
