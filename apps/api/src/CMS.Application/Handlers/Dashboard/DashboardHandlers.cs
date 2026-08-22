@@ -328,13 +328,15 @@ public class AdminManagementHandlers :
 
         var items = codes.Select(c => new CodeManagementDto(
             c.Id, c.Code, c.ScopeType.ToString(),
+            c.ContentScope.ToString(), c.IsPublic,
             c.ScopeSubjectId.HasValue
                 ? _db.Subjects.AsNoTracking().FirstOrDefault(s => s.Id == c.ScopeSubjectId)?.NameAr
                 : c.ScopeCollegeId.HasValue ? "كلية كاملة" : "نطاق عام",
             c.Status.ToString(),
             c.UsedAt,
             c.UsedBy.HasValue && students.TryGetValue(c.UsedBy.Value, out var s) ? s.FullName : null,
-            c.CreatedAt, c.CodeExpiresAt
+            c.CreatedAt, c.CodeExpiresAt,
+            _db.StudentSubscriptions.Count(subscription => subscription.SubscriptionCodeId == c.Id)
         )).ToList();
 
         return new PagedResult<CodeManagementDto>(items, total, req.Page, req.PageSize, (int)Math.Ceiling(total / (double)req.PageSize));
@@ -346,6 +348,15 @@ public class AdminManagementHandlers :
         var normalizedScopeType = req.ScopeType?.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(normalizedScopeType) || !Enum.TryParse<SubscriptionScopeType>(normalizedScopeType, true, out var scopeType) || !req.ScopeId.HasValue)
             throw new DomainException("نطاق الكود غير صالح", "INVALID_CODE_SCOPE");
+        var normalizedContentScope = req.ContentScope?.Trim().Replace("_", string.Empty).Replace("-", string.Empty);
+        if (string.IsNullOrWhiteSpace(normalizedContentScope) || !Enum.TryParse<SubscriptionContentScope>(normalizedContentScope, true, out var contentScope))
+            throw new DomainException("نطاق محتوى الكود غير صالح", "INVALID_CODE_CONTENT_SCOPE");
+        if (contentScope == SubscriptionContentScope.FullYear && scopeType != SubscriptionScopeType.Year)
+            throw new DomainException("رمز السنة الكاملة يجب أن يرتبط بسنة أكاديمية", "INVALID_FULL_YEAR_CODE_SCOPE");
+        if (contentScope != SubscriptionContentScope.FullYear && scopeType != SubscriptionScopeType.Subject)
+            throw new DomainException("رموز المحتوى الجزئي أو المادة الكاملة يجب أن ترتبط بمادة", "INVALID_SUBJECT_CODE_SCOPE");
+        if (req.Quantity is < 1 or > 1000 || req.DurationDays < 0)
+            throw new DomainException("كمية الأكواد أو مدة الوصول غير صالحة", "INVALID_CODE_GENERATION_REQUEST");
         if (!await _permissions.IsInScopeAsync(req.CreatedBy, ScopeEntityType(scopeType), req.ScopeId.Value, ct))
             throw new ForbiddenException("لا تملك صلاحية إنشاء أكواد خارج نطاقك الإداري");
 
@@ -354,6 +365,8 @@ public class AdminManagementHandlers :
             Name = $"دفعة - {DateTime.UtcNow:yyyy-MM-dd HH:mm}",
             Quantity = req.Quantity,
             ScopeType = normalizedScopeType,
+            ContentScope = contentScope,
+            IsPublic = req.IsPublic,
             ScopeUniversityId = scopeType == SubscriptionScopeType.University ? req.ScopeId : null,
             ScopeCollegeId = scopeType == SubscriptionScopeType.College ? req.ScopeId : null,
             ScopeYearId = scopeType == SubscriptionScopeType.Year ? req.ScopeId : null,
@@ -387,6 +400,8 @@ public class AdminManagementHandlers :
                 Code = fullCode,
                 BatchId = batch.Id,
                 ScopeType = scopeType,
+                ContentScope = contentScope,
+                IsPublic = req.IsPublic,
                 ScopeUniversityId = scopeType == SubscriptionScopeType.University ? req.ScopeId : null,
                 ScopeCollegeId = scopeType == SubscriptionScopeType.College ? req.ScopeId : null,
                 ScopeYearId = scopeType == SubscriptionScopeType.Year ? req.ScopeId : null,
@@ -431,4 +446,3 @@ public class AdminManagementHandlers :
         _ => throw new DomainException("نطاق الكود غير صالح", "INVALID_CODE_SCOPE")
     };
 }
-

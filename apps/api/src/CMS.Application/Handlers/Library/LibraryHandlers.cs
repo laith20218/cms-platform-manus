@@ -57,12 +57,19 @@ public class LibraryHandlers :
         if (!string.IsNullOrEmpty(req.Type))
             query = query.Where(f => f.Type == Enum.Parse<LibraryFileType>(req.Type, true));
 
-        var total = await query.CountAsync(ct);
         var files = await query
             .OrderByDescending(f => f.CreatedAt)
-            .Skip((req.Page - 1) * req.PageSize)
-            .Take(req.PageSize)
             .ToListAsync(ct);
+        files = (await Task.WhenAll(files.Select(async file => new
+        {
+            File = file,
+            Allowed = await _entitlements.CanAccessSubjectContentAsync(req.StudentId, file.SubjectId, RequiredContentScope(file.Type), ct)
+        })))
+            .Where(candidate => candidate.Allowed)
+            .Select(candidate => candidate.File)
+            .ToList();
+        var total = files.Count;
+        files = files.Skip((req.Page - 1) * req.PageSize).Take(req.PageSize).ToList();
 
         var items = files.Select(f => new LibraryFileListItemDto(
             f.Id, f.Type.ToString(), f.Title, f.Description,
@@ -79,7 +86,7 @@ public class LibraryHandlers :
             .FirstOrDefaultAsync(f => f.Id == req.Id && f.Status == ContentStatus.Published && f.DeletedAt == null, ct)
             ?? throw new NotFoundException("LibraryFile", req.Id);
         var studentId = req.StudentId ?? throw new ForbiddenException("لا تملك صلاحية الوصول إلى هذا الملف");
-        if (!await _entitlements.CanAccessSubjectAsync(studentId, file.SubjectId, "read", ct))
+        if (!await _entitlements.CanAccessSubjectContentAsync(studentId, file.SubjectId, RequiredContentScope(file.Type), ct))
             throw new ForbiddenException("لا تملك صلاحية الوصول إلى هذا الملف");
 
         return MapToDto(file);
@@ -91,7 +98,7 @@ public class LibraryHandlers :
         var file = await _db.LibraryFiles.FirstOrDefaultAsync(f => f.Id == req.FileId && f.DeletedAt == null, ct)
             ?? throw new NotFoundException("LibraryFile", req.FileId);
         if (file.Status != ContentStatus.Published || file.VirusScanStatus != VirusScanStatus.Clean
-            || !await _entitlements.CanAccessSubjectAsync(req.StudentId, file.SubjectId, "download", ct))
+            || !await _entitlements.CanAccessSubjectContentAsync(req.StudentId, file.SubjectId, RequiredContentScope(file.Type), ct))
             throw new ForbiddenException("لا تملك صلاحية تنزيل هذا الملف أو لم يكتمل فحصه");
 
         // Get student info for watermark
@@ -123,7 +130,7 @@ public class LibraryHandlers :
     {
         var file = await _db.LibraryFiles.FirstOrDefaultAsync(f => f.Id == req.FileId && f.Status == ContentStatus.Published && f.DeletedAt == null, ct)
             ?? throw new NotFoundException("LibraryFile", req.FileId);
-        if (!await _entitlements.CanAccessSubjectAsync(req.StudentId, file.SubjectId, "record_view", ct))
+        if (!await _entitlements.CanAccessSubjectContentAsync(req.StudentId, file.SubjectId, RequiredContentScope(file.Type), ct))
             throw new ForbiddenException("لا تملك صلاحية تسجيل مشاهدة هذا الملف");
 
         // Record the view
@@ -274,6 +281,10 @@ public class LibraryHandlers :
         DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm"),
         "CMS"
     );
+
+    private static SubscriptionContentScope RequiredContentScope(LibraryFileType type) => type is LibraryFileType.Video or LibraryFileType.Audio
+        ? SubscriptionContentScope.VideoAudio
+        : SubscriptionContentScope.LecturesText;
 
     private static LibraryFileDto MapToDto(LibraryFile f) => new(
         f.Id, f.SubjectId, f.LectureId, f.Type.ToString(),

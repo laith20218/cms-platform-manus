@@ -8,5 +8,6 @@ public record RedeemSubscriptionCodeCommand(Guid StudentId, string Code) : IRequ
 
 /// <summary>Revokes one active student subscription through an authorized administrative action.</summary>
 public record RevokeStudentSubscriptionCommand(Guid ActorAdminId, Guid SubscriptionId, string Reason) : IRequest<Unit>;
+public record RevokeSubscriptionCodeCommand(Guid ActorAdminId, Guid SubscriptionCodeId, string Reason) : IRequest<int>;
 
-public record SubscriptionRedemptionDto(Guid SubscriptionId, SubscriptionScopeType ScopeType, Guid? ScopeSubjectId, DateTime ExpiresAt);
+public record SubscriptionRedemptionDto(Guid SubscriptionId, SubscriptionScopeType ScopeType, SubscriptionContentScope ContentScope, Guid? ScopeSubjectId, DateTime ExpiresAt);

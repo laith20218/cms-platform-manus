@@ -1,4 +1,5 @@
 using CMS.Domain.Entities;
+using CMS.Domain.Enums;
 
 namespace CMS.Application.Interfaces;
 
@@ -133,6 +134,7 @@ public interface ISessionService
 public interface IEntitlementService
 {
     Task<bool> CanAccessSubjectAsync(Guid studentId, Guid subjectId, string action, CancellationToken ct = default);
+    Task<bool> CanAccessSubjectContentAsync(Guid studentId, Guid subjectId, SubscriptionContentScope requiredContentScope, CancellationToken ct = default);
     Task<bool> CanAccessQuestionAsync(Guid studentId, Guid questionId, string action, CancellationToken ct = default);
     Task<bool> CanAccessExamAsync(Guid studentId, Guid examId, string action, CancellationToken ct = default);
     Task<bool> CanAccessLectureAsync(Guid studentId, Guid lectureId, string action, CancellationToken ct = default);

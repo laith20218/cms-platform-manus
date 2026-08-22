@@ -289,6 +289,15 @@ public class AdminDashboardController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>Cancel a code and immediately revoke all subscriptions created through it.</summary>
+    [HttpPost("codes/{id:guid}/revoke")]
+    [Authorize(Policy = Policies.CodeEdit)]
+    public async Task<ActionResult<RevokeCodeResultDto>> RevokeCode(Guid id, [FromBody] RevokeSubscriptionRequestDto dto, CancellationToken ct)
+    {
+        var revokedCount = await _mediator.Send(new RevokeSubscriptionCodeCommand(GetAdminId(), id, dto.Reason), ct);
+        return Ok(new RevokeCodeResultDto(id, revokedCount));
+    }
+
     // ===== Code Management =====
 
     /// <summary>
@@ -314,7 +323,7 @@ public class AdminDashboardController : ControllerBase
     {
         var result = await _mediator.Send(new GenerateCodesCommand(
             dto.ScopeType, dto.ScopeId, dto.DurationDays, dto.Quantity,
-            dto.Prefix, dto.CodeExpiresAt, GetAdminId()
+            dto.Prefix, dto.CodeExpiresAt, dto.ContentScope, dto.IsPublic, GetAdminId()
         ), ct);
         return Ok(result);
     }
@@ -325,13 +334,16 @@ public record BanRequestDto(string Reason, DateTime? BanUntil);
 public record RolePermissionGrantRequestDto(string Resource, List<string> Actions, string Scope);
 public record ReplaceRolePermissionsRequestDto(List<RolePermissionGrantRequestDto> Permissions);
 public record RevokeSubscriptionRequestDto(string Reason);
+public record RevokeCodeResultDto(Guid CodeId, int RevokedSubscriptions);
 public record GenerateCodesRequestDto(
     string ScopeType,
     Guid? ScopeId,
     int DurationDays,
     int Quantity,
     string? Prefix,
-    DateTime? CodeExpiresAt
+    DateTime? CodeExpiresAt,
+    string ContentScope,
+    bool IsPublic
 );
 public record CreateAdminRequestDto(
     string Email,

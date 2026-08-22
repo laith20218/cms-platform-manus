@@ -13,7 +13,8 @@ namespace CMS.Application.Handlers.Subscriptions;
 /// </summary>
 public sealed class SubscriptionHandlers :
     IRequestHandler<RedeemSubscriptionCodeCommand, SubscriptionRedemptionDto>,
-    IRequestHandler<RevokeStudentSubscriptionCommand, Unit>
+    IRequestHandler<RevokeStudentSubscriptionCommand, Unit>,
+    IRequestHandler<RevokeSubscriptionCodeCommand, int>
 {
     private readonly IApplicationDbContext _db;
     private readonly IUnitOfWork _unitOfWork;
@@ -49,6 +50,9 @@ public sealed class SubscriptionHandlers :
         if (code.Status != CodeStatus.Active || (code.CodeExpiresAt.HasValue && code.CodeExpiresAt <= now))
             throw new ForbiddenException("رمز الاشتراك غير متاح");
 
+        if (await _db.StudentSubscriptions.AnyAsync(subscription => subscription.StudentId == student.Id && subscription.SubscriptionCodeId == code.Id, ct))
+            throw new DomainException("تم استرداد هذا الرمز مسبقًا", "SUBSCRIPTION_CODE_ALREADY_REDEEMED");
+
         var subscription = new StudentSubscription
         {
             StudentId = student.Id,
@@ -59,20 +63,41 @@ public sealed class SubscriptionHandlers :
             ScopeYearId = code.ScopeYearId,
             ScopeSemesterId = code.ScopeSemesterId,
             ScopeSubjectId = code.ScopeSubjectId,
+            ContentScope = code.ContentScope,
             Status = SubscriptionStatus.Active,
             StartsAt = now,
-            ExpiresAt = now.AddDays(code.DurationDays)
+            ExpiresAt = code.DurationDays > 0 ? now.AddDays(code.DurationDays) : DateTime.MaxValue
         };
-        code.Status = CodeStatus.Used;
-        code.UsedBy = student.Id;
-        code.UsedAt = now;
-        await _db.StudentSubscriptions.AddAsync(subscription, ct);
-        await _unitOfWork.SaveChangesAsync(ct);
+
+        await _unitOfWork.BeginTransactionAsync(ct);
+        try
+        {
+            if (!code.IsPublic)
+            {
+                var claimed = await _db.SubscriptionCodes
+                    .Where(candidate => candidate.Id == code.Id && candidate.Status == CodeStatus.Active && candidate.UsedBy == null)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(candidate => candidate.Status, CodeStatus.Used)
+                        .SetProperty(candidate => candidate.UsedBy, student.Id)
+                        .SetProperty(candidate => candidate.UsedAt, now), ct);
+                if (claimed != 1)
+                    throw new ForbiddenException("تم استرداد هذا الرمز من طالب آخر");
+            }
+
+            await _db.StudentSubscriptions.AddAsync(subscription, ct);
+            await _unitOfWork.SaveChangesAsync(ct);
+            await _unitOfWork.CommitTransactionAsync(ct);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(ct);
+            throw;
+        }
 
         await _audit.LogSecurityEventAsync(
             student.Id, null, SecurityEventType.SubscriptionActivated, SecuritySeverity.Warning,
             $"subscription_id={subscription.Id}; subscription_code_id={code.Id}; scope_type={subscription.ScopeType}; scope_subject_id={subscription.ScopeSubjectId}", ct: ct);
-        return new SubscriptionRedemptionDto(subscription.Id, subscription.ScopeType, subscription.ScopeSubjectId, subscription.ExpiresAt);
+        return new SubscriptionRedemptionDto(subscription.Id, subscription.ScopeType, subscription.ContentScope, subscription.ScopeSubjectId, subscription.ExpiresAt);
     }
 
     public async Task<Unit> Handle(RevokeStudentSubscriptionCommand request, CancellationToken ct)
@@ -95,5 +120,37 @@ public sealed class SubscriptionHandlers :
             subscription.StudentId, request.ActorAdminId, SecurityEventType.SubscriptionRevoked, SecuritySeverity.Warning,
             $"subscription_id={subscription.Id}; reason={subscription.RevocationReason}", ct: ct);
         return Unit.Value;
+    }
+
+    public async Task<int> Handle(RevokeSubscriptionCodeCommand request, CancellationToken ct)
+    {
+        if (request.ActorAdminId == Guid.Empty || !await _permissions.HasPermissionAsync(request.ActorAdminId, Resources.Codes, Actions.Edit, ct))
+            throw new ForbiddenException("لا تملك الصلاحية الإدارية المطلوبة");
+
+        var code = await _db.SubscriptionCodes.FirstOrDefaultAsync(candidate => candidate.Id == request.SubscriptionCodeId, ct)
+            ?? throw new NotFoundException("SubscriptionCode", request.SubscriptionCodeId);
+        if (!await _permissions.IsInScopeAsync(request.ActorAdminId, "subscription_code", code.Id, ct))
+            throw new ForbiddenException("الرمز المطلوب خارج نطاقك الإداري");
+
+        var now = DateTime.UtcNow;
+        var reason = string.IsNullOrWhiteSpace(request.Reason) ? "code_revoked" : request.Reason.Trim()[..Math.Min(request.Reason.Trim().Length, 256)];
+        code.Status = CodeStatus.Cancelled;
+        var subscriptions = await _db.StudentSubscriptions
+            .Where(subscription => subscription.SubscriptionCodeId == code.Id && subscription.Status == SubscriptionStatus.Active && subscription.RevokedAt == null)
+            .ToListAsync(ct);
+        foreach (var subscription in subscriptions)
+        {
+            subscription.Status = SubscriptionStatus.Cancelled;
+            subscription.RevokedAt = now;
+            subscription.RevocationReason = reason;
+        }
+        await _unitOfWork.SaveChangesAsync(ct);
+
+        foreach (var subscription in subscriptions)
+        {
+            await _audit.LogSecurityEventAsync(subscription.StudentId, request.ActorAdminId, SecurityEventType.SubscriptionRevoked, SecuritySeverity.Warning,
+                $"subscription_id={subscription.Id}; subscription_code_id={code.Id}; reason={reason}", ct: ct);
+        }
+        return subscriptions.Count;
     }
 }

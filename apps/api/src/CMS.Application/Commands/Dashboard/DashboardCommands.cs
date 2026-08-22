@@ -60,12 +60,15 @@ public record CodeManagementDto(
     Guid Id,
     string Code,
     string ScopeType,
+    string ContentScope,
+    bool IsPublic,
     string? ScopeName,
     string Status,
     DateTime? UsedAt,
     string? UsedByName,
     DateTime CreatedAt,
-    DateTime? ExpiresAt
+    DateTime? ExpiresAt,
+    int RedemptionCount
 );
 
 public record GenerateCodesCommand(
@@ -75,6 +78,8 @@ public record GenerateCodesCommand(
     int Quantity,
     string? Prefix,
     DateTime? CodeExpiresAt,
+    string ContentScope,
+    bool IsPublic,
     Guid CreatedBy
 ) : IRequest<GenerateCodesResultDto>;
 
