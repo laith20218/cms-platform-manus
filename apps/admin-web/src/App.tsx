@@ -138,6 +138,8 @@ function App() {
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoginError('');
+    setActionError('');
+    setNotice('');
     setBusy(true);
     try {
       const result = await login(email, password);
@@ -162,6 +164,8 @@ function App() {
     setAdmins([]);
     setRoles([]);
     setDialog(null);
+    setActionError('');
+    setNotice('');
   }
 
   function openCreateAdmin() {
