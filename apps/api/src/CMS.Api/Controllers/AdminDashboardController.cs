@@ -21,11 +21,13 @@ public class AdminDashboardController : ControllerBase
 {
     private readonly MediatR.ISender _mediator;
     private readonly IPermissionService _permissions;
+    private readonly ISessionService _sessions;
 
-    public AdminDashboardController(MediatR.ISender mediator, IPermissionService permissions)
+    public AdminDashboardController(MediatR.ISender mediator, IPermissionService permissions, ISessionService sessions)
     {
         _mediator = mediator;
         _permissions = permissions;
+        _sessions = sessions;
     }
 
     private Guid GetAdminId()
@@ -126,6 +128,18 @@ public class AdminDashboardController : ControllerBase
         if (!await IsInScopeAsync("student", id, ct)) return Forbid();
         var adminId = GetAdminId();
         await _mediator.Send(new UnbanStudentCommand(id, adminId), ct);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Revoke every active session for a student within the administrator's academic scope.
+    /// </summary>
+    [HttpPost("students/{id:guid}/revoke-sessions")]
+    [Authorize(Policy = Policies.StudentEdit)]
+    public async Task<IActionResult> RevokeStudentSessions(Guid id, CancellationToken ct)
+    {
+        if (!await IsInScopeAsync("student", id, ct)) return Forbid();
+        await _sessions.RevokeAllForUserAsync(id, "Revoked by authorized administrator", ct);
         return NoContent();
     }
 
