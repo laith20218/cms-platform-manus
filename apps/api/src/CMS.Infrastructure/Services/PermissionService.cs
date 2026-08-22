@@ -135,19 +135,19 @@ public sealed class PermissionService : IPermissionService
         return entityType.ToLowerInvariant() switch
         {
             "university" => await _db.Universities.AsNoTracking()
-                .Where(university => university.Id == entityId && university.DeletedAt == null)
+                .Where(university => university.Id == entityId)
                 .Select(university => (ScopePath?)new ScopePath(university.Id, null, null, null))
                 .FirstOrDefaultAsync(ct),
             "college" => await _db.Colleges.AsNoTracking()
-                .Where(college => college.Id == entityId && college.DeletedAt == null)
+                .Where(college => college.Id == entityId)
                 .Select(college => (ScopePath?)new ScopePath(college.UniversityId, college.Id, null, null))
                 .FirstOrDefaultAsync(ct),
             "year" or "academic_year" => await _db.AcademicYears.AsNoTracking()
-                .Where(year => year.Id == entityId && year.DeletedAt == null)
+                .Where(year => year.Id == entityId)
                 .Select(year => (ScopePath?)new ScopePath(year.College.UniversityId, year.CollegeId, year.Id, null))
                 .FirstOrDefaultAsync(ct),
             "semester" => await _db.Semesters.AsNoTracking()
-                .Where(semester => semester.Id == entityId && semester.DeletedAt == null)
+                .Where(semester => semester.Id == entityId)
                 .Select(semester => (ScopePath?)new ScopePath(
                     semester.AcademicYear.College.UniversityId,
                     semester.AcademicYear.CollegeId,
@@ -156,7 +156,7 @@ public sealed class PermissionService : IPermissionService
                 .FirstOrDefaultAsync(ct),
             "subject" => await ResolveSubjectScopePathAsync(entityId, ct),
             "lecture" => await _db.Lectures.AsNoTracking()
-                .Where(lecture => lecture.Id == entityId && lecture.DeletedAt == null)
+                .Where(lecture => lecture.Id == entityId)
                 .Select(lecture => (ScopePath?)new ScopePath(
                     lecture.Subject.Semester.AcademicYear.College.UniversityId,
                     lecture.Subject.Semester.AcademicYear.CollegeId,
@@ -203,7 +203,7 @@ public sealed class PermissionService : IPermissionService
 
     private async Task<ScopePath?> ResolveSubjectScopePathAsync(Guid subjectId, CancellationToken ct) =>
         await _db.Subjects.AsNoTracking()
-            .Where(subject => subject.Id == subjectId && subject.DeletedAt == null)
+            .Where(subject => subject.Id == subjectId)
             .Select(subject => (ScopePath?)new ScopePath(
                 subject.Semester.AcademicYear.College.UniversityId,
                 subject.Semester.AcademicYear.CollegeId,

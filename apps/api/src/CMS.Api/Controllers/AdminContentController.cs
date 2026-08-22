@@ -96,17 +96,17 @@ public sealed class AdminContentController : ControllerBase
     }
 
     [HttpGet("academic/subjects/{subjectId:guid}/lectures")]
-    public async Task<ActionResult<List<AdminLectureListItem>>> GetSubjectLectures(Guid subjectId, CancellationToken ct)
+    public async Task<ActionResult<List<AdminLectureListItem>>> GetSubjectLectures(Guid subjectId, [FromQuery] bool includeArchived = false, CancellationToken ct = default)
     {
         var scope = await GetAuthorizedScopeAsync(Resources.Subjects, ct);
         if (scope is null || !await _permissions.IsInScopeAsync(GetAdminId(), "subject", subjectId, ct)) return Forbid();
 
         var lectures = await _db.Lectures.AsNoTracking()
-            .Where(lecture => lecture.SubjectId == subjectId && lecture.DeletedAt == null)
+            .Where(lecture => lecture.SubjectId == subjectId && (includeArchived || lecture.DeletedAt == null))
             .OrderBy(lecture => lecture.LectureNumber)
             .Select(lecture => new AdminLectureListItem(
                 lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug,
-                lecture.LectureNumber, lecture.DurationMinutes, lecture.Status))
+                lecture.LectureNumber, lecture.DurationMinutes, lecture.Status, lecture.DeletedAt != null))
             .ToListAsync(ct);
         return Ok(lectures);
     }
@@ -159,4 +159,4 @@ public record AdminPagedResult<T>(List<T> Items, int Total, int Page, int PageSi
 public record AdminQuestionListItem(Guid Id, string Text, Guid SubjectId, Guid? LectureId, string SubjectName, string? LectureName, string Difficulty, string Status, DateTime CreatedAt);
 public record AdminExamListItem(Guid Id, Guid SubjectId, string SubjectName, string TitleAr, string? TitleEn, string ExamType, int DurationMinutes, int TotalQuestions, string Status, DateTime CreatedAt);
 public record AdminLibraryFileListItem(Guid Id, Guid SubjectId, Guid? LectureId, string SubjectName, string Title, string Type, long FileSize, int? DurationSeconds, string Status, string VirusScanStatus, DateTime CreatedAt);
-public record AdminLectureListItem(Guid Id, Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, string Status);
+public record AdminLectureListItem(Guid Id, Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, string Status, bool IsArchived);

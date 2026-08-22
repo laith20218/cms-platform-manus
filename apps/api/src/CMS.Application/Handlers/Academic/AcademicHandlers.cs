@@ -2,9 +2,9 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using CMS.Application.Commands.Academic;
 using CMS.Application.DTOs.Academic;
+using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
 using CMS.Domain.Exceptions;
-using CMS.Application.Interfaces;
 
 namespace CMS.Application.Handlers.Academic;
 
@@ -36,203 +36,191 @@ public class AcademicQueryHandlers :
         _entitlements = entitlements;
     }
 
-    // ===== Universities =====
     public async Task<PagedResult<UniversityDto>> Handle(GetUniversitiesQuery req, CancellationToken ct)
     {
-        var query = _db.Universities.AsNoTracking().Where(u => u.DeletedAt == null);
+        var query = _db.Universities.AsNoTracking().Where(university => req.IncludeArchived || university.DeletedAt == null);
         var total = await query.CountAsync(ct);
-        var items = await query
-            .OrderBy(u => u.SortOrder)
-            .Skip((req.Page - 1) * req.PageSize)
-            .Take(req.PageSize)
-            .Select(u => new UniversityDto(
-                u.Id, u.NameAr, u.NameEn, u.Slug, u.LogoUrl, u.Description,
-                _db.Colleges.Count(c => c.UniversityId == u.Id && c.DeletedAt == null)
-            ))
+        var items = await query.OrderBy(university => university.SortOrder)
+            .Skip((req.Page - 1) * req.PageSize).Take(req.PageSize)
+            .Select(university => new UniversityDto(
+                university.Id, university.NameAr, university.NameEn, university.Slug, university.LogoUrl, university.Description,
+                _db.Colleges.Count(college => college.UniversityId == university.Id && (req.IncludeArchived || college.DeletedAt == null)),
+                university.DeletedAt != null))
             .ToListAsync(ct);
         return new PagedResult<UniversityDto>(items, total, req.Page, req.PageSize, (int)Math.Ceiling(total / (double)req.PageSize));
     }
 
     public async Task<UniversityDto> Handle(GetUniversityByIdQuery req, CancellationToken ct) =>
         await _db.Universities.AsNoTracking()
-            .Where(u => u.Id == req.Id && u.DeletedAt == null)
-            .Select(u => new UniversityDto(u.Id, u.NameAr, u.NameEn, u.Slug, u.LogoUrl, u.Description,
-                _db.Colleges.Count(c => c.UniversityId == u.Id && c.DeletedAt == null)))
+            .Where(university => university.Id == req.Id && university.DeletedAt == null)
+            .Select(university => new UniversityDto(
+                university.Id, university.NameAr, university.NameEn, university.Slug, university.LogoUrl, university.Description,
+                _db.Colleges.Count(college => college.UniversityId == university.Id && college.DeletedAt == null), false))
             .FirstOrDefaultAsync(ct)
         ?? throw new NotFoundException("University", req.Id);
 
     public async Task<List<CollegeDto>> Handle(GetCollegesByUniversityQuery req, CancellationToken ct) =>
         await _db.Colleges.AsNoTracking()
-            .Where(c => c.UniversityId == req.UniversityId && c.DeletedAt == null)
-            .OrderBy(c => c.SortOrder)
-            .Select(c => new CollegeDto(c.Id, c.UniversityId, c.NameAr, c.NameEn, c.Slug, c.Icon,
-                _db.AcademicYears.Count(y => y.CollegeId == c.Id && y.DeletedAt == null)))
+            .Where(college => college.UniversityId == req.UniversityId
+                && (req.IncludeArchived || (college.DeletedAt == null && college.University.DeletedAt == null)))
+            .OrderBy(college => college.SortOrder)
+            .Select(college => new CollegeDto(
+                college.Id, college.UniversityId, college.NameAr, college.NameEn, college.Slug, college.Icon,
+                _db.AcademicYears.Count(year => year.CollegeId == college.Id && (req.IncludeArchived || year.DeletedAt == null)),
+                college.DeletedAt != null))
             .ToListAsync(ct);
 
-    // ===== Colleges =====
     public async Task<CollegeDto> Handle(GetCollegeByIdQuery req, CancellationToken ct) =>
         await _db.Colleges.AsNoTracking()
-            .Where(c => c.Id == req.Id && c.DeletedAt == null)
-            .Select(c => new CollegeDto(c.Id, c.UniversityId, c.NameAr, c.NameEn, c.Slug, c.Icon,
-                _db.AcademicYears.Count(y => y.CollegeId == c.Id)))
+            .Where(college => college.Id == req.Id && college.DeletedAt == null && college.University.DeletedAt == null)
+            .Select(college => new CollegeDto(
+                college.Id, college.UniversityId, college.NameAr, college.NameEn, college.Slug, college.Icon,
+                _db.AcademicYears.Count(year => year.CollegeId == college.Id && year.DeletedAt == null), false))
             .FirstOrDefaultAsync(ct)
         ?? throw new NotFoundException("College", req.Id);
 
     public async Task<List<AcademicYearDto>> Handle(GetYearsByCollegeQuery req, CancellationToken ct) =>
         await _db.AcademicYears.AsNoTracking()
-            .Where(y => y.CollegeId == req.CollegeId && y.DeletedAt == null)
-            .OrderBy(y => y.YearNumber)
-            .Select(y => new AcademicYearDto(y.Id, y.CollegeId, y.NameAr, y.NameEn, y.Slug, y.YearNumber,
-                _db.Semesters.Count(s => s.AcademicYearId == y.Id)))
+            .Where(year => year.CollegeId == req.CollegeId
+                && (req.IncludeArchived || (year.DeletedAt == null && year.College.DeletedAt == null && year.College.University.DeletedAt == null)))
+            .OrderBy(year => year.YearNumber)
+            .Select(year => new AcademicYearDto(
+                year.Id, year.CollegeId, year.NameAr, year.NameEn, year.Slug, year.YearNumber,
+                _db.Semesters.Count(semester => semester.AcademicYearId == year.Id && (req.IncludeArchived || semester.DeletedAt == null)),
+                year.DeletedAt != null))
             .ToListAsync(ct);
 
-    // ===== Academic Years =====
     public async Task<AcademicYearDto> Handle(GetAcademicYearByIdQuery req, CancellationToken ct) =>
         await _db.AcademicYears.AsNoTracking()
-            .Where(y => y.Id == req.Id && y.DeletedAt == null)
-            .Select(y => new AcademicYearDto(y.Id, y.CollegeId, y.NameAr, y.NameEn, y.Slug, y.YearNumber,
-                _db.Semesters.Count(s => s.AcademicYearId == y.Id)))
+            .Where(year => year.Id == req.Id && year.DeletedAt == null && year.College.DeletedAt == null && year.College.University.DeletedAt == null)
+            .Select(year => new AcademicYearDto(
+                year.Id, year.CollegeId, year.NameAr, year.NameEn, year.Slug, year.YearNumber,
+                _db.Semesters.Count(semester => semester.AcademicYearId == year.Id && semester.DeletedAt == null), false))
             .FirstOrDefaultAsync(ct)
         ?? throw new NotFoundException("AcademicYear", req.Id);
 
     public async Task<List<SemesterDto>> Handle(GetSemestersByYearQuery req, CancellationToken ct) =>
         await _db.Semesters.AsNoTracking()
-            .Where(s => s.AcademicYearId == req.YearId && s.DeletedAt == null)
-            .OrderBy(s => s.SemesterNumber)
-            .Select(s => new SemesterDto(s.Id, s.AcademicYearId, s.NameAr, s.NameEn, s.Slug, s.SemesterNumber,
-                _db.Subjects.Count(sub => sub.SemesterId == s.Id && sub.DeletedAt == null)))
+            .Where(semester => semester.AcademicYearId == req.YearId
+                && (req.IncludeArchived || (semester.DeletedAt == null && semester.AcademicYear.DeletedAt == null && semester.AcademicYear.College.DeletedAt == null && semester.AcademicYear.College.University.DeletedAt == null)))
+            .OrderBy(semester => semester.SemesterNumber)
+            .Select(semester => new SemesterDto(
+                semester.Id, semester.AcademicYearId, semester.NameAr, semester.NameEn, semester.Slug, semester.SemesterNumber,
+                _db.Subjects.Count(subject => subject.SemesterId == semester.Id && (req.IncludeArchived || subject.DeletedAt == null)),
+                semester.DeletedAt != null))
             .ToListAsync(ct);
 
-    // ===== Semesters =====
     public async Task<SemesterDto> Handle(GetSemesterByIdQuery req, CancellationToken ct) =>
         await _db.Semesters.AsNoTracking()
-            .Where(s => s.Id == req.Id && s.DeletedAt == null)
-            .Select(s => new SemesterDto(s.Id, s.AcademicYearId, s.NameAr, s.NameEn, s.Slug, s.SemesterNumber,
-                _db.Subjects.Count(sub => sub.SemesterId == s.Id)))
+            .Where(semester => semester.Id == req.Id && semester.DeletedAt == null && semester.AcademicYear.DeletedAt == null && semester.AcademicYear.College.DeletedAt == null && semester.AcademicYear.College.University.DeletedAt == null)
+            .Select(semester => new SemesterDto(
+                semester.Id, semester.AcademicYearId, semester.NameAr, semester.NameEn, semester.Slug, semester.SemesterNumber,
+                _db.Subjects.Count(subject => subject.SemesterId == semester.Id && subject.DeletedAt == null), false))
             .FirstOrDefaultAsync(ct)
         ?? throw new NotFoundException("Semester", req.Id);
 
-    public async Task<List<SubjectDto>> Handle(GetSubjectsBySemesterQuery req, CancellationToken ct)
-    {
-        var subjects = await _db.Subjects.AsNoTracking()
-            .Where(s => s.SemesterId == req.SemesterId && s.DeletedAt == null && s.Status == "active")
-            .OrderBy(s => s.SortOrder)
-            .Select(s => new SubjectDto(
-                s.Id, s.SemesterId, s.NameAr, s.NameEn, s.Slug, s.Code, s.Description, s.Icon, s.Color,
-                _db.Questions.Count(q => q.SubjectId == s.Id && q.Status == Domain.Enums.ContentStatus.Published),
-                _db.Lectures.Count(l => l.SubjectId == s.Id && l.DeletedAt == null),
-                _db.Exams.Count(e => e.SubjectId == s.Id && e.Status == Domain.Enums.ContentStatus.Published),
-                null // UserProgress loaded separately if studentId provided
-            ))
+    public async Task<List<SubjectDto>> Handle(GetSubjectsBySemesterQuery req, CancellationToken ct) =>
+        await _db.Subjects.AsNoTracking()
+            .Where(subject => subject.SemesterId == req.SemesterId
+                && (req.IncludeArchived || (subject.DeletedAt == null && subject.Status == "active"))
+                && (req.IncludeArchived || (subject.Semester.DeletedAt == null && subject.Semester.AcademicYear.DeletedAt == null && subject.Semester.AcademicYear.College.DeletedAt == null && subject.Semester.AcademicYear.College.University.DeletedAt == null)))
+            .OrderBy(subject => subject.SortOrder)
+            .Select(subject => new SubjectDto(
+                subject.Id, subject.SemesterId, subject.NameAr, subject.NameEn, subject.Slug, subject.Code, subject.Description, subject.Icon, subject.Color,
+                _db.Questions.Count(question => question.SubjectId == subject.Id && question.Status == Domain.Enums.ContentStatus.Published),
+                _db.Lectures.Count(lecture => lecture.SubjectId == subject.Id && (req.IncludeArchived || lecture.DeletedAt == null)),
+                _db.Exams.Count(exam => exam.SubjectId == subject.Id && exam.Status == Domain.Enums.ContentStatus.Published),
+                null,
+                subject.DeletedAt != null))
             .ToListAsync(ct);
-        return subjects;
-    }
 
-    // ===== Subjects =====
     public async Task<SubjectDto> Handle(GetSubjectByIdQuery req, CancellationToken ct)
     {
-        var subject = await _db.Subjects.AsNoTracking()
-            .Where(s => s.Id == req.Id && s.DeletedAt == null)
-            .Select(s => new SubjectDto(
-                s.Id, s.SemesterId, s.NameAr, s.NameEn, s.Slug, s.Code, s.Description, s.Icon, s.Color,
-                _db.Questions.Count(q => q.SubjectId == s.Id && q.Status == Domain.Enums.ContentStatus.Published),
-                _db.Lectures.Count(l => l.SubjectId == s.Id),
-                _db.Exams.Count(e => e.SubjectId == s.Id && e.Status == Domain.Enums.ContentStatus.Published),
-                null
-            ))
+        var subject = await VisibleSubjectQuery()
+            .Where(item => item.Id == req.Id)
+            .Select(item => ToSubjectDto(item))
             .FirstOrDefaultAsync(ct)
-        ?? throw new NotFoundException("Subject", req.Id);
-
-        // Load user progress if studentId provided
-        if (req.StudentId.HasValue)
-        {
-            var answered = await _db.AttemptLogs.CountAsync(a => a.StudentId == req.StudentId.Value && a.Question.SubjectId == req.Id, ct);
-            var total = subject.TotalQuestions;
-            subject = subject with { UserProgress = new SubjectProgressDto(answered, 0, total > 0 ? answered * 100.0 / total : 0) };
-        }
-
-        return subject;
+            ?? throw new NotFoundException("Subject", req.Id);
+        return await AddProgressAsync(subject, req.StudentId, ct);
     }
 
     public async Task<SubjectDto> Handle(GetSubjectBySlugQuery req, CancellationToken ct)
     {
-        var subject = await _db.Subjects.AsNoTracking()
-            .Where(s => s.Slug == req.Slug && s.DeletedAt == null)
-            .Select(s => new SubjectDto(
-                s.Id, s.SemesterId, s.NameAr, s.NameEn, s.Slug, s.Code, s.Description, s.Icon, s.Color,
-                _db.Questions.Count(q => q.SubjectId == s.Id && q.Status == Domain.Enums.ContentStatus.Published),
-                _db.Lectures.Count(l => l.SubjectId == s.Id),
-                _db.Exams.Count(e => e.SubjectId == s.Id && e.Status == Domain.Enums.ContentStatus.Published),
-                null
-            ))
+        var subject = await VisibleSubjectQuery()
+            .Where(item => item.Slug == req.Slug)
+            .Select(item => ToSubjectDto(item))
             .FirstOrDefaultAsync(ct)
-        ?? throw new NotFoundException("Subject", req.Slug);
-
-        if (req.StudentId.HasValue)
-        {
-            var answered = await _db.AttemptLogs.CountAsync(a => a.StudentId == req.StudentId.Value && a.Question.SubjectId == subject.Id, ct);
-            var total = subject.TotalQuestions;
-            subject = subject with { UserProgress = new SubjectProgressDto(answered, 0, total > 0 ? answered * 100.0 / total : 0) };
-        }
-
-        return subject;
+            ?? throw new NotFoundException("Subject", req.Slug);
+        return await AddProgressAsync(subject, req.StudentId, ct);
     }
 
-    // ===== Lectures =====
     public async Task<List<LectureDto>> Handle(GetLecturesBySubjectQuery req, CancellationToken ct)
     {
         if (!req.StudentId.HasValue || !await _entitlements.CanAccessSubjectAsync(req.StudentId.Value, req.SubjectId, "read_lecture", ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
 
         var lectures = await _db.Lectures.AsNoTracking()
-            .Where(l => l.SubjectId == req.SubjectId && l.DeletedAt == null && l.Status == "active")
-            .OrderBy(l => l.LectureNumber)
-            .Select(l => new LectureDto(
-                l.Id, l.SubjectId, l.NameAr, l.NameEn, l.Slug, l.LectureNumber, l.DurationMinutes,
-                _db.Questions.Count(q => q.LectureId == l.Id && q.Status == Domain.Enums.ContentStatus.Published),
-                0, 0
-            ))
+            .Where(lecture => lecture.SubjectId == req.SubjectId
+                && (req.IncludeArchived || (lecture.DeletedAt == null && lecture.Status == "active"))
+                && (req.IncludeArchived || (lecture.Subject.DeletedAt == null && lecture.Subject.Semester.DeletedAt == null && lecture.Subject.Semester.AcademicYear.DeletedAt == null && lecture.Subject.Semester.AcademicYear.College.DeletedAt == null && lecture.Subject.Semester.AcademicYear.College.University.DeletedAt == null)))
+            .OrderBy(lecture => lecture.LectureNumber)
+            .Select(lecture => new LectureDto(
+                lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, lecture.DurationMinutes,
+                _db.Questions.Count(question => question.LectureId == lecture.Id && question.Status == Domain.Enums.ContentStatus.Published),
+                0, 0, lecture.DeletedAt != null))
             .ToListAsync(ct);
 
-        // Load user progress if studentId provided
-        if (req.StudentId.HasValue)
+        foreach (var lecture in lectures)
         {
-            foreach (var lecture in lectures)
-            {
-                var answered = await _db.AttemptLogs.CountAsync(a => a.StudentId == req.StudentId.Value && a.Question.LectureId == lecture.Id, ct);
-                var total = lecture.QuestionsCount;
-                var updated = lecture with { UserAnswered = answered, UserProgress = total > 0 ? answered * 100.0 / total : 0 };
-                lectures[lectures.IndexOf(lecture)] = updated;
-            }
+            var answered = await _db.AttemptLogs.CountAsync(attempt => attempt.StudentId == req.StudentId.Value && attempt.Question.LectureId == lecture.Id, ct);
+            var total = lecture.QuestionsCount;
+            lectures[lectures.IndexOf(lecture)] = lecture with { UserAnswered = answered, UserProgress = total > 0 ? answered * 100.0 / total : 0 };
         }
-
         return lectures;
     }
 
     public async Task<LectureDto> Handle(GetLectureByIdQuery req, CancellationToken ct)
     {
         var lecture = await _db.Lectures.AsNoTracking()
-            .Where(l => l.Id == req.Id && l.DeletedAt == null && l.Status == "active")
-            .Select(l => new { l.Id, l.SubjectId })
+            .Where(item => item.Id == req.Id && item.DeletedAt == null && item.Status == "active"
+                && item.Subject.DeletedAt == null && item.Subject.Semester.DeletedAt == null && item.Subject.Semester.AcademicYear.DeletedAt == null && item.Subject.Semester.AcademicYear.College.DeletedAt == null && item.Subject.Semester.AcademicYear.College.University.DeletedAt == null)
+            .Select(item => new { item.Id, item.SubjectId })
             .FirstOrDefaultAsync(ct)
             ?? throw new NotFoundException("Lecture", req.Id);
 
         if (!await _entitlements.CanAccessSubjectAsync(req.StudentId, lecture.SubjectId, "read_lecture", ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
 
-        return await _db.Lectures.AsNoTracking()
-            .Where(l => l.Id == lecture.Id)
-            .Select(l => new LectureDto(
-                l.Id, l.SubjectId, l.NameAr, l.NameEn, l.Slug, l.LectureNumber, l.DurationMinutes,
-                _db.Questions.Count(q => q.LectureId == l.Id && q.Status == Domain.Enums.ContentStatus.Published),
-                0, 0
-            ))
+        return await _db.Lectures.AsNoTracking().Where(item => item.Id == lecture.Id)
+            .Select(item => new LectureDto(
+                item.Id, item.SubjectId, item.NameAr, item.NameEn, item.Slug, item.LectureNumber, item.DurationMinutes,
+                _db.Questions.Count(question => question.LectureId == item.Id && question.Status == Domain.Enums.ContentStatus.Published),
+                0, 0, false))
             .SingleAsync(ct);
+    }
+
+    private IQueryable<Subject> VisibleSubjectQuery() => _db.Subjects.AsNoTracking().Where(subject =>
+        subject.DeletedAt == null && subject.Status == "active"
+        && subject.Semester.DeletedAt == null && subject.Semester.AcademicYear.DeletedAt == null
+        && subject.Semester.AcademicYear.College.DeletedAt == null && subject.Semester.AcademicYear.College.University.DeletedAt == null);
+
+    private SubjectDto ToSubjectDto(Subject subject) => new(
+        subject.Id, subject.SemesterId, subject.NameAr, subject.NameEn, subject.Slug, subject.Code, subject.Description, subject.Icon, subject.Color,
+        _db.Questions.Count(question => question.SubjectId == subject.Id && question.Status == Domain.Enums.ContentStatus.Published),
+        _db.Lectures.Count(lecture => lecture.SubjectId == subject.Id && lecture.DeletedAt == null),
+        _db.Exams.Count(exam => exam.SubjectId == subject.Id && exam.Status == Domain.Enums.ContentStatus.Published),
+        null, false);
+
+    private async Task<SubjectDto> AddProgressAsync(SubjectDto subject, Guid? studentId, CancellationToken ct)
+    {
+        if (!studentId.HasValue) return subject;
+        var answered = await _db.AttemptLogs.CountAsync(attempt => attempt.StudentId == studentId.Value && attempt.Question.SubjectId == subject.Id, ct);
+        return subject with { UserProgress = new SubjectProgressDto(answered, 0, subject.TotalQuestions > 0 ? answered * 100.0 / subject.TotalQuestions : 0) };
     }
 }
 
 /// <summary>
-/// Handles all academic hierarchy create/update/delete commands.
+/// Handles academic hierarchy mutations and the reversible archive lifecycle.
 /// </summary>
 public class AcademicCommandHandlers :
     IRequestHandler<CreateUniversityCommand, UniversityDto>,
@@ -247,7 +235,9 @@ public class AcademicCommandHandlers :
     IRequestHandler<CreateSubjectCommand, SubjectDto>,
     IRequestHandler<UpdateSubjectCommand, SubjectDto>,
     IRequestHandler<CreateLectureCommand, LectureDto>,
-    IRequestHandler<UpdateLectureCommand, LectureDto>
+    IRequestHandler<UpdateLectureCommand, LectureDto>,
+    IRequestHandler<ArchiveAcademicEntityCommand, Unit>,
+    IRequestHandler<RestoreAcademicEntityCommand, Unit>
 {
     private readonly IApplicationDbContext _db;
     private readonly IUnitOfWork _unitOfWork;
@@ -258,91 +248,85 @@ public class AcademicCommandHandlers :
         _unitOfWork = unitOfWork;
     }
 
-    // ===== Universities =====
     public async Task<UniversityDto> Handle(CreateUniversityCommand req, CancellationToken ct)
     {
-        var uni = University.Create(req.NameAr, req.Slug, req.NameEn);
-        if (req.Description != null) uni.Update(req.NameAr, req.NameEn, req.Description, req.LogoUrl);
-        await _db.Universities.AddAsync(uni, ct);
+        var university = University.Create(req.NameAr, req.Slug, req.NameEn);
+        if (req.Description != null) university.Update(req.NameAr, req.NameEn, req.Description, req.LogoUrl);
+        await _db.Universities.AddAsync(university, ct);
         await _unitOfWork.SaveChangesAsync(ct);
-        return new UniversityDto(uni.Id, uni.NameAr, uni.NameEn, uni.Slug, uni.LogoUrl, uni.Description, 0);
+        return new UniversityDto(university.Id, university.NameAr, university.NameEn, university.Slug, university.LogoUrl, university.Description, 0, false);
     }
 
     public async Task<UniversityDto> Handle(UpdateUniversityCommand req, CancellationToken ct)
     {
-        var uni = await _db.Universities.FirstOrDefaultAsync(u => u.Id == req.Id && u.DeletedAt == null, ct)
-            ?? throw new NotFoundException("University", req.Id);
-        uni.Update(req.NameAr, req.NameEn, req.Description, req.LogoUrl);
+        var university = await _db.Universities.FirstOrDefaultAsync(item => item.Id == req.Id && item.DeletedAt == null, ct) ?? throw new NotFoundException("University", req.Id);
+        university.Update(req.NameAr, req.NameEn, req.Description, req.LogoUrl);
         await _unitOfWork.SaveChangesAsync(ct);
-        return new UniversityDto(uni.Id, uni.NameAr, uni.NameEn, uni.Slug, uni.LogoUrl, uni.Description, 0);
+        return new UniversityDto(university.Id, university.NameAr, university.NameEn, university.Slug, university.LogoUrl, university.Description, 0, false);
     }
 
     public async Task<Unit> Handle(DeleteUniversityCommand req, CancellationToken ct)
     {
-        var uni = await _db.Universities.FirstOrDefaultAsync(u => u.Id == req.Id, ct)
-            ?? throw new NotFoundException("University", req.Id);
-        uni.DeletedAt = DateTime.UtcNow;
+        var university = await _db.Universities.FirstOrDefaultAsync(item => item.Id == req.Id, ct) ?? throw new NotFoundException("University", req.Id);
+        if (await _db.Colleges.AnyAsync(college => college.UniversityId == req.Id, ct))
+            throw new BusinessRuleViolationException("University has dependent colleges and must be archived instead of deleted.");
+        university.Archive();
         await _unitOfWork.SaveChangesAsync(ct);
         return Unit.Value;
     }
 
-    // ===== Colleges =====
     public async Task<CollegeDto> Handle(CreateCollegeCommand req, CancellationToken ct)
     {
         var college = College.Create(req.UniversityId, req.NameAr, req.Slug, req.NameEn);
         await _db.Colleges.AddAsync(college, ct);
         await _unitOfWork.SaveChangesAsync(ct);
-        return new CollegeDto(college.Id, college.UniversityId, college.NameAr, college.NameEn, college.Slug, college.Icon, 0);
+        return new CollegeDto(college.Id, college.UniversityId, college.NameAr, college.NameEn, college.Slug, college.Icon, 0, false);
     }
 
     public async Task<CollegeDto> Handle(UpdateCollegeCommand req, CancellationToken ct)
     {
-        var college = await _db.Colleges.FirstOrDefaultAsync(c => c.Id == req.Id && c.DeletedAt == null, ct)
-            ?? throw new NotFoundException("College", req.Id);
+        var college = await _db.Colleges.FirstOrDefaultAsync(item => item.Id == req.Id && item.DeletedAt == null, ct) ?? throw new NotFoundException("College", req.Id);
         typeof(College).GetProperty("NameAr")?.SetValue(college, req.NameAr);
         typeof(College).GetProperty("NameEn")?.SetValue(college, req.NameEn);
         await _unitOfWork.SaveChangesAsync(ct);
-        return new CollegeDto(college.Id, college.UniversityId, college.NameAr, college.NameEn, college.Slug, college.Icon, 0);
+        return new CollegeDto(college.Id, college.UniversityId, college.NameAr, college.NameEn, college.Slug, college.Icon, 0, false);
     }
 
     public async Task<Unit> Handle(DeleteCollegeCommand req, CancellationToken ct)
     {
-        var college = await _db.Colleges.FirstOrDefaultAsync(c => c.Id == req.Id, ct)
-            ?? throw new NotFoundException("College", req.Id);
-        college.DeletedAt = DateTime.UtcNow;
+        var college = await _db.Colleges.FirstOrDefaultAsync(item => item.Id == req.Id, ct) ?? throw new NotFoundException("College", req.Id);
+        if (await _db.AcademicYears.AnyAsync(year => year.CollegeId == req.Id, ct))
+            throw new BusinessRuleViolationException("College has dependent academic years and must be archived instead of deleted.");
+        college.Archive();
         await _unitOfWork.SaveChangesAsync(ct);
         return Unit.Value;
     }
 
-    // ===== Academic Years =====
     public async Task<AcademicYearDto> Handle(CreateAcademicYearCommand req, CancellationToken ct)
     {
         var year = AcademicYear.Create(req.CollegeId, req.NameAr, req.Slug, req.YearNumber);
         await _db.AcademicYears.AddAsync(year, ct);
         await _unitOfWork.SaveChangesAsync(ct);
-        return new AcademicYearDto(year.Id, year.CollegeId, year.NameAr, year.NameEn, year.Slug, year.YearNumber, 0);
+        return new AcademicYearDto(year.Id, year.CollegeId, year.NameAr, year.NameEn, year.Slug, year.YearNumber, 0, false);
     }
 
     public async Task<AcademicYearDto> Handle(UpdateAcademicYearCommand req, CancellationToken ct)
     {
-        var year = await _db.AcademicYears.FirstOrDefaultAsync(y => y.Id == req.Id && y.DeletedAt == null, ct)
-            ?? throw new NotFoundException("AcademicYear", req.Id);
+        var year = await _db.AcademicYears.FirstOrDefaultAsync(item => item.Id == req.Id && item.DeletedAt == null, ct) ?? throw new NotFoundException("AcademicYear", req.Id);
         typeof(AcademicYear).GetProperty("NameAr")?.SetValue(year, req.NameAr);
         typeof(AcademicYear).GetProperty("NameEn")?.SetValue(year, req.NameEn);
         await _unitOfWork.SaveChangesAsync(ct);
-        return new AcademicYearDto(year.Id, year.CollegeId, year.NameAr, year.NameEn, year.Slug, year.YearNumber, 0);
+        return new AcademicYearDto(year.Id, year.CollegeId, year.NameAr, year.NameEn, year.Slug, year.YearNumber, 0, false);
     }
 
-    // ===== Semesters =====
     public async Task<SemesterDto> Handle(CreateSemesterCommand req, CancellationToken ct)
     {
-        var sem = Semester.Create(req.AcademicYearId, req.NameAr, req.Slug, req.SemesterNumber);
-        await _db.Semesters.AddAsync(sem, ct);
+        var semester = Semester.Create(req.AcademicYearId, req.NameAr, req.Slug, req.SemesterNumber);
+        await _db.Semesters.AddAsync(semester, ct);
         await _unitOfWork.SaveChangesAsync(ct);
-        return new SemesterDto(sem.Id, sem.AcademicYearId, sem.NameAr, sem.NameEn, sem.Slug, sem.SemesterNumber, 0);
+        return new SemesterDto(semester.Id, semester.AcademicYearId, semester.NameAr, semester.NameEn, semester.Slug, semester.SemesterNumber, 0, false);
     }
 
-    // ===== Subjects =====
     public async Task<SubjectDto> Handle(CreateSubjectCommand req, CancellationToken ct)
     {
         var subject = Subject.Create(req.SemesterId, req.NameAr, req.Slug, req.NameEn);
@@ -351,40 +335,67 @@ public class AcademicCommandHandlers :
         if (req.Code != null) typeof(Subject).GetProperty("Code")?.SetValue(subject, req.Code);
         await _db.Subjects.AddAsync(subject, ct);
         await _unitOfWork.SaveChangesAsync(ct);
-        return new SubjectDto(subject.Id, subject.SemesterId, subject.NameAr, subject.NameEn, subject.Slug, req.Code, req.Description, subject.Icon, req.Color, 0, 0, 0, null);
+        return new SubjectDto(subject.Id, subject.SemesterId, subject.NameAr, subject.NameEn, subject.Slug, req.Code, req.Description, subject.Icon, req.Color, 0, 0, 0, null, false);
     }
 
     public async Task<SubjectDto> Handle(UpdateSubjectCommand req, CancellationToken ct)
     {
-        var subject = await _db.Subjects.FirstOrDefaultAsync(s => s.Id == req.Id && s.DeletedAt == null, ct)
-            ?? throw new NotFoundException("Subject", req.Id);
+        var subject = await _db.Subjects.FirstOrDefaultAsync(item => item.Id == req.Id && item.DeletedAt == null, ct) ?? throw new NotFoundException("Subject", req.Id);
         typeof(Subject).GetProperty("NameAr")?.SetValue(subject, req.NameAr);
         typeof(Subject).GetProperty("NameEn")?.SetValue(subject, req.NameEn);
         typeof(Subject).GetProperty("Description")?.SetValue(subject, req.Description);
         typeof(Subject).GetProperty("Color")?.SetValue(subject, req.Color);
         await _unitOfWork.SaveChangesAsync(ct);
-        return new SubjectDto(subject.Id, subject.SemesterId, subject.NameAr, subject.NameEn, subject.Slug, subject.Code, subject.Description, subject.Icon, subject.Color, 0, 0, 0, null);
+        return new SubjectDto(subject.Id, subject.SemesterId, subject.NameAr, subject.NameEn, subject.Slug, subject.Code, subject.Description, subject.Icon, subject.Color, 0, 0, 0, null, false);
     }
 
-    // ===== Lectures =====
     public async Task<LectureDto> Handle(CreateLectureCommand req, CancellationToken ct)
     {
         var lecture = Lecture.Create(req.SubjectId, req.TitleAr, req.Slug, req.LectureNumber);
         if (req.DurationMinutes.HasValue) typeof(Lecture).GetProperty("DurationMinutes")?.SetValue(lecture, req.DurationMinutes);
         await _db.Lectures.AddAsync(lecture, ct);
         await _unitOfWork.SaveChangesAsync(ct);
-        return new LectureDto(lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, req.DurationMinutes, 0, 0, 0);
+        return new LectureDto(lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, req.DurationMinutes, 0, 0, 0, false);
     }
 
     public async Task<LectureDto> Handle(UpdateLectureCommand req, CancellationToken ct)
     {
-        var lecture = await _db.Lectures.FirstOrDefaultAsync(l => l.Id == req.Id && l.DeletedAt == null, ct)
-            ?? throw new NotFoundException("Lecture", req.Id);
+        var lecture = await _db.Lectures.FirstOrDefaultAsync(item => item.Id == req.Id && item.DeletedAt == null, ct) ?? throw new NotFoundException("Lecture", req.Id);
         typeof(Lecture).GetProperty("NameAr")?.SetValue(lecture, req.TitleAr);
         typeof(Lecture).GetProperty("NameEn")?.SetValue(lecture, req.TitleEn);
         typeof(Lecture).GetProperty("DurationMinutes")?.SetValue(lecture, req.DurationMinutes);
         await _unitOfWork.SaveChangesAsync(ct);
-        return new LectureDto(lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, req.DurationMinutes, 0, 0, 0);
+        return new LectureDto(lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, req.DurationMinutes, 0, 0, 0, false);
+    }
+
+    public async Task<Unit> Handle(ArchiveAcademicEntityCommand req, CancellationToken ct)
+    {
+        var entity = await FindAcademicEntityAsync(req.EntityType, req.Id, ct);
+        entity.Archive();
+        await _unitOfWork.SaveChangesAsync(ct);
+        return Unit.Value;
+    }
+
+    public async Task<Unit> Handle(RestoreAcademicEntityCommand req, CancellationToken ct)
+    {
+        var entity = await FindAcademicEntityAsync(req.EntityType, req.Id, ct);
+        entity.Restore();
+        await _unitOfWork.SaveChangesAsync(ct);
+        return Unit.Value;
+    }
+
+    private async Task<CMS.Domain.Common.LookupEntity> FindAcademicEntityAsync(string entityType, Guid id, CancellationToken ct)
+    {
+        CMS.Domain.Common.LookupEntity? entity = entityType.ToLowerInvariant() switch
+        {
+            "university" => await _db.Universities.FirstOrDefaultAsync(item => item.Id == id, ct),
+            "college" => await _db.Colleges.FirstOrDefaultAsync(item => item.Id == id, ct),
+            "year" => await _db.AcademicYears.FirstOrDefaultAsync(item => item.Id == id, ct),
+            "semester" => await _db.Semesters.FirstOrDefaultAsync(item => item.Id == id, ct),
+            "subject" => await _db.Subjects.FirstOrDefaultAsync(item => item.Id == id, ct),
+            "lecture" => await _db.Lectures.FirstOrDefaultAsync(item => item.Id == id, ct),
+            _ => throw new BusinessRuleViolationException("Unsupported academic entity type.")
+        };
+        return entity ?? throw new NotFoundException(entityType, id);
     }
 }
-

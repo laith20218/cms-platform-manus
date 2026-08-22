@@ -1,14 +1,15 @@
-/** Style reminder — غرفة القيادة السريرية: hierarchy is revealed progressively, with ivory surfaces, navy labels, and teal action signals. */
+/** Style reminder — غرفة القيادة السريرية: hierarchy is revealed progressively, with ivory surfaces, navy labels, and teal action signals. Archive controls stay compact, legible, and visibly secondary to navigation. */
 import { FormEvent, useEffect, useState } from 'react';
-import { Building2, CalendarDays, ChevronLeft, ChevronRight, GraduationCap, LoaderCircle, Plus, Presentation, School, Stethoscope } from 'lucide-react';
+import { Archive, Building2, CalendarDays, ChevronLeft, ChevronRight, EyeOff, GraduationCap, LoaderCircle, Plus, Presentation, RotateCcw, School, Stethoscope } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
 
-type University = { id: string; nameAr: string; nameEn?: string | null; slug: string; collegesCount: number };
-type College = { id: string; universityId: string; nameAr: string; nameEn?: string | null; slug: string; yearsCount: number };
-type AcademicYear = { id: string; collegeId: string; nameAr: string; nameEn?: string | null; slug: string; yearNumber: number; semestersCount: number };
-type Semester = { id: string; academicYearId: string; nameAr: string; nameEn?: string | null; slug: string; semesterNumber: number; subjectsCount: number };
-type Subject = { id: string; semesterId: string; nameAr: string; nameEn?: string | null; slug: string; code?: string | null; totalLectures: number };
-type Lecture = { id: string; subjectId: string; titleAr: string; titleEn?: string | null; slug: string; lectureNumber: number; durationMinutes?: number | null };
+type University = { id: string; nameAr: string; nameEn?: string | null; slug: string; collegesCount: number; isArchived: boolean };
+type College = { id: string; universityId: string; nameAr: string; nameEn?: string | null; slug: string; yearsCount: number; isArchived: boolean };
+type AcademicYear = { id: string; collegeId: string; nameAr: string; nameEn?: string | null; slug: string; yearNumber: number; semestersCount: number; isArchived: boolean };
+type Semester = { id: string; academicYearId: string; nameAr: string; nameEn?: string | null; slug: string; semesterNumber: number; subjectsCount: number; isArchived: boolean };
+type Subject = { id: string; semesterId: string; nameAr: string; nameEn?: string | null; slug: string; code?: string | null; totalLectures: number; isArchived: boolean };
+type Lecture = { id: string; subjectId: string; titleAr: string; titleEn?: string | null; slug: string; lectureNumber: number; durationMinutes?: number | null; isArchived: boolean };
+type AcademicKind = 'university' | 'college' | 'year' | 'semester' | 'subject' | 'lecture';
 
 type Props = { token: string; isSuperAdmin: boolean; isArabic: boolean; onError: (message: string) => void; onNotice: (message: string) => void };
 
@@ -28,6 +29,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
   const [semesterId, setSemesterId] = useState('');
   const [subjectId, setSubjectId] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [form, setForm] = useState<{ kind: 'university' | 'college' | 'year' | 'semester' | 'subject' | 'lecture'; name: string; nameEn: string; number: string; code: string; duration: string }>({ kind: 'university', name: '', nameEn: '', number: '1', code: '', duration: '' });
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
@@ -37,15 +39,16 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
     if (level === 'university' || level === 'college' || level === 'year') { setSemesterId(''); setSubjects([]); }
     if (level !== 'subject') { setSubjectId(''); setLectures([]); }
   };
-  const loadUniversities = async () => {
-    const data = await request<PagedResult<University>>('/api/v1/universities?Page=1&PageSize=100');
+  const archiveSuffix = (includeArchived = showArchived) => includeArchived ? '&includeArchived=true' : '';
+  const loadUniversities = async (includeArchived = showArchived) => {
+    const data = await request<PagedResult<University>>(`/api/v1/universities?Page=1&PageSize=100${archiveSuffix(includeArchived)}`);
     setUniversities(data.items);
   };
-  const loadColleges = async (id: string) => { const data = await request<College[]>(`/api/v1/universities/${id}/colleges`); setColleges(data); };
-  const loadYears = async (id: string) => { const data = await request<AcademicYear[]>(`/api/v1/colleges/${id}/years`); setYears(data); };
-  const loadSemesters = async (id: string) => { const data = await request<Semester[]>(`/api/v1/years/${id}/semesters`); setSemesters(data); };
-  const loadSubjects = async (id: string) => { const data = await request<Subject[]>(`/api/v1/semesters/${id}/subjects`); setSubjects(data); };
-  const loadLectures = async (id: string) => { const data = await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${id}/lectures`); setLectures(data); };
+  const loadColleges = async (id: string, includeArchived = showArchived) => { const data = await request<College[]>(`/api/v1/universities/${id}/colleges?includeArchived=${includeArchived}`); setColleges(data); };
+  const loadYears = async (id: string, includeArchived = showArchived) => { const data = await request<AcademicYear[]>(`/api/v1/colleges/${id}/years?includeArchived=${includeArchived}`); setYears(data); };
+  const loadSemesters = async (id: string, includeArchived = showArchived) => { const data = await request<Semester[]>(`/api/v1/years/${id}/semesters?includeArchived=${includeArchived}`); setSemesters(data); };
+  const loadSubjects = async (id: string, includeArchived = showArchived) => { const data = await request<Subject[]>(`/api/v1/semesters/${id}/subjects?includeArchived=${includeArchived}`); setSubjects(data); };
+  const loadLectures = async (id: string, includeArchived = showArchived) => { const data = await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${id}/lectures?includeArchived=${includeArchived}`); setLectures(data); };
 
   useEffect(() => { void loadUniversities().catch((error) => onError(error.message)); }, []);
 
@@ -54,6 +57,32 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
   async function chooseYear(id: string) { setYearId(id); resetBelow('year'); if (id) await loadSemesters(id).catch((error) => onError(error.message)); }
   async function chooseSemester(id: string) { setSemesterId(id); resetBelow('semester'); if (id) await loadSubjects(id).catch((error) => onError(error.message)); }
   async function chooseSubject(id: string) { setSubjectId(id); resetBelow('subject'); if (id) await loadLectures(id).catch((error) => onError(error.message)); }
+
+  async function toggleArchived() {
+    const next = !showArchived;
+    setShowArchived(next);
+    setUniversityId(''); setCollegeId(''); setYearId(''); setSemesterId(''); setSubjectId('');
+    setColleges([]); setYears([]); setSemesters([]); setSubjects([]); setLectures([]);
+    await loadUniversities(next).catch((error) => onError(error.message));
+  }
+
+  async function refreshAfterLifecycle(kind: AcademicKind) {
+    if (kind === 'university') return loadUniversities();
+    if (kind === 'college' && universityId) return loadColleges(universityId);
+    if (kind === 'year' && collegeId) return loadYears(collegeId);
+    if (kind === 'semester' && yearId) return loadSemesters(yearId);
+    if (kind === 'subject' && semesterId) return loadSubjects(semesterId);
+    if (kind === 'lecture' && subjectId) return loadLectures(subjectId);
+  }
+
+  async function setArchiveState(kind: AcademicKind, id: string, restore: boolean) {
+    setBusy(true);
+    try {
+      await request(`/api/v1/academic/${kind}/${id}/${restore ? 'restore' : 'archive'}`, { method: 'POST' });
+      await refreshAfterLifecycle(kind);
+      onNotice(restore ? (isArabic ? 'تمت استعادة العنصر الأكاديمي.' : 'Academic item restored.') : (isArabic ? 'تمت أرشفة العنصر الأكاديمي وإخفاؤه عن الطلاب.' : 'Academic item archived and hidden from students.'));
+    } catch (error) { onError(error instanceof Error ? error.message : 'Request failed.'); } finally { setBusy(false); }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,9 +125,9 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
   ] as const;
 
   return <section className="academic-center">
-    <div className="directory-heading"><div><p className="eyebrow">{isArabic ? 'البنية الأكاديمية' : 'ACADEMIC DIRECTORY'}</p><h2>{isArabic ? 'من الجامعة إلى المحاضرة' : 'University to lecture'}</h2></div></div>
-    <div className="hierarchy-board">{stages.map((stage, index) => <div className="hierarchy-stage" key={stage.key}><div className="hierarchy-stage-head"><span><stage.icon size={17} />{stage.title}</span>{stage.add && <button title={isArabic ? 'إضافة' : 'Add'} onClick={() => setForm({ ...form, kind: stage.key, name: '', nameEn: '', code: '', duration: '', number: '1' })}><Plus size={16} /></button>}</div><div className="hierarchy-items">{stage.items.length === 0 ? <p>{isArabic ? 'لا توجد عناصر بعد' : 'No items yet'}</p> : stage.items.map((item: any) => <button key={item.id} className={stage.selected === item.id ? 'selected' : ''} onClick={() => void stage.choose(item.id)}><strong>{label(isArabic, item)}</strong><small>{item.slug}</small></button>)}</div>{index < stages.length - 1 && <span className="hierarchy-arrow">{isArabic ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}</span>}</div>)}</div>
-    <div className="lecture-strip"><div><p className="eyebrow">{isArabic ? 'محاضرات المادة' : 'SUBJECT LECTURES'}</p><h3>{subjectId ? (isArabic ? 'محاضرات مرتبطة بالمادة المحددة' : 'Lectures for selected subject') : (isArabic ? 'اختر مادة لعرض محاضراتها' : 'Select a subject to view lectures')}</h3></div><Presentation size={25} />{subjectId && <button className="primary-action compact" onClick={() => setForm({ ...form, kind: 'lecture', name: '', nameEn: '', code: '', duration: '', number: String(lectures.length + 1) })}><Plus size={16} />{isArabic ? 'إضافة محاضرة' : 'Add lecture'}</button>}<div className="lecture-list">{lectures.map((lecture) => <article key={lecture.id}><b>#{lecture.lectureNumber}</b><span><strong>{label(isArabic, lecture)}</strong><small>{lecture.durationMinutes ? `${lecture.durationMinutes} min` : '—'}</small></span></article>)}</div></div>
+    <div className="directory-heading"><div><p className="eyebrow">{isArabic ? 'البنية الأكاديمية' : 'ACADEMIC DIRECTORY'}</p><h2>{isArabic ? 'من الجامعة إلى المحاضرة' : 'University to lecture'}</h2></div><button type="button" className={`archive-filter ${showArchived ? 'is-active' : ''}`} onClick={() => void toggleArchived()}><EyeOff size={16} />{showArchived ? (isArabic ? 'إخفاء المؤرشف' : 'Hide archived') : (isArabic ? 'إظهار المؤرشف' : 'Show archived')}</button></div>
+    <div className="hierarchy-board">{stages.map((stage, index) => <div className="hierarchy-stage" key={stage.key}><div className="hierarchy-stage-head"><span><stage.icon size={17} />{stage.title}</span>{stage.add && <button type="button" title={isArabic ? 'إضافة' : 'Add'} onClick={() => setForm({ ...form, kind: stage.key, name: '', nameEn: '', code: '', duration: '', number: '1' })}><Plus size={16} /></button>}</div><div className="hierarchy-items">{stage.items.length === 0 ? <p>{isArabic ? 'لا توجد عناصر بعد' : 'No items yet'}</p> : stage.items.map((item: any) => <div className={`hierarchy-item ${item.isArchived ? 'is-archived' : ''}`} key={item.id}><button type="button" className={`hierarchy-select ${stage.selected === item.id ? 'selected' : ''}`} onClick={() => void stage.choose(item.id)}><strong>{label(isArabic, item)}</strong><small>{item.slug}</small>{item.isArchived && <em>{isArabic ? 'مؤرشف' : 'Archived'}</em>}</button><button type="button" className="lifecycle-action" disabled={busy} title={item.isArchived ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')} onClick={() => void setArchiveState(stage.key, item.id, item.isArchived)}>{item.isArchived ? <RotateCcw size={14} /> : <Archive size={14} />}</button></div>)}</div>{index < stages.length - 1 && <span className="hierarchy-arrow">{isArabic ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}</span>}</div>)}</div>
+    <div className="lecture-strip"><div><p className="eyebrow">{isArabic ? 'محاضرات المادة' : 'SUBJECT LECTURES'}</p><h3>{subjectId ? (isArabic ? 'محاضرات مرتبطة بالمادة المحددة' : 'Lectures for selected subject') : (isArabic ? 'اختر مادة لعرض محاضراتها' : 'Select a subject to view lectures')}</h3></div><Presentation size={25} />{subjectId && <button type="button" className="primary-action compact" onClick={() => setForm({ ...form, kind: 'lecture', name: '', nameEn: '', code: '', duration: '', number: String(lectures.length + 1) })}><Plus size={16} />{isArabic ? 'إضافة محاضرة' : 'Add lecture'}</button>}<div className="lecture-list">{lectures.map((lecture) => <article className={lecture.isArchived ? 'is-archived' : ''} key={lecture.id}><b>#{lecture.lectureNumber}</b><span><strong>{label(isArabic, lecture)}</strong><small>{lecture.durationMinutes ? `${lecture.durationMinutes} min` : '—'}</small>{lecture.isArchived && <em>{isArabic ? 'مؤرشف' : 'Archived'}</em>}</span><button type="button" className="lifecycle-action" disabled={busy} title={lecture.isArchived ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')} onClick={() => void setArchiveState('lecture', lecture.id, lecture.isArchived)}>{lecture.isArchived ? <RotateCcw size={14} /> : <Archive size={14} />}</button></article>)}</div></div>
     <form className="academic-form" onSubmit={submit}><div><p className="eyebrow">{isArabic ? 'إجراء إنشاء' : 'CREATE ACTION'}</p><h3>{isArabic ? 'إضافة عنصر إلى الهيكل' : 'Add hierarchy item'}</h3></div><label>{isArabic ? 'النوع' : 'Type'}<select value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value as typeof form.kind })}><option value="university">{isArabic ? 'جامعة' : 'University'}</option><option value="college">{isArabic ? 'كلية' : 'College'}</option><option value="year">{isArabic ? 'سنة' : 'Academic year'}</option><option value="semester">{isArabic ? 'فصل' : 'Semester'}</option><option value="subject">{isArabic ? 'مادة' : 'Subject'}</option><option value="lecture">{isArabic ? 'محاضرة' : 'Lecture'}</option></select></label><label>{isArabic ? 'الاسم العربي' : 'Arabic name'}<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label><label>{isArabic ? 'الاسم الإنجليزي' : 'English name'}<input value={form.nameEn} onChange={(event) => setForm({ ...form, nameEn: event.target.value })} /></label>{['year', 'semester', 'lecture'].includes(form.kind) && <label>{isArabic ? 'الترتيب أو الرقم' : 'Order / number'}<input type="number" min="1" value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} /></label>}{form.kind === 'subject' && <label>{isArabic ? 'رمز المادة' : 'Subject code'}<input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} /></label>}{form.kind === 'lecture' && <label>{isArabic ? 'المدة بالدقائق' : 'Duration (minutes)'}<input type="number" min="1" value={form.duration} onChange={(event) => setForm({ ...form, duration: event.target.value })} /></label>}<button className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" size={16} />}<Plus size={16} />{isArabic ? 'حفظ' : 'Save'}</button></form>
   </section>;
 }

@@ -44,8 +44,11 @@ public class AcademicController : ControllerBase
     // ===== Universities =====
     [HttpGet("universities")]
     [AllowAnonymous]
-    public async Task<ActionResult<PagedResult<UniversityDto>>> GetUniversities([FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken ct = default)
-        => Ok(await _mediator.Send(new GetUniversitiesQuery(page, pageSize), ct));
+    public async Task<ActionResult<PagedResult<UniversityDto>>> GetUniversities([FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] bool includeArchived = false, CancellationToken ct = default)
+    {
+        if (includeArchived && !(User.IsInRole("admin") || User.IsInRole("super_admin"))) return Forbid();
+        return Ok(await _mediator.Send(new GetUniversitiesQuery(page, pageSize, includeArchived), ct));
+    }
 
     [HttpGet("universities/{id:guid}")]
     [AllowAnonymous]
@@ -78,11 +81,34 @@ public class AcademicController : ControllerBase
         return NoContent();
     }
 
+    [HttpPost("academic/{entityType}/{id:guid}/archive")]
+    [Authorize(Roles = "admin,super_admin")]
+    public async Task<IActionResult> ArchiveAcademicEntity(string entityType, Guid id, CancellationToken ct)
+    {
+        if (!TryGetAcademicLifecycleMetadata(entityType, out var resource, out var scopeEntityType)) return NotFound();
+        if (!await CanManageAsync(resource, Actions.Edit, scopeEntityType, id, ct)) return Forbid();
+        await _mediator.Send(new ArchiveAcademicEntityCommand(scopeEntityType, id, GetAdminId()), ct);
+        return NoContent();
+    }
+
+    [HttpPost("academic/{entityType}/{id:guid}/restore")]
+    [Authorize(Roles = "admin,super_admin")]
+    public async Task<IActionResult> RestoreAcademicEntity(string entityType, Guid id, CancellationToken ct)
+    {
+        if (!TryGetAcademicLifecycleMetadata(entityType, out var resource, out var scopeEntityType)) return NotFound();
+        if (!await CanManageAsync(resource, Actions.Edit, scopeEntityType, id, ct)) return Forbid();
+        await _mediator.Send(new RestoreAcademicEntityCommand(scopeEntityType, id, GetAdminId()), ct);
+        return NoContent();
+    }
+
     // ===== Colleges =====
     [HttpGet("universities/{universityId:guid}/colleges")]
     [AllowAnonymous]
-    public async Task<ActionResult<List<CollegeDto>>> GetColleges(Guid universityId, CancellationToken ct)
-        => Ok(await _mediator.Send(new GetCollegesByUniversityQuery(universityId), ct));
+    public async Task<ActionResult<List<CollegeDto>>> GetColleges(Guid universityId, [FromQuery] bool includeArchived = false, CancellationToken ct = default)
+    {
+        if (includeArchived && !(User.IsInRole("admin") || User.IsInRole("super_admin"))) return Forbid();
+        return Ok(await _mediator.Send(new GetCollegesByUniversityQuery(universityId, includeArchived), ct));
+    }
 
     [HttpGet("colleges/{id:guid}")]
     [AllowAnonymous]
@@ -118,8 +144,11 @@ public class AcademicController : ControllerBase
     // ===== Academic Years =====
     [HttpGet("colleges/{collegeId:guid}/years")]
     [AllowAnonymous]
-    public async Task<ActionResult<List<AcademicYearDto>>> GetYears(Guid collegeId, CancellationToken ct)
-        => Ok(await _mediator.Send(new GetYearsByCollegeQuery(collegeId), ct));
+    public async Task<ActionResult<List<AcademicYearDto>>> GetYears(Guid collegeId, [FromQuery] bool includeArchived = false, CancellationToken ct = default)
+    {
+        if (includeArchived && !(User.IsInRole("admin") || User.IsInRole("super_admin"))) return Forbid();
+        return Ok(await _mediator.Send(new GetYearsByCollegeQuery(collegeId, includeArchived), ct));
+    }
 
     [HttpGet("years/{id:guid}")]
     [AllowAnonymous]
@@ -145,8 +174,11 @@ public class AcademicController : ControllerBase
     // ===== Semesters =====
     [HttpGet("years/{yearId:guid}/semesters")]
     [Authorize]
-    public async Task<ActionResult<List<SemesterDto>>> GetSemesters(Guid yearId, CancellationToken ct)
-        => Ok(await _mediator.Send(new GetSemestersByYearQuery(yearId), ct));
+    public async Task<ActionResult<List<SemesterDto>>> GetSemesters(Guid yearId, [FromQuery] bool includeArchived = false, CancellationToken ct = default)
+    {
+        if (includeArchived && !(User.IsInRole("admin") || User.IsInRole("super_admin"))) return Forbid();
+        return Ok(await _mediator.Send(new GetSemestersByYearQuery(yearId, includeArchived), ct));
+    }
 
     [HttpGet("semesters/{id:guid}")]
     [Authorize]
@@ -164,8 +196,11 @@ public class AcademicController : ControllerBase
     // ===== Subjects =====
     [HttpGet("semesters/{semesterId:guid}/subjects")]
     [Authorize]
-    public async Task<ActionResult<List<SubjectDto>>> GetSubjects(Guid semesterId, CancellationToken ct)
-        => Ok(await _mediator.Send(new GetSubjectsBySemesterQuery(semesterId, GetStudentId()), ct));
+    public async Task<ActionResult<List<SubjectDto>>> GetSubjects(Guid semesterId, [FromQuery] bool includeArchived = false, CancellationToken ct = default)
+    {
+        if (includeArchived && !(User.IsInRole("admin") || User.IsInRole("super_admin"))) return Forbid();
+        return Ok(await _mediator.Send(new GetSubjectsBySemesterQuery(semesterId, GetStudentId(), includeArchived), ct));
+    }
 
     [HttpGet("subjects/{id:guid}")]
     [Authorize]
@@ -197,7 +232,11 @@ public class AcademicController : ControllerBase
     {
         var db = HttpContext.RequestServices.GetRequiredService<IApplicationDbContext>();
         return await db.Lectures.AsNoTracking()
-            .Where(lecture => lecture.Id == lectureId && lecture.DeletedAt == null && lecture.Status == "active")
+            .Where(lecture => lecture.Id == lectureId && lecture.DeletedAt == null && lecture.Status == "active"
+                && lecture.Subject.DeletedAt == null && lecture.Subject.Semester.DeletedAt == null
+                && lecture.Subject.Semester.AcademicYear.DeletedAt == null
+                && lecture.Subject.Semester.AcademicYear.College.DeletedAt == null
+                && lecture.Subject.Semester.AcademicYear.College.University.DeletedAt == null)
             .Select(lecture => (Guid?)lecture.SubjectId)
             .FirstOrDefaultAsync(ct);
     }
@@ -253,5 +292,19 @@ public class AcademicController : ControllerBase
     {
         if (!await CanManageAsync(Resources.Lectures, Actions.Edit, "lecture", id, ct)) return Forbid();
         return Ok(await _mediator.Send(new UpdateLectureCommand(id, dto.TitleAr, dto.TitleEn, dto.DurationMinutes), ct));
+    }
+
+    private static bool TryGetAcademicLifecycleMetadata(string entityType, out string resource, out string scopeEntityType)
+    {
+        switch (entityType.ToLowerInvariant())
+        {
+            case "university": resource = Resources.Universities; scopeEntityType = "university"; return true;
+            case "college": resource = Resources.Colleges; scopeEntityType = "college"; return true;
+            case "year": resource = Resources.Years; scopeEntityType = "year"; return true;
+            case "semester": resource = Resources.Semesters; scopeEntityType = "semester"; return true;
+            case "subject": resource = Resources.Subjects; scopeEntityType = "subject"; return true;
+            case "lecture": resource = Resources.Lectures; scopeEntityType = "lecture"; return true;
+            default: resource = string.Empty; scopeEntityType = string.Empty; return false;
+        }
     }
 }

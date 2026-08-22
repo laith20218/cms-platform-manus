@@ -35,4 +35,20 @@ public abstract class LookupEntity : BaseEntity
     public string Status { get; protected set; } = "active";
     public int SortOrder { get; protected set; }
     public DateTime? DeletedAt { get; set; }
+
+    public bool IsArchived => DeletedAt.HasValue;
+
+    public void Archive()
+    {
+        if (DeletedAt.HasValue) return;
+        DeletedAt = DateTime.UtcNow;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void Restore()
+    {
+        if (!DeletedAt.HasValue) return;
+        DeletedAt = null;
+        UpdatedAt = DateTime.UtcNow;
+    }
 }

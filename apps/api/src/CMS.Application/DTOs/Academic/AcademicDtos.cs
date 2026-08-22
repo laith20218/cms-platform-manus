@@ -8,7 +8,8 @@ public record UniversityDto(
     string Slug,
     string? LogoUrl,
     string? Description,
-    int CollegesCount
+    int CollegesCount,
+    bool IsArchived
 );
 
 public record CreateUniversityDto(string NameAr, string? NameEn, string Slug, string? Description, string? LogoUrl);
@@ -22,7 +23,8 @@ public record CollegeDto(
     string? NameEn,
     string Slug,
     string? Icon,
-    int YearsCount
+    int YearsCount,
+    bool IsArchived
 );
 
 public record CreateCollegeDto(Guid UniversityId, string NameAr, string? NameEn, string Slug);
@@ -36,7 +38,8 @@ public record AcademicYearDto(
     string? NameEn,
     string Slug,
     int YearNumber,
-    int SemestersCount
+    int SemestersCount,
+    bool IsArchived
 );
 
 public record CreateAcademicYearDto(Guid CollegeId, string NameAr, string? NameEn, string Slug, int YearNumber);
@@ -50,7 +53,8 @@ public record SemesterDto(
     string? NameEn,
     string Slug,
     int SemesterNumber,
-    int SubjectsCount
+    int SubjectsCount,
+    bool IsArchived
 );
 
 public record CreateSemesterDto(Guid AcademicYearId, string NameAr, string? NameEn, string Slug, int SemesterNumber);
@@ -70,7 +74,8 @@ public record SubjectDto(
     int TotalQuestions,
     int TotalLectures,
     int TotalExams,
-    SubjectProgressDto? UserProgress
+    SubjectProgressDto? UserProgress,
+    bool IsArchived
 );
 
 public record SubjectProgressDto(
@@ -93,7 +98,8 @@ public record LectureDto(
     int? DurationMinutes,
     int QuestionsCount,
     int UserAnswered,
-    double UserProgress
+    double UserProgress,
+    bool IsArchived
 );
 
 public record CreateLectureDto(Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes);
