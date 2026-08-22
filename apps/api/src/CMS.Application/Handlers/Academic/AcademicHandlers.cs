@@ -133,7 +133,7 @@ public class AcademicQueryHandlers :
             .Select(subject => new SubjectDto(
                 subject.Id, subject.SemesterId, subject.NameAr, subject.NameEn, subject.Slug, subject.Code, subject.Description, subject.Icon, subject.Color,
                 _db.Questions.Count(question => question.SubjectId == subject.Id && question.Status == Domain.Enums.ContentStatus.Published),
-                _db.Lectures.Count(lecture => lecture.SubjectId == subject.Id && (req.IncludeArchived || lecture.DeletedAt == null)),
+                _db.Lectures.Count(lecture => lecture.SubjectId == subject.Id && (req.IncludeArchived || (lecture.DeletedAt == null && lecture.Status == "active"))),
                 _db.Exams.Count(exam => exam.SubjectId == subject.Id && exam.Status == Domain.Enums.ContentStatus.Published),
                 null,
                 subject.DeletedAt != null))
@@ -286,11 +286,33 @@ public class AcademicQueryHandlers :
             studentId.Value, subject.Id, SubscriptionContentScope.QuestionsExams, ct);
         var canAccessLectures = await _entitlements.CanAccessSubjectContentAsync(
             studentId.Value, subject.Id, SubscriptionContentScope.LecturesText, ct);
+        var canAccessVideoAudio = await _entitlements.CanAccessSubjectContentAsync(
+            studentId.Value, subject.Id, SubscriptionContentScope.VideoAudio, ct);
+
+        var accessibleFiles = _db.LibraryFiles.AsNoTracking().Where(file =>
+            file.SubjectId == subject.Id && file.Status == ContentStatus.Published
+            && file.DeletedAt == null && file.VirusScanStatus == VirusScanStatus.Clean
+            && ((canAccessLectures && file.Type != LibraryFileType.Video && file.Type != LibraryFileType.Audio)
+                || (canAccessVideoAudio && (file.Type == LibraryFileType.Video || file.Type == LibraryFileType.Audio))));
+        var totalFiles = await accessibleFiles.CountAsync(ct);
+        var latestQuestion = canAccessQuestions
+            ? await _db.Questions.AsNoTracking().Where(question => question.SubjectId == subject.Id && question.Status == ContentStatus.Published)
+                .OrderByDescending(question => question.UpdatedAt).Select(question => (DateTime?)question.UpdatedAt).FirstOrDefaultAsync(ct)
+            : null;
+        var latestLecture = canAccessLectures
+            ? await _db.Lectures.AsNoTracking().Where(lecture => lecture.SubjectId == subject.Id && lecture.DeletedAt == null && lecture.Status == "active")
+                .OrderByDescending(lecture => lecture.UpdatedAt).Select(lecture => (DateTime?)lecture.UpdatedAt).FirstOrDefaultAsync(ct)
+            : null;
+        var latestFile = await accessibleFiles.OrderByDescending(file => file.UpdatedAt)
+            .Select(file => (DateTime?)file.UpdatedAt).FirstOrDefaultAsync(ct);
+        var lastContentUpdatedAt = new[] { latestQuestion, latestLecture, latestFile }.Where(value => value.HasValue).Select(value => value!.Value).DefaultIfEmpty().Max();
         var scoped = subject with
         {
             TotalQuestions = canAccessQuestions ? subject.TotalQuestions : 0,
             TotalExams = canAccessQuestions ? subject.TotalExams : 0,
             TotalLectures = canAccessLectures ? subject.TotalLectures : 0,
+            TotalFiles = totalFiles,
+            LastContentUpdatedAt = lastContentUpdatedAt == default ? null : lastContentUpdatedAt,
             UserProgress = null
         };
         return canAccessQuestions ? await AddProgressAsync(scoped, studentId, ct) : scoped;

@@ -36,6 +36,8 @@ export interface SubjectSummary {
   color?: string | null;
   totalQuestions: number;
   totalLectures: number;
+  totalFiles: number;
+  lastContentUpdatedAt?: string | null;
   userProgress?: { completedPercentage: number } | null;
 }
 

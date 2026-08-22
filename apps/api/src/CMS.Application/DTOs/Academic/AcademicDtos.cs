@@ -75,7 +75,9 @@ public record SubjectDto(
     int TotalLectures,
     int TotalExams,
     SubjectProgressDto? UserProgress,
-    bool IsArchived
+    bool IsArchived,
+    int TotalFiles = 0,
+    DateTime? LastContentUpdatedAt = null
 );
 
 public record SubjectProgressDto(

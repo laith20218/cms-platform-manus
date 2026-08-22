@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
-import { GraduationCap, ChevronLeft, BookOpen, Loader2 } from 'lucide-react';
+import { GraduationCap, ChevronLeft, BookOpen, Loader2, Clock3, FileText } from 'lucide-react';
 import { academicApi } from './services/academic-api';
 
 export default function SubjectsPage() {
@@ -148,6 +148,10 @@ export default function SubjectsPage() {
                       <div className="font-bold text-[var(--c-text)]">{s.nameAr}</div>
                       <div className="text-xs text-[var(--c-text-muted)]" lang="en">{s.totalQuestions} سؤال • {s.totalLectures} محاضرات</div>
                     </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--c-text-muted)]">
+                    <span className="inline-flex items-center gap-1"><FileText className="h-3.5 w-3.5" />{s.totalFiles} ملفات</span>
+                    {s.lastContentUpdatedAt && <span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />آخر تحديث {new Date(s.lastContentUpdatedAt).toLocaleDateString('ar-SY')}</span>}
                   </div>
                   {s.userProgress && (
                     <>
