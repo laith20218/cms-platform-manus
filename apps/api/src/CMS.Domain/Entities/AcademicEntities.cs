@@ -171,7 +171,14 @@ public class Lecture : LookupEntity
             SubjectId = subjectId,
             NameAr = titleAr,
             Slug = slug,
-            LectureNumber = lectureNumber
+            LectureNumber = lectureNumber,
+            Status = "draft"
         };
+    }
+
+    public void Publish()
+    {
+        Status = "active";
+        UpdatedAt = DateTime.UtcNow;
     }
 }

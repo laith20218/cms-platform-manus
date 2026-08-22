@@ -232,7 +232,7 @@ public class AcademicController : ControllerBase
     {
         var db = HttpContext.RequestServices.GetRequiredService<IApplicationDbContext>();
         return await db.Lectures.AsNoTracking()
-            .Where(lecture => lecture.Id == lectureId && lecture.DeletedAt == null && lecture.Status == "active"
+            .Where(lecture => lecture.Id == lectureId && lecture.DeletedAt == null && lecture.Status != "draft"
                 && lecture.Subject.DeletedAt == null && lecture.Subject.Semester.DeletedAt == null
                 && lecture.Subject.Semester.AcademicYear.DeletedAt == null
                 && lecture.Subject.Semester.AcademicYear.College.DeletedAt == null
@@ -292,6 +292,14 @@ public class AcademicController : ControllerBase
     {
         if (!await CanManageAsync(Resources.Lectures, Actions.Edit, "lecture", id, ct)) return Forbid();
         return Ok(await _mediator.Send(new UpdateLectureCommand(id, dto.TitleAr, dto.TitleEn, dto.DurationMinutes), ct));
+    }
+
+    [HttpPost("lectures/{id:guid}/publish")]
+    [Authorize(Roles = "admin,super_admin")]
+    public async Task<ActionResult<LectureDto>> PublishLecture(Guid id, CancellationToken ct)
+    {
+        if (!await CanManageAsync(Resources.Lectures, Actions.Edit, "lecture", id, ct)) return Forbid();
+        return Ok(await _mediator.Send(new PublishLectureCommand(id, GetAdminId()), ct));
     }
 
     private static bool TryGetAcademicLifecycleMetadata(string entityType, out string resource, out string scopeEntityType)

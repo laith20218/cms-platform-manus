@@ -161,7 +161,7 @@ public class AcademicQueryHandlers :
 
         var lectures = await _db.Lectures.AsNoTracking()
             .Where(lecture => lecture.SubjectId == req.SubjectId
-                && (req.IncludeArchived || (lecture.DeletedAt == null && lecture.Status == "active"))
+                && (req.IncludeArchived || (lecture.DeletedAt == null && lecture.Status != "draft"))
                 && (req.IncludeArchived || (lecture.Subject.DeletedAt == null && lecture.Subject.Semester.DeletedAt == null && lecture.Subject.Semester.AcademicYear.DeletedAt == null && lecture.Subject.Semester.AcademicYear.College.DeletedAt == null && lecture.Subject.Semester.AcademicYear.College.University.DeletedAt == null)))
             .OrderBy(lecture => lecture.LectureNumber)
             .Select(lecture => new LectureDto(
@@ -182,7 +182,7 @@ public class AcademicQueryHandlers :
     public async Task<LectureDto> Handle(GetLectureByIdQuery req, CancellationToken ct)
     {
         var lecture = await _db.Lectures.AsNoTracking()
-            .Where(item => item.Id == req.Id && item.DeletedAt == null && item.Status == "active"
+            .Where(item => item.Id == req.Id && item.DeletedAt == null && item.Status != "draft"
                 && item.Subject.DeletedAt == null && item.Subject.Semester.DeletedAt == null && item.Subject.Semester.AcademicYear.DeletedAt == null && item.Subject.Semester.AcademicYear.College.DeletedAt == null && item.Subject.Semester.AcademicYear.College.University.DeletedAt == null)
             .Select(item => new { item.Id, item.SubjectId })
             .FirstOrDefaultAsync(ct)
@@ -236,6 +236,7 @@ public class AcademicCommandHandlers :
     IRequestHandler<UpdateSubjectCommand, SubjectDto>,
     IRequestHandler<CreateLectureCommand, LectureDto>,
     IRequestHandler<UpdateLectureCommand, LectureDto>,
+    IRequestHandler<PublishLectureCommand, LectureDto>,
     IRequestHandler<ArchiveAcademicEntityCommand, Unit>,
     IRequestHandler<RestoreAcademicEntityCommand, Unit>
 {
@@ -366,6 +367,15 @@ public class AcademicCommandHandlers :
         typeof(Lecture).GetProperty("DurationMinutes")?.SetValue(lecture, req.DurationMinutes);
         await _unitOfWork.SaveChangesAsync(ct);
         return new LectureDto(lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, req.DurationMinutes, 0, 0, 0, false);
+    }
+
+    public async Task<LectureDto> Handle(PublishLectureCommand req, CancellationToken ct)
+    {
+        var lecture = await _db.Lectures.FirstOrDefaultAsync(item => item.Id == req.Id && item.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Lecture", req.Id);
+        lecture.Publish();
+        await _unitOfWork.SaveChangesAsync(ct);
+        return new LectureDto(lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, lecture.DurationMinutes, 0, 0, 0, false);
     }
 
     public async Task<Unit> Handle(ArchiveAcademicEntityCommand req, CancellationToken ct)

@@ -49,6 +49,7 @@ public record GetLecturesBySubjectQuery(Guid SubjectId, Guid? StudentId = null, 
 public record GetLectureByIdQuery(Guid Id, Guid StudentId) : IRequest<LectureDto>;
 public record CreateLectureCommand(Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, Guid CreatedBy) : IRequest<LectureDto>;
 public record UpdateLectureCommand(Guid Id, string TitleAr, string? TitleEn, int? DurationMinutes) : IRequest<LectureDto>;
+public record PublishLectureCommand(Guid Id, Guid PublishedBy) : IRequest<LectureDto>;
 
 // ===== Archive lifecycle =====
 public record ArchiveAcademicEntityCommand(string EntityType, Guid Id, Guid ArchivedBy) : IRequest<Unit>;
