@@ -326,12 +326,17 @@ public class AdminManagementHandlers :
         var students = await _db.Students.AsNoTracking()
             .Where(s => studentIds.Contains(s.Id))
             .ToDictionaryAsync(s => s.Id, ct);
+        var yearIds = codes.Where(c => c.ScopeYearId.HasValue).Select(c => c.ScopeYearId!.Value).Distinct().ToList();
+        var years = await _db.AcademicYears.AsNoTracking()
+            .Where(year => yearIds.Contains(year.Id))
+            .ToDictionaryAsync(year => year.Id, ct);
 
         var items = codes.Select(c => new CodeManagementDto(
             c.Id, c.Code, c.ScopeType.ToString(),
             c.ContentScope.ToString(), c.IsPublic,
             c.ScopeSubjectId.HasValue
                 ? _db.Subjects.AsNoTracking().FirstOrDefault(s => s.Id == c.ScopeSubjectId)?.NameAr
+                : c.ScopeYearId.HasValue && years.TryGetValue(c.ScopeYearId.Value, out var year) ? year.NameAr
                 : c.ScopeCollegeId.HasValue ? "كلية كاملة" : "نطاق عام",
             c.Status.ToString(),
             c.UsedAt,
