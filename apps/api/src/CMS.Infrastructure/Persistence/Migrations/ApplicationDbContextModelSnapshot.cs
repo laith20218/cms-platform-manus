@@ -376,6 +376,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("quantity");
 
+                    b.Property<bool>("IsPublic")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_public");
+
                     b.Property<Guid?>("ScopeCollegeId")
                         .HasColumnType("uuid")
                         .HasColumnName("scope_college_id");
@@ -387,6 +391,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ScopeSubjectId")
                         .HasColumnType("uuid")
                         .HasColumnName("scope_subject_id");
+
+                    b.Property<int>("ContentScope")
+                        .HasColumnType("integer")
+                        .HasColumnName("content_scope");
 
                     b.Property<string>("ScopeType")
                         .IsRequired()
@@ -1881,6 +1889,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at");
 
+                    b.Property<int>("ContentScope")
+                        .HasColumnType("integer")
+                        .HasColumnName("content_scope");
+
                     b.Property<string>("RevocationReason")
                         .HasColumnType("text")
                         .HasColumnName("revocation_reason");
@@ -1936,9 +1948,9 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_student_subscriptions");
 
-                    b.HasIndex("SubscriptionCodeId")
+                    b.HasIndex("StudentId", "SubscriptionCodeId")
                         .IsUnique()
-                        .HasDatabaseName("ix_student_subscriptions_subscription_code_id");
+                        .HasDatabaseName("ix_student_subscriptions_student_id_subscription_code_id");
 
                     b.HasIndex("StudentId", "Status", "ExpiresAt")
                         .HasDatabaseName("ix_student_subscriptions_student_id_status_expires_at");
@@ -2064,6 +2076,14 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ScopeSubjectId")
                         .HasColumnType("uuid")
                         .HasColumnName("scope_subject_id");
+
+                    b.Property<int>("ContentScope")
+                        .HasColumnType("integer")
+                        .HasColumnName("content_scope");
+
+                    b.Property<bool>("IsPublic")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_public");
 
                     b.Property<int>("ScopeType")
                         .HasColumnType("integer")

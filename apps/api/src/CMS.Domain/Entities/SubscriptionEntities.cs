@@ -8,6 +8,8 @@ public class CodeBatch : BaseEntity
     public string Name { get; set; } = string.Empty;
     public int Quantity { get; set; }
     public string ScopeType { get; set; } = "subject";
+    public SubscriptionContentScope ContentScope { get; set; } = SubscriptionContentScope.FullSubject;
+    public bool IsPublic { get; set; }
     public Guid? ScopeUniversityId { get; set; }
     public Guid? ScopeCollegeId { get; set; }
     public Guid? ScopeYearId { get; set; }
@@ -23,6 +25,8 @@ public class SubscriptionCode : BaseEntity
     public string Code { get; set; } = string.Empty;
     public Guid BatchId { get; set; }
     public SubscriptionScopeType ScopeType { get; set; }
+    public SubscriptionContentScope ContentScope { get; set; } = SubscriptionContentScope.FullSubject;
+    public bool IsPublic { get; set; }
     public Guid? ScopeUniversityId { get; set; }
     public Guid? ScopeCollegeId { get; set; }
     public Guid? ScopeYearId { get; set; }
@@ -45,6 +49,7 @@ public class StudentSubscription : BaseEntity
     public Guid StudentId { get; set; }
     public Guid? SubscriptionCodeId { get; set; }
     public SubscriptionScopeType ScopeType { get; set; }
+    public SubscriptionContentScope ContentScope { get; set; } = SubscriptionContentScope.FullSubject;
     public Guid? ScopeUniversityId { get; set; }
     public Guid? ScopeCollegeId { get; set; }
     public Guid? ScopeYearId { get; set; }

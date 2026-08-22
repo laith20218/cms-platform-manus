@@ -83,7 +83,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         });
         modelBuilder.Entity<StudentSubscription>(entity =>
         {
-            entity.HasIndex(x => x.SubscriptionCodeId).IsUnique();
+            entity.HasIndex(x => new { x.StudentId, x.SubscriptionCodeId }).IsUnique();
             entity.HasIndex(x => new { x.StudentId, x.Status, x.ExpiresAt });
         });
         modelBuilder.Entity<SecurityLog>(entity =>

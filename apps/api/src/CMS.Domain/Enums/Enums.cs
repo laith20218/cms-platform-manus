@@ -81,6 +81,16 @@ public enum SubscriptionScopeType
     University
 }
 
+/// <summary>Exclusive content grant carried by a subscription code.</summary>
+public enum SubscriptionContentScope
+{
+    QuestionsExams,
+    LecturesText,
+    VideoAudio,
+    FullSubject,
+    FullYear
+}
+
 /// <summary>
 /// Subscription code status.
 /// </summary>
@@ -124,7 +134,8 @@ public enum LibraryFileType
     Video,
     Summary,
     Comprehensive,
-    Paragraph
+    Paragraph,
+    Audio
 }
 
 /// <summary>
