@@ -45,7 +45,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
   const loadYears = async (id: string) => { const data = await request<AcademicYear[]>(`/api/v1/colleges/${id}/years`); setYears(data); };
   const loadSemesters = async (id: string) => { const data = await request<Semester[]>(`/api/v1/years/${id}/semesters`); setSemesters(data); };
   const loadSubjects = async (id: string) => { const data = await request<Subject[]>(`/api/v1/semesters/${id}/subjects`); setSubjects(data); };
-  const loadLectures = async (id: string) => { const data = await request<Lecture[]>(`/api/v1/subjects/${id}/lectures`); setLectures(data); };
+  const loadLectures = async (id: string) => { const data = await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${id}/lectures`); setLectures(data); };
 
   useEffect(() => { void loadUniversities().catch((error) => onError(error.message)); }, []);
 
