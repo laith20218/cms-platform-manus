@@ -363,6 +363,8 @@ public class AdminManagementHandlers :
             throw new DomainException("رموز المحتوى الجزئي أو المادة الكاملة يجب أن ترتبط بمادة", "INVALID_SUBJECT_CODE_SCOPE");
         if (req.Quantity is < 1 or > 1000 || req.DurationDays < 0)
             throw new DomainException("كمية الأكواد أو مدة الوصول غير صالحة", "INVALID_CODE_GENERATION_REQUEST");
+        if (req.CodeExpiresAt.HasValue && req.CodeExpiresAt.Value <= DateTime.UtcNow)
+            throw new DomainException("تاريخ انتهاء الرمز يجب أن يكون في المستقبل", "INVALID_CODE_EXPIRY");
         if (!await _permissions.IsInScopeAsync(req.CreatedBy, ScopeEntityType(scopeType), req.ScopeId.Value, ct))
             throw new ForbiddenException("لا تملك صلاحية إنشاء أكواد خارج نطاقك الإداري");
 
