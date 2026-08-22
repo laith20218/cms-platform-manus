@@ -120,6 +120,9 @@ public class QuestionsController : ControllerBase
         Guid id, [FromBody] ReportQuestionDto dto, CancellationToken ct)
     {
         var studentId = GetStudentId() ?? throw new UnauthorizedAccessException();
+        var subjectId = await SubjectIdForQuestionAsync(id, ct);
+        var rejection = await EntitlementRejectionAsync(studentId, subjectId, ct);
+        if (rejection is not null) return rejection;
         await _mediator.Send(new ReportQuestionCommand(id, studentId, dto.ReasonType, dto.Description, dto.ScreenshotUrl), ct);
         return NoContent();
     }

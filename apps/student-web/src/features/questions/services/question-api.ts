@@ -32,7 +32,7 @@ export const questionApi = {
   },
 
   report: async (questionId: string, reasonType: string, description: string) => {
-    await apiClient.post(`/questions/${questionId}/report`, { reasonType, description });
+    await apiClient.post(`/questions/${questionId}/report`, { reasonType, description }, await entitlementRequestConfig());
   },
 
   getFavorites: async (): Promise<FavoriteItem[]> => {
