@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using CMS.Application.Interfaces;
+using CMS.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -26,20 +27,44 @@ public sealed class StudentSearchController : ControllerBase
         if (string.IsNullOrWhiteSpace(term) || term.Length < 2)
             return Ok(new StudentSearchResponseDto(Array.Empty<StudentSearchResultDto>()));
 
-        var academicYearId = await _db.Students.AsNoTracking()
-            .Where(student => student.Id == studentId && student.DeletedAt == null)
-            .Select(student => student.AcademicYearId)
-            .FirstOrDefaultAsync(ct);
-        if (!academicYearId.HasValue)
+        var now = DateTime.UtcNow;
+        var studentCanSearch = await _db.Students.AsNoTracking().AnyAsync(student =>
+            student.Id == studentId
+            && student.DeletedAt == null
+            && (student.Status != StudentStatus.Banned || (student.BanUntil != null && student.BanUntil <= now)), ct);
+        if (!studentCanSearch)
             return Ok(new StudentSearchResponseDto(Array.Empty<StudentSearchResultDto>()));
 
         var cappedLimit = Math.Clamp(limit, 1, 30);
-        var semesterIds = _db.Semesters.AsNoTracking()
-            .Where(semester => semester.AcademicYearId == academicYearId.Value)
-            .Select(semester => semester.Id);
+        var activeGrants = _db.StudentSubscriptions.AsNoTracking()
+            .Where(subscription => subscription.StudentId == studentId
+                && subscription.Status == SubscriptionStatus.Active
+                && subscription.RevokedAt == null
+                && subscription.StartsAt <= now
+                && subscription.ExpiresAt > now);
+
+        var entitledSubjectIds =
+            from subjectEntity in _db.Subjects.AsNoTracking()
+            join semester in _db.Semesters.AsNoTracking() on subjectEntity.SemesterId equals semester.Id
+            join academicYear in _db.AcademicYears.AsNoTracking() on semester.AcademicYearId equals academicYear.Id
+            join college in _db.Colleges.AsNoTracking() on academicYear.CollegeId equals college.Id
+            join university in _db.Universities.AsNoTracking() on college.UniversityId equals university.Id
+            where subjectEntity.Status == "active" && subjectEntity.DeletedAt == null
+                && semester.Status == "active" && semester.DeletedAt == null
+                && academicYear.Status == "active" && academicYear.DeletedAt == null
+                && college.Status == "active" && college.DeletedAt == null
+                && university.Status == "active" && university.DeletedAt == null
+                && activeGrants.Any(grant =>
+                    (grant.ScopeType == SubscriptionScopeType.Subject && grant.ScopeSubjectId == subjectEntity.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.Semester && grant.ScopeSemesterId == semester.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.Year && grant.ScopeYearId == academicYear.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.College && grant.ScopeCollegeId == college.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.University && grant.ScopeUniversityId == university.Id))
+            select subjectEntity.Id;
 
         var subjectResults = await _db.Subjects.AsNoTracking()
-            .Where(item => semesterIds.Contains(item.SemesterId) && (item.NameAr.Contains(term) || (item.NameEn != null && item.NameEn.Contains(term))))
+            .Where(item => entitledSubjectIds.Contains(item.Id)
+                && (item.NameAr.Contains(term) || (item.NameEn != null && item.NameEn.Contains(term))))
             .OrderBy(item => item.NameAr)
             .Take(cappedLimit)
             .Select(item => new StudentSearchResultDto("subject", item.Id, item.NameAr, item.NameEn, item.Slug, null, null))
@@ -51,7 +76,23 @@ public sealed class StudentSearchController : ControllerBase
         var lectureResults = await (
             from lecture in _db.Lectures.AsNoTracking()
             join academicSubject in _db.Subjects.AsNoTracking() on lecture.SubjectId equals academicSubject.Id
-            where semesterIds.Contains(academicSubject.SemesterId) && lecture.NameAr.Contains(term)
+            join semester in _db.Semesters.AsNoTracking() on academicSubject.SemesterId equals semester.Id
+            join academicYear in _db.AcademicYears.AsNoTracking() on semester.AcademicYearId equals academicYear.Id
+            join college in _db.Colleges.AsNoTracking() on academicYear.CollegeId equals college.Id
+            join university in _db.Universities.AsNoTracking() on college.UniversityId equals university.Id
+            where entitledSubjectIds.Contains(academicSubject.Id)
+                && lecture.Status == "active"
+                && lecture.DeletedAt == null
+                && lecture.NameAr.Contains(term)
+                && activeGrants.Any(grant =>
+                    ((grant.ScopeType == SubscriptionScopeType.Subject && grant.ScopeSubjectId == academicSubject.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.Semester && grant.ScopeSemesterId == semester.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.Year && grant.ScopeYearId == academicYear.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.College && grant.ScopeCollegeId == college.Id)
+                    || (grant.ScopeType == SubscriptionScopeType.University && grant.ScopeUniversityId == university.Id))
+                    && (grant.ContentScope == SubscriptionContentScope.LecturesText
+                        || grant.ContentScope == SubscriptionContentScope.FullSubject
+                        || grant.ContentScope == SubscriptionContentScope.FullYear))
             orderby lecture.NameAr
             select new StudentSearchResultDto("lecture", lecture.Id, lecture.NameAr, null, academicSubject.Slug, academicSubject.NameAr, lecture.LectureNumber))
             .Take(remaining)
