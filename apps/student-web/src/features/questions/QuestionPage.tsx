@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -55,7 +56,10 @@ export default function QuestionPage() {
     enabled: !!lectureId || !!questionId,
   });
 
-  const questions: QuestionData[] = questionId ? (questionsData ? [questionsData as QuestionData] : []) : questionsData?.items || [];
+  const questions = useMemo<QuestionData[]>(
+    () => questionId ? (questionsData ? [questionsData as QuestionData] : []) : questionsData?.items || [],
+    [questionId, questionsData],
+  );
   const currentQuestion = questions[currentIndex];
 
   useEffect(() => {

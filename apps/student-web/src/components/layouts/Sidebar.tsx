@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutGrid, GraduationCap, Star, Search, Trophy } from 'lucide-react';
+import { Bell, BarChart3, LayoutGrid, GraduationCap, Star, Search, Trophy } from 'lucide-react';
 import { cn } from '@/utils';
 
 const navItems = [
@@ -7,6 +7,8 @@ const navItems = [
   { to: '/subjects', icon: GraduationCap, label: 'المواد' },
   { to: '/favorites', icon: Star, label: 'المفضلة' },
   { to: '/search', icon: Search, label: 'البحث' },
+  { to: '/stats', icon: BarChart3, label: 'تقدمي' },
+  { to: '/notifications', icon: Bell, label: 'الإشعارات' },
   { to: '/leaderboard', icon: Trophy, label: 'لوحة الصدارة' },
 ];
 

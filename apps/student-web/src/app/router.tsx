@@ -22,8 +22,6 @@ const LibraryPage = lazy(() => import('@/features/library/LibraryPage'));
 const SearchPage = lazy(() => import('@/features/search/SearchPage'));
 const ProfilePage = lazy(() => import('@/features/profile/ProfilePage'));
 const NotificationsPage = lazy(() => import('@/features/notifications/pages/NotificationsPage'));
-const AdminDashboardPage = lazy(() => import('@/features/admin/pages/AdminDashboardPage'));
-const AdminReportsPage = lazy(() => import('@/features/admin/pages/AdminReportsPage'));
 const StatsPage = lazy(() => import('@/features/stats/pages/StatsPage'));
 const LeaderboardPage = lazy(() => import('@/features/stats/pages/LeaderboardPage'));
 
@@ -53,8 +51,6 @@ export function AppRoutes() {
           <Route path="/search" element={<SearchPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
-          <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
-          <Route path="/admin/reports" element={<AdminReportsPage />} />
           <Route path="/stats" element={<StatsPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
         </Route>
