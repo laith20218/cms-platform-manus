@@ -255,7 +255,7 @@ public class QuestionHandlerTests
         var correctOptionId = question.Options.First(o => o.IsCorrect).Id.ToString();
 
         var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
-        var cmd = new AnswerQuestionCommand(question.Id, student.Id, correctOptionId, 30, false);
+        var cmd = new AnswerQuestionCommand(question.Id, student.Id, correctOptionId, null, 30, false);
 
         // Act
         var result = await handler.Handle(cmd, CancellationToken.None);
@@ -280,7 +280,7 @@ public class QuestionHandlerTests
         var wrongOptionId = question.Options.First(o => !o.IsCorrect).Id.ToString();
 
         var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
-        var cmd = new AnswerQuestionCommand(question.Id, student.Id, wrongOptionId, 20, false);
+        var cmd = new AnswerQuestionCommand(question.Id, student.Id, wrongOptionId, null, 20, false);
 
         // Act
         var result = await handler.Handle(cmd, CancellationToken.None);
@@ -304,13 +304,59 @@ public class QuestionHandlerTests
         var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
 
         // First attempt
-        await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, correctOptionId, 30, false), CancellationToken.None);
+        await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, correctOptionId, null, 30, false), CancellationToken.None);
 
         // Second attempt
-        var result = await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, correctOptionId, 25, false), CancellationToken.None);
+        var result = await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, correctOptionId, null, 25, false), CancellationToken.None);
 
         // Assert
         result.IsFirstAttempt.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task AnswerEssayQuestion_ShowsModelAnswerAndExplanationAfterGrading()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var subject = db.Subjects.First();
+        var student = db.Students.First();
+        var question = Question.Create("اشرح دور الكلية في جهاز المناعة", QuestionType.Essay, subject.Id, null, Difficulty.Medium, null, Guid.NewGuid());
+        question.SetCorrectAnswer("تنتج الخلايا التائية وتدعم نضجها");
+        question.UpdateExplanation("الكلية عضو لمفاوي أولي يشارك في تكوين ونضج الخلايا المناعية.");
+        question.Publish();
+        db.Questions.Add(question);
+        await db.SaveChangesAsync();
+        using var uow = new UnitOfWork(db);
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+
+        var result = await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, null, "تنتج الخلايا التائية وتدعم نضجها", 42, false), CancellationToken.None);
+
+        result.IsCorrect.Should().BeTrue();
+        result.CorrectAnswerText.Should().Be("تنتج الخلايا التائية وتدعم نضجها");
+        result.Explanation.Should().Contain("عضو لمفاوي");
+    }
+
+    [Fact]
+    public async Task AnswerTrueFalseQuestion_ReturnsExplanationAfterAnswering()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var subject = db.Subjects.First();
+        var student = db.Students.First();
+        var question = Question.Create("الخلايا التائية تنضج في الكلية.", QuestionType.TrueFalse, subject.Id, null, Difficulty.Easy, null, Guid.NewGuid());
+        question.AddOption("صح", false);
+        question.AddOption("خطأ", true);
+        question.UpdateExplanation("الخلايا التائية تنضج في الغدة الزعترية، لا في الكلية.");
+        question.Publish();
+        db.Questions.Add(question);
+        await db.SaveChangesAsync();
+        using var uow = new UnitOfWork(db);
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+        var correctOptionId = question.Options.Single(option => option.IsCorrect).Id.ToString();
+
+        var result = await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, correctOptionId, null, 17, false), CancellationToken.None);
+
+        result.IsCorrect.Should().BeTrue();
+        result.Explanation.Should().Contain("الغدة الزعترية");
+        result.CorrectAnswerText.Should().BeNull();
     }
 
     private static IEntitlementService AllowAllEntitlements()

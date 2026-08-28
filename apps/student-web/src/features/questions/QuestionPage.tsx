@@ -29,6 +29,7 @@ interface AnswerResult {
   isCorrect: boolean;
   correctOptionId: string;
   correctOptionLetter: string;
+  correctAnswerText?: string | null;
   explanation: string;
   reference?: string;
   isFirstAttempt: boolean;
@@ -43,6 +44,7 @@ export default function QuestionPage() {
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [essayAnswer, setEssayAnswer] = useState('');
   const [answerResult, setAnswerResult] = useState<AnswerResult | null>(null);
   const [showReport, setShowReport] = useState(false);
   const [reportReason, setReportReason] = useState('scientific');
@@ -71,6 +73,7 @@ export default function QuestionPage() {
   // Reset state when question changes
   useEffect(() => {
     setSelectedOption(null);
+    setEssayAnswer('');
     setAnswerResult(null);
     setShowReport(false);
     setQuestionStartTime(Date.now());
@@ -78,9 +81,9 @@ export default function QuestionPage() {
 
   // Answer mutation
   const answerMutation = useMutation({
-    mutationFn: ({ questionId, optionId }: { questionId: string; optionId: string }) => {
+    mutationFn: ({ questionId, optionId, answerText }: { questionId: string; optionId?: string; answerText?: string }) => {
       const duration = Math.round((Date.now() - questionStartTime) / 1000);
-      return questionApi.answer(questionId, optionId, duration);
+      return questionApi.answer(questionId, { selectedOptionId: optionId, answerText }, duration);
     },
     onSuccess: (data: AnswerResult) => {
       setAnswerResult(data);
@@ -119,7 +122,14 @@ export default function QuestionPage() {
   }, [answerResult]);
 
   const handleConfirmAnswer = () => {
-    if (!selectedOption || !currentQuestion) return;
+    if (!currentQuestion) return;
+    const isEssay = currentQuestion.type.toLowerCase() === 'essay';
+    if (isEssay) {
+      if (!essayAnswer.trim()) return;
+      answerMutation.mutate({ questionId: currentQuestion.id, answerText: essayAnswer.trim() });
+      return;
+    }
+    if (!selectedOption) return;
     answerMutation.mutate({ questionId: currentQuestion.id, optionId: selectedOption });
   };
 
@@ -169,6 +179,7 @@ export default function QuestionPage() {
   const progress = ((currentIndex + 1) / questions.length) * 100;
   const isAnswered = !!answerResult;
   const isCorrect = answerResult?.isCorrect;
+  const isEssay = currentQuestion.type.toLowerCase() === 'essay';
 
   return (
     <div className="space-y-4 max-w-[880px] mx-auto">
@@ -245,8 +256,23 @@ export default function QuestionPage() {
             {currentQuestion.text}
           </p>
 
-          {/* Options */}
-          <div className="space-y-2.5">
+          {/* Options or typed answer */}
+          {isEssay ? (
+            <div className="space-y-2">
+              <label htmlFor="essay-answer" className="block text-sm font-bold text-[var(--c-text-soft)]">اكتب إجابتك</label>
+              <textarea
+                id="essay-answer"
+                value={essayAnswer}
+                onChange={(event) => setEssayAnswer(event.target.value)}
+                disabled={isAnswered}
+                rows={6}
+                placeholder="اكتب الإجابة التحريرية بوضوح..."
+                className="w-full rounded-xl border-[1.5px] border-[var(--c-border-strong)] bg-[var(--c-surface)] p-4 text-[15px] leading-relaxed text-[var(--c-text)] outline-none transition focus:border-[var(--c-primary-500)] focus:ring-2 focus:ring-[var(--c-primary-100)] disabled:cursor-default disabled:bg-[var(--c-neutral-100)]"
+              />
+              <p className="text-xs text-[var(--c-text-muted)]">سيظهر الجواب النموذجي والشرح بعد التصحيح. المطابقة الآلية الحالية تقارن النص بعد توحيد المسافات وحالة الأحرف.</p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
             {currentQuestion.options.map((option) => {
               const isSelected = selectedOption === option.id;
               const isCorrectOption = answerResult?.correctOptionId === option.id;
@@ -292,7 +318,22 @@ export default function QuestionPage() {
                 </button>
               );
             })}
-          </div>
+            </div>
+          )}
+
+          {/* Typed answer review */}
+          {answerResult && isEssay && (
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-[var(--c-border)] bg-[var(--c-bg)] p-4">
+                <p className="mb-2 text-xs font-bold text-[var(--c-text-muted)]">إجابتك</p>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--c-text)]">{essayAnswer}</p>
+              </div>
+              <div className="rounded-xl border border-[var(--c-success-300)] bg-[var(--c-success-50)] p-4">
+                <p className="mb-2 text-xs font-bold text-[var(--c-success-700)]">الإجابة النموذجية</p>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--c-text)]">{answerResult.correctAnswerText || 'لا توجد إجابة نموذجية متاحة.'}</p>
+              </div>
+            </div>
+          )}
 
           {/* Explanation (after answering) */}
           <AnimatePresence>
@@ -359,12 +400,12 @@ export default function QuestionPage() {
             {!isAnswered ? (
               <button
                 onClick={handleConfirmAnswer}
-                disabled={!selectedOption || answerMutation.isPending}
+                disabled={(isEssay ? !essayAnswer.trim() : !selectedOption) || answerMutation.isPending}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-[10px] font-bold text-sm text-white transition-all disabled:opacity-50"
                 style={{ background: 'var(--grad-primary)', boxShadow: '0 4px 12px rgba(25,118,210,0.25)' }}
               >
                 {answerMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                تأكيد الإجابة
+                {isEssay ? 'تصحيح الإجابة' : 'تأكيد الإجابة'}
               </button>
             ) : (
               <button

@@ -107,7 +107,7 @@ public class QuestionsController : ControllerBase
         var rejection = await EntitlementRejectionAsync(studentId.Value, subjectId, ct);
         if (rejection is not null) return rejection;
 
-        var result = await _mediator.Send(new AnswerQuestionCommand(id, studentId.Value, dto.SelectedOptionId, dto.DurationSeconds, dto.IsOffline), ct);
+        var result = await _mediator.Send(new AnswerQuestionCommand(id, studentId.Value, dto.SelectedOptionId, dto.AnswerText, dto.DurationSeconds, dto.IsOffline), ct);
         return Ok(result);
     }
 
@@ -183,7 +183,7 @@ public class QuestionsController : ControllerBase
         if (!await CanManageAsync(Actions.Create, "subject", dto.SubjectId, ct)) return Forbid();
         var result = await _mediator.Send(new CreateQuestionCommand(
             dto.Text, dto.Type, dto.SubjectId, dto.LectureId,
-            dto.Difficulty, dto.Tags, dto.Options, dto.CorrectOptionId,
+            dto.Difficulty, dto.Tags, dto.Options, dto.CorrectOptionId, dto.CorrectAnswer,
             dto.Explanation, dto.Reference, dto.Year, GetAdminId()
         ), ct);
         return CreatedAtAction(nameof(GetQuestion), new { id = result.Id }, result);
@@ -199,7 +199,7 @@ public class QuestionsController : ControllerBase
     {
         if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Forbid();
         var result = await _mediator.Send(new UpdateQuestionCommand(
-            id, dto.Text, dto.Difficulty, dto.Tags, dto.Explanation, dto.Reference, dto.Options
+            id, dto.Text, dto.Difficulty, dto.Tags, dto.Explanation, dto.Reference, dto.Options, dto.CorrectAnswer
         ), ct);
         return Ok(result);
     }

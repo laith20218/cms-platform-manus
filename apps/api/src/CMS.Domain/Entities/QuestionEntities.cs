@@ -81,6 +81,14 @@ public class Question : AuditableEntity
         }
     }
 
+    public void SetCorrectAnswer(string answer)
+    {
+        if (string.IsNullOrWhiteSpace(answer))
+            throw new DomainException("A model answer is required");
+        CorrectAnswer = answer.Trim();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public void UpdateExplanation(string explanation)
     {
         if (string.IsNullOrWhiteSpace(explanation))
@@ -97,10 +105,19 @@ public class Question : AuditableEntity
 
     public void Publish()
     {
-        if (!Options.Any(o => o.IsCorrect))
-            throw new BusinessRuleViolationException("Cannot publish question without a correct answer");
-        if (Options.Count < 2)
-            throw new BusinessRuleViolationException("Question must have at least 2 options");
+        if (Type == QuestionType.Essay)
+        {
+            if (string.IsNullOrWhiteSpace(CorrectAnswer))
+                throw new BusinessRuleViolationException("Cannot publish essay question without a model answer");
+        }
+        else
+        {
+            if (!Options.Any(o => o.IsCorrect))
+                throw new BusinessRuleViolationException("Cannot publish question without a correct answer");
+            if (Options.Count < 2)
+                throw new BusinessRuleViolationException("Question must have at least 2 options");
+        }
+
         if (string.IsNullOrWhiteSpace(Explanation))
             throw new BusinessRuleViolationException("Cannot publish question without explanation");
 

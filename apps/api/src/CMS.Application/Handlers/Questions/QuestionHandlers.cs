@@ -201,11 +201,17 @@ public class QuestionCommandHandlers :
         if (req.Reference != null) question.SetReference(req.Reference);
         if (req.Year.HasValue) typeof(Question).GetProperty("Year")?.SetValue(question, req.Year);
 
-        // Add options
-        for (int i = 0; i < req.Options.Count; i++)
+        if (type == QuestionType.Essay)
         {
-            var opt = req.Options[i];
-            question.AddOption(opt.Text, opt.IsCorrect, ((char)('A' + i)).ToString());
+            question.SetCorrectAnswer(req.CorrectAnswer ?? string.Empty);
+        }
+        else
+        {
+            for (var i = 0; i < req.Options.Count; i++)
+            {
+                var opt = req.Options[i];
+                question.AddOption(opt.Text, opt.IsCorrect, ((char)('A' + i)).ToString());
+            }
         }
 
         await _db.Questions.AddAsync(question, ct);
@@ -233,13 +239,19 @@ public class QuestionCommandHandlers :
         if (req.Reference != null) question.SetReference(req.Reference);
         typeof(Question).GetProperty("Tags")?.SetValue(question, req.Tags);
 
-        // Update options
-        _db.QuestionOptions.RemoveRange(question.Options);
-        question.Options.Clear();
-        for (int i = 0; i < req.Options.Count; i++)
+        if (question.Type == QuestionType.Essay)
         {
-            var opt = req.Options[i];
-            question.AddOption(opt.Text, opt.IsCorrect, ((char)('A' + i)).ToString());
+            if (!string.IsNullOrWhiteSpace(req.CorrectAnswer)) question.SetCorrectAnswer(req.CorrectAnswer);
+        }
+        else
+        {
+            _db.QuestionOptions.RemoveRange(question.Options);
+            question.Options.Clear();
+            for (var i = 0; i < req.Options.Count; i++)
+            {
+                var opt = req.Options[i];
+                question.AddOption(opt.Text, opt.IsCorrect, ((char)('A' + i)).ToString());
+            }
         }
 
         await _unitOfWork.SaveChangesAsync(ct);
@@ -297,16 +309,23 @@ public class QuestionCommandHandlers :
         // Check if first attempt
         var isFirstAttempt = !await _db.AttemptLogs.AnyAsync(a => a.StudentId == req.StudentId && a.QuestionId == req.QuestionId, ct);
 
-        // Determine correct answer
+        // Essay answers are compared only after whitespace/case normalization. They are not AI-graded.
         var correctOption = question.Options.FirstOrDefault(o => o.IsCorrect);
-        var isCorrect = req.SelectedOptionId == correctOption?.Id.ToString();
+        var submittedAnswer = question.Type == QuestionType.Essay
+            ? req.AnswerText?.Trim()
+            : req.SelectedOptionId;
+        if (string.IsNullOrWhiteSpace(submittedAnswer))
+            throw new DomainException(question.Type == QuestionType.Essay ? "An answer is required" : "An option is required");
+        var isCorrect = question.Type == QuestionType.Essay
+            ? string.Equals(NormalizeAnswer(submittedAnswer), NormalizeAnswer(question.CorrectAnswer), StringComparison.Ordinal)
+            : submittedAnswer == correctOption?.Id.ToString();
 
         // Record attempt
         var attempt = new AttemptLog
         {
             StudentId = req.StudentId,
             QuestionId = req.QuestionId,
-            SelectedAnswer = req.SelectedOptionId,
+            SelectedAnswer = submittedAnswer,
             IsCorrect = isCorrect,
             IsFirstAttempt = isFirstAttempt,
             AttemptNumber = await _db.AttemptLogs.CountAsync(a => a.StudentId == req.StudentId && a.QuestionId == req.QuestionId, ct) + 1,
@@ -343,9 +362,12 @@ public class QuestionCommandHandlers :
                 student.CorrectAnswers,
                 student.GetAccuracy(),
                 student.CurrentStreak
-            ) : null
+            ) : null,
+            CorrectAnswerText: question.Type == QuestionType.Essay ? question.CorrectAnswer : null
         );
     }
+
+    private static string NormalizeAnswer(string value) => string.Join(' ', value.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant();
 
     public async Task<Unit> Handle(ReportQuestionCommand req, CancellationToken ct)
     {

@@ -24,7 +24,7 @@ public record GetQuestionsByLectureQuery(Guid LectureId, Guid? StudentId) : IReq
 public record CreateQuestionCommand(
     string Text, string Type, Guid SubjectId, Guid? LectureId,
     string Difficulty, List<string> Tags,
-    List<CreateOptionDto> Options, string CorrectOptionId,
+    List<CreateOptionDto> Options, string CorrectOptionId, string? CorrectAnswer,
     string Explanation, string? Reference, int? Year,
     Guid CreatedBy
 ) : IRequest<QuestionDto>;
@@ -32,7 +32,7 @@ public record CreateQuestionCommand(
 public record UpdateQuestionCommand(
     Guid Id, string Text, string Difficulty,
     List<string> Tags, string Explanation, string? Reference,
-    List<UpdateOptionDto> Options
+    List<UpdateOptionDto> Options, string? CorrectAnswer
 ) : IRequest<QuestionDto>;
 
 public record DeleteQuestionCommand(Guid Id, Guid DeletedBy) : IRequest<Unit>;
@@ -42,7 +42,7 @@ public record ArchiveQuestionCommand(Guid Id) : IRequest<Unit>;
 // ===== Answer =====
 public record AnswerQuestionCommand(
     Guid QuestionId, Guid StudentId,
-    string SelectedOptionId, int DurationSeconds, bool IsOffline
+    string? SelectedOptionId, string? AnswerText, int DurationSeconds, bool IsOffline
 ) : IRequest<AnswerResultDto>;
 
 // ===== Report =====
