@@ -1,0 +1,12 @@
+  CMS.Domain -> /home/ubuntu/cms-platform-manus/apps/api/src/CMS.Domain/bin/Debug/net9.0/CMS.Domain.dll
+  CMS.Application -> /home/ubuntu/cms-platform-manus/apps/api/src/CMS.Application/bin/Debug/net9.0/CMS.Application.dll
+  CMS.Infrastructure -> /home/ubuntu/cms-platform-manus/apps/api/src/CMS.Infrastructure/bin/Debug/net9.0/CMS.Infrastructure.dll
+  CMS.Api -> /home/ubuntu/cms-platform-manus/apps/api/src/CMS.Api/bin/Debug/net9.0/CMS.Api.dll
+  CMS.Tests -> /home/ubuntu/cms-platform-manus/apps/api/src/CMS.Tests/bin/Debug/net9.0/CMS.Tests.dll
+Test run for /home/ubuntu/cms-platform-manus/apps/api/src/CMS.Tests/bin/Debug/net9.0/CMS.Tests.dll (.NETCoreApp,Version=v9.0)
+VSTest version 17.12.0 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:   149, Skipped:     0, Total:   149, Duration: 41 s - CMS.Tests.dll (net9.0)

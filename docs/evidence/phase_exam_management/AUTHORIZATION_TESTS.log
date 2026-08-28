@@ -1,0 +1,6 @@
+Authorization evidence
+- SignedEntitlementHttpIntegrationTests: 18 passed.
+- Missing/expired/tampered/different-device/out-of-scope entitlement gates passed.
+- ExamResult_OtherStudentsSession_ReturnsNotFoundBeforeHandler passed.
+- ExamSessionSave_OtherStudentsSession_ReturnsNotFoundBeforeHandler passed.
+- PermissionServiceIntegrationTests: targeted RBAC/ABAC suite passed, including CollegeScopedAdmin_ExamScopeFollowsExamSubject.

@@ -1,0 +1,8 @@
+External API audit — 2026-08-28
+
+Render health: GET /health/live returned HTTP 200 and Healthy.
+Render admin exam route: GET /api/v1/admin/exams without credentials returned HTTP 401, confirming the route is deployed and protected.
+Render student exam route: GET /api/v1/exams/by-subject/{uuid} without credentials returned HTTP 401, confirming the deployed route and authentication gate.
+The old query-shaped route /api/v1/exams?subjectId=... returned 404 because the live contract is /by-subject/{subjectId}; this was verified against ExamsController.cs and is not treated as a deployment failure.
+Student Vercel root returned HTTP 200 and its main asset contained ExamPage, exam-api, and expiresAt markers.
+Admin Vercel root returned HTTP 200 and its main asset contained admin/exams and questionIds markers.
