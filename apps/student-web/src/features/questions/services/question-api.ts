@@ -24,9 +24,12 @@ export const questionApi = {
     return res.data;
   },
 
-  answer: async (questionId: string, selectedOptionId: string, durationSeconds: number) => {
+  answer: async (questionId: string, answer: { selectedOptionId?: string; answerText?: string }, durationSeconds: number) => {
     const res = await apiClient.post(`/questions/${questionId}/answer`, {
-      selectedOptionId, durationSeconds, isOffline: false,
+      selectedOptionId: answer.selectedOptionId ?? null,
+      answerText: answer.answerText ?? null,
+      durationSeconds,
+      isOffline: false,
     }, await entitlementRequestConfig());
     return res.data;
   },

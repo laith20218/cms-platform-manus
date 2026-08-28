@@ -2,7 +2,7 @@ namespace CMS.Domain.Enums;
 
 /// <summary>
 /// Question types supported by the system.
-/// Currently only MCQ is active; others are planned for future versions.
+/// MCQ, true/false, multiple-select, and essay questions are active; additional types remain extensible.
 /// </summary>
 public enum QuestionType
 {
@@ -13,7 +13,8 @@ public enum QuestionType
     Matching,
     Clinical,
     ImageBased,
-    Interactive
+    Interactive,
+    Essay
 }
 
 /// <summary>

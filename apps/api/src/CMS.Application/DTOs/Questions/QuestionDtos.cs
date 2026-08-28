@@ -66,6 +66,7 @@ public record CreateQuestionDto(
     List<string> Tags,
     List<CreateOptionDto> Options,
     string CorrectOptionId,
+    string? CorrectAnswer,
     string Explanation,
     string? Reference,
     int? Year
@@ -83,7 +84,8 @@ public record UpdateQuestionDto(
     List<string> Tags,
     string Explanation,
     string? Reference,
-    List<UpdateOptionDto> Options
+    List<UpdateOptionDto> Options,
+    string? CorrectAnswer
 );
 
 public record UpdateOptionDto(
@@ -95,7 +97,8 @@ public record UpdateOptionDto(
 
 // ===== Answer =====
 public record AnswerQuestionDto(
-    string SelectedOptionId,
+    string? SelectedOptionId,
+    string? AnswerText,
     int DurationSeconds,
     bool IsOffline
 );
@@ -109,7 +112,8 @@ public record AnswerResultDto(
     string? Reference,
     bool IsFirstAttempt,
     List<AchievementDto>? NewAchievements,
-    UpdatedStatsDto? UpdatedStats
+    UpdatedStatsDto? UpdatedStats,
+    string? CorrectAnswerText
 );
 
 public record AchievementDto(
@@ -179,4 +183,41 @@ public record FullQuestionDto(
     QuestionUserAnswerDto? UserAnswer,
     bool IsFavorite,
     QuestionStatsDto? Stats
+);
+
+
+// ===== Admin question management =====
+public record AdminQuestionListItemDto(
+    Guid Id,
+    Guid SubjectId,
+    Guid? LectureId,
+    string Text,
+    string Type,
+    string Difficulty,
+    string Status,
+    List<string> Tags,
+    string? LectureTitle,
+    int OptionsCount,
+    int AttemptsCount,
+    double CorrectRate,
+    DateTime CreatedAt,
+    DateTime? UpdatedAt
+);
+
+public record AdminQuestionDetailDto(
+    Guid Id,
+    Guid SubjectId,
+    Guid? LectureId,
+    string Text,
+    string Type,
+    string Difficulty,
+    string Status,
+    List<string> Tags,
+    string? Reference,
+    int? Year,
+    string Explanation,
+    string CorrectAnswer,
+    List<QuestionOptionDto> Options,
+    DateTime CreatedAt,
+    DateTime? UpdatedAt
 );
