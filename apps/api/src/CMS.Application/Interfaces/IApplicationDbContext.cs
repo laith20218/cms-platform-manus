@@ -20,7 +20,9 @@ public interface IApplicationDbContext
     DbSet<QuestionOption> QuestionOptions { get; }
     DbSet<QuestionImage> QuestionImages { get; }
     DbSet<Exam> Exams { get; }
+    DbSet<ExamQuestion> ExamQuestions { get; }
     DbSet<ExamSession> ExamSessions { get; }
+    DbSet<ExamSessionQuestion> ExamSessionQuestions { get; }
     DbSet<AttemptLog> AttemptLogs { get; }
     DbSet<ErrorReport> ErrorReports { get; }
 

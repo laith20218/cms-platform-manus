@@ -12,6 +12,7 @@ public class AttemptLog : BaseEntity
     public Guid StudentId { get; set; }
     public Guid QuestionId { get; set; }
     public Guid? ExamSessionId { get; set; }
+    public Guid? ExamSessionQuestionId { get; set; }
     public string? SelectedAnswer { get; set; }
     public bool IsCorrect { get; set; }
     public bool IsFirstAttempt { get; set; }
@@ -24,6 +25,7 @@ public class AttemptLog : BaseEntity
     public Student Student { get; set; } = null!;
     public Question Question { get; set; } = null!;
     public ExamSession? ExamSession { get; set; }
+    public ExamSessionQuestion? ExamSessionQuestion { get; set; }
 }
 
 /// <summary>
@@ -34,8 +36,21 @@ public class ExamSession : BaseEntity
     public Guid StudentId { get; set; }
     public Guid ExamId { get; set; }
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;
+    public DateTime ExpiresAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+    public DateTime? SubmittedAt { get; set; }
+    public DateTime? TimedOutAt { get; set; }
+    public DateTime? CancelledAt { get; set; }
+    public DateTime? AnalyticsRecordedAt { get; set; }
     public int? DurationSeconds { get; set; }
+    public int DurationMinutesSnapshot { get; set; }
+    public decimal PassingScoreSnapshot { get; set; }
+    public bool ShowResultsImmediatelySnapshot { get; set; }
+    public bool AllowReviewSnapshot { get; set; }
+    public bool ShowCorrectAnswersSnapshot { get; set; }
+    public bool ShowExplanationsSnapshot { get; set; }
+    public int CurrentQuestionOrder { get; set; }
+    public string? StartIdempotencyKey { get; set; }
     public int TotalQuestions { get; set; }
     public int AnsweredQuestions { get; set; }
     public int CorrectAnswers { get; set; }
@@ -46,6 +61,7 @@ public class ExamSession : BaseEntity
 
     public Student Student { get; set; } = null!;
     public Exam Exam { get; set; } = null!;
+    public ICollection<ExamSessionQuestion> SessionQuestions { get; set; } = new List<ExamSessionQuestion>();
     public ICollection<AttemptLog> AttemptLogs { get; set; } = new List<AttemptLog>();
 }
 

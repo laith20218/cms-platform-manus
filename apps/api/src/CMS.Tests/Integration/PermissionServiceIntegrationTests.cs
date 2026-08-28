@@ -2,6 +2,7 @@ using CMS.Application.Commands.Dashboard;
 using CMS.Application.Handlers.Dashboard;
 using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
+using CMS.Domain.Enums;
 using CMS.Domain.Exceptions;
 using CMS.Infrastructure.Services;
 using CMS.Tests.Helpers;
@@ -32,6 +33,27 @@ public sealed class PermissionServiceIntegrationTests
         (await service.IsInScopeAsync(admin.Id, "subject", primary.Id)).Should().BeTrue();
         (await service.IsInScopeAsync(admin.Id, "subject", other.Id)).Should().BeFalse();
         (await service.IsInScopeAsync(admin.Id, "unknown-entity", Guid.NewGuid())).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CollegeScopedAdmin_ExamScopeFollowsExamSubject()
+    {
+        await using var db = TestDbHelper.CreateInMemoryContext();
+        var primary = TestDbHelper.GetTestSubject(db);
+        var other = CreateOtherSubject(db);
+        var role = CreateRole("exam_college_admin", Resources.Exams, "[\"view\",\"edit\"]");
+        var admin = Admin.Create("exam-college-admin@cms.test", "hash", "Exam College Admin", role.Id);
+        admin.SetScope(null, primary.Semester.AcademicYear.CollegeId, null, null);
+        var inside = Exam.Create(primary.Id, "اختبار داخل النطاق", "inside-scope-exam", 2026, admin.Id, ExamType.Quiz);
+        var outside = Exam.Create(other.Id, "اختبار خارج النطاق", "outside-scope-exam", 2026, admin.Id, ExamType.Quiz);
+        db.AddRange(role, admin, inside, outside);
+        await db.SaveChangesAsync();
+
+        var service = new PermissionService(db, new NoCacheService());
+
+        (await service.HasPermissionAsync(admin.Id, Resources.Exams, Actions.View)).Should().BeTrue();
+        (await service.IsInScopeAsync(admin.Id, "exam", inside.Id)).Should().BeTrue();
+        (await service.IsInScopeAsync(admin.Id, "exam", outside.Id)).Should().BeFalse();
     }
 
     [Fact]

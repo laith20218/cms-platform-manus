@@ -240,15 +240,15 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("description");
 
-                    b.Property<bool>("IsSystem")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_system");
-
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
+
+                    b.Property<bool>("IsSystem")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_system");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -297,6 +297,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("exam_session_id");
 
+                    b.Property<Guid?>("ExamSessionQuestionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("exam_session_question_id");
+
                     b.Property<bool>("IsCorrect")
                         .HasColumnType("boolean")
                         .HasColumnName("is_correct");
@@ -332,14 +336,19 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_attempt_logs");
 
-                    b.HasIndex("ExamSessionId")
-                        .HasDatabaseName("ix_attempt_logs_exam_session_id");
+                    b.HasIndex("ExamSessionQuestionId")
+                        .HasDatabaseName("ix_attempt_logs_exam_session_question_id");
 
                     b.HasIndex("QuestionId")
                         .HasDatabaseName("ix_attempt_logs_question_id");
 
                     b.HasIndex("StudentId")
                         .HasDatabaseName("ix_attempt_logs_student_id");
+
+                    b.HasIndex("ExamSessionId", "QuestionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_attempt_logs_exam_session_id_question_id")
+                        .HasFilter("exam_session_id IS NOT NULL");
 
                     b.ToTable("attempt_logs");
                 });
@@ -355,6 +364,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("code_expires_at");
 
+                    b.Property<int>("ContentScope")
+                        .HasColumnType("integer")
+                        .HasColumnName("content_scope");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -367,6 +380,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("duration_days");
 
+                    b.Property<bool>("IsPublic")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_public");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text")
@@ -375,10 +392,6 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Property<int>("Quantity")
                         .HasColumnType("integer")
                         .HasColumnName("quantity");
-
-                    b.Property<bool>("IsPublic")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_public");
 
                     b.Property<Guid?>("ScopeCollegeId")
                         .HasColumnType("uuid")
@@ -391,10 +404,6 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ScopeSubjectId")
                         .HasColumnType("uuid")
                         .HasColumnName("scope_subject_id");
-
-                    b.Property<int>("ContentScope")
-                        .HasColumnType("integer")
-                        .HasColumnName("content_scope");
 
                     b.Property<string>("ScopeType")
                         .IsRequired()
@@ -636,6 +645,14 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("allow_review");
 
+                    b.Property<DateTime?>("AvailableFrom")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("available_from");
+
+                    b.Property<DateTime?>("AvailableUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("available_until");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -664,9 +681,25 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("exam_type");
 
+                    b.Property<Guid?>("LectureId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lecture_id");
+
+                    b.Property<int?>("MaxAttempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_attempts");
+
                     b.Property<decimal>("PassingScore")
                         .HasColumnType("numeric")
                         .HasColumnName("passing_score");
+
+                    b.Property<bool>("ShowCorrectAnswers")
+                        .HasColumnType("boolean")
+                        .HasColumnName("show_correct_answers");
+
+                    b.Property<bool>("ShowExplanations")
+                        .HasColumnType("boolean")
+                        .HasColumnName("show_explanations");
 
                     b.Property<bool>("ShowResultsImmediately")
                         .HasColumnType("boolean")
@@ -684,6 +717,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("slug");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer")
@@ -717,10 +754,57 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_exams");
 
+                    b.HasIndex("LectureId")
+                        .HasDatabaseName("ix_exams_lecture_id");
+
                     b.HasIndex("SubjectId")
                         .HasDatabaseName("ix_exams_subject_id");
 
                     b.ToTable("exams");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.ExamQuestion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("ExamId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("exam_id");
+
+                    b.Property<Guid>("QuestionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("question_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_exam_questions");
+
+                    b.HasIndex("QuestionId")
+                        .HasDatabaseName("ix_exam_questions_question_id");
+
+                    b.HasIndex("ExamId", "QuestionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_exam_questions_exam_id_question_id");
+
+                    b.HasIndex("ExamId", "SortOrder")
+                        .IsUnique()
+                        .HasDatabaseName("ix_exam_questions_exam_id_sort_order");
+
+                    b.ToTable("exam_questions");
                 });
 
             modelBuilder.Entity("CMS.Domain.Entities.ExamSession", b =>
@@ -730,9 +814,21 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<bool>("AllowReviewSnapshot")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_review_snapshot");
+
+                    b.Property<DateTime?>("AnalyticsRecordedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("analytics_recorded_at");
+
                     b.Property<int>("AnsweredQuestions")
                         .HasColumnType("integer")
                         .HasColumnName("answered_questions");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cancelled_at");
 
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone")
@@ -746,6 +842,14 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<int>("CurrentQuestionOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("current_question_order");
+
+                    b.Property<int>("DurationMinutesSnapshot")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_minutes_snapshot");
+
                     b.Property<int?>("DurationSeconds")
                         .HasColumnType("integer")
                         .HasColumnName("duration_seconds");
@@ -753,6 +857,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ExamId")
                         .HasColumnType("uuid")
                         .HasColumnName("exam_id");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
 
                     b.Property<bool>("IsFirstAttempt")
                         .HasColumnType("boolean")
@@ -762,9 +870,29 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("passed");
 
+                    b.Property<decimal>("PassingScoreSnapshot")
+                        .HasColumnType("numeric")
+                        .HasColumnName("passing_score_snapshot");
+
                     b.Property<double?>("Score")
                         .HasColumnType("double precision")
                         .HasColumnName("score");
+
+                    b.Property<bool>("ShowCorrectAnswersSnapshot")
+                        .HasColumnType("boolean")
+                        .HasColumnName("show_correct_answers_snapshot");
+
+                    b.Property<bool>("ShowExplanationsSnapshot")
+                        .HasColumnType("boolean")
+                        .HasColumnName("show_explanations_snapshot");
+
+                    b.Property<bool>("ShowResultsImmediatelySnapshot")
+                        .HasColumnType("boolean")
+                        .HasColumnName("show_results_immediately_snapshot");
+
+                    b.Property<string>("StartIdempotencyKey")
+                        .HasColumnType("text")
+                        .HasColumnName("start_idempotency_key");
 
                     b.Property<DateTime>("StartedAt")
                         .HasColumnType("timestamp with time zone")
@@ -778,6 +906,14 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("student_id");
 
+                    b.Property<DateTime?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("submitted_at");
+
+                    b.Property<DateTime?>("TimedOutAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timed_out_at");
+
                     b.Property<int>("TotalQuestions")
                         .HasColumnType("integer")
                         .HasColumnName("total_questions");
@@ -789,13 +925,106 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_exam_sessions");
 
-                    b.HasIndex("ExamId")
-                        .HasDatabaseName("ix_exam_sessions_exam_id");
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_exam_sessions_expires_at");
 
-                    b.HasIndex("StudentId")
-                        .HasDatabaseName("ix_exam_sessions_student_id");
+                    b.HasIndex("StudentId", "ExamId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_exam_sessions_student_id_exam_id")
+                        .HasFilter("status = 0");
+
+                    b.HasIndex("ExamId", "Status", "CompletedAt")
+                        .HasDatabaseName("ix_exam_sessions_exam_id_status_completed_at");
 
                     b.ToTable("exam_sessions");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.ExamSessionQuestion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CorrectAnswer")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("correct_answer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("ExamSessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("exam_session_id");
+
+                    b.Property<string>("Explanation")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("explanation");
+
+                    b.Property<string>("ExplanationHtml")
+                        .HasColumnType("text")
+                        .HasColumnName("explanation_html");
+
+                    b.Property<string>("ImagesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("images_json");
+
+                    b.Property<string>("OptionsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("options_json");
+
+                    b.Property<string>("QuestionText")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("question_text");
+
+                    b.Property<string>("QuestionTextHtml")
+                        .HasColumnType("text")
+                        .HasColumnName("question_text_html");
+
+                    b.Property<int>("QuestionType")
+                        .HasColumnType("integer")
+                        .HasColumnName("question_type");
+
+                    b.Property<string>("Reference")
+                        .HasColumnType("text")
+                        .HasColumnName("reference");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid?>("SourceQuestionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_question_id");
+
+                    b.Property<string>("TagsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("tags_json");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_exam_session_questions");
+
+                    b.HasIndex("ExamSessionId", "SortOrder")
+                        .IsUnique()
+                        .HasDatabaseName("ix_exam_session_questions_exam_session_id_sort_order");
+
+                    b.HasIndex("ExamSessionId", "SourceQuestionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_exam_session_questions_exam_session_id_source_question_id")
+                        .HasFilter("source_question_id IS NOT NULL");
+
+                    b.ToTable("exam_session_questions");
                 });
 
             modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
@@ -877,10 +1106,6 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("instructor_name");
 
-                    b.Property<string>("SourceReference")
-                        .HasColumnType("text")
-                        .HasColumnName("source_reference");
-
                     b.Property<int>("LectureNumber")
                         .HasColumnType("integer")
                         .HasColumnName("lecture_number");
@@ -903,6 +1128,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("sort_order");
 
+                    b.Property<string>("SourceReference")
+                        .HasColumnType("text")
+                        .HasColumnName("source_reference");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("text")
@@ -923,6 +1152,49 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_lectures_subject_id");
 
                     b.ToTable("lectures");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.LectureCompletion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("LectureId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lecture_id");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("student_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_lecture_completions");
+
+                    b.HasIndex("LectureId")
+                        .HasDatabaseName("ix_lecture_completions_lecture_id");
+
+                    b.HasIndex("StudentId", "CompletedAt")
+                        .HasDatabaseName("ix_lecture_completions_student_id_completed_at");
+
+                    b.HasIndex("StudentId", "LectureId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_lecture_completions_student_id_lecture_id");
+
+                    b.ToTable("lecture_completions");
                 });
 
             modelBuilder.Entity("CMS.Domain.Entities.LibraryFile", b =>
@@ -1084,49 +1356,6 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_library_views_student_id");
 
                     b.ToTable("library_views");
-                });
-
-            modelBuilder.Entity("CMS.Domain.Entities.LectureCompletion", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime>("CompletedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("completed_at");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<Guid>("LectureId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("lecture_id");
-
-                    b.Property<Guid>("StudentId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("student_id");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id")
-                        .HasName("pk_lecture_completions");
-
-                    b.HasIndex("LectureId")
-                        .HasDatabaseName("ix_lecture_completions_lecture_id");
-
-                    b.HasIndex("StudentId", "CompletedAt")
-                        .HasDatabaseName("ix_lecture_completions_student_id_completed_at");
-
-                    b.HasIndex("StudentId", "LectureId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_lecture_completions_student_id_lecture_id");
-
-                    b.ToTable("lecture_completions");
                 });
 
             modelBuilder.Entity("CMS.Domain.Entities.Notification", b =>
@@ -1924,6 +2153,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<int>("ContentScope")
+                        .HasColumnType("integer")
+                        .HasColumnName("content_scope");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -1931,10 +2164,6 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at");
-
-                    b.Property<int>("ContentScope")
-                        .HasColumnType("integer")
-                        .HasColumnName("content_scope");
 
                     b.Property<string>("RevocationReason")
                         .HasColumnType("text")
@@ -2096,6 +2325,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("code_expires_at");
 
+                    b.Property<int>("ContentScope")
+                        .HasColumnType("integer")
+                        .HasColumnName("content_scope");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -2108,6 +2341,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("duration_days");
 
+                    b.Property<bool>("IsPublic")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_public");
+
                     b.Property<Guid?>("ScopeCollegeId")
                         .HasColumnType("uuid")
                         .HasColumnName("scope_college_id");
@@ -2119,14 +2356,6 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ScopeSubjectId")
                         .HasColumnType("uuid")
                         .HasColumnName("scope_subject_id");
-
-                    b.Property<int>("ContentScope")
-                        .HasColumnType("integer")
-                        .HasColumnName("content_scope");
-
-                    b.Property<bool>("IsPublic")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_public");
 
                     b.Property<int>("ScopeType")
                         .HasColumnType("integer")
@@ -2422,6 +2651,12 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasForeignKey("ExamSessionId")
                         .HasConstraintName("fk_attempt_logs_exam_sessions_exam_session_id");
 
+                    b.HasOne("CMS.Domain.Entities.ExamSessionQuestion", "ExamSessionQuestion")
+                        .WithMany()
+                        .HasForeignKey("ExamSessionQuestionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_attempt_logs_exam_session_questions_exam_session_question_id");
+
                     b.HasOne("CMS.Domain.Entities.Question", "Question")
                         .WithMany()
                         .HasForeignKey("QuestionId")
@@ -2437,6 +2672,8 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_attempt_logs_students_student_id");
 
                     b.Navigation("ExamSession");
+
+                    b.Navigation("ExamSessionQuestion");
 
                     b.Navigation("Question");
 
@@ -2497,6 +2734,11 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("CMS.Domain.Entities.Exam", b =>
                 {
+                    b.HasOne("CMS.Domain.Entities.Lecture", "Lecture")
+                        .WithMany()
+                        .HasForeignKey("LectureId")
+                        .HasConstraintName("fk_exams_lectures_lecture_id");
+
                     b.HasOne("CMS.Domain.Entities.Subject", "Subject")
                         .WithMany("Exams")
                         .HasForeignKey("SubjectId")
@@ -2504,7 +2746,30 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_exams_subjects_subject_id");
 
+                    b.Navigation("Lecture");
+
                     b.Navigation("Subject");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.ExamQuestion", b =>
+                {
+                    b.HasOne("CMS.Domain.Entities.Exam", "Exam")
+                        .WithMany("ExamQuestions")
+                        .HasForeignKey("ExamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_exam_questions_exams_exam_id");
+
+                    b.HasOne("CMS.Domain.Entities.Question", "Question")
+                        .WithMany("ExamQuestions")
+                        .HasForeignKey("QuestionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_exam_questions_questions_question_id");
+
+                    b.Navigation("Exam");
+
+                    b.Navigation("Question");
                 });
 
             modelBuilder.Entity("CMS.Domain.Entities.ExamSession", b =>
@@ -2526,6 +2791,18 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Navigation("Exam");
 
                     b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.ExamSessionQuestion", b =>
+                {
+                    b.HasOne("CMS.Domain.Entities.ExamSession", "ExamSession")
+                        .WithMany("SessionQuestions")
+                        .HasForeignKey("ExamSessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_exam_session_questions_exam_sessions_exam_session_id");
+
+                    b.Navigation("ExamSession");
                 });
 
             modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
@@ -2837,6 +3114,8 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("CMS.Domain.Entities.Exam", b =>
                 {
+                    b.Navigation("ExamQuestions");
+
                     b.Navigation("Questions");
 
                     b.Navigation("Sessions");
@@ -2845,6 +3124,8 @@ namespace CMS.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("CMS.Domain.Entities.ExamSession", b =>
                 {
                     b.Navigation("AttemptLogs");
+
+                    b.Navigation("SessionQuestions");
                 });
 
             modelBuilder.Entity("CMS.Domain.Entities.Lecture", b =>
@@ -2866,6 +3147,8 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("CMS.Domain.Entities.Question", b =>
                 {
+                    b.Navigation("ExamQuestions");
+
                     b.Navigation("Images");
 
                     b.Navigation("Options");

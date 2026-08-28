@@ -251,6 +251,18 @@ public sealed class SignedEntitlementHttpIntegrationTests : IClassFixture<Signed
         (await response.Content.ReadAsStringAsync()).Should().NotContain(_factory.OtherStudentSessionId.ToString());
     }
 
+    [Fact]
+    public async Task ExamSessionSave_OtherStudentsSession_ReturnsNotFoundBeforeHandler()
+    {
+        _factory.Mediator.Invocations.Clear();
+        var valid = _factory.CreateSignedToken(SignedEntitlementHttpFactory.InstallationA, new[] { _factory.SubjectId }, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10));
+        var response = await _factory.Client.SendAsync(_factory.ExamSaveRequest(_factory.OtherStudentSessionId, Guid.NewGuid(), valid));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        _factory.Mediator.Invocations.Should().BeEmpty();
+        (await response.Content.ReadAsStringAsync()).Should().NotContain(_factory.OtherStudentSessionId.ToString());
+    }
+
     private sealed record EntitlementResponse(string Token);
 }
 
@@ -494,6 +506,17 @@ public sealed class SignedEntitlementHttpFactory : WebApplicationFactory<Program
     internal HttpRequestMessage ExamResultRequest(Guid sessionId, string entitlement)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/exams/sessions/{sessionId}/results");
+        AddAuthentication(request, InstallationA);
+        request.Headers.TryAddWithoutValidation("X-Entitlement", entitlement);
+        return request;
+    }
+
+    internal HttpRequestMessage ExamSaveRequest(Guid sessionId, Guid sessionQuestionId, string entitlement)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/exams/sessions/{sessionId}/questions/{sessionQuestionId}/answer")
+        {
+            Content = JsonContent.Create(new { questionId = sessionQuestionId, answer = (string?)null, currentQuestionOrder = 0 })
+        };
         AddAuthentication(request, InstallationA);
         request.Headers.TryAddWithoutValidation("X-Entitlement", entitlement);
         return request;

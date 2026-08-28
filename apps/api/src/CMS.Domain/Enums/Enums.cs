@@ -118,10 +118,16 @@ public enum SubscriptionStatus
 /// </summary>
 public enum ExamSessionStatus
 {
-    InProgress,
-    Completed,
-    Abandoned,
-    Expired
+    InProgress = 0,
+    Completed = 1,
+    Cancelled = 2,
+    TimedOut = 3,
+
+    // Legacy persisted values retained as aliases for migration compatibility.
+    [Obsolete("Use Cancelled.")]
+    Abandoned = Cancelled,
+    [Obsolete("Use TimedOut.")]
+    Expired = TimedOut
 }
 
 /// <summary>
