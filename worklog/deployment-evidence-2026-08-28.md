@@ -31,3 +31,20 @@ Vercel is the only platform externally verified as currently serving this CMS pr
 - `https://api.cms.example.com/health/live` does not resolve publicly. The configured Render preview root health endpoint timed out; `/api/v1/health/live` returns HTTP 404. This supports the repository's current `NO-GO` status and demonstrates that the advertised `api.cms.example.com` custom-domain endpoint is not deployed.
 - The connected Neon account contains an active, free-plan project named `cms-production` (`patient-dew-46888054`) in `aws-eu-central-1`; its 31 tables match the CMS data model. Aggregate live-data inspection found 1 administrator, 2 students, 1 university, 3 subjects, 2 lectures, 0 questions, 0 exams, 0 library files, 0 notifications, and 84 security-log records. This confirms Neon is genuinely being used for this platform database, but does not by itself prove which backend process has the current connection string.
 - No Upstash connection is configured in this session, so Upstash usage cannot be independently verified here. It remains a configured/planned Redis adapter in the repository's environment template.
+
+## متابعة التحقق — 2026-08-28
+
+- تم فتح لوحة Render باستخدام جلسة المستخدم في المتصفح، وظهرت مساحة العمل وبداخلها مشروع باسم `CMS API Preview`.
+- هذا دليل مباشر على أن مزود الخلفية المستخدم حالياً هو Render، وليس Railway أو Google Cloud.
+- لم تُنفذ أي عملية نشر أو تعديل أو إعادة تشغيل في Render خلال هذا الفحص.
+
+- لوحة Render تعرض مشروع `CMS API Preview` بحالة `Needs attention` على مستوى المشروع. عند فتحه كانت تفاصيل الخدمات ما زالت في حالة تحميل، ولم تُنفذ أي عملية تعديل أو نشر.
+
+- اكتمل تحميل مشروع Render: توجد خدمة واحدة باسم `cms-api-preview` بنمط Docker وفي منطقة Frankfurt، وآخر تحديث لها منذ خمسة أيام وحالتها `Failed deploy`.
+- تم فتح صفحة الخدمة للقراءة فقط؛ تعرض أقسام Events وSettings وLogs وEnvironment، وهو ما يتيح تشخيص إعداد النشر قبل أي عملية إصدار.
+
+- خدمة `cms-api-preview` مرتبطة مباشرةً بمستودع `laith20218/cms-platform-manus` والفرع `main`، وتعتمد نمط Docker والخطة المجانية. الإصدارات التلقائية تُطلق عند وصول التغييرات إلى `main`.
+- تفيد واجهة Render بأن آخر فشل كان أثناء بناء الالتزام `d6f5d85` مع خروج status 1، وتطلب مراجعة deploy logs لتحديد السبب الدقيق. لا يمكن نشر التعديلات بأمان قبل قراءة ذلك السجل وإصلاحه.
+
+- بعد إصلاح ثلاثة أخطاء EF-expression ومواضع nullability في بحث الطالب، نجح بناء `CMS.Api` محلياً بوضع Release وللهدف `linux-musl-x64` المطابق لبناء Render.
+- أنشئ فرع Neon مؤقت باسم `manus-backend-tests-20260828` ومعرّف `br-misty-fire-b1lwifh8` من قاعدة CMS. بعد ضبط صيغة اتصال Npgsql داخل جلسة الاختبار فقط، نجحت 140/140 من اختبارات الخادم؛ لم تُطبق أي ترحيلات على فرع Neon الإنتاجي.

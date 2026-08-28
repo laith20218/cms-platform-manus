@@ -136,7 +136,9 @@ public class AcademicQueryHandlers :
                 _db.Lectures.Count(lecture => lecture.SubjectId == subject.Id && (req.IncludeArchived || (lecture.DeletedAt == null && lecture.Status == "active"))),
                 _db.Exams.Count(exam => exam.SubjectId == subject.Id && exam.Status == Domain.Enums.ContentStatus.Published),
                 null,
-                subject.DeletedAt != null))
+                subject.DeletedAt != null,
+                0,
+                null))
             .ToListAsync(ct);
 
         if (!req.StudentId.HasValue) return subjects;
@@ -185,7 +187,7 @@ public class AcademicQueryHandlers :
                 lecture.Id, lecture.SubjectId, lecture.NameAr, lecture.NameEn, lecture.Slug, lecture.LectureNumber, lecture.DurationMinutes,
                 lecture.Description, lecture.InstructorName, lecture.SourceReference,
                 _db.Questions.Count(question => question.LectureId == lecture.Id && question.Status == Domain.Enums.ContentStatus.Published),
-                0, 0, lecture.DeletedAt != null))
+                0, 0, lecture.DeletedAt != null, false, null))
             .ToListAsync(ct);
 
         foreach (var lecture in lectures)
@@ -224,7 +226,7 @@ public class AcademicQueryHandlers :
                 item.Id, item.SubjectId, item.NameAr, item.NameEn, item.Slug, item.LectureNumber, item.DurationMinutes,
                 item.Description, item.InstructorName, item.SourceReference,
                 _db.Questions.Count(question => question.LectureId == item.Id && question.Status == Domain.Enums.ContentStatus.Published),
-                0, 0, false))
+                0, 0, false, false, null))
             .SingleAsync(ct);
         var completedAt = await _db.LectureCompletions.AsNoTracking()
             .Where(completion => completion.StudentId == req.StudentId && completion.LectureId == lecture.Id)

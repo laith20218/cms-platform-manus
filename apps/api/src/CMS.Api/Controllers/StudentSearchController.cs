@@ -70,7 +70,7 @@ public sealed class StudentSearchController : ControllerBase
             join college in _db.Colleges.AsNoTracking() on academicYear.CollegeId equals college.Id
             join university in _db.Universities.AsNoTracking() on college.UniversityId equals university.Id
             where entitledSubjectIds.Contains(item.Id)
-                && (item.NameAr.Contains(term) || (item.NameEn != null && item.NameEn.Contains(term)) || (item.Code != null && item.Code.Contains(term)))
+                && (item.NameAr.Contains(term) || (item.NameEn ?? string.Empty).Contains(term) || (item.Code ?? string.Empty).Contains(term))
             orderby item.NameAr
             select new StudentSearchResultDto("subject", item.Id, item.NameAr, item.NameEn, item.Slug,
                 university.NameAr + " · " + college.NameAr + " · " + academicYear.NameAr,
@@ -87,7 +87,7 @@ public sealed class StudentSearchController : ControllerBase
             join university in _db.Universities.AsNoTracking() on college.UniversityId equals university.Id
             where entitledSubjectIds.Contains(academicSubject.Id)
                 && lecture.Status == "active" && lecture.DeletedAt == null
-                && (lecture.NameAr.Contains(term) || (lecture.NameEn != null && lecture.NameEn.Contains(term)) || (lecture.Description != null && lecture.Description.Contains(term)))
+                && (lecture.NameAr.Contains(term) || (lecture.NameEn ?? string.Empty).Contains(term) || (lecture.Description ?? string.Empty).Contains(term))
                 && activeGrants.Any(grant => ((grant.ScopeType == SubscriptionScopeType.Subject && grant.ScopeSubjectId == academicSubject.Id)
                     || (grant.ScopeType == SubscriptionScopeType.Semester && grant.ScopeSemesterId == semester.Id)
                     || (grant.ScopeType == SubscriptionScopeType.Year && grant.ScopeYearId == academicYear.Id)
@@ -112,7 +112,7 @@ public sealed class StudentSearchController : ControllerBase
             join university in _db.Universities.AsNoTracking() on college.UniversityId equals university.Id
             where entitledSubjectIds.Contains(academicSubject.Id)
                 && question.Status == ContentStatus.Published
-                && (question.Text.Contains(term) || question.Options.Any(option => option.Text.Contains(term)) || (question.Reference != null && question.Reference.Contains(term)) || question.Tags.Any(tag => tag.Contains(term)))
+                && (question.Text.Contains(term) || question.Options.Any(option => option.Text.Contains(term)) || (question.Reference ?? string.Empty).Contains(term) || question.Tags.Any(tag => tag.Contains(term)))
                 && activeGrants.Any(grant => ((grant.ScopeType == SubscriptionScopeType.Subject && grant.ScopeSubjectId == academicSubject.Id)
                     || (grant.ScopeType == SubscriptionScopeType.Semester && grant.ScopeSemesterId == semester.Id)
                     || (grant.ScopeType == SubscriptionScopeType.Year && grant.ScopeYearId == academicYear.Id)
@@ -137,7 +137,7 @@ public sealed class StudentSearchController : ControllerBase
             join university in _db.Universities.AsNoTracking() on college.UniversityId equals university.Id
             where entitledSubjectIds.Contains(academicSubject.Id)
                 && file.Status == ContentStatus.Published && file.DeletedAt == null && file.VirusScanStatus == VirusScanStatus.Clean
-                && (file.Title.Contains(term) || (file.Description != null && file.Description.Contains(term)) || file.Tags.Any(tag => tag.Contains(term)))
+                && (file.Title.Contains(term) || (file.Description ?? string.Empty).Contains(term) || file.Tags.Any(tag => tag.Contains(term)))
                 && activeGrants.Any(grant => ((grant.ScopeType == SubscriptionScopeType.Subject && grant.ScopeSubjectId == academicSubject.Id)
                     || (grant.ScopeType == SubscriptionScopeType.Semester && grant.ScopeSemesterId == semester.Id)
                     || (grant.ScopeType == SubscriptionScopeType.Year && grant.ScopeYearId == academicYear.Id)

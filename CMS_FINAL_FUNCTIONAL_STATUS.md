@@ -56,7 +56,7 @@
 |---|---|---|
 | API production hostname | `api.cms.example.com` لا يحل DNS، بينما الحزم المنشورة تحدد Render preview | ربط Backend ثابت، تحديث `VITE_API_URL` و`VITE_API_BASE_URL` في مشروعي Vercel، وتحديث CORS/health workflow |
 | health-check workflow | آخر فحص ظاهر فشل قبل بدء job بسبب account payments/spending limit في GitHub Actions | إصلاح قيد حساب Actions أو استخدام مراقبة بديلة مجانية؛ بعدها تشغيل smoke checks على URLs الصحيحة |
-| إثبات backend runtime | `dotnet` غير متاح في بيئة التدقيق، ولا سجل نشر Vercel متاح عبر التكامل | تنفيذ `dotnet build/test` في CI/Staging وفحص logs/provider |
+| إثبات backend runtime | نجح بناء `CMS.Api` محلياً لـ `linux-musl-x64`، ونجحت 140/140 من اختبارات الخادم على فرع Neon مؤقت | ما زال يلزم تحقق Render وstaging بعد النشر؛ نجاح البيئة المحلية لا يثبت الإصدار الخارجي |
 | نشر المحتوى | Neon: أسئلة 0، اختبارات 0، ملفات 0، إشعارات 0 | إدخال المحتوى عبر واجهات الإدارة أو seed معتمد، ثم اختبارات تدفق طالب حقيقية |
 | OAuth/OTP interface expectations | OTP مُعطّل افتراضياً، لكنه ما زال يظهر كمجال code قابل للتشغيل | إبقاؤه deferred ولا تجعل المسار شرطاً؛ أظهره فقط إن فعّل من البيئة |
 
@@ -86,7 +86,7 @@
 | `pnpm --filter @cms/admin-web lint` | PASS، مع تحذير توافق من parser لا يعد مخالفة lint |
 | `pnpm --filter @cms/student-web test -- --run` | PASS، 3 files و11 tests |
 | `git diff --check` | PASS |
-| Build/test الخادم | **UNVERIFIED** في هذه الجلسة لغياب .NET SDK |
+| Build/test الخادم | PASS: بناء Release لـ `linux-musl-x64` و140/140 اختباراً؛ أجريت اختبارات PostgreSQL على الفرع المؤقت `br-misty-fire-b1lwifh8` فقط |
 | E2E against published backend | **NOT RUN**؛ لا يوجد API production مُتحقق |
 
 ## 7. قرار الدفعة التالية

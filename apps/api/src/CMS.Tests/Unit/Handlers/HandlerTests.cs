@@ -166,7 +166,7 @@ public class AcademicHandlerTests
     {
         // Arrange
         using var db = TestDbHelper.CreateInMemoryContext();
-        var handler = new AcademicQueryHandlers(db, AllowEntitlements());
+        var handler = new AcademicQueryHandlers(db, AllowEntitlements(), new Mock<ICacheService>().Object);
         var query = new GetUniversitiesQuery(1, 50);
 
         // Act
@@ -185,7 +185,7 @@ public class AcademicHandlerTests
         // Arrange
         using var db = TestDbHelper.CreateInMemoryContext();
         var uni = db.Universities.First();
-        var handler = new AcademicQueryHandlers(db, AllowEntitlements());
+        var handler = new AcademicQueryHandlers(db, AllowEntitlements(), new Mock<ICacheService>().Object);
 
         // Act
         var result = await handler.Handle(new GetCollegesByUniversityQuery(uni.Id), CancellationToken.None);
@@ -201,7 +201,7 @@ public class AcademicHandlerTests
         // Arrange
         using var db = TestDbHelper.CreateInMemoryContext();
         var sem = db.Semesters.First();
-        var handler = new AcademicQueryHandlers(db, AllowEntitlements());
+        var handler = new AcademicQueryHandlers(db, AllowEntitlements(), new Mock<ICacheService>().Object);
 
         // Act
         var result = await handler.Handle(new GetSubjectsBySemesterQuery(sem.Id), CancellationToken.None);
@@ -318,6 +318,9 @@ public class QuestionHandlerTests
         var entitlements = new Mock<IEntitlementService>();
         entitlements.Setup(e => e.CanAccessSubjectAsync(
                 It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        entitlements.Setup(e => e.CanAccessSubjectContentAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<SubscriptionContentScope>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
         entitlements.Setup(e => e.CanAccessQuestionAsync(
                 It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
