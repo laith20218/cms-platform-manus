@@ -1,71 +1,24 @@
-import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Check, X, ChevronLeft, BookOpen, Loader2 } from 'lucide-react';
+import { BookOpen, Check, ChevronLeft, EyeOff, Loader2, X } from 'lucide-react';
 import { examApi } from '../services/exam-api';
 
 export default function ExamReviewPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
+  const { data: review, isLoading, error } = useQuery({ queryKey: ['exam-review', sessionId], queryFn: () => examApi.getReview(sessionId!), enabled: !!sessionId });
 
-  const { data: review, isLoading } = useQuery({
-    queryKey: ['exam-review', sessionId],
-    queryFn: () => examApi.getReview(sessionId!),
-    enabled: !!sessionId,
-  });
+  if (isLoading) return <div className="flex flex-col items-center gap-3 py-20"><Loader2 className="w-8 h-8 animate-spin text-[var(--c-primary-700)]" /><p className="text-sm text-[var(--c-text-muted)]">جارٍ تحميل المراجعة من سجل الاختبار...</p></div>;
+  if (error || !review) return <div className="max-w-lg mx-auto mt-12 rounded-2xl border border-[var(--c-danger-200)] bg-[var(--c-surface)] p-7 text-center"><EyeOff className="w-9 h-9 mx-auto mb-3 text-[var(--c-danger-500)]" /><h2 className="font-bold text-lg mb-2">المراجعة غير متاحة</h2><p className="text-sm text-[var(--c-text-muted)] mb-5">{error instanceof Error ? error.message : 'لا تسمح سياسة هذا الاختبار بالمراجعة حالياً.'}</p><button onClick={() => navigate(-1)} className="px-5 py-2.5 rounded-[10px] text-sm font-bold text-white" style={{ background: 'var(--grad-primary)' }}>العودة للنتائج</button></div>;
 
-  if (isLoading) {
-    return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-[var(--c-primary-700)]" /></div>;
-  }
-
-  if (!review) return null;
-
-  return (
-    <div className="space-y-4 max-w-[880px] mx-auto">
-      <button onClick={() => navigate(-1)} className="flex items-center gap-1.5 text-sm text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]">
-        <ChevronLeft className="w-4 h-4" /> العودة للنتائج
-      </button>
-
-      <h1 className="text-xl font-bold">مراجعة الأسئلة</h1>
-
-      {review.questions.map((q, i) => (
-        <motion.div key={q.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-          className={`bg-[var(--c-surface)] border rounded-2xl p-5 ${q.isCorrect ? 'border-[var(--c-success-500)]' : 'border-[var(--c-danger-500)]'}`}>
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-bold text-[var(--c-text-soft)]" lang="en">سؤال {i + 1}</span>
-            <span className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold ${q.isCorrect ? 'bg-[var(--c-success-100)] text-[var(--c-success-700)]' : 'bg-[var(--c-danger-100)] text-[var(--c-danger-700)]'}`}>
-              {q.isCorrect ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
-              {q.isCorrect ? 'صحيح' : 'خاطئ'}
-            </span>
-          </div>
-
-          <p className="text-[15px] font-semibold mb-3">{q.text}</p>
-
-          <div className="space-y-2">
-            {q.options.map((opt) => (
-              <div key={opt.id} className={`flex items-center gap-3 p-2.5 rounded-lg border ${
-                opt.isCorrect ? 'border-[var(--c-success-500)] bg-[var(--c-success-50)]' :
-                opt.isUserAnswer ? 'border-[var(--c-danger-500)] bg-[var(--c-danger-50)]' :
-                'border-[var(--c-border)]'
-              }`}>
-                <span className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold" lang="en">{opt.letter}</span>
-                <span className="flex-1 text-sm">{opt.text}</span>
-                {opt.isCorrect && <Check className="w-4 h-4 text-[var(--c-success-500)]" />}
-                {opt.isUserAnswer && !opt.isCorrect && <X className="w-4 h-4 text-[var(--c-danger-500)]" />}
-              </div>
-            ))}
-          </div>
-
-          {q.explanation && (
-            <div className="mt-3 p-3 rounded-lg bg-[var(--c-primary-50)] border border-[rgba(25,118,210,0.15)]">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--c-primary-800)] mb-1">
-                <BookOpen className="w-3.5 h-3.5" /> الشرح
-              </div>
-              <p className="text-sm text-[var(--c-text-soft)] leading-relaxed">{q.explanation}</p>
-            </div>
-          )}
-        </motion.div>
-      ))}
-    </div>
-  );
+  return <div className="space-y-4 max-w-[880px] mx-auto">
+    <button onClick={() => navigate(-1)} className="flex items-center gap-1.5 text-sm text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]"><ChevronLeft className="w-4 h-4" /> العودة للنتائج</button>
+    <header className="bg-[var(--c-surface)] border border-[var(--c-border)] rounded-2xl p-5"><h1 className="text-xl font-bold">مراجعة أسئلة الاختبار</h1><p className="text-sm text-[var(--c-text-muted)] mt-1">هذه المراجعة تستخدم لقطة الأسئلة التي حُلّت داخل محاولتك، لذلك لا تتغير عند تحديث بنك الأسئلة.</p><div className="flex flex-wrap gap-2 mt-3"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${review.showCorrectAnswers ? 'bg-[var(--c-success-100)] text-[var(--c-success-700)]' : 'bg-[var(--c-neutral-100)] text-[var(--c-text-muted)]'}`}>{review.showCorrectAnswers ? 'تظهر الإجابات الصحيحة' : 'الإجابات الصحيحة مخفية'}</span><span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${review.showExplanations ? 'bg-[var(--c-primary-50)] text-[var(--c-primary-700)]' : 'bg-[var(--c-neutral-100)] text-[var(--c-text-muted)]'}`}>{review.showExplanations ? 'تظهر الشروحات' : 'الشروحات مخفية'}</span></div></header>
+    {review.questions.map((question, index) => {
+      const knownCorrectness = question.isCorrect !== null && question.isCorrect !== undefined;
+      const border = !knownCorrectness ? 'border-[var(--c-border)]' : question.isCorrect ? 'border-[var(--c-success-500)]' : 'border-[var(--c-danger-500)]';
+      return <motion.article key={question.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.04, 0.4) }} className={`bg-[var(--c-surface)] border rounded-2xl p-5 ${border}`}><div className="flex items-center justify-between mb-3"><span className="text-sm font-bold text-[var(--c-text-soft)]" lang="en">سؤال {question.number}</span>{knownCorrectness ? <span className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold ${question.isCorrect ? 'bg-[var(--c-success-100)] text-[var(--c-success-700)]' : 'bg-[var(--c-danger-100)] text-[var(--c-danger-700)]'}`}>{question.isCorrect ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}{question.isCorrect ? 'إجابتك صحيحة' : 'إجابتك غير صحيحة'}</span> : <span className="px-2 py-1 rounded-lg text-xs font-semibold bg-[var(--c-neutral-100)] text-[var(--c-text-muted)]">تفاصيل التصحيح محجوبة</span>}</div><p className="text-[15px] font-semibold mb-3">{question.text}</p>{question.options.length > 0 ? <div className="space-y-2">{question.options.map(option => <div key={option.id} className={`flex items-center gap-3 p-2.5 rounded-lg border ${review.showCorrectAnswers && option.isCorrect ? 'border-[var(--c-success-500)] bg-[var(--c-success-50)]' : option.isUserAnswer && knownCorrectness && !option.isCorrect ? 'border-[var(--c-danger-500)] bg-[var(--c-danger-50)]' : 'border-[var(--c-border)]'}`}><span className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold" lang="en">{option.letter}</span><span className="flex-1 text-sm">{option.text}</span>{review.showCorrectAnswers && option.isCorrect && <Check className="w-4 h-4 text-[var(--c-success-500)]" />}{option.isUserAnswer && knownCorrectness && !option.isCorrect && <X className="w-4 h-4 text-[var(--c-danger-500)]" />}</div>)}</div> : <div className="rounded-lg border border-[var(--c-border)] p-3 text-sm"><strong>إجابتك:</strong> {question.userAnswer || 'لم تُسجل إجابة.'}{review.showCorrectAnswers && question.correctAnswer && <p className="mt-2"><strong>الإجابة النموذجية:</strong> {question.correctAnswer}</p>}</div>}{review.showCorrectAnswers && question.correctAnswer && question.options.length > 0 && <p className="text-xs text-[var(--c-text-muted)] mt-3"><strong>الإجابة الصحيحة:</strong> {question.correctAnswer}</p>}{review.showExplanations && question.explanation && <div className="mt-3 p-3 rounded-lg bg-[var(--c-primary-50)] border border-[rgba(25,118,210,0.15)]"><div className="flex items-center gap-1.5 text-xs font-bold text-[var(--c-primary-800)] mb-1"><BookOpen className="w-3.5 h-3.5" /> الشرح</div><p className="text-sm text-[var(--c-text-soft)] leading-relaxed">{question.explanation}</p></div>}</motion.article>;
+    })}
+  </div>;
 }

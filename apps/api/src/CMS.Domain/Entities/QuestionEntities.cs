@@ -40,7 +40,9 @@ public class Question : AuditableEntity
     // Navigation
     public Subject Subject { get; private set; } = null!;
     public Lecture? Lecture { get; private set; }
+    // Legacy one-to-many association retained while existing data is migrated to ExamQuestion.
     public Exam? Exam { get; private set; }
+    public ICollection<ExamQuestion> ExamQuestions { get; private set; } = new List<ExamQuestion>();
     public List<QuestionOption> Options { get; private set; } = new();
     public ICollection<QuestionImage> Images { get; private set; } = new List<QuestionImage>();
 
@@ -225,6 +227,7 @@ public class QuestionImage : BaseEntity
 public class Exam : AuditableEntity
 {
     public Guid SubjectId { get; private set; }
+    public Guid? LectureId { get; private set; }
     public string TitleAr { get; private set; } = string.Empty;
     public string? TitleEn { get; private set; }
     public string Slug { get; private set; } = string.Empty;
@@ -234,15 +237,24 @@ public class Exam : AuditableEntity
     public int DurationMinutes { get; private set; } = 60;
     public int TotalQuestions { get; private set; }
     public decimal PassingScore { get; private set; } = 60.0m;
+    public int SortOrder { get; private set; }
+    public DateTime? AvailableFrom { get; private set; }
+    public DateTime? AvailableUntil { get; private set; }
+    public int? MaxAttempts { get; private set; }
     public bool ShuffleQuestions { get; private set; } = true;
     public bool ShuffleOptions { get; private set; } = true;
     public bool ShowResultsImmediately { get; private set; } = true;
     public bool AllowReview { get; private set; } = true;
+    public bool ShowCorrectAnswers { get; private set; } = true;
+    public bool ShowExplanations { get; private set; } = true;
     public ContentStatus Status { get; private set; }
 
     // Navigation
     public Subject Subject { get; private set; } = null!;
+    public Lecture? Lecture { get; private set; }
+    // Legacy relationship: retained only so deployed historical records remain readable.
     public ICollection<Question> Questions { get; private set; } = new List<Question>();
+    public ICollection<ExamQuestion> ExamQuestions { get; private set; } = new List<ExamQuestion>();
     public ICollection<ExamSession> Sessions { get; private set; } = new List<ExamSession>();
 
     public static Exam Create(
@@ -253,17 +265,95 @@ public class Exam : AuditableEntity
         Guid createdBy,
         ExamType examType = ExamType.Final)
     {
+        if (subjectId == Guid.Empty)
+            throw new DomainException("Exam subject is required");
+        if (string.IsNullOrWhiteSpace(titleAr))
+            throw new DomainException("Exam title is required");
+        if (string.IsNullOrWhiteSpace(slug))
+            throw new DomainException("Exam slug is required");
+        if (year < 1)
+            throw new DomainException("Exam year must be greater than zero");
+
         return new Exam
         {
             SubjectId = subjectId,
-            TitleAr = titleAr,
-            Slug = slug,
+            TitleAr = titleAr.Trim(),
+            Slug = slug.Trim(),
             Year = year,
             ExamType = examType,
             Status = ContentStatus.Draft,
             CreatedBy = createdBy
         };
     }
+
+    public void Configure(
+        string titleAr,
+        string? titleEn,
+        string? description,
+        ExamType examType,
+        int year,
+        Guid? lectureId,
+        int durationMinutes,
+        decimal passingScore,
+        int sortOrder,
+        DateTime? availableFrom,
+        DateTime? availableUntil,
+        int? maxAttempts,
+        bool shuffleQuestions,
+        bool shuffleOptions,
+        bool showResultsImmediately,
+        bool allowReview,
+        bool showCorrectAnswers,
+        bool showExplanations)
+    {
+        if (string.IsNullOrWhiteSpace(titleAr))
+            throw new DomainException("Exam title is required");
+        if (year < 1)
+            throw new DomainException("Exam year must be greater than zero");
+        if (durationMinutes < 1)
+            throw new DomainException("Exam duration must be greater than zero");
+        if (passingScore is < 0 or > 100)
+            throw new DomainException("Passing score must be between 0 and 100");
+        if (sortOrder < 0)
+            throw new DomainException("Exam sort order cannot be negative");
+        if (maxAttempts is < 1)
+            throw new DomainException("Maximum attempts must be greater than zero when set");
+        if (availableFrom.HasValue && availableUntil.HasValue && availableUntil <= availableFrom)
+            throw new DomainException("Exam availability end must be after its start");
+
+        TitleAr = titleAr.Trim();
+        TitleEn = string.IsNullOrWhiteSpace(titleEn) ? null : titleEn.Trim();
+        Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+        ExamType = examType;
+        Year = year;
+        LectureId = lectureId;
+        DurationMinutes = durationMinutes;
+        PassingScore = passingScore;
+        SortOrder = sortOrder;
+        AvailableFrom = availableFrom;
+        AvailableUntil = availableUntil;
+        MaxAttempts = maxAttempts;
+        ShuffleQuestions = shuffleQuestions;
+        ShuffleOptions = shuffleOptions;
+        ShowResultsImmediately = showResultsImmediately;
+        AllowReview = allowReview;
+        ShowCorrectAnswers = allowReview && showCorrectAnswers;
+        ShowExplanations = allowReview && showExplanations;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetQuestionCount(int totalQuestions)
+    {
+        if (totalQuestions < 0)
+            throw new DomainException("Exam question count cannot be negative");
+
+        TotalQuestions = totalQuestions;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public bool IsAvailableAt(DateTime now) =>
+        (!AvailableFrom.HasValue || now >= AvailableFrom.Value)
+        && (!AvailableUntil.HasValue || now <= AvailableUntil.Value);
 
     public void Publish()
     {
@@ -273,20 +363,11 @@ public class Exam : AuditableEntity
 
     public void Update(string titleAr, string? titleEn, string? description, int durationMinutes, decimal passingScore, bool allowReview)
     {
-        if (string.IsNullOrWhiteSpace(titleAr))
-            throw new DomainException("Exam title is required");
-        if (durationMinutes < 1)
-            throw new DomainException("Exam duration must be greater than zero");
-        if (passingScore is < 0 or > 100)
-            throw new DomainException("Passing score must be between 0 and 100");
-
-        TitleAr = titleAr;
-        TitleEn = titleEn;
-        Description = description;
-        DurationMinutes = durationMinutes;
-        PassingScore = passingScore;
-        AllowReview = allowReview;
-        UpdatedAt = DateTime.UtcNow;
+        Configure(
+            titleAr, titleEn, description, ExamType, Year, LectureId, durationMinutes,
+            passingScore, SortOrder, AvailableFrom, AvailableUntil, MaxAttempts,
+            ShuffleQuestions, ShuffleOptions, ShowResultsImmediately, allowReview,
+            ShowCorrectAnswers, ShowExplanations);
     }
 
     public void Archive()

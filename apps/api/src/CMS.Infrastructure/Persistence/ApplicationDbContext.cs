@@ -27,7 +27,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<QuestionOption> QuestionOptions => Set<QuestionOption>();
     public DbSet<QuestionImage> QuestionImages => Set<QuestionImage>();
     public DbSet<Exam> Exams => Set<Exam>();
+    public DbSet<ExamQuestion> ExamQuestions => Set<ExamQuestion>();
     public DbSet<ExamSession> ExamSessions => Set<ExamSession>();
+    public DbSet<ExamSessionQuestion> ExamSessionQuestions => Set<ExamSessionQuestion>();
     public DbSet<AttemptLog> AttemptLogs => Set<AttemptLog>();
     public DbSet<ErrorReport> ErrorReports => Set<ErrorReport>();
 
@@ -113,6 +115,33 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<AdminRole>(entity =>
         {
             entity.Property(x => x.IsActive).HasDefaultValue(true);
+        });
+        modelBuilder.Entity<ExamQuestion>(entity =>
+        {
+            entity.HasIndex(x => new { x.ExamId, x.QuestionId }).IsUnique();
+            entity.HasIndex(x => new { x.ExamId, x.SortOrder }).IsUnique();
+            entity.HasOne(x => x.Exam).WithMany(x => x.ExamQuestions).HasForeignKey(x => x.ExamId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Question).WithMany(x => x.ExamQuestions).HasForeignKey(x => x.QuestionId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<ExamSessionQuestion>(entity =>
+        {
+            entity.HasIndex(x => new { x.ExamSessionId, x.SortOrder }).IsUnique();
+            entity.HasIndex(x => new { x.ExamSessionId, x.SourceQuestionId }).IsUnique().HasFilter("source_question_id IS NOT NULL");
+            entity.HasOne(x => x.ExamSession).WithMany(x => x.SessionQuestions).HasForeignKey(x => x.ExamSessionId).OnDelete(DeleteBehavior.Cascade);
+            entity.Property(x => x.OptionsJson).HasColumnType("jsonb");
+            entity.Property(x => x.TagsJson).HasColumnType("jsonb");
+            entity.Property(x => x.ImagesJson).HasColumnType("jsonb");
+        });
+        modelBuilder.Entity<ExamSession>(entity =>
+        {
+            entity.HasIndex(x => new { x.StudentId, x.ExamId }).IsUnique().HasFilter("status = 0");
+            entity.HasIndex(x => new { x.ExamId, x.Status, x.CompletedAt });
+            entity.HasIndex(x => x.ExpiresAt);
+        });
+        modelBuilder.Entity<AttemptLog>(entity =>
+        {
+            entity.HasIndex(x => new { x.ExamSessionId, x.QuestionId }).IsUnique().HasFilter("exam_session_id IS NOT NULL");
+            entity.HasOne(x => x.ExamSessionQuestion).WithMany().HasForeignKey(x => x.ExamSessionQuestionId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // Auto snake_case naming

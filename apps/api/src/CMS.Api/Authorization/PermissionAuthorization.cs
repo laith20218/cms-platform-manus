@@ -150,6 +150,19 @@ public static class Policies
     public const string QuestionImport = "QuestionImport";
     public const string QuestionExport = "QuestionExport";
 
+    // Exam Management. Lifecycle operations deliberately map to the existing RBAC verbs
+    // so deployed role records remain valid while entity scope is checked separately.
+    public const string ExamView = "ExamView";
+    public const string ExamCreate = "ExamCreate";
+    public const string ExamEdit = "ExamEdit";
+    public const string ExamDelete = "ExamDelete";
+    public const string ExamPublish = "ExamPublish";
+    public const string ExamArchive = "ExamArchive";
+    public const string ExamManageQuestions = "ExamManageQuestions";
+    public const string ExamReadAttempts = "ExamReadAttempts";
+    public const string ExamReadResults = "ExamReadResults";
+    public const string ExamExportResults = "ExamExportResults";
+
     // Student Management
     public const string StudentView = "StudentView";
     public const string StudentEdit = "StudentEdit";
@@ -199,6 +212,18 @@ public static class Policies
         options.AddPolicy(QuestionDelete, p => p.Requirements.Add(new PermissionRequirement(Resources.Questions, Actions.Delete)));
         options.AddPolicy(QuestionImport, p => p.Requirements.Add(new PermissionRequirement(Resources.Questions, Actions.Import)));
         options.AddPolicy(QuestionExport, p => p.Requirements.Add(new PermissionRequirement(Resources.Questions, Actions.Export)));
+
+        // Exams
+        options.AddPolicy(ExamView, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.View)));
+        options.AddPolicy(ExamCreate, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.Create)));
+        options.AddPolicy(ExamEdit, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.Edit)));
+        options.AddPolicy(ExamDelete, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.Delete)));
+        options.AddPolicy(ExamPublish, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.Edit)));
+        options.AddPolicy(ExamArchive, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.Edit)));
+        options.AddPolicy(ExamManageQuestions, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.Edit)));
+        options.AddPolicy(ExamReadAttempts, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.View)));
+        options.AddPolicy(ExamReadResults, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.View)));
+        options.AddPolicy(ExamExportResults, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.Export)));
 
         // Students
         options.AddPolicy(StudentView, p => p.Requirements.Add(new PermissionRequirement(Resources.Students, Actions.View)));
