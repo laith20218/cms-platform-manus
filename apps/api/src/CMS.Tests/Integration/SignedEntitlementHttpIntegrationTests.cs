@@ -371,6 +371,7 @@ public sealed class SignedEntitlementHttpFactory : WebApplicationFactory<Program
         student.VerifyPhone();
 
         var lecture = Lecture.Create(subject.Id, "محاضرة HTTP", "http-lecture", 1);
+        lecture.Publish();
         var favoriteQuestion = Question.Create("سؤال مفضلة HTTP", QuestionType.Mcq, subject.Id, lecture.Id, Difficulty.Easy, null, createdBy: Guid.NewGuid());
         favoriteQuestion.AddOption("خيار صحيح", true);
         favoriteQuestion.AddOption("خيار خاطئ", false);

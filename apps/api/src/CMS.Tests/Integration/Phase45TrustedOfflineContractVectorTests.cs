@@ -50,10 +50,8 @@ public sealed class Phase45TrustedOfflineContractVectorTests
                 keyReleaseToken = package.KeyReleaseToken
             }
         };
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !string.Equals(directory.Name, "CMS_Source", StringComparison.Ordinal)) directory = directory.Parent;
-        if (directory is null) throw new InvalidOperationException("CMS_Source root was not found from the test host directory.");
-        var path = Path.Combine(directory.FullName, "apps", "android", "app", "src", "test", "resources", "phase45_trusted_contract_vector.json");
+        var path = Environment.GetEnvironmentVariable("CMS_PHASE45_CONTRACT_VECTOR_PATH")
+            ?? Path.Combine(Path.GetTempPath(), "cms-contract-vectors", "phase45_trusted_contract_vector.json");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(vector, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true }));
         File.Exists(path).Should().BeTrue();

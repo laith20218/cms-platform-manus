@@ -50,6 +50,8 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
     finally { setLoading(false); }
   };
   const loadUniversities = async () => setUniversities((await request<PagedResult<University>>('/api/v1/universities?Page=1&PageSize=100')).items);
+  // The initial load must run once; later interactions refresh the relevant data explicitly.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void Promise.all([loadCodes(), loadUniversities()]); }, []);
 
   async function chooseUniversity(id: string) {

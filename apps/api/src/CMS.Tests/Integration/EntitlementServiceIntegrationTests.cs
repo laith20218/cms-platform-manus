@@ -34,6 +34,7 @@ public sealed class EntitlementServiceIntegrationTests
         var student = TestDbHelper.GetTestStudent(db);
         var subject = TestDbHelper.GetTestSubject(db);
         var lecture = Lecture.Create(subject.Id, "محاضرة الاستحقاق", "entitlement-lecture", 1);
+        lecture.Publish();
         db.Lectures.Add(lecture);
         AddSubjectGrant(db, student.Id, subject.Id, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddHours(1));
         await db.SaveChangesAsync();
