@@ -50,7 +50,10 @@ public sealed class StatsHandlersSeededIntegrationTests
         cache.Setup(service => service.SetAsync(It.IsAny<string>(), It.IsAny<StudentStatsDto>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        var handler = new StatsHandlers(db, cache.Object);
+        // StudentStats path does not consult entitlements, but the handler now requires the dependency.
+        var entitlements = new Mock<IEntitlementService>(MockBehavior.Strict);
+
+        var handler = new StatsHandlers(db, cache.Object, entitlements.Object);
         var result = await handler.Handle(new GetStudentStatsQuery(student.Id, "all"), CancellationToken.None);
 
         result.TotalQuestions.Should().Be(2);
