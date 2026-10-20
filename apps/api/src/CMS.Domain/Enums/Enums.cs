@@ -233,6 +233,7 @@ public enum SecurityEventType
     PasswordResetRequested,
     MfaEnabled,
     MfaFailed,
+    MfaDisabled,
     PermissionChange,
     RoleChange,
     SubscriptionActivated,

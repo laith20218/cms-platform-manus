@@ -133,7 +133,11 @@ public class ExceptionHandlingMiddleware
 }
 
 /// <summary>
-/// Adds security headers to all responses.
+/// Adds security headers to all responses. Unified with the historical
+/// ContentSecurityPolicyMiddleware intent: keep CSP minimal (default-src 'self'),
+/// but add HSTS, COOP and COEP for defence-in-depth without duplicating X-Frame-Options
+/// or Permissions-Policy. CSP stays minimal here to avoid breaking Swagger / Vercel
+/// student-web embedding; per-app CSP is enforced by Vercel via vercel.json.
 /// </summary>
 public class SecurityHeadersMiddleware
 {
@@ -156,6 +160,19 @@ public class SecurityHeadersMiddleware
         {
             context.Response.Headers["Content-Security-Policy"] = "default-src 'self'";
         }
+
+        // HSTS: only emit when the request is not loopback, so local dev over HTTP is unaffected.
+        // Render terminates TLS at the edge, so the origin server sees HTTPS and HSTS applies.
+        if (!IPAddress.IsLoopback(context.Connection.RemoteIpAddress ?? IPAddress.None))
+        {
+            context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload";
+        }
+
+        // Cross-Origin isolation headers reduce Spectre-class side-channel risk for any
+        // future use of SharedArrayBuffer / high-resolution timers in admin/student apps.
+        context.Response.Headers["Cross-Origin-Opener-Policy"] = "same-origin";
+        context.Response.Headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+        context.Response.Headers["Cross-Origin-Resource-Policy"] = "same-site";
 
         await _next(context);
     }
