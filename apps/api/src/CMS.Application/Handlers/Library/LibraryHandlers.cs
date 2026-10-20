@@ -208,12 +208,13 @@ public class LibraryHandlers :
         if (req.FileSize > 100 * 1024 * 1024)
             throw new DomainException("حجم الملف يتجاوز 100 ميجابايت", "FILE_TOO_LARGE");
 
-        // Generate file key
-        var fileKey = $"library/{Guid.NewGuid()}/{req.FileName}";
+        // Server-generated object key: Guid-based to prevent path traversal.
+        // The user-supplied FileName is stored as metadata only, never used as the key path.
+        var fileKey = $"library/{Guid.NewGuid():N}/{Guid.NewGuid():N}";
 
-        // Get pre-signed upload URL (direct upload to R2)
-        // Note: In production, use GetSignedUrlAsync for PUT operation
-        var uploadUrl = await _storage.GetSignedUrlAsync(fileKey, TimeSpan.FromMinutes(30));
+        // Issue a short-lived pre-signed PUT URL for direct browser upload to S3-compatible storage.
+        // The PUT verb and ContentType are bound server-side so the client cannot mutate them.
+        var uploadUrl = await _storage.GetSignedUploadUrlAsync(fileKey, req.ContentType, TimeSpan.FromMinutes(30));
 
         // Create library file record (pending upload)
         var file = new LibraryFile
