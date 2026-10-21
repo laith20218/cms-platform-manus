@@ -69,7 +69,13 @@ function readMessage(payload: unknown): string {
 export async function apiRequest<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Authorization', `Bearer ${token}`);
-  if (init?.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  // Only set Content-Type: application/json for non-FormData bodies.
+  // FormData must NOT have a manual Content-Type — the browser sets
+  // multipart/form-data; boundary=... automatically. Setting it manually
+  // omits the boundary → 415 Unsupported Media Type.
+  if (init?.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
 
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
   if (response.status === 204) return undefined as T;
