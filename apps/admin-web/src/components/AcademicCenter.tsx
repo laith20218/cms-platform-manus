@@ -1,6 +1,6 @@
-/** Style reminder — غرفة القيادة السريرية: hierarchy is revealed progressively, with ivory surfaces, navy labels, and teal action signals. Archive controls stay compact, legible, and visibly secondary to navigation. */
+/** AcademicCenter — premium Tailwind redesign. Hierarchy stages render as responsive cards with teal signals. */
 import { FormEvent, useEffect, useState } from 'react';
-import { Archive, Building2, CalendarDays, ChevronLeft, ChevronRight, EyeOff, GraduationCap, LoaderCircle, Plus, Presentation, RotateCcw, School, Send, Stethoscope } from 'lucide-react';
+import { Archive, Building2, CalendarDays, ChevronLeft, ChevronRight, EyeOff, GraduationCap, LoaderCircle, Plus, Presentation, RotateCcw, School, Send, Stethoscope, Layers } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
 
 type University = { id: string; nameAr: string; nameEn?: string | null; slug: string; collegesCount: number; isArchived: boolean };
@@ -135,10 +135,189 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
     { key: 'subject', icon: Stethoscope, items: subjects, selected: subjectId, choose: chooseSubject, title: isArabic ? 'المواد' : 'Subjects', add: Boolean(semesterId) },
   ] as const;
 
-  return <section className="academic-center">
-    <div className="directory-heading"><div><p className="eyebrow">{isArabic ? 'البنية الأكاديمية' : 'ACADEMIC DIRECTORY'}</p><h2>{isArabic ? 'من الجامعة إلى المحاضرة' : 'University to lecture'}</h2></div><button type="button" className={`archive-filter ${showArchived ? 'is-active' : ''}`} onClick={() => void toggleArchived()}><EyeOff size={16} />{showArchived ? (isArabic ? 'إخفاء المؤرشف' : 'Hide archived') : (isArabic ? 'إظهار المؤرشف' : 'Show archived')}</button></div>
-    <div className="hierarchy-board">{stages.map((stage, index) => <div className="hierarchy-stage" key={stage.key}><div className="hierarchy-stage-head"><span><stage.icon size={17} />{stage.title}</span>{stage.add && <button type="button" title={isArabic ? 'إضافة' : 'Add'} onClick={() => setForm({ ...form, kind: stage.key, name: '', nameEn: '', code: '', duration: '', number: '1' })}><Plus size={16} /></button>}</div><div className="hierarchy-items">{stage.items.length === 0 ? <p>{isArabic ? 'لا توجد عناصر بعد' : 'No items yet'}</p> : stage.items.map((item: University | College | AcademicYear | Semester | Subject) => <div className={`hierarchy-item ${item.isArchived ? 'is-archived' : ''}`} key={item.id}><button type="button" className={`hierarchy-select ${stage.selected === item.id ? 'selected' : ''}`} onClick={() => void stage.choose(item.id)}><strong>{label(isArabic, item)}</strong><small>{item.slug}</small>{item.isArchived && <em>{isArabic ? 'مؤرشف' : 'Archived'}</em>}</button><button type="button" className="lifecycle-action" disabled={busy} title={item.isArchived ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')} onClick={() => void setArchiveState(stage.key, item.id, item.isArchived)}>{item.isArchived ? <RotateCcw size={14} /> : <Archive size={14} />}</button></div>)}</div>{index < stages.length - 1 && <span className="hierarchy-arrow">{isArabic ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}</span>}</div>)}</div>
-    <div className="lecture-strip"><div><p className="eyebrow">{isArabic ? 'محاضرات المادة' : 'SUBJECT LECTURES'}</p><h3>{subjectId ? (isArabic ? 'محاضرات مرتبطة بالمادة المحددة' : 'Lectures for selected subject') : (isArabic ? 'اختر مادة لعرض محاضراتها' : 'Select a subject to view lectures')}</h3></div><Presentation size={25} />{subjectId && <button type="button" className="primary-action compact" onClick={() => setForm({ ...form, kind: 'lecture', name: '', nameEn: '', code: '', duration: '', description: '', instructor: '', source: '', number: String(lectures.length + 1) })}><Plus size={16} />{isArabic ? 'إضافة محاضرة' : 'Add lecture'}</button>}<div className="lecture-list">{lectures.map((lecture) => <article className={lecture.isArchived ? 'is-archived' : ''} key={lecture.id}><b>#{lecture.lectureNumber}</b><span><strong>{label(isArabic, lecture)}</strong><small>{lecture.durationMinutes ? `${lecture.durationMinutes} min` : '—'}</small>{lecture.instructorName && <small>{isArabic ? `المحاضر: ${lecture.instructorName}` : `Instructor: ${lecture.instructorName}`}</small>}{lecture.sourceReference && <small>{isArabic ? `المصدر: ${lecture.sourceReference}` : `Source: ${lecture.sourceReference}`}</small>}{lecture.isArchived && <em>{isArabic ? 'مؤرشف' : 'Archived'}</em>}{lecture.status === 'draft' && <em className="draft-state">{isArabic ? 'مسودة' : 'Draft'}</em>}</span>{lecture.status === 'draft' && !lecture.isArchived && <button type="button" className="publish-action" disabled={busy} title={isArabic ? 'نشر المحاضرة' : 'Publish lecture'} onClick={() => void publishLecture(lecture.id)}><Send size={14} /></button>}<button type="button" className="lifecycle-action" disabled={busy} title={lecture.isArchived ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')} onClick={() => void setArchiveState('lecture', lecture.id, lecture.isArchived)}>{lecture.isArchived ? <RotateCcw size={14} /> : <Archive size={14} />}</button></article>)}</div></div>
-    <form className="academic-form" onSubmit={submit}><div><p className="eyebrow">{isArabic ? 'إجراء إنشاء' : 'CREATE ACTION'}</p><h3>{isArabic ? 'إضافة عنصر إلى الهيكل' : 'Add hierarchy item'}</h3></div><label>{isArabic ? 'النوع' : 'Type'}<select value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value as typeof form.kind })}><option value="university">{isArabic ? 'جامعة' : 'University'}</option><option value="college">{isArabic ? 'كلية' : 'College'}</option><option value="year">{isArabic ? 'سنة' : 'Academic year'}</option><option value="semester">{isArabic ? 'فصل' : 'Semester'}</option><option value="subject">{isArabic ? 'مادة' : 'Subject'}</option><option value="lecture">{isArabic ? 'محاضرة' : 'Lecture'}</option></select></label><label>{isArabic ? 'الاسم العربي' : 'Arabic name'}<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label><label>{isArabic ? 'الاسم الإنجليزي' : 'English name'}<input value={form.nameEn} onChange={(event) => setForm({ ...form, nameEn: event.target.value })} /></label>{['year', 'semester', 'lecture'].includes(form.kind) && <label>{isArabic ? 'الترتيب أو الرقم' : 'Order / number'}<input type="number" min="1" value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} /></label>}{form.kind === 'subject' && <label>{isArabic ? 'رمز المادة' : 'Subject code'}<input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} /></label>}{form.kind === 'lecture' && <><label>{isArabic ? 'المدة بالدقائق' : 'Duration (minutes)'}<input type="number" min="1" value={form.duration} onChange={(event) => setForm({ ...form, duration: event.target.value })} /></label><label>{isArabic ? 'اسم المحاضر' : 'Instructor name'}<input value={form.instructor} onChange={(event) => setForm({ ...form, instructor: event.target.value })} /></label><label>{isArabic ? 'المصدر أو المرجع' : 'Source / reference'}<input value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })} /></label><label>{isArabic ? 'وصف المحاضرة' : 'Lecture description'}<input value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label></>}<button className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" size={16} />}<Plus size={16} />{isArabic ? 'حفظ' : 'Save'}</button></form>
-  </section>;
+  return (
+    <section className="space-y-6">
+      <header className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-start gap-3">
+          <div className="p-2.5 rounded-xl bg-teal-50 text-teal-600">
+            <Layers className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{isArabic ? 'البنية الأكاديمية' : 'Academic directory'}</p>
+            <h2 className="text-2xl font-bold text-slate-900">{isArabic ? 'من الجامعة إلى المحاضرة' : 'University to lecture'}</h2>
+          </div>
+        </div>
+        <button type="button" onClick={() => void toggleArchived()} className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${showArchived ? 'bg-teal-50 border-teal-300 text-teal-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+          <EyeOff className="w-4 h-4" />{showArchived ? (isArabic ? 'إخفاء المؤرشف' : 'Hide archived') : (isArabic ? 'إظهار المؤرشف' : 'Show archived')}
+        </button>
+      </header>
+
+      {/* Hierarchy board */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        {stages.map((stage, index) => (
+          <div key={stage.key} className="relative rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-200 bg-slate-50">
+              <div className="flex items-center gap-2 text-slate-700">
+                <stage.icon className="w-4 h-4 text-teal-600" />
+                <span className="text-sm font-semibold">{stage.title}</span>
+              </div>
+              {stage.add && (
+                <button type="button" title={isArabic ? 'إضافة' : 'Add'} onClick={() => setForm({ ...form, kind: stage.key, name: '', nameEn: '', code: '', duration: '', number: '1' })} className="p-1 rounded-md text-slate-500 hover:bg-teal-50 hover:text-teal-600 transition-colors">
+                  <Plus className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            <div className="flex-1 max-h-72 overflow-y-auto p-2 space-y-1">
+              {stage.items.length === 0 ? (
+                <p className="text-center text-xs text-slate-400 py-6">{isArabic ? 'لا توجد عناصر بعد' : 'No items yet'}</p>
+              ) : stage.items.map((item: University | College | AcademicYear | Semester | Subject) => {
+                const selected = stage.selected === item.id;
+                return (
+                  <div key={item.id} className={`flex items-stretch gap-1 rounded-lg border transition-colors ${item.isArchived ? 'border-amber-200 bg-amber-50/40' : 'border-transparent'} ${selected ? 'ring-2 ring-teal-500 ring-offset-1' : ''}`}>
+                    <button type="button" onClick={() => void stage.choose(item.id)} className={`flex-1 min-w-0 text-right px-2.5 py-2 rounded-lg text-sm transition-colors ${selected ? 'bg-teal-50 text-teal-700' : 'hover:bg-slate-50 text-slate-700'}`}>
+                      <strong className="block truncate font-medium text-slate-900 text-sm">{label(isArabic, item)}</strong>
+                      <small className="block text-[10px] text-slate-400 truncate font-mono">{item.slug}</small>
+                      {item.isArchived && <em className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-100">{isArabic ? 'مؤرشف' : 'Archived'}</em>}
+                    </button>
+                    <button type="button" disabled={busy} title={item.isArchived ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')} onClick={() => void setArchiveState(stage.key, item.id, item.isArchived)} className="w-8 my-1 ml-1 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors disabled:opacity-50">
+                      {item.isArchived ? <RotateCcw className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {index < stages.length - 1 && (
+              <span className="hidden xl:flex absolute top-1/2 -left-3 -translate-y-1/2 z-10 w-6 h-6 items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 shadow-sm">
+                {isArabic ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Lecture strip */}
+      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200 bg-slate-50">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-teal-50 text-teal-600">
+              <Presentation className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{isArabic ? 'محاضرات المادة' : 'Subject lectures'}</p>
+              <h3 className="text-base font-bold text-slate-900">{subjectId ? (isArabic ? 'محاضرات مرتبطة بالمادة المحددة' : 'Lectures for selected subject') : (isArabic ? 'اختر مادة لعرض محاضراتها' : 'Select a subject to view lectures')}</h3>
+            </div>
+          </div>
+          {subjectId && (
+            <button type="button" onClick={() => setForm({ ...form, kind: 'lecture', name: '', nameEn: '', code: '', duration: '', description: '', instructor: '', source: '', number: String(lectures.length + 1) })} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-colors">
+              <Plus className="w-4 h-4" />{isArabic ? 'إضافة محاضرة' : 'Add lecture'}
+            </button>
+          )}
+        </div>
+        <div className="p-5">
+          {lectures.length === 0 ? (
+            <div className="flex flex-col items-center justify-center text-center py-10 text-slate-500">
+              <Presentation className="w-6 h-6 text-slate-300" />
+              <p className="mt-2 text-sm">{isArabic ? 'لا توجد محاضرات بعد.' : 'No lectures yet.'}</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {lectures.map((lecture) => (
+                <article key={lecture.id} className={`rounded-lg border p-4 flex gap-3 transition-colors ${lecture.isArchived ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-white hover:border-teal-300 hover:shadow-sm'}`}>
+                  <div className="shrink-0 w-9 h-9 rounded-lg bg-slate-900 text-white flex items-center justify-center text-sm font-bold">#{lecture.lectureNumber}</div>
+                  <div className="min-w-0 flex-1">
+                    <strong className="block text-sm font-semibold text-slate-900 truncate">{label(isArabic, lecture)}</strong>
+                    <div className="mt-0.5 space-y-0.5">
+                      <small className="block text-xs text-slate-500">{lecture.durationMinutes ? `${lecture.durationMinutes} ${isArabic ? 'د' : 'min'}` : '—'}</small>
+                      {lecture.instructorName && <small className="block text-xs text-slate-500">{isArabic ? `المحاضر: ${lecture.instructorName}` : `Instructor: ${lecture.instructorName}`}</small>}
+                      {lecture.sourceReference && <small className="block text-xs text-slate-500">{isArabic ? `المصدر: ${lecture.sourceReference}` : `Source: ${lecture.sourceReference}`}</small>}
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {lecture.isArchived && <em className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-100">{isArabic ? 'مؤرشف' : 'Archived'}</em>}
+                      {lecture.status === 'draft' && <em className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide text-sky-700 bg-sky-100">{isArabic ? 'مسودة' : 'Draft'}</em>}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    {lecture.status === 'draft' && !lecture.isArchived && (
+                      <button type="button" disabled={busy} title={isArabic ? 'نشر المحاضرة' : 'Publish lecture'} onClick={() => void publishLecture(lecture.id)} className="p-1.5 rounded-md text-teal-600 hover:bg-teal-50 transition-colors disabled:opacity-50">
+                        <Send className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button type="button" disabled={busy} title={lecture.isArchived ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')} onClick={() => void setArchiveState('lecture', lecture.id, lecture.isArchived)} className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors disabled:opacity-50">
+                      {lecture.isArchived ? <RotateCcw className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Create form */}
+      <form onSubmit={submit} className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{isArabic ? 'إجراء إنشاء' : 'Create action'}</p>
+          <h3 className="text-base font-bold text-slate-900">{isArabic ? 'إضافة عنصر إلى الهيكل' : 'Add hierarchy item'}</h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <label className="block">
+            <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'النوع' : 'Type'}</span>
+            <select value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value as typeof form.kind })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+              <option value="university">{isArabic ? 'جامعة' : 'University'}</option>
+              <option value="college">{isArabic ? 'كلية' : 'College'}</option>
+              <option value="year">{isArabic ? 'سنة' : 'Academic year'}</option>
+              <option value="semester">{isArabic ? 'فصل' : 'Semester'}</option>
+              <option value="subject">{isArabic ? 'مادة' : 'Subject'}</option>
+              <option value="lecture">{isArabic ? 'محاضرة' : 'Lecture'}</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'الاسم العربي' : 'Arabic name'}</span>
+            <input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500" />
+          </label>
+          <label className="block">
+            <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'الاسم الإنجليزي' : 'English name'}</span>
+            <input value={form.nameEn} onChange={(event) => setForm({ ...form, nameEn: event.target.value })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500" />
+          </label>
+          {['year', 'semester', 'lecture'].includes(form.kind) && (
+            <label className="block">
+              <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'الترتيب أو الرقم' : 'Order / number'}</span>
+              <input type="number" min="1" value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500" />
+            </label>
+          )}
+          {form.kind === 'subject' && (
+            <label className="block">
+              <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'رمز المادة' : 'Subject code'}</span>
+              <input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500" />
+            </label>
+          )}
+          {form.kind === 'lecture' && (
+            <>
+              <label className="block">
+                <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'المدة بالدقائق' : 'Duration (minutes)'}</span>
+                <input type="number" min="1" value={form.duration} onChange={(event) => setForm({ ...form, duration: event.target.value })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500" />
+              </label>
+              <label className="block">
+                <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'اسم المحاضر' : 'Instructor name'}</span>
+                <input value={form.instructor} onChange={(event) => setForm({ ...form, instructor: event.target.value })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500" />
+              </label>
+              <label className="block">
+                <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'المصدر أو المرجع' : 'Source / reference'}</span>
+                <input value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500" />
+              </label>
+              <label className="block md:col-span-2 lg:col-span-3">
+                <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'وصف المحاضرة' : 'Lecture description'}</span>
+                <input value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500" />
+              </label>
+            </>
+          )}
+        </div>
+        <div className="flex justify-end">
+          <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-colors disabled:opacity-50" disabled={busy}>
+            {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}{isArabic ? 'حفظ' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
 }
