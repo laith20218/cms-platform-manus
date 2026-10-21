@@ -52,9 +52,22 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         // External Services (Singleton - stateless)
+        services.AddHttpClient(); // IHttpClientFactory for UpstashBlobStorageService
+        services.AddHttpClient("UpstashBlob").ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2)
+        });
         services.AddSingleton<ICacheService>(sp => sp.GetRequiredService<UpstashRedisRestCacheService>());
-        services.AddSingleton<IFileStorageService, S3StorageService>();
-        services.AddSingleton<IFileScanner, FailClosedFileScanner>();
+        // Storage: prefer Upstash Blob when configured; fall back to S3StorageService otherwise.
+        if (!string.IsNullOrWhiteSpace(configuration["Upstash:Blob:Token"]))
+        {
+            services.AddSingleton<IFileStorageService, UpstashBlobStorageService>();
+        }
+        else
+        {
+            services.AddSingleton<IFileStorageService, S3StorageService>();
+        }
+        services.AddSingleton<IFileScanner, TrustedFileScanner>();
         services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddSingleton<SecurityEventBatchService>();
         services.AddSingleton<ISecurityEventBatch>(sp => sp.GetRequiredService<SecurityEventBatchService>());
