@@ -58,9 +58,9 @@ if [ -n "$staged_files" ]; then
     [ -z "$content" ] && continue
 
     for pattern in "${secret_patterns[@]}"; do
-      if echo "$content" | grep -qE "$pattern"; then
+      if echo "$content" | grep -qE -- "$pattern"; then
         # Extract the matched line for context (truncate to 80 chars)
-        match_line=$(echo "$content" | grep -E "$pattern" | head -1 | cut -c1-80)
+        match_line=$(echo "$content" | grep -E -- "$pattern" | head -1 | cut -c1-80)
         fail "secret pattern matched in $file: $match_line"
       fi
     done
