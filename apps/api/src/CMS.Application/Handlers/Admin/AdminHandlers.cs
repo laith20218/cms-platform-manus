@@ -448,6 +448,7 @@ public sealed class AdministratorManagementHandlers :
     IRequestHandler<DeleteAdminCommand, Unit>,
     IRequestHandler<GetAdminsQuery, PagedResult<AdminManagementDto>>,
     IRequestHandler<GetAdminDetailsQuery, AdminManagementDto>,
+    IRequestHandler<GetRolePermissionsQuery, List<RolePermissionGrantDto>>,
     IRequestHandler<CreateRoleCommand, AdminRoleManagementDto>,
     IRequestHandler<GetRolesQuery, List<AdminRoleManagementDto>>,
     IRequestHandler<SetRoleActiveCommand, Unit>,
@@ -625,6 +626,27 @@ public sealed class AdministratorManagementHandlers :
             .FirstOrDefaultAsync(candidate => candidate.Id == request.TargetAdminId, ct)
             ?? throw new NotFoundException("Admin", request.TargetAdminId);
         return await ToAdminDtoAsync(admin, admin.Role, ct);
+    }
+
+    /// <summary>
+    /// Reads the effective permission grants for one role (system or custom).
+    /// Used by the Permission Matrix Editor UI.
+    /// </summary>
+    public async Task<List<RolePermissionGrantDto>> Handle(GetRolePermissionsQuery request, CancellationToken ct)
+    {
+        await RequireSuperAdminAsync(request.ActorAdminId, ct);
+        var role = await _db.AdminRoles.AsNoTracking().FirstOrDefaultAsync(r => r.Id == request.RoleId, ct)
+            ?? throw new NotFoundException("Role", request.RoleId);
+
+        var permissions = await _db.AdminPermissions.AsNoTracking()
+            .Where(p => p.RoleId == request.RoleId)
+            .ToListAsync(ct);
+
+        return permissions.Select(p => new RolePermissionGrantDto(
+            p.Resource,
+            System.Text.Json.JsonSerializer.Deserialize<List<string>>(p.Actions) ?? new List<string>(),
+            p.Scope
+        )).ToList();
     }
 
     public async Task<AdminRoleManagementDto> Handle(CreateRoleCommand request, CancellationToken ct)

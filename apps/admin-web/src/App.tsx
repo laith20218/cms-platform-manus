@@ -657,12 +657,15 @@ function App() {
                 <RolesCenter
                   copy={copy}
                   isArabic={isArabic}
+                  token={token}
                   roles={roles}
                   busy={busy}
                   loading={loadingData}
                   onCreate={() => setDialog({ kind: 'create-role' })}
                   onStatus={setRoleStatus}
                   onDelete={deleteRole}
+                  onError={reportError}
+                  onNotice={notify}
                 />
               )}
               {view === 'audit' && isSuperAdmin && (
