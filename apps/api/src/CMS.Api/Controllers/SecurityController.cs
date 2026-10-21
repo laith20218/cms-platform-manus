@@ -183,4 +183,88 @@ public class SecurityController : ControllerBase
         await _securityService.UnbindDeviceAsync(studentId, adminId, ct);
         return NoContent();
     }
+
+    /// <summary>
+    /// List a student's sessions (active + revoked + expired).
+    /// Joins UserSession with DeviceBinding (via InstallationId) to show device context.
+    /// Requires Logs.View permission + scope check.
+    /// </summary>
+    [HttpGet("students/{studentId:guid}/sessions")]
+    public async Task<IActionResult> GetStudentSessions(Guid studentId, CancellationToken ct = default)
+    {
+        var adminId = GetAdminId();
+        if (!await _permissions.HasPermissionAsync(adminId, Resources.Logs, Actions.View, ct)
+            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Forbid();
+
+        var sessions = await _db.UserSessions.AsNoTracking()
+            .Where(s => s.UserId == studentId)
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(100)
+            .ToListAsync(ct);
+
+        // Batch-fetch device bindings for this student (resolve device context)
+        // Note: DeviceBinding is linked to StudentId, not per-session. We show the most
+        // recent binding as the device context for display purposes.
+        var deviceBinding = await _db.DeviceBindings.AsNoTracking()
+            .Where(d => d.StudentId == studentId && d.IsActive)
+            .OrderByDescending(d => d.LastUsed)
+            .FirstOrDefaultAsync(ct);
+
+        return Ok(sessions.Select(s => new
+        {
+            id = s.Id,
+            role = s.Role,
+            installationId = s.InstallationId,
+            status = s.Status.ToString(),
+            createdAt = s.CreatedAt,
+            lastActivityAt = s.LastActivityAt,
+            refreshTokenExpiresAt = s.RefreshTokenExpiresAt,
+            revokedAt = s.RevokedAt,
+            revocationReason = s.RevocationReason,
+            // Device context (from the active device binding — same device for all sessions)
+            deviceName = deviceBinding?.DeviceName,
+            deviceType = deviceBinding?.DeviceType,
+            deviceOs = deviceBinding?.Os,
+            deviceBrowser = deviceBinding?.Browser,
+        }));
+    }
+
+    /// <summary>
+    /// Revoke a single session for a student.
+    /// Requires Students.Edit permission + scope check.
+    /// </summary>
+    [HttpPost("students/{studentId:guid}/sessions/{sessionId:guid}/revoke")]
+    public async Task<IActionResult> RevokeSession(Guid studentId, Guid sessionId, CancellationToken ct = default)
+    {
+        var adminId = GetAdminId();
+        if (!await _permissions.HasPermissionAsync(adminId, Resources.Students, Actions.Edit, ct)
+            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Forbid();
+
+        var session = await _db.UserSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == studentId, ct);
+        if (session is null) return NotFound(new ProblemDetails
+        {
+            Title = "Session not found",
+            Status = 404,
+            Detail = $"No session '{sessionId}' for student '{studentId}'",
+        });
+
+        if (session.Status == SecurityStatusRevoked) return NoContent(); // idempotent
+
+        session.Revoke("Revoked by authorized administrator");
+        await _db.SaveChangesAsync(ct);
+
+        await _securityService.LogSecurityEventAsync(
+            studentId: studentId,
+            adminId: adminId,
+            eventType: SecurityEventType.SessionRevoked,
+            severity: SecuritySeverity.Info,
+            description: $"Session '{sessionId}' revoked by administrator",
+            ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString(),
+            userAgent: Request.Headers.UserAgent.ToString(),
+            ct: ct);
+
+        return NoContent();
+    }
+
+    private const SessionStatus SecurityStatusRevoked = SessionStatus.Revoked;
 }

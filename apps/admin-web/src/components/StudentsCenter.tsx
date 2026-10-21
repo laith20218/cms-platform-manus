@@ -149,6 +149,15 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
   const [editForm, setEditForm] = useState({ fullName: '', gender: '' });
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  // P1-11: student sessions list
+  const [sessions, setSessions] = useState<Array<{
+    id: string; role: string; status: string; createdAt: string;
+    lastActivityAt: string; revokedAt?: string | null; revocationReason?: string | null;
+    deviceName?: string | null; deviceType?: string | null;
+    deviceOs?: string | null; deviceBrowser?: string | null;
+  }>>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [revokingSession, setRevokingSession] = useState<string | null>(null);
 
   const request = <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
   const filtersActive = Boolean(query.trim() || status || universityId);
@@ -204,19 +213,40 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     setSelected(student);
     setDrawerTab('overview');
     setSecurityLogs([]);
+    setSessions([]);
     setLogsLoading(true);
+    // P1-11: fetch sessions in parallel with security logs
+    setSessionsLoading(true);
+    Promise.all([
+      request<SecurityLog[]>(`/api/v1/security/students/${student.id}/logs?count=50`)
+        .then(data => setSecurityLogs(data))
+        .catch(error => {
+          if (error instanceof ApiError && error.status === 403) {
+            onError(isArabic ? 'لا تملك صلاحية عرض السجل الأمني لهذا الطالب.' : 'You do not have permission to view this student\u2019s security log.');
+          } else {
+            onError(error instanceof Error ? error.message : 'Unable to load the security log.');
+          }
+        }),
+      // P1-11: fetch student sessions
+      request<typeof sessions>(`/api/v1/security/students/${student.id}/sessions`)
+        .then(data => setSessions(Array.isArray(data) ? data : []))
+        .catch(() => { /* sessions are optional — don't block the drawer */ })
+        .finally(() => setSessionsLoading(false)),
+    ]).finally(() => setLogsLoading(false));
+  };
+
+  // P1-11: revoke a single session
+  const revokeSession = async (sessionId: string) => {
+    if (!selected) return;
+    setRevokingSession(sessionId);
     try {
-      const data = await request<SecurityLog[]>(`/api/v1/security/students/${student.id}/logs?count=50`);
-      setSecurityLogs(data);
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 403) {
-        onError(isArabic ? 'لا تملك صلاحية عرض السجل الأمني لهذا الطالب.' : 'You do not have permission to view this student\u2019s security log.');
-      } else {
-        onError(error instanceof Error ? error.message : 'Unable to load the security log.');
-      }
-    } finally {
-      setLogsLoading(false);
-    }
+      await apiRequest(`/api/v1/security/students/${selected.id}/sessions/${sessionId}/revoke`, token, { method: 'POST' });
+      setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, status: 'Revoked', revokedAt: new Date().toISOString(), revocationReason: 'Revoked by authorized administrator' } : s));
+      onNotice(isArabic ? 'تم إنهاء الجلسة' : 'Session revoked');
+    } catch (err: unknown) {
+      const msg = err instanceof ApiError ? err.message : isArabic ? 'فشل إنهاء الجلسة' : 'Revoke failed';
+      onError(msg);
+    } finally { setRevokingSession(null); }
   };
 
   const closeDrawer = () => {
@@ -962,6 +992,58 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     >
                       {isArabic ? 'إلغاء ربط الجهاز' : 'Unbind device'}
                     </button>
+                  </article>
+
+                  {/* P1-11: Sessions list */}
+                  <article className="flex flex-col gap-2 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
+                    <div className="flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
+                      <CalendarClock className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
+                      <strong className="text-sm font-semibold">{isArabic ? 'قائمة الجلسات' : 'Sessions list'}</strong>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>{sessions.length}</span>
+                    </div>
+                    {sessionsLoading ? (
+                      <div className="flex items-center gap-2 py-3">
+                        <LoaderCircle className="w-4 h-4 animate-spin" style={{ color: 'var(--cms-text-muted)' }} />
+                        <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span>
+                      </div>
+                    ) : sessions.length === 0 ? (
+                      <p className="text-xs py-2" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لا توجد جلسات مسجلة.' : 'No sessions recorded.'}</p>
+                    ) : (
+                      <div className="flex flex-col gap-1.5 mt-1">
+                        {sessions.slice(0, 20).map(s => {
+                          const isActive = s.status === 'Active';
+                          return (
+                            <div key={s.id} className="flex items-center justify-between gap-2 py-2 border-b last:border-0" style={{ borderColor: 'var(--cms-line)' }}>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${isActive ? 'text-emerald-700 bg-emerald-50' : s.status === 'Revoked' ? 'text-red-700 bg-red-50' : 'text-amber-700 bg-amber-50'}`}>{s.status}</span>
+                                  <span className="text-xs font-medium" style={{ color: 'var(--cms-text)' }}>{s.role}</span>
+                                  {s.deviceType && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>{s.deviceType}</span>}
+                                  {s.deviceOs && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--cms-info-50)', color: 'var(--cms-info)' }}>{s.deviceOs}</span>}
+                                  {s.deviceBrowser && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--cms-ivory-200)', color: 'var(--cms-text-soft)' }}>{s.deviceBrowser}</span>}
+                                </div>
+                                <div className="flex gap-3 mt-1 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
+                                  <span>{isArabic ? 'الإنشاء' : 'Created'}: {dateLabel(s.createdAt, isArabic)}</span>
+                                  <span>{isArabic ? 'آخر نشاط' : 'Last active'}: {dateLabel(s.lastActivityAt, isArabic)}</span>
+                                  {s.revokedAt && <span style={{ color: 'var(--cms-danger)' }}>{isArabic ? 'أُنهيت' : 'Revoked'}: {dateLabel(s.revokedAt, isArabic)}</span>}
+                                </div>
+                              </div>
+                              {isActive && (
+                                <button
+                                  onClick={() => void revokeSession(s.id)}
+                                  disabled={revokingSession === s.id}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-medium text-red-700 border-red-200 hover:bg-red-50 disabled:opacity-50"
+                                  title={isArabic ? 'إنهاء هذه الجلسة' : 'Revoke this session'}
+                                >
+                                  {revokingSession === s.id ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Ban className="w-3 h-3" />}
+                                  {isArabic ? 'إنهاء' : 'Revoke'}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </article>
                 </div>
               )}
