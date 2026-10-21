@@ -151,7 +151,7 @@ public class SecurityController : ControllerBase
             eventType = l.EventType.ToString(),
             severity = l.Severity.ToString(),
             l.Description,
-            l.IpAddress,
+            ipAddress = l.IpAddress?.ToString(),
             l.DeviceFingerprint,
             l.CorrelationId,
             l.CreatedAt,
