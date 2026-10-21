@@ -75,7 +75,6 @@ try
         Policies.Register(options);
     });
     builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
-    builder.Services.AddScoped<IAuthorizationHandler, ScopeHandler>();
 
     // === Controllers ===
     builder.Services.AddControllers()
