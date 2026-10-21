@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using CMS.Infrastructure.Services;
 using CMS.Infrastructure.Persistence;
 using CMS.Application.Interfaces;
+using CMS.Domain.Entities;
+using CMS.Domain.Enums;
 using System.Security.Claims;
 
 namespace CMS.Api.Controllers;
@@ -97,6 +99,76 @@ public class SecurityController : ControllerBase
             a.IpAddress,
             a.CreatedAt
         }));
+    }
+
+    /// <summary>
+    /// Query audit logs with filters and pagination (full audit log viewer).
+    /// Returns all severities — unlike /alerts which returns Critical only.
+    /// Requires Logs.View permission. Available to admin + super_admin.
+    /// </summary>
+    [HttpGet("audit-logs")]
+    public async Task<IActionResult> GetAuditLogs(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        [FromQuery] Guid? studentId = null,
+        [FromQuery] Guid? adminId = null,
+        [FromQuery] string? eventType = null,
+        [FromQuery] string? severity = null,
+        [FromQuery] DateTime? dateFrom = null,
+        [FromQuery] DateTime? dateTo = null,
+        [FromQuery] string? search = null,
+        CancellationToken ct = default)
+    {
+        var actorAdminId = GetAdminId();
+        if (!await _permissions.HasPermissionAsync(actorAdminId, Resources.Logs, Actions.View, ct)) return Forbid();
+
+        // Parse enum filters safely (invalid values → null, no 500)
+        SecurityEventType? eventTypeEnum = null;
+        if (!string.IsNullOrEmpty(eventType) && Enum.TryParse<SecurityEventType>(eventType, true, out var et))
+            eventTypeEnum = et;
+
+        SecuritySeverity? severityEnum = null;
+        if (!string.IsNullOrEmpty(severity) && Enum.TryParse<SecuritySeverity>(severity, true, out var sv))
+            severityEnum = sv;
+
+        var (items, total) = await _securityService.GetAuditLogsAsync(
+            page, pageSize, studentId, adminId, eventTypeEnum, severityEnum,
+            dateFrom, dateTo, search, ct);
+
+        // Batch-fetch actor names for human-readable display
+        var studentIds = items.Where(i => i.StudentId.HasValue).Select(i => i.StudentId!.Value).Distinct().ToList();
+        var adminIds = items.Where(i => i.AdminId.HasValue).Select(i => i.AdminId!.Value).Distinct().ToList();
+        var students = studentIds.Count > 0
+            ? await _db.Students.AsNoTracking().Where(s => studentIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, ct)
+            : new Dictionary<Guid, Domain.Entities.Student>();
+        var admins = adminIds.Count > 0
+            ? await _db.Admins.AsNoTracking().Where(a => adminIds.Contains(a.Id)).ToDictionaryAsync(a => a.Id, ct)
+            : new Dictionary<Guid, Domain.Entities.Admin>();
+
+        var result = items.Select(l => new
+        {
+            l.Id,
+            eventType = l.EventType.ToString(),
+            severity = l.Severity.ToString(),
+            l.Description,
+            l.IpAddress,
+            l.DeviceFingerprint,
+            l.CorrelationId,
+            l.CreatedAt,
+            studentId = l.StudentId,
+            studentName = l.StudentId.HasValue && students.TryGetValue(l.StudentId.Value, out var s) ? s.FullName : null,
+            adminId = l.AdminId,
+            adminName = l.AdminId.HasValue && admins.TryGetValue(l.AdminId.Value, out var adm) ? adm.FullName : null,
+        });
+
+        return Ok(new
+        {
+            items = result,
+            total,
+            page,
+            pageSize,
+            totalPages = pageSize > 0 ? (int)Math.Ceiling((double)total / pageSize) : 1
+        });
     }
 
     /// <summary>

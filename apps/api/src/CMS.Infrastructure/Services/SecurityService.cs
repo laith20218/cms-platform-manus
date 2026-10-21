@@ -261,6 +261,47 @@ public class SecurityService : ISecurityAuditWriter
     }
 
     /// <summary>
+    /// Query audit logs with filters and pagination (admin audit log viewer).
+    /// Returns all severities (unlike GetCriticalAlertsAsync which returns Critical only).
+    /// </summary>
+    public async Task<(List<SecurityLog> Items, int Total)> GetAuditLogsAsync(
+        int page = 1,
+        int pageSize = 50,
+        Guid? studentId = null,
+        Guid? adminId = null,
+        SecurityEventType? eventType = null,
+        SecuritySeverity? severity = null,
+        DateTime? dateFrom = null,
+        DateTime? dateTo = null,
+        string? search = null,
+        CancellationToken ct = default)
+    {
+        // Clamp pagination to safe bounds
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        var query = _db.SecurityLogs.AsNoTracking();
+
+        if (studentId.HasValue) query = query.Where(s => s.StudentId == studentId);
+        if (adminId.HasValue) query = query.Where(s => s.AdminId == adminId);
+        if (eventType.HasValue) query = query.Where(s => s.EventType == eventType);
+        if (severity.HasValue) query = query.Where(s => s.Severity == severity);
+        if (dateFrom.HasValue) query = query.Where(s => s.CreatedAt >= dateFrom);
+        if (dateTo.HasValue) query = query.Where(s => s.CreatedAt <= dateTo);
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(s => s.Description.Contains(search));
+
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .OrderByDescending(s => s.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        return (items, total);
+    }
+
+    /// <summary>
     /// Unbind a student's device (admin action).
     /// </summary>
     public async Task UnbindDeviceAsync(Guid studentId, Guid adminId, CancellationToken ct = default)

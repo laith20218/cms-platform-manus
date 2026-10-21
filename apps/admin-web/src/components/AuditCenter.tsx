@@ -25,6 +25,7 @@ import {
   RefreshCw, Search, ShieldAlert, ShieldCheck, Smartphone, X,
 } from 'lucide-react';
 import { ApiError, apiRequest } from '../lib/api';
+import { AuditLogViewer } from './AuditLogViewer';
 
 type Props = {
   token: string;
@@ -408,6 +409,13 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
           </table>
         </div>
       )}
+
+      {/* Full Audit Log Viewer — additive section (P1-06)
+          Server-side filters + pagination + CSV export.
+          Calls GET /api/v1/security/audit-logs (returns ALL severities, unlike /alerts above). */}
+      <div className="mt-6">
+        <AuditLogViewer token={token} isArabic={isArabic} onError={onError} />
+      </div>
     </section>
   );
 }
