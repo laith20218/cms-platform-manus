@@ -83,3 +83,48 @@ export async function login(email: string, password: string): Promise<{ accessTo
   if (!response.ok) throw new ApiError(readMessage(payload), response.status);
   return payload as { accessToken: string; user: AdminUser };
 }
+
+// ===== Library (ADMIN-02) =====
+export type LibraryFileType = 'Pdf' | 'Html' | 'Image' | 'Video' | 'Audio' | 'Summary' | 'Comprehensive' | 'Paragraph';
+export type LibraryStatus = 'Draft' | 'Published' | 'Archived';
+export type VirusScanStatus = 'Pending' | 'Clean' | 'Infected' | 'Error';
+
+export type AdminLibraryFileListItem = {
+  id: string;
+  subjectId: string;
+  lectureId?: string | null;
+  subjectNameAr: string;
+  title: string;
+  type: string;
+  fileSize: number;
+  durationSeconds?: number | null;
+  status: string;
+  virusScanStatus: string;
+  createdAt: string;
+};
+
+export type UploadUrlResponse = {
+  uploadUrl: string;
+  fileKey: string;
+  fileId: string;
+};
+
+export type LibraryFileDetail = {
+  id: string;
+  subjectId: string;
+  lectureId?: string | null;
+  type: string;
+  title: string;
+  description?: string | null;
+  fileSize: number;
+  fileFormat?: string | null;
+  durationSeconds?: number | null;
+  pagesCount?: number | null;
+  thumbnailUrl?: string | null;
+  youtubeVideoId?: string | null;
+  tags: string[];
+  viewsCount: number;
+  favoritesCount: number;
+  createdAt: string;
+};
+
