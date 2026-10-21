@@ -44,6 +44,16 @@ type SecurityLog = {
   ipAddress?: string | null;
   deviceFingerprint?: string | null;
   createdAt: string;
+  studentName?: string | null;
+  studentPhone?: string | null;
+  deviceName?: string | null;
+  deviceType?: string | null;
+  deviceOs?: string | null;
+  deviceBrowser?: string | null;
+  deviceUserAgent?: string | null;
+  deviceBoundAt?: string | null;
+  deviceLastUsed?: string | null;
+  deviceIsActive?: boolean;
 };
 
 type Dialog =
@@ -764,6 +774,35 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                             <p className="mt-1 text-xs font-mono" style={{ color: 'var(--cms-text-muted)' }}>
                               IP · {log.ipAddress}
                             </p>
+                          )}
+                          {log.deviceFingerprint && (
+                            <p className="mt-1 text-xs font-mono break-all" style={{ color: 'var(--cms-text-muted)' }} title={log.deviceFingerprint}>
+                              {isArabic ? 'بصمة الجهاز' : 'Fingerprint'} · {log.deviceFingerprint.length > 40 ? log.deviceFingerprint.slice(0, 40) + '…' : log.deviceFingerprint}
+                            </p>
+                          )}
+                          {(log.deviceName || log.deviceType || log.deviceOs || log.deviceBrowser) && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {log.deviceType && <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>{log.deviceType}</span>}
+                              {log.deviceOs && <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'var(--cms-info-50)', color: 'var(--cms-info)' }}>{log.deviceOs}</span>}
+                              {log.deviceBrowser && <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'var(--cms-ivory-200)', color: 'var(--cms-text-soft)' }}>{log.deviceBrowser}</span>}
+                              {log.deviceName && <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'var(--cms-warning-50)', color: 'var(--cms-warning)' }}>{log.deviceName}</span>}
+                            </div>
+                          )}
+                          {log.deviceUserAgent && (
+                            <p className="mt-1 text-[10px] font-mono break-all opacity-60" style={{ color: 'var(--cms-text-muted)' }}>
+                              UA · {log.deviceUserAgent.length > 60 ? log.deviceUserAgent.slice(0, 60) + '…' : log.deviceUserAgent}
+                            </p>
+                          )}
+                          {(log.deviceBoundAt || log.deviceLastUsed) && (
+                            <div className="mt-1 flex gap-3 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
+                              {log.deviceBoundAt && <span>{isArabic ? 'الربط' : 'Bound'}: {dateLabel(log.deviceBoundAt, isArabic)}</span>}
+                              {log.deviceLastUsed && <span>{isArabic ? 'آخر استخدام' : 'Last used'}: {dateLabel(log.deviceLastUsed, isArabic)}</span>}
+                              {log.deviceIsActive !== undefined && (
+                                <span style={{ color: log.deviceIsActive ? 'var(--cms-success)' : 'var(--cms-danger)' }}>
+                                  {log.deviceIsActive ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'معطّل' : 'Inactive')}
+                                </span>
+                              )}
+                            </div>
                           )}
                           <em className={`mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide ${eventLabelClass(log.severity)}`}>{log.severity}</em>
                         </article>

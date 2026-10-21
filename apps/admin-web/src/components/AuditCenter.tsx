@@ -39,7 +39,9 @@ type SecurityAlert = {
   severity: string;
   description: string;
   studentId?: string | null;
+  studentName?: string | null;
   adminId?: string | null;
+  adminName?: string | null;
   ipAddress?: string | null;
   createdAt: string;
 };
@@ -136,7 +138,9 @@ function severityLabel(severity: string, isArabic: boolean) {
 }
 
 function actorLabel(alert: SecurityAlert, isArabic: boolean) {
+  if (alert.adminName) return isArabic ? `مدير · ${alert.adminName}` : `Admin · ${alert.adminName}`;
   if (alert.adminId) return isArabic ? `مدير · ${alert.adminId.slice(0, 8)}` : `Admin · ${alert.adminId.slice(0, 8)}`;
+  if (alert.studentName) return isArabic ? `طالب · ${alert.studentName}` : `Student · ${alert.studentName}`;
   if (alert.studentId) return isArabic ? `طالب · ${alert.studentId.slice(0, 8)}` : `Student · ${alert.studentId.slice(0, 8)}`;
   return isArabic ? 'النظام' : 'System';
 }
@@ -184,6 +188,8 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
         alert.eventType.toLowerCase().includes(q)
         || alert.description.toLowerCase().includes(q)
         || (alert.ipAddress ?? '').toLowerCase().includes(q)
+        || (alert.studentName ?? '').toLowerCase().includes(q)
+        || (alert.adminName ?? '').toLowerCase().includes(q)
         || (alert.studentId ?? '').toLowerCase().includes(q)
         || (alert.adminId ?? '').toLowerCase().includes(q)
       );
