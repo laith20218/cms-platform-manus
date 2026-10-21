@@ -21,7 +21,7 @@ type GlobalStats = {
   mostActiveSubjects: Array<{ subjectId: string; subjectName: string; questionsAnswered: number; accuracy: number }>;
   hardestSubjects: Array<{ subjectId: string; subjectName: string; questionsAnswered: number; accuracy: number }>;
   mostViewedFiles: Array<{ fileId: string; title: string; type: string; viewsCount: number }>;
-  hourlyActivity: Array<{ hour: number; uniqueStudents: number; totalAnswers: number }>;
+  hourlyActivity: Array<{ hour: number; activeUsers: number; questionsAnswered: number }>;
 };
 
 const COLORS = ['#0d746b', '#12877d', '#1a9b90', '#4cb8ae', '#35718a', '#a36c1f', '#198566', '#b6473d'];
@@ -92,7 +92,8 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
   const t = isArabic
     ? {
         title: 'التقارير والتحليلات', desc: 'نظرة شاملة على أداء المنصة والطلاب والمحتوى',
-        revenue: 'الإيرادات', period: 'الفترة', codesSold: 'أكواد مُباعة', newSubs: 'اشتراكات جديدة',
+        revenue: 'القيمة التقديرية', period: 'الفترة', codesSold: 'أكواد مُفعّلة', newSubs: 'اشتراكات جديدة',
+        revenueNote: 'الأكواد المُفعّلة × 25,000 (سعر تقديري ثابت) — ليست مدفوعات فعلية',
         growth: 'نمو الطلاب', date: 'التاريخ', newReg: 'تسجيلات جديدة', activeUsers: 'مستخدمون نشطون',
         topSubjects: 'أكثر المواد نشاطاً', subject: 'المادة', answered: 'إجابات', accuracy: 'الدقة', activeStudents: 'طلاب نشطون',
         platformOverview: 'نظرة عامة على المنصة', totalStudents: 'إجمالي الطلاب', totalQuestions: 'إجمالي الأسئلة',
@@ -105,7 +106,8 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
       }
     : {
         title: 'Reports & Analytics', desc: 'Comprehensive view of platform, student, and content performance',
-        revenue: 'Revenue', period: 'Period', codesSold: 'Codes sold', newSubs: 'New subscriptions',
+        revenue: 'Estimated Value', period: 'Period', codesSold: 'Codes sold', newSubs: 'New subscriptions',
+        revenueNote: 'Activated codes × 25,000 (fixed estimated price) — not actual payments',
         growth: 'Student Growth', date: 'Date', newReg: 'New registrations', activeUsers: 'Active users',
         topSubjects: 'Top Subjects', subject: 'Subject', answered: 'Answered', accuracy: 'Accuracy', activeStudents: 'Active students',
         platformOverview: 'Platform Overview', totalStudents: 'Total students', totalQuestions: 'Total questions',
@@ -186,12 +188,14 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Revenue */}
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-1">
             <TrendingUp size={18} style={{ color: 'var(--cms-teal-700)' }} />
             <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.revenue}</h3>
           </div>
+          <p className="text-[11px] mb-3" style={{ color: 'var(--cms-text-muted)' }}>{t.revenueNote}</p>
           {revenue.length > 0 ? (
-            <ResponsiveContainer width="100%" height={240}>
+            <>
+            <ResponsiveContainer width="100%" height={200}>
               <BarChart data={revenue}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--cms-line)" />
                 <XAxis dataKey="period" tick={{ fontSize: 11, fill: 'var(--cms-text-muted)' }} />
@@ -200,8 +204,19 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
                 <Bar dataKey="revenue" name={t.revenue} fill="var(--cms-teal-600)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <div className="text-center p-2 rounded-lg" style={{ background: 'var(--cms-ivory-100)' }}>
+                <div className="text-lg font-bold tabular-nums" style={{ color: 'var(--cms-text)' }}>{revenue.reduce((s, r) => s + r.codesSold, 0)}</div>
+                <div className="text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>{t.codesSold}</div>
+              </div>
+              <div className="text-center p-2 rounded-lg" style={{ background: 'var(--cms-ivory-100)' }}>
+                <div className="text-lg font-bold tabular-nums" style={{ color: 'var(--cms-text)' }}>{revenue.reduce((s, r) => s + r.newSubscriptions, 0)}</div>
+                <div className="text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>{t.newSubs}</div>
+              </div>
+            </div>
+            </>
           ) : (
-            <div className="h-[240px] flex items-center justify-center text-sm" style={{ color: 'var(--cms-text-muted)' }}>{t.noData}</div>
+            <div className="h-[200px] flex items-center justify-center text-sm" style={{ color: 'var(--cms-text-muted)' }}>{t.noData}</div>
           )}
         </div>
 
@@ -243,7 +258,8 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
             <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.topSubjects}</h3>
           </div>
           {topSubjects.length > 0 ? (
-            <ResponsiveContainer width="100%" height={240}>
+            <>
+            <ResponsiveContainer width="100%" height={200}>
               <BarChart data={topSubjects} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--cms-line)" />
                 <XAxis type="number" tick={{ fontSize: 11, fill: 'var(--cms-text-muted)' }} />
@@ -254,8 +270,21 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+            <div className="space-y-1.5 mt-3">
+              {topSubjects.slice(0, 5).map((s, i) => (
+                <div key={i} className="flex items-center justify-between py-1 border-b last:border-0" style={{ borderColor: 'var(--cms-line)' }}>
+                  <span className="text-xs font-medium truncate" style={{ color: 'var(--cms-text)' }}>{s.subjectName}</span>
+                  <div className="flex gap-3 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
+                    <span>{s.questionsAnswered} {t.answered}</span>
+                    <span style={{ color: 'var(--cms-success)' }}>{s.averageAccuracy.toFixed(0)}% {t.accuracy}</span>
+                    <span>{s.activeStudents} {t.activeStudents}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            </>
           ) : (
-            <div className="h-[240px] flex items-center justify-center text-sm" style={{ color: 'var(--cms-text-muted)' }}>{t.noData}</div>
+            <div className="h-[200px] flex items-center justify-center text-sm" style={{ color: 'var(--cms-text-muted)' }}>{t.noData}</div>
           )}
         </div>
 
@@ -272,8 +301,8 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
                 <XAxis dataKey="hour" tick={{ fontSize: 11, fill: 'var(--cms-text-muted)' }} />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--cms-text-muted)' }} />
                 <Tooltip contentStyle={{ background: 'var(--cms-surface)', border: '1px solid var(--cms-line)', borderRadius: 8, fontSize: 12 }} />
-                <Bar dataKey="totalAnswers" name={t.totalAns} fill="var(--cms-teal-500)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="uniqueStudents" name={t.uniqueStudents} fill="var(--cms-info)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="questionsAnswered" name={t.totalAns} fill="var(--cms-teal-500)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="activeUsers" name={t.uniqueStudents} fill="var(--cms-info)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

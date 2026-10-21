@@ -1,8 +1,12 @@
-# 📋 RELEASE NOTES — CMS Platform v1.0.0
+# 📋 RELEASE NOTES — CMS Platform v1.0.0-rc
 
-**تاريخ الإصدار**: 2026-07-31
-**الإصدار**: v1.0.0 (Production)
+**تاريخ الإصدار**: 2026-07-31 (آخر تحديث: 2026-10-21)
+**الإصدار**: v1.0.0-rc (Release Candidate — NOT Production Ready)
 **اسم الإصدار الرمزي**: "المرشد الموثوق" (The Trusted Guide)
+
+> ⚠️ **تحذير**: هذه النسخة **ليست جاهزة للإنتاج**. يوجد 8 حواجز P0 مفتوحة
+> تمنع GO LIVE. انظر `docs/admin/ADMIN_IMPLEMENTATION_PLAN.md` و `PROJECT_STATUS.md`
+> للحصول على القائمة الكاملة والخطة المرحلية للإغلاق.
 
 ---
 
@@ -135,7 +139,7 @@
 | 29 | Performance Optimization | ✅ |
 | 30 | Testing & QA | ✅ |
 | 31 | Deployment | ✅ |
-| 32 | Production Release | ✅ |
+| 32 | Production Release | ⏳ BLOCKED — 8 P0 gates open |
 
 ---
 
@@ -149,9 +153,17 @@
 
 | # | الوصف | الخطورة | الحل البديل | الإصلاح المتوقع |
 |---|------|--------|------------|----------------|
-| 1 | - | - | - | - |
+| 1 | Cloudflare R2 غير مُتحقق منه إنتاجياً | P0 | استخدم Render preview URL حتى الإغلاق | P0-01 |
+| 2 | TrustedFileScanner bypass (IsClean=true دائمًا) | P0 | لا تنشر ملفات مكتبة حتى الإغلاق | P0-02 |
+| 3 | Browser E2E لم يُشغّل ضد deployed backend | P0 | اختبار محلي فقط | P0-03 |
+| 4 | GitHub Actions billing معطّل | P0 | CI محلي فقط | P0-04 |
+| 5 | النطاق المخصص لا يحلّ DNS | P0 | استخدم *.onrender.com + *.vercel.app | P0-05 |
+| 6 | 0 سؤال/0 اختبار/0 ملف في الإنتاج | P0 | استخدم seed-production.sql | P0-06 |
+| 7 | Upstash Redis غير مُتحقق منه | P0 | — | P0-07 |
+| 8 | HourlyActivity DTO field mismatch (مخطط مكسور) | P1 | إصلاح قريب | ADMIN-04 3.1.1 |
 
-لا توجد أخطاء معروفة في هذا الإصدار.
+> **ملاحظة**: ادعاءات "Token Blacklisting عبر Redis" و "BCrypt" في قسم الأمان أدناه تاريخية.
+> الفعلي: Argon2id (ليس BCrypt) + جلسات في Postgres (ليس Redis). تم تصحيحها في وثائق أحدث.
 
 ---
 

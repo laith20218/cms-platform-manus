@@ -21,6 +21,11 @@ export type AdminRecord = {
   scopeCollegeId?: string | null;
   scopeYearId?: string | null;
   scopeSubjectId?: string | null;
+  // P1-04: resolved scope names (from backend AdminManagementDto)
+  scopeUniversityName?: string | null;
+  scopeCollegeName?: string | null;
+  scopeYearName?: string | null;
+  scopeSubjectName?: string | null;
   status: string;
   lastLogin?: string | null;
   createdAt: string;

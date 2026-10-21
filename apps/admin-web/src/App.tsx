@@ -28,6 +28,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Settings,
   ShieldCheck,
   ShieldOff,
   Sun,
@@ -45,6 +46,7 @@ import { StudentsCenter } from './components/StudentsCenter';
 import { QuestionsCenter } from './components/QuestionsCenter';
 import { ExamsCenter } from './components/ExamsCenter';
 import { LibraryCenter } from './components/LibraryCenter';
+import { SettingsCenter } from './components/SettingsCenter';
 
 const BRAND_MARK = '/brand/cms-admin-mark.png';
 const FULL_LOGO = '/brand/cms-cliver-medical-student-logo.jpg';
@@ -52,7 +54,7 @@ const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 
 type Locale = 'ar' | 'en';
 type Theme = 'light' | 'dark';
-type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'library' | 'reports';
+type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'library' | 'reports' | 'settings';
 type Dialog =
   | { kind: 'create-admin' }
   | { kind: 'edit-admin'; admin: AdminRecord }
@@ -76,7 +78,11 @@ type DashboardStats = {
   revenueChangePercent: number;
 };
 
-const initialAdminForm = { fullName: '', email: '', password: '', phone: '', roleId: '' };
+const initialAdminForm = {
+  fullName: '', email: '', password: '', phone: '', roleId: '',
+  // P1-04: academic scope fields (cascading selectors)
+  scopeUniversityId: '', scopeCollegeId: '', scopeYearId: '', scopeSubjectId: '',
+};
 
 function App() {
   const [locale, setLocale] = useState<Locale>('ar');
@@ -264,7 +270,14 @@ function App() {
   }
 
   function openEditAdmin(admin: AdminRecord) {
-    setAdminForm({ fullName: admin.fullName, email: admin.email, password: '', phone: admin.phone ?? '', roleId: admin.roleId });
+    setAdminForm({
+      fullName: admin.fullName, email: admin.email, password: '', phone: admin.phone ?? '', roleId: admin.roleId,
+      // P1-04: load existing scope from admin record
+      scopeUniversityId: admin.scopeUniversityId ?? '',
+      scopeCollegeId: admin.scopeCollegeId ?? '',
+      scopeYearId: admin.scopeYearId ?? '',
+      scopeSubjectId: admin.scopeSubjectId ?? '',
+    });
     setDialog({ kind: 'edit-admin', admin });
   }
 
@@ -278,10 +291,11 @@ function App() {
         email: adminForm.email,
         phone: adminForm.phone || null,
         roleId: adminForm.roleId,
-        scopeUniversityId: null,
-        scopeCollegeId: null,
-        scopeYearId: null,
-        scopeSubjectId: null,
+        // P1-04: pass actual scope from adminForm (was always null before)
+        scopeUniversityId: adminForm.scopeUniversityId || null,
+        scopeCollegeId: adminForm.scopeCollegeId || null,
+        scopeYearId: adminForm.scopeYearId || null,
+        scopeSubjectId: adminForm.scopeSubjectId || null,
         ...(dialog.kind === 'create-admin' ? { password: adminForm.password } : {}),
       };
       if (dialog.kind === 'create-admin') {
@@ -479,15 +493,17 @@ function App() {
         { key: 'admins', label: copy.admins, icon: UsersRound, superOnly: true },
         { key: 'roles', label: copy.roles, icon: KeyRound, superOnly: true },
         { key: 'audit', label: isArabic ? 'السجل الأمني' : 'Security Audit', icon: ShieldCheck, superOnly: true },
+        { key: 'settings', label: isArabic ? 'إعدادات النظام' : 'System Settings', icon: Settings, superOnly: true },
       ],
     },
   ];
 
-  const isManagementView = view === 'admins' || view === 'roles' || view === 'audit' || view === 'reports';
+  const isManagementView = view === 'admins' || view === 'roles' || view === 'audit' || view === 'reports' || view === 'settings';
   const viewTitle = view === 'admins' ? copy.adminList
     : view === 'roles' ? copy.rolesTitle
     : view === 'audit' ? (isArabic ? 'السجل الأمني' : 'Security Audit')
     : view === 'reports' ? (isArabic ? 'التقارير والتحليلات' : 'Reports & Analytics')
+    : view === 'settings' ? (isArabic ? 'إعدادات النظام' : 'System Settings')
     : view === 'students' ? (isArabic ? 'الطلاب' : 'Students')
     : view === 'academic' ? (isArabic ? 'البنية الأكاديمية' : 'Academic Structure')
     : view === 'questions' ? (isArabic ? 'بنك الأسئلة' : 'Question Bank')
@@ -641,12 +657,15 @@ function App() {
                 <RolesCenter
                   copy={copy}
                   isArabic={isArabic}
+                  token={token}
                   roles={roles}
                   busy={busy}
                   loading={loadingData}
                   onCreate={() => setDialog({ kind: 'create-role' })}
                   onStatus={setRoleStatus}
                   onDelete={deleteRole}
+                  onError={reportError}
+                  onNotice={notify}
                 />
               )}
               {view === 'audit' && isSuperAdmin && (
@@ -654,6 +673,9 @@ function App() {
               )}
               {view === 'reports' && isSuperAdmin && (
                 <ReportsCenter token={token} isArabic={isArabic} onError={reportError} />
+              )}
+              {view === 'settings' && isSuperAdmin && (
+                <SettingsCenter token={token} isArabic={isArabic} isSuperAdmin={isSuperAdmin} onError={reportError} onNotice={notify} />
               )}
               {isManagementView && !isSuperAdmin && (
                 <section className="notice" role="status">
@@ -669,6 +691,7 @@ function App() {
         <DialogLayer
           copy={copy}
           isArabic={isArabic}
+          token={token}
           dialog={dialog}
           roles={roles}
           adminForm={adminForm}

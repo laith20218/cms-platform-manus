@@ -2608,6 +2608,59 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.ToTable("user_sessions");
                 });
 
+            modelBuilder.Entity("CMS.Domain.Entities.SystemSetting", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("category");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("key");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_system_settings");
+
+                    b.HasIndex("Category")
+                        .HasDatabaseName("ix_system_settings_category");
+
+                    b.HasIndex("Key")
+                        .IsUnique()
+                        .HasDatabaseName("ix_system_settings_key");
+
+                    b.ToTable("system_settings");
+                });
+
             modelBuilder.Entity("CMS.Domain.Entities.AcademicYear", b =>
                 {
                     b.HasOne("CMS.Domain.Entities.College", "College")
@@ -3184,6 +3237,17 @@ namespace CMS.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("CMS.Domain.Entities.University", b =>
                 {
                     b.Navigation("Colleges");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.SystemSetting", b =>
+                {
+                    b.HasOne("CMS.Domain.Entities.Admin", "UpdatedByAdmin")
+                        .WithMany()
+                        .HasForeignKey("UpdatedBy")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_system_settings_admins_updated_by");
+
+                    b.Navigation("UpdatedByAdmin");
                 });
 #pragma warning restore 612, 618
         }

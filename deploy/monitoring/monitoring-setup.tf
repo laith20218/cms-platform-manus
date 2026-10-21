@@ -3,6 +3,43 @@
 # Sentry + Better Stack + Slack Alerts
 # ============================================================
 
+terraform {
+  required_version = ">= 1.5.0"
+
+  required_providers {
+    sentry = {
+      source  = "jhoman/sentry"
+      version = "~> 0.12.0"
+    }
+    betteruptime = {
+      source  = "BetterStackHQ/betteruptime"
+      version = "~> 0.10.0"
+    }
+  }
+
+  # Backend configuration — use remote state in production:
+  # backend "s3" {
+  #   bucket = "cms-terraform-state"
+  #   key    = "monitoring/terraform.tfstate"
+  #   region = "eu-central-1"
+  # }
+}
+
+# ───────────────────────────────────────────────────────────
+# Providers (configure via env vars: SENTRY_AUTH_TOKEN, BETTERUPTIME_API_TOKEN)
+# ───────────────────────────────────────────────────────────
+
+provider "sentry" {
+  # Set SENTRY_AUTH_TOKEN and SENTRY_ORG_SLUG env vars
+  # export SENTRY_AUTH_TOKEN="..."
+  # export SENTRY_ORG_SLUG="cms"
+}
+
+provider "betteruptime" {
+  # Set BETTERUPTIME_API_TOKEN env var
+  # export BETTERUPTIME_API_TOKEN="..."
+}
+
 # ───────────────────────────────────────────────────────────
 # 1. SENTRY (Backend + Frontend Error Tracking)
 # ───────────────────────────────────────────────────────────
@@ -278,4 +315,4 @@ resource "betteruptime_status_page" "cms_public" {
 # - Better Stack → #alerts-critical + #alerts-info
 # - GitHub Actions → #deployments
 # - Vercel → #deployments
-# - Railway → #deployments
+# - Render → #deployments

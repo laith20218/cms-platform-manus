@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# ============================================================
+# CMS Platform — Pre-commit Secret Scanner Hook
+# Fails closed: blocks commit if any high-confidence secret pattern
+# is detected in staged files. Runs the full verify-security-artifact.sh
+# scan on the working tree as a second layer.
+#
+# Install (one-time):
+#   git config core.hooksPath .githooks
+#   chmod +x .githooks/pre-commit
+# ============================================================
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+failures=0
+warn() { printf '⚠  pre-commit: %s\n' "$1" >&2; }
+fail() { printf '✗ pre-commit BLOCKED: %s\n' "$1" >&2; failures=$((failures + 1)); }
+
+# ───────────────────────────────────────────────────────────
+# 1. Run the existing security artifact gate (full working tree)
+# ───────────────────────────────────────────────────────────
+if [ -x scripts/ci/verify-security-artifact.sh ]; then
+  if ! scripts/ci/verify-security-artifact.sh; then
+    fail "verify-security-artifact.sh detected forbidden files or secrets"
+  fi
+fi
+
+# ───────────────────────────────────────────────────────────
+# 2. Scan staged files for high-confidence secret patterns
+#    (only inspects added/modified content — fast on large repos)
+# ───────────────────────────────────────────────────────────
+staged_files=$(git diff --cached --name-only --diff-filter=ACM -- ':!node_modules' ':!*.lock' ':!*.min.js' ':!*.min.css' ':!pnpm-lock.yaml' 2>/dev/null || true)
+
+if [ -n "$staged_files" ]; then
+  # Patterns that indicate a real committed secret (allowlist placeholders use <...>)
+  secret_patterns=(
+    '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----'
+    'sk_live_[0-9a-zA-Z]{24,}'              # Stripe live secret key
+    'sk_test_[0-9a-zA-Z]{24,}'              # Stripe test secret key (warn only)
+    'ghp_[0-9a-zA-Z]{36,}'                  # GitHub personal access token
+    'gho_[0-9a-zA-Z]{36,}'                  # GitHub OAuth token
+    'github_pat_[0-9a-zA-Z_]{40,}'          # GitHub PAT v2
+    'xox[baprs]-[0-9a-zA-Z-]{10,}'          # Slack token
+    'AKIA[0-9A-Z]{16}'                      # AWS access key ID
+    'AIza[0-9a-zA-Z_-]{35}'                # Google API key
+    'napi_[0-9a-zA-Z]{40,}'                 # Neon API token
+    'rnd_[0-9a-zA-Z]{20,}'                  # Render API key
+  )
+
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    [ ! -f "$file" ] && continue
+
+    # Get the staged blob content (not working-tree — what will actually be committed)
+    content=$(git show ":$file" 2>/dev/null || true)
+    [ -z "$content" ] && continue
+
+    for pattern in "${secret_patterns[@]}"; do
+      if echo "$content" | grep -qE -- "$pattern"; then
+        # Extract the matched line for context (truncate to 80 chars)
+        match_line=$(echo "$content" | grep -E -- "$pattern" | head -1 | cut -c1-80)
+        fail "secret pattern matched in $file: $match_line"
+      fi
+    done
+  done <<< "$staged_files"
+fi
+
+# ───────────────────────────────────────────────────────────
+# 3. Result
+# ───────────────────────────────────────────────────────────
+if [ "$failures" -gt 0 ]; then
+  echo ""
+  echo "╔════════════════════════════════════════════════════╗"
+  echo "║  ✗ Pre-commit check failed: $failures issue(s)        ║"
+  echo "╠════════════════════════════════════════════════════╣"
+  echo "║  Remove the secret or use a placeholder <...>      ║"
+  echo "║  To bypass (NOT recommended): git commit --no-verify ║"
+  echo "╚════════════════════════════════════════════════════╝"
+  exit 1
+fi
+
+echo "✓ pre-commit: no secrets detected in staged files"
+exit 0

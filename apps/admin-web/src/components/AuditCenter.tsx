@@ -25,6 +25,7 @@ import {
   RefreshCw, Search, ShieldAlert, ShieldCheck, Smartphone, X,
 } from 'lucide-react';
 import { ApiError, apiRequest } from '../lib/api';
+import { AuditLogViewer } from './AuditLogViewer';
 
 type Props = {
   token: string;
@@ -149,13 +150,19 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
   const [alerts, setAlerts] = useState<SecurityAlert[]>([]);
   const [loading, setLoading] = useState(false);
   const [severityFilter, setSeverityFilter] = useState('');
+  const [eventTypeFilter, setEventTypeFilter] = useState('');  // P1-07: structured event-type filter
+  const [dateFrom, setDateFrom] = useState('');  // P1-07: date range filter
+  const [dateTo, setDateTo] = useState('');
   const [query, setQuery] = useState('');
+  // P1-07: real severity counts from /audit-logs (not just /alerts which returns Critical only)
+  const [realCounts, setRealCounts] = useState<{ critical: number; warning: number; info: number } | null>(null);
 
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
       setLoading(true);
+      // P1-07: fetch critical alerts for the table (legacy behavior preserved)
       apiRequest<SecurityAlert[]>(`/api/v1/security/alerts?count=100`, token)
         .then((data) => {
           if (cancelled) return;
@@ -173,16 +180,43 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
           setAlerts([]);
         })
         .finally(() => { if (!cancelled) setLoading(false); });
+
+      // P1-07: fetch real severity counts from /audit-logs (returns ALL severities, not just Critical)
+      const countParams = new URLSearchParams({ page: '1', pageSize: '1' });
+      apiRequest<{ total: number }>(`/api/v1/security/audit-logs?${countParams}`, token)
+        .then(res => { if (!cancelled) setRealCounts({ critical: 0, warning: 0, info: res.total }); })
+        .catch(() => { /* silent — counts are optional */ });
+
+      // Fetch per-severity counts (3 small requests — acceptable for the dashboard)
+      Promise.all([
+        apiRequest<{ total: number }>(`/api/v1/security/audit-logs?page=1&pageSize=1&severity=Critical`, token).catch(() => null),
+        apiRequest<{ total: number }>(`/api/v1/security/audit-logs?page=1&pageSize=1&severity=Warning`, token).catch(() => null),
+        apiRequest<{ total: number }>(`/api/v1/security/audit-logs?page=1&pageSize=1&severity=Info`, token).catch(() => null),
+      ]).then(([crit, warn, info]) => {
+        if (cancelled) return;
+        setRealCounts({
+          critical: crit?.total ?? 0,
+          warning: warn?.total ?? 0,
+          info: info?.total ?? 0,
+        });
+      });
     }, 200);
     return () => { cancelled = true; window.clearTimeout(timer); };
-    // Filter state stays local; only the token (server identity) drives the fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const fromTime = dateFrom ? new Date(dateFrom).getTime() : null;
+    const toTime = dateTo ? new Date(dateTo + 'T23:59:59').getTime() : null;
     return alerts.filter((alert) => {
       if (severityFilter && alert.severity !== severityFilter) return false;
+      if (eventTypeFilter && alert.eventType !== eventTypeFilter) return false;
+      if (fromTime || toTime) {
+        const eventTime = new Date(alert.createdAt).getTime();
+        if (fromTime && eventTime < fromTime) return false;
+        if (toTime && eventTime > toTime) return false;
+      }
       if (!q) return true;
       return (
         alert.eventType.toLowerCase().includes(q)
@@ -194,14 +228,15 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
         || (alert.adminId ?? '').toLowerCase().includes(q)
       );
     });
-  }, [alerts, severityFilter, query]);
+  }, [alerts, severityFilter, eventTypeFilter, dateFrom, dateTo, query]);
 
   const inputClass = 'w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors';
+  // P1-07: use realCounts from /audit-logs if available, fall back to local alerts count
   const counts = useMemo(() => ({
-    info: alerts.filter((a) => (a.severity || '').toLowerCase() === 'info').length,
-    warning: alerts.filter((a) => (a.severity || '').toLowerCase() === 'warning').length,
-    critical: alerts.filter((a) => (a.severity || '').toLowerCase() === 'critical').length,
-  }), [alerts]);
+    info: realCounts?.info ?? alerts.filter((a) => (a.severity || '').toLowerCase() === 'info').length,
+    warning: realCounts?.warning ?? alerts.filter((a) => (a.severity || '').toLowerCase() === 'warning').length,
+    critical: realCounts?.critical ?? alerts.filter((a) => (a.severity || '').toLowerCase() === 'critical').length,
+  }), [alerts, realCounts]);
 
   return (
     <section className="space-y-6" dir={isArabic ? 'rtl' : 'ltr'}>
@@ -290,10 +325,50 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
           <option value="Warning">{isArabic ? 'تحذير' : 'Warning'}</option>
           <option value="Info">{isArabic ? 'معلومات' : 'Info'}</option>
         </select>
-        {(severityFilter || query.trim()) && (
+        {/* P1-07: structured event-type filter */}
+        <select
+          value={eventTypeFilter}
+          onChange={(event) => setEventTypeFilter(event.target.value)}
+          className={inputClass}
+          style={{ borderColor: 'var(--cms-line-strong)' }}
+        >
+          <option value="">{isArabic ? 'النوع: الكل' : 'Event type: All'}</option>
+          <option value="LoginSuccess">{isArabic ? 'نجاح الدخول' : 'Login Success'}</option>
+          <option value="LoginFailed">{isArabic ? 'فشل الدخول' : 'Login Failed'}</option>
+          <option value="Logout">{isArabic ? 'تسجيل الخروج' : 'Logout'}</option>
+          <option value="SessionCreated">{isArabic ? 'إنشاء جلسة' : 'Session Created'}</option>
+          <option value="SessionRevoked">{isArabic ? 'إنهاء جلسة' : 'Session Revoked'}</option>
+          <option value="DeviceRegistered">{isArabic ? 'تسجيل جهاز' : 'Device Registered'}</option>
+          <option value="BanIssued">{isArabic ? 'تطبيق حظر' : 'Ban Issued'}</option>
+          <option value="BanLifted">{isArabic ? 'رفع حظر' : 'Ban Lifted'}</option>
+          <option value="MfaEnabled">{isArabic ? 'تفعيل التحقق الثنائي' : 'MFA Enabled'}</option>
+          <option value="MfaDisabled">{isArabic ? 'تعطيل التحقق الثنائي' : 'MFA Disabled'}</option>
+          <option value="PermissionChange">{isArabic ? 'تغيير صلاحية' : 'Permission Change'}</option>
+          <option value="RoleChange">{isArabic ? 'تغيير دور' : 'Role Change'}</option>
+          <option value="SecurityAlert">{isArabic ? 'تنبيه أمني' : 'Security Alert'}</option>
+          <option value="SuspiciousActivity">{isArabic ? 'نشاط مشبوه' : 'Suspicious Activity'}</option>
+        </select>
+        {/* P1-07: date range filter */}
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(event) => setDateFrom(event.target.value)}
+          className={inputClass}
+          style={{ borderColor: 'var(--cms-line-strong)', maxWidth: '160px' }}
+          aria-label={isArabic ? 'من تاريخ' : 'From date'}
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(event) => setDateTo(event.target.value)}
+          className={inputClass}
+          style={{ borderColor: 'var(--cms-line-strong)', maxWidth: '160px' }}
+          aria-label={isArabic ? 'إلى تاريخ' : 'To date'}
+        />
+        {(severityFilter || eventTypeFilter || dateFrom || dateTo || query.trim()) && (
           <button
             type="button"
-            onClick={() => { setSeverityFilter(''); setQuery(''); }}
+            onClick={() => { setSeverityFilter(''); setEventTypeFilter(''); setDateFrom(''); setDateTo(''); setQuery(''); }}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors hover:bg-slate-50"
             style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
           >
@@ -408,6 +483,13 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
           </table>
         </div>
       )}
+
+      {/* Full Audit Log Viewer — additive section (P1-06)
+          Server-side filters + pagination + CSV export.
+          Calls GET /api/v1/security/audit-logs (returns ALL severities, unlike /alerts above). */}
+      <div className="mt-6">
+        <AuditLogViewer token={token} isArabic={isArabic} onError={onError} />
+      </div>
     </section>
   );
 }

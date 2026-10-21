@@ -3,7 +3,7 @@
 > **وثيقة تسليم المشروع النهائية للفريق المستلم**
 > **المشروع**: CMS - College Medical System v1.0.0
 > **تاريخ التسليم**: 2026-07-31
-> **الحالة**: Production-Ready
+> **الحالة**: ❌ NO-GO — 8 حواجز P0 مفتوحة (انظر `docs/admin/ADMIN_IMPLEMENTATION_PLAN.md`)
 
 ---
 
@@ -59,10 +59,10 @@
 | الخدمة | المزود | الغرض |
 |--------|--------|-------|
 | Frontend | Vercel | React PWA + CDN |
-| Backend | Railway | ASP.NET Core API |
-| PostgreSQL | Railway | قاعدة البيانات |
-| Redis | Railway | Cache + Sessions |
-| Storage | Cloudflare R2 | ملفات PDF/Video |
+| Backend | Render | ASP.NET Core API (Docker auto-deploy) |
+| PostgreSQL | Neon | قاعدة البيانات (branchable) |
+| Redis | Upstash | Cache + Rate Limiting (REST API) |
+| Storage | Cloudflare R2 / Upstash Blob | ملفات PDF/Video |
 | DNS + WAF | Cloudflare | DNS + DDoS + SSL |
 | Monitoring | Sentry + Better Stack | Errors + Uptime |
 | CI/CD | GitHub Actions | Auto deployment |
@@ -84,9 +84,6 @@ cms-platform/
 │   │   │   └── CMS.Tests/         # Unit Tests (20+ tests)
 │   │   ├── Dockerfile             # Production multi-stage
 │   │   ├── Dockerfile.dev         # Development with hot reload
-│   │   ├── Procfile               # Railway release commands
-│   │   ├── railway.json           # Railway config
-│   │   ├── entrypoint.sh          # Container startup script
 │   │   └── CMS.sln                # .NET solution
 │   │
 │   └── 📁 student-web/            # Frontend - React 19 PWA
@@ -146,7 +143,7 @@ cms-platform/
 │
 ├── docker-compose.yml             # Dev environment
 ├── docker-compose.prod.yml        # Production environment
-├── railway.toml                   # Railway root config
+├── render.yaml                     # Render IaC config (env names only)
 ├── .env.example                   # Dev environment template
 ├── .env.production                # Production env template
 ├── .dockerignore
@@ -175,7 +172,9 @@ cms-platform/
 |--------|-----|------|
 | GitHub | https://github.com/your-org/cms-platform | كود + CI/CD |
 | Vercel | https://vercel.com/cms | Frontend hosting |
-| Railway | https://railway.app/cms-production | Backend + DB + Redis |
+| Render | https://dashboard.render.com/web/srv-da3qp48ae00c7390ctcg | Backend API (Docker) |
+| Neon | https://console.neon.tech | PostgreSQL (project: patient-dew-46888054) |
+| Upstash | https://console.upstash.com | Redis REST + Blob storage |
 | Cloudflare | https://dash.cloudflare.com | DNS + R2 + WAF |
 | Sentry | https://sentry.io/cms | Error monitoring |
 | Better Stack | https://uptime.betterstack.com | Uptime monitoring |
@@ -190,7 +189,7 @@ cms-platform/
 | الحساب | اسم المستخدم | كلمة المرور الأولية | ملاحظة |
 |--------|------------|-------------------|--------|
 | CMS Super Admin | 0000000000 | CMS@Admin2026!ChangeMe | غيّرها فوراً |
-| Railway Account | admin@cms.example.com | (in password manager) | - |
+| Render Account | admin@cms.example.com | (in password manager) | API + DB access |
 | Vercel Account | admin@cms.example.com | (in password manager) | - |
 | Cloudflare | admin@cms.example.com | (in password manager) | 2FA enabled |
 | Sentry | admin@cms.example.com | (in password manager) | - |
@@ -198,15 +197,17 @@ cms-platform/
 
 **مدير كلمات المرور الموصى به**: 1Password أو Bitwarden Teams
 
-### Secrets المطلوبة (في Railway + Vercel + GitHub)
+### Secrets المطلوبة (في Render + Neon + Upstash + Vercel + GitHub)
 
 ```env
-# Backend (Railway)
+# Backend (Render)
 JWT_SECRET=<64-char random>
-POSTGRES_PASSWORD=<strong password>
-REDIS_PASSWORD=<strong password>
-R2_ACCESS_KEY=<from Cloudflare>
-R2_SECRET_KEY=<from Cloudflare>
+ConnectionStrings__PostgreSQL=<from Neon>
+Upstash__Redis__RestUrl=<from Upstash>
+Upstash__Redis__RestToken=<from Upstash>
+Upstash__Blob__Token=<from Upstash>
+Storage__S3__AccessKey=<from Cloudflare R2>
+Storage__S3__SecretKey=<from Cloudflare R2>
 WHATSAPP_TOKEN=<from Meta>
 FIREBASE_SERVICE_ACCOUNT=<JSON>
 
@@ -215,7 +216,7 @@ VITE_API_URL=https://api.cms.example.com/api/v1
 VITE_SENTRY_DSN=<from Sentry>
 
 # CI/CD (GitHub Secrets)
-RAILWAY_TOKEN=<from Railway>
+RENDER_API_KEY=<from Render>
 VERCEL_TOKEN=<from Vercel>
 SENTRY_AUTH_TOKEN=<from Sentry>
 SLACK_WEBHOOK_URL=<from Slack>
@@ -260,7 +261,7 @@ docker compose up -d
 # عبر GitHub Actions → Database Migration → Run workflow
 
 # 3. تحميل Seed Data
-railway psql --service postgresql < deploy/seed/seed-production.sql
+psql "$DATABASE_URL" < deploy/seed/seed-production.sql
 
 # 4. النشر عبر CI/CD (push to main)
 git push origin main
@@ -272,8 +273,8 @@ git push origin main
 ### التراجع عن Deployment
 
 ```bash
-# Railway
-railway rollback --service cms-api-production
+# Render: استخدم لوحة Render Dashboard → Manual Deploy → Rollback to previous commit
+# أو: render deploys rollback <deploy-id> --service <service-id>
 
 # Vercel
 vercel rollback <deployment-url>
@@ -322,7 +323,7 @@ dotnet ef database update \
 
 ### Backups
 
-- **يومي**: 03:00 AM UTC (تلقائي عبر Railway)
+- **يومي**: 03:00 AM UTC (تلقائي عبر Neon — scheduled backup)
 - **الاحتفاظ**: 30 يوم
 - **اختبار الاسترجاع**: شهرياً
 
@@ -371,17 +372,19 @@ dotnet ef database update \
 | API Health | Better Stack | < 1 min downtime |
 | Frontend Health | Better Stack | < 1 min downtime |
 | Error Rate | Sentry | < 0.1% |
-| API Latency p95 | Railway | < 500ms |
+| API Latency p95 | Render | < 500ms |
 | Frontend TTFB | Vercel | < 600ms |
-| DB Connections | Railway | < 80 |
-| Redis Memory | Railway | < 80% |
-| Disk Space | Railway | < 80% |
+| DB Connections | Neon | < 80 |
+| Redis Memory | Upstash | < 80% |
+| Disk Space | Render | < 80% |
 
 ### لوحات المراقبة
 
 - **Sentry**: https://sentry.io/organizations/cms
 - **Better Stack**: https://uptime.betterstack.com
-- **Railway Metrics**: https://railway.app/project/cms-production
+- **Render Metrics**: https://dashboard.render.com/web/srv-da3qp48ae00c7390ctcg
+- **Neon Console**: https://console.neon.tech (project: patient-dew-46888054)
+- **Upstash Console**: https://console.upstash.com
 - **Vercel Analytics**: https://vercel.com/cms/cms-student-web/analytics
 - **Status Page**: https://status.cms.example.com
 
@@ -406,12 +409,12 @@ Push to develop → Staging Deployment
    ├─ Security Scan (CodeQL + Trivy)
    ├─ Lighthouse CI
    ├─ Docker Build & Push
-   ├─ Deploy API to Railway (Staging)
+   ├─ Deploy API to Render (Staging)
    └─ Deploy Frontend to Vercel (Staging)
 
 Push to main → Production Deployment
    ├─ (Same checks)
-   ├─ Deploy API to Railway (Production)
+   ├─ Deploy API to Render (Production)
    ├─ Deploy Frontend to Vercel (Production)
    ├─ Notify Sentry of new release
    └─ Slack notification
@@ -438,7 +441,7 @@ Push to main → Production Deployment
 
 ### أسبوعياً
 
-- [ ] مراجعة استهلاك الموارد (Railway + Vercel)
+- [ ] مراجعة استهلاك الموارد (Render + Neon + Upstash + Vercel)
 - [ ] فحص أحجام قاعدة البيانات + السجلات
 - [ ] مراجعة معدل الأخطاء (target < 0.1%)
 - [ ] فحص استجابة الـ API (p95 < 500ms)
@@ -492,7 +495,9 @@ Push to main → Production Deployment
 - [React 19 Docs](https://react.dev)
 - [Vite 6 Docs](https://vitejs.dev)
 - [PostgreSQL 16 Docs](https://www.postgresql.org/docs/16)
-- [Railway Docs](https://docs.railway.app)
+- [Render Docs](https://render.com/docs)
+- [Neon Docs](https://neon.tech/docs)
+- [Upstash Docs](https://docs.upstash.com)
 - [Vercel Docs](https://vercel.com/docs)
 - [Cloudflare R2 Docs](https://developers.cloudflare.com/r2)
 
@@ -533,7 +538,7 @@ Push to main → Production Deployment
 | المخاطفة | الاحتمال | التأثير | التخفيف |
 |---------|--------|--------|--------|
 | نمو سريع يتجاوز السعة | متوسط | عالي | Auto-scaling + مراقبة مستمرة |
-| فشل Railway | منخفض | عالي | Backups + خطة استرجاع |
+| فشل Render/Neon | منخفض | عالي | Backups + خطة استرجاع |
 | ثغرة أمنية | متوسط | عالي | Pen test شهري + Bug bounty |
 | فقدان بيانات | منخفض | حرج | Backups يومية + اختبار استرجاع |
 | توقف WhatsApp API | متوسط | متوسط | Backup SMS + Email fallback |
@@ -546,7 +551,7 @@ Push to main → Production Deployment
 ### مباشرة بعد التسليم
 
 1. [ ] تغيير جميع كلمات المرور الافتراضية
-2. [ ] مراجعة جميع الـ Secrets في Railway + Vercel
+2. [ ] مراجعة جميع الـ Secrets في Render + Neon + Upstash + Vercel
 3. [ ] تفعيل 2FA على جميع الحسابات الإدارية
 4. [ ] تشغيل smoke tests للتأكد من الصحة
 5. [ ] مراجعة On-Call schedule + تحديث أرقام الهواتف
@@ -620,7 +625,7 @@ Push to main → Production Deployment
 
 **تاريخ التسليم**: 2026-07-31
 **الإصدار**: v1.0.0
-**الحالة**: ✅ Production-Ready
+**الحالة**: ❌ NO-GO — 8 حواجز P0 مفتوحة (انظر `docs/admin/ADMIN_IMPLEMENTATION_PLAN.md`)
 
 ---
 

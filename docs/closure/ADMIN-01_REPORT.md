@@ -31,7 +31,31 @@
 
 ## 3. Pull Request URL
 
-**لم يُنشأ بعد** — الـ branch محلي فقط. سأنتظر موافقة المستخدم على push قبل إنشاء PR.
+**PR #4 (ADMIN-01 core)**: https://github.com/laith20218/cms-platform-manus/pull/4
+- Squash-merged to `main` as `9e1d397` (2026-10-21T11:07:24Z)
+- Render API auto-deployed + verified live with new security headers (HSTS/COOP/COEP/CORP)
+
+**PR #5 (vercel.json routing fix)**: https://github.com/laith20218/cms-platform-manus/pull/5
+- Squash-merged to `main` as `ee9fbc7` (2026-10-21T11:48Z)
+- Fixed 404s on production deep routes (`/auth/login`, `/dashboard`) by removing `cleanUrls`/`trailingSlash` conflict and tightening rewrites
+- Vercel auto-deployed both student-web + admin-web to `ee9fbc7` (READY/PROMOTED within ~2 min)
+
+**main HEAD after both PRs**: `ee9fbc7`
+
+### Final deployment verification (2026-10-21 ~11:51 UTC)
+
+| Surface | SHA | State | Smoke test |
+|---|---|---|---|
+| Render API (`cms-api-preview.onrender.com`) | `9e1d397` | Deploy live | `/health`=200 `Healthy` + HSTS/COOP/COEP/CORP headers live |
+| Vercel student-web (production domain) | `ee9fbc7` | READY/PROMOTED | `/`=200, `/auth/login`=200, `/subjects/test`=200, `/login`=200, `/home`=200, `/assets/*`=200 |
+| Vercel admin-web (production domain) | `ee9fbc7` | READY/PROMOTED | `/`=200, `/dashboard`=200, `/admins`=200, `/roles`=200, `/questions`=200, `/academic`=200 |
+| CORS (student-web origin) | — | 204 + correct `access-control-allow-origin` | verified |
+| CORS (admin-web origin) | — | 204 + correct `access-control-allow-origin` | verified |
+| CORS (rogue origin) | — | 204 with NO `access-control-allow-origin` (browser rejects) | verified |
+| Admin login (validation) | — | 400 RFC9457 Arabic problem details | verified |
+| Admin login (bogus creds) | — | 400 `AUTH_INVALID_CREDENTIALS` (new `LoginFailed` audit fires) | verified |
+| Leaderboard (unauthenticated) | — | 401 (no data leak) | verified |
+| Secrets in `/health` | — | none | verified |
 
 ---
 

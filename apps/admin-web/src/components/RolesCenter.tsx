@@ -14,24 +14,30 @@
  * Design tokens (--cms-*) are applied via inline style; structural styling is pure Tailwind.
  */
 import {
-  KeyRound, LoaderCircle, Plus, ShieldCheck, ShieldOff, Trash2, UsersRound,
+  KeyRound, LoaderCircle, Plus, ShieldCheck, ShieldOff, Trash2, UsersRound, Lock,
 } from 'lucide-react';
 import type { RoleRecord } from '../lib/api';
+import { PermissionMatrixEditor } from './PermissionMatrixEditor';
+import { useState } from 'react';
 
 type Copy = Record<string, string>;
 
 type RolesCenterProps = {
   copy: Copy;
   isArabic: boolean;
+  token: string;  // P1-05: needed by PermissionMatrixEditor
   roles: RoleRecord[];
   busy: boolean;
   loading: boolean;
   onCreate: () => void;
   onStatus: (role: RoleRecord, active: boolean) => void;
   onDelete: (role: RoleRecord) => void;
+  onError: (message: string) => void;
+  onNotice: (message: string) => void;
 };
 
-export function RolesCenter({ copy, isArabic, roles, busy, loading, onCreate, onStatus, onDelete }: RolesCenterProps) {
+export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCreate, onStatus, onDelete, onError, onNotice }: RolesCenterProps) {
+  const [editingRole, setEditingRole] = useState<RoleRecord | null>(null);
   return (
     <section className="space-y-6" dir={isArabic ? 'rtl' : 'ltr'}>
       {/* ===== Page header ===== */}
@@ -198,7 +204,18 @@ export function RolesCenter({ copy, isArabic, roles, busy, loading, onCreate, on
                 </div>
 
                 {/* Actions */}
-                <div className="flex gap-2 mt-4">
+                <div className="flex gap-2 mt-4 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setEditingRole(role)}
+                    disabled={busy}
+                    className="inline-flex items-center justify-center gap-1.5 flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50"
+                    style={{ borderColor: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)', background: 'var(--cms-teal-50)' }}
+                    title={isArabic ? 'تعديل مصفوفة الصلاحيات' : 'Edit permission matrix'}
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    {isArabic ? 'الصلاحيات' : 'Permissions'}
+                  </button>
                   <button
                     type="button"
                     onClick={() => onStatus(role, !role.isActive)}
@@ -230,6 +247,20 @@ export function RolesCenter({ copy, isArabic, roles, busy, loading, onCreate, on
             );
           })}
         </div>
+      )}
+
+      {/* P1-05: Permission Matrix Editor modal — additive */}
+      {editingRole && (
+        <PermissionMatrixEditor
+          token={token}
+          isArabic={isArabic}
+          roleId={editingRole.id}
+          roleName={isArabic ? editingRole.nameAr : editingRole.name}
+          isSystemRole={editingRole.isSystem}
+          onClose={() => setEditingRole(null)}
+          onError={onError}
+          onNotice={onNotice}
+        />
       )}
     </section>
   );

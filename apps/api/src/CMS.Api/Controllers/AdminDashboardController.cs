@@ -235,6 +235,15 @@ public class AdminDashboardController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Read the current permission grants for one role (system or custom).
+    /// Used by the Permission Matrix Editor UI to display the current state.
+    /// </summary>
+    [HttpGet("roles/{id:guid}/permissions")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<ActionResult<List<RolePermissionGrantDto>>> GetRolePermissions(Guid id, CancellationToken ct)
+        => Ok(await _mediator.Send(new GetRolePermissionsQuery(GetAdminId(), id), ct));
+
     // ===== Super Administrator: Role Lifecycle =====
 
     /// <summary>

@@ -75,6 +75,22 @@ public record ReplaceRolePermissionsCommand(
 public record RolePermissionGrant(string Resource, IReadOnlyList<string> Actions, string Scope);
 
 /// <summary>
+/// Reads the effective permission grants for one role (system or custom).
+/// Returned to the Permission Matrix Editor UI for review + diff before save.
+/// </summary>
+public record GetRolePermissionsQuery(
+    Guid ActorAdminId,
+    Guid RoleId
+) : IRequest<List<RolePermissionGrantDto>>;
+
+/// <summary>A single permission grant row for the matrix editor.</summary>
+public record RolePermissionGrantDto(
+    string Resource,
+    IReadOnlyList<string> Actions,
+    string Scope
+);
+
+/// <summary>
 /// A concise administrator record for the super-administrator management console.
 /// </summary>
 public record AdminManagementDto(
@@ -89,6 +105,10 @@ public record AdminManagementDto(
     Guid? ScopeCollegeId,
     Guid? ScopeYearId,
     Guid? ScopeSubjectId,
+    string? ScopeUniversityName,
+    string? ScopeCollegeName,
+    string? ScopeYearName,
+    string? ScopeSubjectName,
     string Status,
     DateTime? LastLogin,
     DateTime CreatedAt
