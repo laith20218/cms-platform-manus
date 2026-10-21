@@ -281,8 +281,8 @@ public class UpstashBlobStorageService : IFileStorageService
             throw new InvalidOperationException("Upstash:Blob:Token must be configured at runtime");
         _token = token!;
         _httpClient = httpClientFactory.CreateClient(HttpClientName);
-        // Set the Authorization header once — every presign request to Upstash requires it.
-        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
+        // Do NOT set DefaultRequestHeaders.Authorization — it would be sent to presigned R2 URLs
+        // (which reject extra Authorization headers with 403). Set it per-request in PresignAsync only.
     }
 
     /// <inheritdoc />
@@ -378,7 +378,12 @@ public class UpstashBlobStorageService : IFileStorageService
         // Upstash Blob's /v1/presign expects camelCase JSON field names (method, key, expiresIn, headers).
         // PostAsJsonAsync defaults to PascalCase — pass camelCase options explicitly.
         var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-        using var response = await _httpClient.PostAsJsonAsync($"{AgentUrl}/v1/presign", body, jsonOptions, ct);
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{AgentUrl}/v1/presign")
+        {
+            Content = JsonContent.Create(body, options: jsonOptions)
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
+        using var response = await _httpClient.SendAsync(request, ct);
 
         if (!response.IsSuccessStatusCode)
         {
