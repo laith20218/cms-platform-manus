@@ -167,5 +167,9 @@ button:active:not(:disabled) { transform: scale(0.97); }
   .stat-grid { grid-template-columns: 1fr; }
 }
 
-/* ===== Legacy component styles (will be migrated gradually) ===== */
-/* These keep existing Centers working while new Tailwind-based components coexist */
+/* ============================================
+   Component styles migrated to Tailwind utility classes (ADMIN-03-COMPONENTS).
+   StudentsCenter, AcademicCenter, QuestionsCenter, ExamsCenter, CodesCenter,
+   and LibraryCenter now rely solely on Tailwind utility classes inline.
+   Only the shell + design tokens above remain as custom CSS.
+   ============================================ */
