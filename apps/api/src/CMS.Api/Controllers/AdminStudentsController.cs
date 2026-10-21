@@ -155,15 +155,35 @@ public class AdminStudentsController : ControllerBase
         string storedKey;
         await using (var stream = file.OpenReadStream())
         {
-            storedKey = await _storage.UploadAsync(stream, avatarKey, contentType, ct);
+            try
+            {
+                storedKey = await _storage.UploadAsync(stream, avatarKey, contentType, ct);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException)
+            {
+                return StatusCode(502, new ProblemDetails
+                {
+                    Title = "Avatar upload failed",
+                    Status = 502,
+                    Detail = $"Storage service error: {ex.Message}",
+                });
+            }
         }
 
         // Update student.AvatarUrl (use UpdateProfile to keep invariants)
         student.UpdateProfile(fullName: student.FullName, avatarUrl: storedKey, gender: student.Gender);
         await _db.SaveChangesAsync(ct);
 
-        // Get a signed URL for immediate preview
-        var signedUrl = await _storage.GetSignedUrlAsync(storedKey, TimeSpan.FromHours(1));
+        // Get a signed URL for immediate preview (best-effort — don't fail if this errors)
+        string? signedUrl = null;
+        try
+        {
+            signedUrl = await _storage.GetSignedUrlAsync(storedKey, TimeSpan.FromHours(1));
+        }
+        catch
+        {
+            // Preview URL is optional — the avatar is stored, just can't preview inline
+        }
 
         await _audit.LogSecurityEventAsync(
             studentId: studentId,
