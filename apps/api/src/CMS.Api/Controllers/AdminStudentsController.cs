@@ -102,9 +102,10 @@ public class AdminStudentsController : ControllerBase
     /// Returns the new avatar URL (signed URL valid for the storage's default TTL).
     /// </summary>
     [HttpPost("{studentId:guid}/avatar")]
+    [Consumes("multipart/form-data")]
     [RequestSizeLimit(MaxAvatarBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = MaxAvatarBytes)]
-    public async Task<IActionResult> UploadAvatar(Guid studentId, IFormFile file, CancellationToken ct = default)
+    public async Task<IActionResult> UploadAvatar(Guid studentId, [FromForm] IFormFile file, CancellationToken ct = default)
     {
         var adminId = GetAdminId();
         if (!await _permissions.HasPermissionAsync(adminId, Resources.Students, Actions.Edit, ct)
