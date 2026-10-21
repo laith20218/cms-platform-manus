@@ -879,6 +879,50 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
 
               {drawerTab === 'sessions' && (
                 <div className="flex flex-col gap-3">
+                  {/* P1-02: Device fingerprint display (from security logs) */}
+                  {(() => {
+                    const deviceLog = securityLogs.find(l => l.deviceFingerprint);
+                    if (!deviceLog) return null;
+                    return (
+                      <article className="flex flex-col gap-2 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-teal-100)', background: 'var(--cms-teal-50)' }}>
+                        <div className="flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
+                          <LaptopMinimal className="w-5 h-5" style={{ color: 'var(--cms-teal-700)' }} />
+                          <strong className="text-sm font-semibold">{isArabic ? 'الجهاز المرتبط' : 'Bound device'}</strong>
+                          {deviceLog.deviceIsActive !== undefined && (
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${deviceLog.deviceIsActive ? 'text-emerald-700 bg-emerald-50' : 'text-red-700 bg-red-50'}`}>
+                              {deviceLog.deviceIsActive ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'معطّل' : 'Inactive')}
+                            </span>
+                          )}
+                        </div>
+                        {/* Fingerprint */}
+                        {deviceLog.deviceFingerprint && (
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs font-medium" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'البصمة' : 'Fingerprint'}:</span>
+                            <code className="text-xs font-mono break-all" style={{ color: 'var(--cms-teal-700)' }} title={deviceLog.deviceFingerprint}>
+                              {deviceLog.deviceFingerprint.length > 40 ? deviceLog.deviceFingerprint.slice(0, 40) + '…' : deviceLog.deviceFingerprint}
+                            </code>
+                          </div>
+                        )}
+                        {/* Device chips */}
+                        {(deviceLog.deviceName || deviceLog.deviceType || deviceLog.deviceOs || deviceLog.deviceBrowser) && (
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {deviceLog.deviceType && <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'var(--cms-surface)', color: 'var(--cms-teal-700)', border: '1px solid var(--cms-teal-100)' }}>{deviceLog.deviceType}</span>}
+                            {deviceLog.deviceOs && <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'var(--cms-info-50)', color: 'var(--cms-info)' }}>{deviceLog.deviceOs}</span>}
+                            {deviceLog.deviceBrowser && <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'var(--cms-ivory-200)', color: 'var(--cms-text-soft)' }}>{deviceLog.deviceBrowser}</span>}
+                            {deviceLog.deviceName && <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'var(--cms-warning-50)', color: 'var(--cms-warning)' }}>{deviceLog.deviceName}</span>}
+                          </div>
+                        )}
+                        {/* Binding + last used dates */}
+                        {(deviceLog.deviceBoundAt || deviceLog.deviceLastUsed) && (
+                          <div className="flex flex-wrap gap-3 mt-2 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
+                            {deviceLog.deviceBoundAt && <span>{isArabic ? 'الربط' : 'Bound'}: {dateLabel(deviceLog.deviceBoundAt, isArabic)}</span>}
+                            {deviceLog.deviceLastUsed && <span>{isArabic ? 'آخر استخدام' : 'Last used'}: {dateLabel(deviceLog.deviceLastUsed, isArabic)}</span>}
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })()}
+
                   <article className="flex flex-col gap-3 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
                     <div className="flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
                       <MonitorSmartphone className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
