@@ -481,6 +481,17 @@ button:disabled { opacity: var(--cms-disabled-opacity); cursor: var(--cms-disabl
 .skeleton-text.md { width: 80%; }
 .skeleton-text.lg { width: 100%; }
 
+/* ===== Collapsed Sidebar (icon rail) ===== */
+.sidebar.collapsed { width: var(--cms-sidebar-collapsed-w); }
+.sidebar.collapsed .nav-group { padding: var(--cms-space-2) var(--cms-space-1); }
+.sidebar.collapsed nav button { justify-content: center; padding: var(--cms-space-3) var(--cms-space-2); }
+.sidebar.collapsed .side-brand { justify-content: center; padding: var(--cms-space-4) var(--cms-space-2); }
+.sidebar.collapsed .side-bottom { padding: var(--cms-space-2); }
+.sidebar.collapsed .operator { justify-content: center; }
+.workspace.sidebar-collapsed { margin-inline-start: var(--cms-sidebar-collapsed-w); }
+.collapse-toggle { display: none !important; }
+@media (min-width: 1025px) { .collapse-toggle { display: flex !important; } }
+
 /* ===== Mobile ===== */
 .sidebar-backdrop { display: none; position: fixed; inset: 0; background: rgba(8, 26, 38, 0.5); z-index: var(--cms-z-backdrop); backdrop-filter: blur(2px); }
 @media (max-width: 1024px) {
