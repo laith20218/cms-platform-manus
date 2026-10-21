@@ -343,7 +343,6 @@ function App() {
       <main className="login-shell" dir={isArabic ? 'rtl' : 'ltr'}>
         <motion.section
           className="login-hero"
-          style={{ backgroundImage: `linear-gradient(135deg, rgba(13,27,42,0.92), rgba(27,45,63,0.96)), url(${LOGIN_HERO})` }}
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.5, ease: 'easeOut' }}
@@ -443,6 +442,7 @@ function App() {
           </button>
         </div>
       </aside>
+      {mobileNavOpen && <div className="sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />}
       <section className="workspace">
         <header className="topbar">
           <button className="menu-toggle" aria-label="Open navigation" onClick={() => setMobileNavOpen(true)}>
