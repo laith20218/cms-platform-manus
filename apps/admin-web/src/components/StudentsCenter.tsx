@@ -19,6 +19,7 @@ import {
   Ban, CalendarClock, ChevronLeft, ChevronRight, CircleAlert,
   Eye, LaptopMinimal, LoaderCircle, MonitorSmartphone, RotateCcw,
   Search, ShieldAlert, ShieldCheck, UserRound, Users, X,
+  Pencil, Camera, Check, BookOpenCheck, ClipboardCheck, KeyRound, FileWarning,
 } from 'lucide-react';
 import { ApiError, apiRequest, type PagedResult } from '../lib/api';
 
@@ -33,6 +34,9 @@ type StudentRecord = {
   createdAt: string;
   universityName?: string | null;
   collegeName?: string | null;
+  // P1-01: avatar + gender for profile editing
+  avatarUrl?: string | null;
+  gender?: string | null;
 };
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
@@ -62,7 +66,7 @@ type Dialog =
   | { kind: 'unbind-device'; student: StudentRecord }
   | null;
 
-type DrawerTab = 'overview' | 'security' | 'sessions';
+type DrawerTab = 'overview' | 'academic' | 'exams' | 'subscriptions' | 'sessions' | 'security' | 'reports';
 
 type Props = {
   token: string;
@@ -140,6 +144,11 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
   const [banUntil, setBanUntil] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmUnban, setConfirmUnban] = useState<StudentRecord | null>(null);
+  // P1-01: edit profile state
+  const [editStudent, setEditStudent] = useState<StudentRecord | null>(null);
+  const [editForm, setEditForm] = useState({ fullName: '', gender: '' });
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
   const request = <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
   const filtersActive = Boolean(query.trim() || status || universityId);
@@ -297,6 +306,47 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
 
   const pageStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const pageEnd = Math.min(page * PAGE_SIZE, total);
+
+  // P1-01: submit profile edit
+  const submitEdit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editStudent || !editForm.fullName.trim()) return;
+    setBusy(true);
+    try {
+      await apiRequest(`/api/v1/admin/students/${editStudent.id}`, token, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullName: editForm.fullName.trim(), gender: editForm.gender || null }),
+      });
+      onNotice(isArabic ? 'تم تحديث ملف الطالب' : 'Student profile updated');
+      setStudents(prev => prev.map(s => s.id === editStudent.id ? { ...s, fullName: editForm.fullName.trim(), gender: editForm.gender || null } : s));
+      setEditStudent(null);
+      setAvatarPreview(null);
+    } catch (err: unknown) {
+      const msg = err instanceof ApiError ? err.message : isArabic ? 'فشل التحديث' : 'Update failed';
+      onError(msg);
+    } finally { setBusy(false); }
+  };
+
+  // P1-01: upload avatar
+  const uploadAvatar = async (file: File) => {
+    if (!editStudent) return;
+    if (file.size > 3 * 1024 * 1024) { onError(isArabic ? 'الصورة كبيرة جداً (الحد 3MB)' : 'Image too large (max 3MB)'); return; }
+    setAvatarBusy(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await apiRequest<{ previewUrl: string }>(`/api/v1/admin/students/${editStudent.id}/avatar`, token, {
+        method: 'POST',
+        body: formData,
+      });
+      setAvatarPreview(res.previewUrl);
+      onNotice(isArabic ? 'تم رفع الصورة الشخصية' : 'Avatar uploaded');
+    } catch (err: unknown) {
+      const msg = err instanceof ApiError ? err.message : isArabic ? 'فشل رفع الصورة' : 'Avatar upload failed';
+      onError(msg);
+    } finally { setAvatarBusy(false); }
+  };
 
   return (
     <section className="space-y-6">
@@ -466,6 +516,17 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--cms-text-soft)' }}>{dateLabel(student.lastLogin, isArabic)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
+                        {/* P1-01: Edit profile button */}
+                        <button
+                          title={isArabic ? 'تعديل الملف' : 'Edit profile'}
+                          onClick={() => { setEditStudent(student); setEditForm({ fullName: student.fullName, gender: student.gender ?? '' }); }}
+                          className="p-1.5 rounded-md transition-colors"
+                          style={{ color: 'var(--cms-text-muted)' }}
+                          onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
+                          onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
                         <button
                           title={isArabic ? 'عرض الملف والسجل الأمني' : 'View profile and security log'}
                           onClick={() => void openStudent(student)}
@@ -597,9 +658,13 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               role="tablist"
             >
               {([
-                { key: 'overview', label: isArabic ? 'نظرة عامة' : 'Overview' },
+                { key: 'overview', label: isArabic ? 'المعلومات الأساسية' : 'Basic info' },
+                { key: 'academic', label: isArabic ? 'التقدم الدراسي' : 'Academic progress' },
+                { key: 'exams', label: isArabic ? 'الاختبارات' : 'Exams' },
+                { key: 'subscriptions', label: isArabic ? 'الاشتراكات' : 'Subscriptions' },
+                { key: 'sessions', label: isArabic ? 'الجلسات والأجهزة' : 'Sessions & devices' },
                 { key: 'security', label: isArabic ? 'السجل الأمني' : 'Security log' },
-                { key: 'sessions', label: isArabic ? 'الجلسات' : 'Sessions' },
+                { key: 'reports', label: isArabic ? 'البلاغات' : 'Reports' },
               ] as { key: DrawerTab; label: string }[]).map((tab) => {
                 const active = drawerTab === tab.key;
                 return (
@@ -856,9 +921,171 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   </article>
                 </div>
               )}
+
+              {/* P1-01: Academic progress tab */}
+              {drawerTab === 'academic' && (
+                <div className="p-5 space-y-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <BookOpenCheck size={18} style={{ color: 'var(--cms-teal-600)' }} />
+                    <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'التقدم الدراسي' : 'Academic progress'}</h3>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
+                      <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'الجامعة' : 'University'}</div>
+                      <div className="text-sm font-medium" style={{ color: 'var(--cms-text)' }}>{selected.universityName || '—'}</div>
+                    </div>
+                    <div className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
+                      <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'الكلية' : 'College'}</div>
+                      <div className="text-sm font-medium" style={{ color: 'var(--cms-text)' }}>{selected.collegeName || '—'}</div>
+                    </div>
+                    <div className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
+                      <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'إجابات' : 'Questions answered'}</div>
+                      <div className="text-sm font-bold tabular-nums" style={{ color: 'var(--cms-teal-700)' }}>{selected.questionsAnswered}</div>
+                    </div>
+                    <div className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
+                      <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'الدقة' : 'Accuracy'}</div>
+                      <div className="text-sm font-bold tabular-nums" style={{ color: 'var(--cms-success)' }}>{Math.round(selected.accuracy)}%</div>
+                    </div>
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                    {isArabic ? 'بيانات التقدم التفصيلية حسب المادة تتطلب endpoint خاص — سيُضاف لاحقاً.' : 'Per-subject progress detail requires a dedicated endpoint — to be added.'}
+                  </p>
+                </div>
+              )}
+
+              {/* P1-01: Exams tab */}
+              {drawerTab === 'exams' && (
+                <div className="p-5 space-y-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ClipboardCheck size={18} style={{ color: 'var(--cms-teal-600)' }} />
+                    <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'الاختبارات والنتائج' : 'Exams & results'}</h3>
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                    {isArabic ? 'نتائج اختبارات الطالب تتطلب endpoint GET /admin/students/{id}/exam-sessions — سيُضاف لاحقاً.' : 'Student exam sessions require GET /admin/students/{id}/exam-sessions — to be added.'}
+                  </p>
+                </div>
+              )}
+
+              {/* P1-01: Subscriptions tab */}
+              {drawerTab === 'subscriptions' && (
+                <div className="p-5 space-y-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <KeyRound size={18} style={{ color: 'var(--cms-teal-600)' }} />
+                    <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'الاشتراكات والأكواد' : 'Subscriptions & codes'}</h3>
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                    {isArabic ? 'اشتراكات الطالب تتطلب endpoint GET /admin/students/{id}/subscriptions — سيُضاف لاحقاً.' : 'Student subscriptions require GET /admin/students/{id}/subscriptions — to be added.'}
+                  </p>
+                </div>
+              )}
+
+              {/* P1-01: Reports tab */}
+              {drawerTab === 'reports' && (
+                <div className="p-5 space-y-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <FileWarning size={18} style={{ color: 'var(--cms-teal-600)' }} />
+                    <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'البلاغات المرتبطة' : 'Associated reports'}</h3>
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                    {isArabic ? 'بلاغات الطالب تتطلب endpoint GET /admin/students/{id}/reports — سيُضاف لاحقاً.' : 'Student reports require GET /admin/students/{id}/reports — to be added.'}
+                  </p>
+                </div>
+              )}
             </div>
           </aside>
         </>
+      )}
+
+      {/* P1-01: Edit profile modal */}
+      {editStudent && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          role="presentation"
+          onMouseDown={() => !busy && !avatarBusy && (setEditStudent(null), setAvatarPreview(null))}
+        >
+          <section
+            className="bg-white rounded-xl max-w-md w-full shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label={isArabic ? 'تعديل الملف' : 'Edit profile'}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
+                  <Pencil className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'تعديل الملف' : 'Edit profile'}</p>
+                  <h2 className="text-lg font-bold" style={{ color: 'var(--cms-text)' }}>{editStudent.fullName}</h2>
+                </div>
+              </div>
+              <button aria-label={isArabic ? 'إغلاق' : 'Close'} onClick={() => { setEditStudent(null); setAvatarPreview(null); }} disabled={busy || avatarBusy} className="p-1.5 rounded-md" style={{ color: 'var(--cms-text-muted)' }}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={submitEdit} className="p-5 space-y-4">
+              {/* Avatar upload */}
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-bold overflow-hidden" style={{ background: 'linear-gradient(135deg, var(--cms-teal-700), var(--cms-teal-500))' }}>
+                  {avatarPreview ? <img src={avatarPreview} alt="avatar" className="w-full h-full object-cover" /> : editStudent.fullName.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-colors" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}>
+                    {avatarBusy ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+                    {isArabic ? 'رفع صورة' : 'Upload avatar'}
+                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadAvatar(f); }} disabled={avatarBusy} />
+                  </label>
+                  <p className="text-[10px] mt-1" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'JPG/PNG/WebP · حد أقصى 3MB' : 'JPG/PNG/WebP · max 3MB'}</p>
+                </div>
+              </div>
+              {/* Full name */}
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'الاسم الكامل' : 'Full name'}</label>
+                <input
+                  required
+                  value={editForm.fullName}
+                  onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border text-sm"
+                  style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+                />
+              </div>
+              {/* Gender */}
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'الجنس' : 'Gender'}</label>
+                <select
+                  value={editForm.gender}
+                  onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border text-sm"
+                  style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+                >
+                  <option value="">{isArabic ? 'غير محدد' : 'Not specified'}</option>
+                  <option value="male">{isArabic ? 'ذكر' : 'Male'}</option>
+                  <option value="female">{isArabic ? 'أنثى' : 'Female'}</option>
+                </select>
+              </div>
+              {/* Phone (read-only) */}
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'الهاتف' : 'Phone'}</label>
+                <input
+                  value={editStudent.phone}
+                  disabled
+                  className="w-full px-3 py-2 rounded-lg border text-sm opacity-60"
+                  style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)', color: 'var(--cms-text-soft)' }}
+                />
+              </div>
+              <div className="flex gap-3 justify-end pt-2 border-t" style={{ borderColor: 'var(--cms-line)' }}>
+                <button type="button" onClick={() => { setEditStudent(null); setAvatarPreview(null); }} disabled={busy} className="px-4 py-2 rounded-lg border text-sm font-medium" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}>
+                  {isArabic ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button type="submit" disabled={busy} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium" style={{ background: 'var(--cms-teal-700)' }}>
+                  {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  {isArabic ? 'حفظ' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
       )}
 
       {/* ===== Protected-action dialog ===== */}
