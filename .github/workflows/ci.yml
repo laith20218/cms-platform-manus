@@ -269,9 +269,12 @@ jobs:
   # =========================================================
   # JOB 6: Deploy to Staging (develop branch)
   # =========================================================
+  # DISABLED: Railway is no longer the backend host (Render is, via auto-deploy from main).
+  # The custom domains (staging-app.cms.example.com) are not deployed either.
+  # Re-enable only if/when a staging pipeline is reintroduced with Render or Vercel.
   deploy-staging:
-    name: Deploy to Staging
-    if: github.ref == 'refs/heads/develop'
+    name: Deploy to Staging (disabled — Railway removed)
+    if: false  # was: github.ref == 'refs/heads/develop'
     needs: [docker-build, security-scan]
     runs-on: ubuntu-latest
     environment:
@@ -300,9 +303,12 @@ jobs:
   # =========================================================
   # JOB 7: Deploy to Production (main branch)
   # =========================================================
+  # DISABLED: Railway is no longer the backend host. Render auto-deploys from main on push.
+  # Vercel also auto-deploys student-web and admin-web on push to main.
+  # This job is preserved for reference but will never run (if: false).
   deploy-production:
-    name: Deploy to Production
-    if: github.ref == 'refs/heads/main'
+    name: Deploy to Production (disabled — Render/Vercel auto-deploy)
+    if: false  # was: github.ref == 'refs/heads/main'
     needs: [docker-build, security-scan, lighthouse]
     runs-on: ubuntu-latest
     environment:

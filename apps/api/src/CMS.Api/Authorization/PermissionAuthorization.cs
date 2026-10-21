@@ -84,60 +84,6 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
 }
 
 /// <summary>
-/// Requirement for scope-based authorization.
-/// Checks if the admin can access a specific entity.
-/// </summary>
-public class ScopeRequirement : IAuthorizationRequirement
-{
-    public string EntityType { get; }
-
-    public ScopeRequirement(string entityType)
-    {
-        EntityType = entityType;
-    }
-}
-
-/// <summary>
-/// Handler for scope-based authorization (ABAC).
-/// </summary>
-public class ScopeHandler : AuthorizationHandler<ScopeRequirement>
-{
-    private readonly IPermissionService _permissionService;
-    private readonly ILogger<ScopeHandler> _logger;
-
-    public ScopeHandler(IPermissionService permissionService, ILogger<ScopeHandler> logger)
-    {
-        _permissionService = permissionService;
-        _logger = logger;
-    }
-
-    protected override async Task HandleRequirementAsync(
-        AuthorizationHandlerContext context,
-        ScopeRequirement requirement)
-    {
-        var adminIdClaim = context.User.FindFirst("sub")?.Value;
-        if (string.IsNullOrEmpty(adminIdClaim) || !Guid.TryParse(adminIdClaim, out var adminId))
-            return;
-
-        var scope = await _permissionService.GetScopeAsync(adminId);
-
-        // Super admin passes all scope checks
-        if (scope?.IsSuperAdmin == true)
-        {
-            context.Succeed(requirement);
-            return;
-        }
-
-        // For now, just verify the admin has a scope set
-        // Detailed entity-level scope checking happens in the handler/controller
-        if (scope != null)
-        {
-            context.Succeed(requirement);
-        }
-    }
-}
-
-/// <summary>
 /// Policy names for easy reference in controllers.
 /// </summary>
 public static class Policies

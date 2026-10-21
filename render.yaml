@@ -1,0 +1,85 @@
+# render.yaml — Render Infrastructure-as-Code for the CMS API service.
+#
+# This file reflects the CURRENT live Render configuration (verified 2026-10-21):
+#   - service name: cms-api-preview
+#   - runtime: Docker (builds from apps/api/Dockerfile)
+#   - region: Frankfurt (eu-central-1 / render's frankfurt region)
+#   - plan: free
+#   - auto-deploy from main branch of laith20218/cms-platform-manus
+#   - health check path: /health/live
+#
+# Environment variable NAMES are declared here (placeholder values reference
+# Render's secret store). DO NOT commit real secret values to this file.
+# Render reads the actual secret values from its dashboard environment settings.
+#
+# After merging changes to this file, you must run `render blueprint apply`
+# (or sync via dashboard) to update the live service.
+
+services:
+  - type: web
+    name: cms-api-preview
+    runtime: docker
+    region: frankfurt
+    plan: free
+    branch: main
+    rootDir: apps/api
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    healthCheckPath: /health/live
+    envVars:
+      # === Application ===
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: "http://+:8080"
+      - key: TZ
+        value: Asia/Riyadh
+
+      # === PostgreSQL (Neon) ===
+      # Render must NOT store the DB itself; this points to the managed Neon instance.
+      - key: ConnectionStrings__PostgreSQL
+        sync: false  # secret — set in Render dashboard
+
+      # === Upstash Redis (REST API, not TCP) ===
+      - key: Upstash__Redis__RestUrl
+        sync: false
+      - key: Upstash__Redis__RestToken
+        sync: false
+
+      # === JWT / Session security ===
+      - key: Jwt__Secret
+        sync: false
+      - key: Jwt__Issuer
+        value: CMS
+      - key: Jwt__Audience
+        value: CMS-Users
+      - key: Jwt__AccessTokenExpiryMinutes
+        value: "15"
+      - key: Jwt__RefreshTokenExpiryDays
+        value: "7"
+
+      # === CORS (public values, safe to commit) ===
+      - key: Cors__StudentApp
+        value: https://cms-platform-manus-student-web.vercel.app
+      - key: Cors__AdminApp
+        value: https://cms-platform-manus-admin-web.vercel.app
+
+      # === S3-compatible storage (Cloudflare R2 by configuration) ===
+      - key: Storage__S3__Endpoint
+        sync: false
+      - key: Storage__S3__Region
+        value: eu-central-1
+      - key: Storage__S3__AccessKey
+        sync: false
+      - key: Storage__S3__SecretKey
+        sync: false
+      - key: Storage__S3__BucketName
+        value: cms-files
+
+      # === Feature flags (default off) ===
+      - key: Features__OtpEnabled
+        value: "false"
+      - key: Features__OfflineEnabled
+        value: "false"
+      - key: Security__PlayIntegrity__Enabled
+        value: "false"
