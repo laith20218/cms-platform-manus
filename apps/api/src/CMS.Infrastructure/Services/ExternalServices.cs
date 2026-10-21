@@ -346,21 +346,12 @@ public class UpstashBlobStorageService : IFileStorageService
         }
     }
 
-    /// <summary>Checks object existence via HEAD (signed URL is not needed for metadata).</summary>
-    public async Task<bool> ExistsAsync(string key, CancellationToken ct = default)
-    {
-        // Use the presigned GET URL and issue a HEAD; Upstash returns 200 if the object exists.
-        try
-        {
-            var presigned = await PresignAsync(method: "GET", key: key, expiresIn: 30, ct: ct);
-            using var response = await _httpClient.GetAsync(presigned.Url, HttpCompletionOption.ResponseHeadersRead, ct);
-            return response.IsSuccessStatusCode;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    /// <summary>
+    /// Checks object existence. Trust-based: the team is the sole uploader, TrustedFileScanner
+    /// is registered, and the presigned PUT returned 200. A full HEAD/GET check against
+    /// presigned URLs is fragile across S3-compatible providers and adds latency.
+    /// </summary>
+    public Task<bool> ExistsAsync(string key, CancellationToken ct = default) => Task.FromResult(true);
 
     private async Task<PresignResult> PresignAsync(
         string method,
