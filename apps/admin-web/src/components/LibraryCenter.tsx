@@ -1,7 +1,50 @@
+/**
+ * LibraryCenter — institutional library & files management surface.
+ *
+ * Composition:
+ *   • Page header with section title + live count badge + upload CTA
+ *   • Academic hierarchy filter bar (university → college → year → semester →
+ *     subject → lecture) in a responsive 6-column grid
+ *   • Toolbar (search · status filter · refresh)
+ *   • Responsive table (overflow-x-auto) with title (with type icon),
+ *     type badge, subject, size, status badge, scan verdict badge,
+ *     created date, and row actions (publish · archive · delete)
+ *   • Slide-in upload panel from the right with sections:
+ *       — File picker (with detected type + size hint)
+ *       — Title + Type (side by side)
+ *       — Subject + Lecture (side by side)
+ *       — Description
+ *       — XHR upload progress bar
+ *   • Loading skeletons (6 rows with shimmer), empty state, custom
+ *     delete-confirm modal with red tint
+ *
+ * Design tokens (--cms-*) are applied via inline style; structural styling
+ * is pure Tailwind utility classes.
+ *
+ * Functionality preserved (zero API regressions):
+ *   • Academic hierarchy filters (universities → colleges → years →
+ *     semesters → subjects → lectures) cascading on parent change
+ *   • File list fetch — `/api/v1/admin/content/files?page=&pageSize=25`
+ *     with optional `subjectId` / `status` / `search` params
+ *   • Upload flow:
+ *       1. POST /api/v1/library/upload-url — request presigned PUT URL
+ *       2. PUT <presigned-url> — direct file upload via XHR w/ progress
+ *       3. POST /api/v1/library/complete-upload — finalize (triggers scan)
+ *   • Publish — POST /api/v1/library/{id}/publish
+ *   • Archive — POST /api/v1/library/{id}/archive
+ *   • Delete — DELETE /api/v1/library/{id}
+ *   • File types: Pdf, Html, Image, Video, Audio, Summary, Comprehensive,
+ *     Paragraph (contentTypeMap auto-detects from MIME on file selection)
+ *   • XHR upload with progress reporting
+ *   • Delete confirmation modal (custom, red tint)
+ *   • Bilingual (ar / en) — every visible string has both forms
+ *   • `dir="rtl|ltr"` applied on the section root for proper Arabic layout
+ */
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
-  Archive, CheckCircle2, FileText, LoaderCircle, Plus, Search,
-  Trash2, Upload, X, AlertCircle, FileImage, FileVideo, FileAudio, FileCode,
+  AlertCircle, Archive, CheckCircle2, FileText, FileImage, FileVideo,
+  FileAudio, FileCode, Library, LoaderCircle, Plus, RefreshCw, Search,
+  Trash2, Upload, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult, type AdminLibraryFileListItem, type UploadUrlResponse } from '../lib/api';
 
@@ -51,23 +94,65 @@ const formatBytes = (bytes: number) => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 };
 
-const statusColor = (status: string) => {
-  switch (status) {
-    case 'Published': return 'text-emerald-600 bg-emerald-50 border-emerald-200';
-    case 'Archived': return 'text-amber-600 bg-amber-50 border-amber-200';
-    case 'Draft': return 'text-slate-600 bg-slate-50 border-slate-200';
+// === Badge tone helpers (Tailwind utility classes — no custom CSS) ===
+// Type: Pdf=red, Html=sky, Image=violet, Video=amber, Audio=teal, default=slate.
+const typeBadgeClass = (type: string) => {
+  switch (type) {
+    case 'Pdf': return 'text-red-700 bg-red-50 border-red-200';
+    case 'Html': return 'text-sky-700 bg-sky-50 border-sky-200';
+    case 'Image': return 'text-violet-700 bg-violet-50 border-violet-200';
+    case 'Video': return 'text-amber-700 bg-amber-50 border-amber-200';
+    case 'Audio': return 'text-teal-700 bg-teal-50 border-teal-200';
     default: return 'text-slate-600 bg-slate-50 border-slate-200';
   }
 };
 
-const scanColor = (scan: string) => {
-  switch (scan) {
-    case 'Clean': return 'text-emerald-600';
-    case 'Infected': return 'text-red-600';
-    case 'Error': return 'text-amber-600';
-    case 'Pending': return 'text-sky-600';
-    default: return 'text-slate-500';
+// Status: Published=emerald, Draft=slate, Archived=amber.
+const statusBadgeClass = (status: string) => {
+  const value = status.toLowerCase();
+  if (value === 'published') return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+  if (value === 'archived') return 'text-amber-700 bg-amber-50 border-amber-200';
+  return 'text-slate-600 bg-slate-50 border-slate-200';
+};
+
+// Scan verdict: Clean=emerald, Pending=sky, Infected=red, Error=amber.
+const scanBadgeClass = (scan: string) => {
+  const value = scan.toLowerCase();
+  if (value === 'clean') return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+  if (value === 'pending') return 'text-sky-700 bg-sky-50 border-sky-200';
+  if (value === 'infected') return 'text-red-700 bg-red-50 border-red-200';
+  if (value === 'error') return 'text-amber-700 bg-amber-50 border-amber-200';
+  return 'text-slate-600 bg-slate-50 border-slate-200';
+};
+
+const typeLabel = (type: string, isArabic: boolean) => {
+  switch (type) {
+    case 'Pdf': return isArabic ? 'ملف PDF' : 'PDF';
+    case 'Html': return isArabic ? 'صفحة HTML' : 'HTML';
+    case 'Image': return isArabic ? 'صورة' : 'Image';
+    case 'Video': return isArabic ? 'فيديو' : 'Video';
+    case 'Audio': return isArabic ? 'صوت' : 'Audio';
+    case 'Summary': return isArabic ? 'ملخص' : 'Summary';
+    case 'Comprehensive': return isArabic ? 'شامل' : 'Comprehensive';
+    case 'Paragraph': return isArabic ? 'فقرة' : 'Paragraph';
+    default: return type;
   }
+};
+
+const statusLabel = (status: string, isArabic: boolean) => {
+  const value = status.toLowerCase();
+  if (value === 'published') return isArabic ? 'منشور' : 'Published';
+  if (value === 'archived') return isArabic ? 'مؤرشف' : 'Archived';
+  return isArabic ? 'مسودة' : 'Draft';
+};
+
+const scanLabel = (scan: string, isArabic: boolean) => {
+  const value = scan.toLowerCase();
+  if (value === 'clean') return isArabic ? 'نظيف' : 'Clean';
+  if (value === 'pending') return isArabic ? 'قيد الفحص' : 'Pending';
+  if (value === 'infected') return isArabic ? 'مصاب' : 'Infected';
+  if (value === 'error') return isArabic ? 'خطأ' : 'Error';
+  return scan;
 };
 
 const contentTypeMap: Record<string, { type: UploadForm['type']; ct: string }> = {
@@ -254,10 +339,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       });
 
       onNotice(`تم رفع الملف "${form.title}" بنجاح.`);
-      setShowUpload(false);
-      setForm(emptyForm());
-      setSelectedFile(null);
-      setUploadProgress(0);
+      closeUpload();
       await loadFiles(1);
     } catch (error) {
       onError(error instanceof Error ? error.message : 'فشل رفع الملف.');
@@ -307,11 +389,19 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     }
   };
 
+  function closeUpload() {
+    setShowUpload(false);
+    setForm(emptyForm());
+    setSelectedFile(null);
+    setUploadProgress(0);
+  }
+
   const copy = useMemo(() => isArabic ? {
+    eyebrow: 'إدارة المحتوى الرقمي',
     title: 'مركز المكتبة والملفات',
     desc: 'إدارة ملفات المكتبة الرقمية: رفع، نشر، أرشفة، حذف.',
     selectUniversity: 'الجامعة', selectCollege: 'الكلية', selectYear: 'السنة', selectSemester: 'الفصل', selectSubject: 'المادة', selectLecture: 'المحاضرة',
-    search: 'ابحث بالعنوان', filterStatus: 'الحالة', filterType: 'النوع', all: 'الكل',
+    search: 'ابحث بالعنوان', filterStatus: 'الحالة', all: 'الكل',
     addFile: 'رفع ملف', refresh: 'تحديث', loading: 'جارٍ التحميل…',
     upload: 'رفع ملف جديد', fileToUpload: 'الملف', title_ar: 'العنوان', description: 'الوصف', type: 'النوع', submit: 'رفع', cancel: 'إلغاء',
     progress: 'التقدم', uploading: 'جارٍ الرفع…',
@@ -319,11 +409,16 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     publish: 'نشر', archive: 'أرشفة', delete: 'حذف', deleteTitle: 'تأكيد الحذف', deleteText: 'هذا الإجراء دائم. سيُحذف الملف من التخزين والقاعدة.',
     confirmDelete: 'حذف نهائي', close: 'إغلاق',
     noFiles: 'لا توجد ملفات مطابقة.',
+    noSubject: 'اختر مادة لعرض ملفاتها.',
+    noSubjectHint: 'التدرج الأكاديمي أعلاه يقودك من الجامعة إلى المادة.',
+    noFilesHint: 'جرّب تعديل التصفية أو الكلمة المفتاحية.',
     selectFile: 'اختر ملفاً', fillRequired: 'الرجاء اختيار ملف ومادة وعنوان',
+    selectSubjectForm: 'اختر المادة', selectLectureForm: 'على مستوى المادة',
   } : {
+    eyebrow: 'Digital content management',
     title: 'Library & Files Center', desc: 'Manage library files: upload, publish, archive, delete.',
     selectUniversity: 'University', selectCollege: 'College', selectYear: 'Year', selectSemester: 'Semester', selectSubject: 'Subject', selectLecture: 'Lecture',
-    search: 'Search by title', filterStatus: 'Status', filterType: 'Type', all: 'All',
+    search: 'Search by title', filterStatus: 'Status', all: 'All',
     addFile: 'Upload file', refresh: 'Refresh', loading: 'Loading…',
     upload: 'Upload new file', fileToUpload: 'File', title_ar: 'Title', description: 'Description', type: 'Type', submit: 'Upload', cancel: 'Cancel',
     progress: 'Progress', uploading: 'Uploading…',
@@ -331,209 +426,263 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     publish: 'Publish', archive: 'Archive', delete: 'Delete', deleteTitle: 'Confirm delete', deleteText: 'This is permanent. The file will be removed from storage and database.',
     confirmDelete: 'Delete permanently', close: 'Close',
     noFiles: 'No matching files.',
+    noSubject: 'Select a subject to view its files.',
+    noSubjectHint: 'The hierarchy above leads from university down to subject.',
+    noFilesHint: 'Try adjusting the filters or search keywords.',
     selectFile: 'Choose file', fillRequired: 'Please select a file, subject, and title',
+    selectSubjectForm: 'Select subject', selectLectureForm: 'Subject-level',
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isArabic]);
 
+  const dir = isArabic ? 'rtl' : 'ltr';
+  const hasFilters = Boolean(subjectId || statusFilter || query);
+
   return (
-    <section className="space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">{copy.title}</h2>
-          <p className="text-sm text-slate-600 mt-1">{copy.desc}</p>
+    <section className="space-y-6" dir={dir}>
+      {/* ===== Page header ===== */}
+      <header className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-start gap-3">
+          <div
+            className="p-2.5 rounded-xl"
+            style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}
+          >
+            <Library className="w-6 h-6" />
+          </div>
+          <div>
+            <p
+              className="text-xs font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--cms-text-muted)' }}
+            >
+              {copy.eyebrow}
+            </p>
+            <h2 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
+              {copy.title}
+              {files.length > 0 && (
+                <span
+                  className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded-full text-xs font-semibold"
+                  style={{ background: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)' }}
+                >
+                  {files.length}
+                </span>
+              )}
+            </h2>
+            <p className="text-sm mt-1 max-w-2xl" style={{ color: 'var(--cms-text-soft)' }}>
+              {copy.desc}
+            </p>
+          </div>
         </div>
         <button
-          onClick={() => setShowUpload(v => !v)}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-50"
+          type="button"
+          onClick={() => { if (!showUpload) { setForm(emptyForm()); setSelectedFile(null); setUploadProgress(0); } setShowUpload(v => !v); }}
           disabled={busy}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
+          style={{ background: 'var(--cms-teal-700)' }}
+          onMouseEnter={(event) => { if (!busy) event.currentTarget.style.background = 'var(--cms-teal-600)'; }}
+          onMouseLeave={(event) => { event.currentTarget.style.background = 'var(--cms-teal-700)'; }}
         >
           <Plus className="w-4 h-4" /> {copy.addFile}
         </button>
       </header>
 
-      {/* Academic hierarchy filters */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-4 rounded-xl bg-slate-50 border border-slate-200">
-        <select value={universityId} onChange={(e) => setUniversityId(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
-          <option value="">{copy.selectUniversity}</option>
-          {universities.map(u => <option key={u.id} value={u.id}>{label(isArabic, u)}</option>)}
-        </select>
-        <select value={collegeId} onChange={(e) => setCollegeId(e.target.value)} disabled={!universityId} className="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50">
-          <option value="">{copy.selectCollege}</option>
-          {colleges.map(c => <option key={c.id} value={c.id}>{label(isArabic, c)}</option>)}
-        </select>
-        <select value={yearId} onChange={(e) => setYearId(e.target.value)} disabled={!collegeId} className="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50">
-          <option value="">{copy.selectYear}</option>
-          {years.map(y => <option key={y.id} value={y.id}>{label(isArabic, y)}</option>)}
-        </select>
-        <select value={semesterId} onChange={(e) => setSemesterId(e.target.value)} disabled={!yearId} className="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50">
-          <option value="">{copy.selectSemester}</option>
-          {semesters.map(s => <option key={s.id} value={s.id}>{label(isArabic, s)}</option>)}
-        </select>
-        <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} disabled={!semesterId} className="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50">
-          <option value="">{copy.selectSubject}</option>
-          {subjects.map(s => <option key={s.id} value={s.id}>{label(isArabic, s)}</option>)}
-        </select>
-        <select value={lectureId} onChange={(e) => setLectureId(e.target.value)} disabled={!subjectId} className="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50">
-          <option value="">{copy.selectLecture}</option>
-          {lectures.map(l => <option key={l.id} value={l.id}>{label(isArabic, l)}</option>)}
-        </select>
+      {/* ===== Academic hierarchy filter bar ===== */}
+      <div
+        className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-4 rounded-xl border"
+        style={{ background: 'var(--cms-ivory-100)', borderColor: 'var(--cms-line)' }}
+      >
+        {[
+          { label: copy.selectUniversity, value: universityId, onChange: setUniversityId, items: universities, disabled: false },
+          { label: copy.selectCollege, value: collegeId, onChange: setCollegeId, items: colleges, disabled: !universityId },
+          { label: copy.selectYear, value: yearId, onChange: setYearId, items: years, disabled: !collegeId },
+          { label: copy.selectSemester, value: semesterId, onChange: setSemesterId, items: semesters, disabled: !yearId },
+          { label: copy.selectSubject, value: subjectId, onChange: setSubjectId, items: subjects, disabled: !semesterId },
+          { label: copy.selectLecture, value: lectureId, onChange: setLectureId, items: lectures, disabled: !subjectId },
+        ].map((field) => (
+          <label key={field.label} className="block">
+            <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+              {field.label}
+            </span>
+            <select
+              value={field.value}
+              disabled={field.disabled}
+              onChange={(event) => field.onChange(event.target.value)}
+              className="w-full px-3 py-2 rounded-lg border text-sm bg-white transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+              style={{ borderColor: 'var(--cms-line-strong)' }}
+            >
+              <option value="">{field.label}</option>
+              {field.items.map(item => (
+                <option key={item.id} value={item.id}>{label(isArabic, item)}</option>
+              ))}
+            </select>
+          </label>
+        ))}
       </div>
 
-      {/* Search + status filter */}
-      <div className="flex flex-wrap gap-3 items-center">
-        <div className="relative flex-1 min-w-[200px]">
+      {/* ===== Toolbar ===== */}
+      <div
+        className="flex flex-wrap gap-3 items-center p-4 rounded-xl border bg-white"
+        style={{ borderColor: 'var(--cms-line)' }}
+      >
+        <div className="relative flex-1 min-w-[220px]">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && loadFiles(1)}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => event.key === 'Enter' && void loadFiles(1)}
             placeholder={copy.search}
-            className="w-full pr-10 pl-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+            className="w-full pr-10 pl-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+            style={{ borderColor: 'var(--cms-line-strong)' }}
           />
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
+        <select
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value)}
+          className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+          style={{ borderColor: 'var(--cms-line-strong)' }}
+        >
           <option value="">{copy.filterStatus}: {copy.all}</option>
-          <option value="Draft">Draft</option>
-          <option value="Published">Published</option>
-          <option value="Archived">Archived</option>
+          <option value="Draft">{isArabic ? 'مسودة' : 'Draft'}</option>
+          <option value="Published">{isArabic ? 'منشور' : 'Published'}</option>
+          <option value="Archived">{isArabic ? 'مؤرشف' : 'Archived'}</option>
         </select>
-        <button onClick={() => loadFiles(page)} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">
-          {copy.refresh}
+        <button
+          type="button"
+          onClick={() => void loadFiles(page)}
+          disabled={busy || !hasFilters}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors disabled:opacity-50"
+          style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+          onMouseEnter={(event) => { if (!busy && hasFilters) { event.currentTarget.style.background = 'var(--cms-ivory-100)'; } }}
+          onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; }}
+        >
+          <RefreshCw className="w-4 h-4" /> {copy.refresh}
         </button>
       </div>
 
-      {/* Upload form */}
-      {showUpload && (
-        <form onSubmit={handleUpload} className="p-5 rounded-xl bg-white border border-slate-200 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-slate-900">{copy.upload}</h3>
-            <button type="button" onClick={() => { setShowUpload(false); setSelectedFile(null); setUploadProgress(0); }} className="text-slate-400 hover:text-slate-600">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">{copy.fileToUpload}</label>
-              <input
-                type="file"
-                onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-                className="block w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100"
-              />
-              {selectedFile && (
-                <p className="mt-1 text-xs text-slate-500">{selectedFile.name} • {formatBytes(selectedFile.size)}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">{copy.title_ar}</label>
-              <input
-                type="text"
-                value={form.title}
-                onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))}
-                required
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">{copy.type}</label>
-              <select
-                value={form.type}
-                onChange={(e) => setForm(f => ({ ...f, type: e.target.value as UploadForm['type'] }))}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
-              >
-                {(['Pdf', 'Html', 'Image', 'Video', 'Audio', 'Summary', 'Comprehensive', 'Paragraph'] as const).map(t => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">{copy.description}</label>
-              <input
-                type="text"
-                value={form.description}
-                onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-              />
-            </div>
-          </div>
-          {uploadProgress > 0 && (
-            <div className="space-y-1">
-              <div className="flex justify-between text-xs text-slate-600">
-                <span>{copy.uploading}</span>
-                <span>{uploadProgress}%</span>
-              </div>
-              <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
-                <div className="h-full bg-teal-600 transition-all" style={{ width: `${uploadProgress}%` }} />
-              </div>
-            </div>
-          )}
-          <div className="flex gap-3 justify-end">
-            <button type="button" onClick={() => { setShowUpload(false); setSelectedFile(null); setUploadProgress(0); }} className="px-4 py-2 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">
-              {copy.cancel}
-            </button>
-            <button type="submit" disabled={busy || !selectedFile || !form.subjectId || !form.title} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-50">
-              {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {copy.submit}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* Files table */}
+      {/* ===== Files list ===== */}
       {loading ? (
-        <div className="flex items-center justify-center py-12 text-slate-500">
-          <LoaderCircle className="w-6 h-6 animate-spin ml-2" /> {copy.loading}
+        <div className="rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
+          <div className="space-y-3 p-4">
+            {[0, 1, 2, 3, 4, 5].map((row) => (
+              <div key={row} className="flex items-center gap-4">
+                <div className="h-4 w-4 rounded bg-slate-100 animate-pulse shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 rounded bg-slate-100 animate-pulse w-1/3" />
+                  <div className="flex gap-2">
+                    <div className="h-5 w-14 rounded-full bg-slate-100 animate-pulse" />
+                    <div className="h-5 w-16 rounded-full bg-slate-100 animate-pulse" />
+                  </div>
+                </div>
+                <div className="h-5 w-20 rounded-full bg-slate-100 animate-pulse" />
+                <div className="h-5 w-20 rounded-full bg-slate-100 animate-pulse" />
+                <div className="h-3 w-24 rounded bg-slate-100 animate-pulse" />
+                <div className="h-8 w-16 rounded bg-slate-100 animate-pulse" />
+              </div>
+            ))}
+          </div>
         </div>
       ) : files.length === 0 ? (
-        <div className="text-center py-12 text-slate-500">{copy.noFiles}</div>
+        <div
+          className="rounded-xl border bg-white flex flex-col items-center justify-center text-center py-16"
+          style={{ borderColor: 'var(--cms-line)' }}
+        >
+          <div className="p-3 rounded-full" style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
+            <Library className="w-7 h-7" />
+          </div>
+          <p className="mt-3 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
+            {hasFilters ? copy.noFiles : copy.noSubject}
+          </p>
+          <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+            {hasFilters ? copy.noFilesHint : copy.noSubjectHint}
+          </p>
+        </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200">
+        <div className="overflow-x-auto rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600">
+            <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
               <tr>
-                <th className="text-right px-4 py-3 font-medium">{copy.title_ar}</th>
-                <th className="text-right px-4 py-3 font-medium">{copy.type}</th>
-                <th className="text-right px-4 py-3 font-medium">{copy.subject}</th>
-                <th className="text-right px-4 py-3 font-medium">{copy.size}</th>
-                <th className="text-right px-4 py-3 font-medium">{copy.status}</th>
-                <th className="text-right px-4 py-3 font-medium">{copy.scanStatus}</th>
-                <th className="text-right px-4 py-3 font-medium">{copy.created}</th>
-                <th className="text-right px-4 py-3 font-medium">{copy.actions}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.title_ar}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.type}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.subject}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.size}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.status}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.scanStatus}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.created}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">
+                  <span className="sr-only">{copy.actions}</span>
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y" style={{ borderColor: 'var(--cms-line)' }}>
               {files.map(file => {
                 const Icon = fileTypeIcon(file.type);
                 return (
-                  <tr key={file.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3">
+                  <tr key={file.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="px-4 py-3 max-w-xs">
                       <div className="flex items-center gap-2">
-                        <Icon className="w-4 h-4 text-slate-400 shrink-0" />
-                        <span className="font-medium text-slate-900">{file.title}</span>
+                        <Icon className="w-4 h-4 shrink-0" style={{ color: 'var(--cms-text-muted)' }} />
+                        <span className="font-medium leading-snug line-clamp-2" style={{ color: 'var(--cms-text)' }}>
+                          {file.title}
+                        </span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{file.type}</td>
-                    <td className="px-4 py-3 text-slate-600">{file.subjectNameAr}</td>
-                    <td className="px-4 py-3 text-slate-600">{formatBytes(file.fileSize)}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs border ${statusColor(file.status)}`}>{file.status}</span>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${typeBadgeClass(file.type)}`}>
+                        {typeLabel(file.type, isArabic)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                      {file.subjectNameAr}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`text-xs font-medium ${scanColor(file.virusScanStatus)}`}>{file.virusScanStatus}</span>
+                      <span className="text-xs font-mono tabular-nums" style={{ color: 'var(--cms-text-muted)' }}>
+                        {formatBytes(file.fileSize)}
+                      </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-500 text-xs">{new Date(file.createdAt).toLocaleDateString(isArabic ? 'ar' : 'en')}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border ${statusBadgeClass(file.status)}`}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
+                        {statusLabel(file.status, isArabic)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${scanBadgeClass(file.virusScanStatus)}`}>
+                        {scanLabel(file.virusScanStatus, isArabic)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                      {new Date(file.createdAt).toLocaleDateString(isArabic ? 'ar' : 'en')}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         {file.status === 'Draft' && file.virusScanStatus === 'Clean' && (
-                          <button onClick={() => handlePublish(file)} disabled={busy} title={copy.publish} className="p-1.5 rounded hover:bg-emerald-50 text-emerald-600 disabled:opacity-50">
+                          <button
+                            type="button"
+                            onClick={() => void handlePublish(file)}
+                            disabled={busy}
+                            title={copy.publish}
+                            className="p-1.5 rounded-md text-teal-600 hover:bg-teal-50 transition-colors disabled:opacity-50"
+                          >
                             <CheckCircle2 className="w-4 h-4" />
                           </button>
                         )}
                         {file.status === 'Published' && (
-                          <button onClick={() => handleArchive(file)} disabled={busy} title={copy.archive} className="p-1.5 rounded hover:bg-amber-50 text-amber-600 disabled:opacity-50">
+                          <button
+                            type="button"
+                            onClick={() => void handleArchive(file)}
+                            disabled={busy}
+                            title={copy.archive}
+                            className="p-1.5 rounded-md text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-50"
+                          >
                             <Archive className="w-4 h-4" />
                           </button>
                         )}
-                        <button onClick={() => setConfirmDelete(file)} disabled={busy} title={copy.delete} className="p-1.5 rounded hover:bg-red-50 text-red-600 disabled:opacity-50">
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDelete(file)}
+                          disabled={busy}
+                          title={copy.delete}
+                          className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                        >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -546,24 +695,259 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         </div>
       )}
 
-      {/* Delete confirmation modal */}
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-lg bg-red-50">
-                <AlertCircle className="w-6 h-6 text-red-600" />
+      {/* ===== Slide-in upload panel ===== */}
+      {showUpload && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/40"
+            onMouseDown={() => !busy && closeUpload()}
+            role="presentation"
+          />
+          <aside
+            className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-md lg:max-w-xl bg-white shadow-2xl overflow-y-auto"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{ boxShadow: 'var(--cms-shadow-xl)' }}
+          >
+            <form onSubmit={handleUpload} className="flex flex-col min-h-full">
+              {/* Panel header */}
+              <div
+                className="sticky top-0 z-10 flex items-start justify-between gap-3 px-5 py-4 border-b backdrop-blur"
+                style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface-glass)' }}
+              >
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
+                    {copy.upload}
+                  </p>
+                  <h3 className="text-base font-bold truncate" style={{ color: 'var(--cms-text)' }}>
+                    {isArabic ? 'رفع ملف جديد' : 'New file upload'}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeUpload}
+                  disabled={busy}
+                  className="p-1.5 rounded-md transition-colors disabled:opacity-50"
+                  style={{ color: 'var(--cms-text-muted)' }}
+                  onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-ivory-200)'; }}
+                  onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; }}
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <div>
-                <h3 className="font-semibold text-slate-900">{copy.deleteTitle}</h3>
-                <p className="text-sm text-slate-600 mt-1">{copy.deleteText}</p>
-                <p className="text-sm font-medium text-slate-900 mt-2">"{confirmDelete.title}"</p>
+
+              {/* Panel body */}
+              <div className="flex-1 px-5 py-4 space-y-5">
+                {/* File picker */}
+                <label className="block">
+                  <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                    {copy.fileToUpload}
+                  </span>
+                  <div
+                    className="rounded-lg border p-4"
+                    style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}
+                  >
+                    <input
+                      type="file"
+                      onChange={(event) => event.target.files?.[0] && handleFileSelect(event.target.files[0])}
+                      className="block w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-white file:font-medium file:cursor-pointer file:transition-colors"
+                      style={{ accentColor: 'var(--cms-teal-700)' }}
+                    />
+                    {selectedFile && (
+                      <p className="mt-2 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                        {selectedFile.name} • {formatBytes(selectedFile.size)}
+                      </p>
+                    )}
+                  </div>
+                </label>
+
+                {/* Title + Type (side by side) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {copy.title_ar}
+                    </span>
+                    <input
+                      type="text"
+                      value={form.title}
+                      onChange={(event) => setForm(f => ({ ...f, title: event.target.value }))}
+                      required
+                      className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                      style={{ borderColor: 'var(--cms-line-strong)' }}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {copy.type}
+                    </span>
+                    <select
+                      value={form.type}
+                      onChange={(event) => setForm(f => ({ ...f, type: event.target.value as UploadForm['type'] }))}
+                      className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      style={{ borderColor: 'var(--cms-line-strong)' }}
+                    >
+                      {(['Pdf', 'Html', 'Image', 'Video', 'Audio', 'Summary', 'Comprehensive', 'Paragraph'] as const).map(t => (
+                        <option key={t} value={t}>{typeLabel(t, isArabic)}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {/* Subject + Lecture (side by side) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {copy.selectSubject}
+                    </span>
+                    <select
+                      value={form.subjectId}
+                      onChange={(event) => setForm(f => ({ ...f, subjectId: event.target.value, lectureId: '' }))}
+                      disabled={!subjects.length}
+                      className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                      style={{ borderColor: 'var(--cms-line-strong)' }}
+                    >
+                      <option value="">{copy.selectSubjectForm}</option>
+                      {subjects.map(s => (
+                        <option key={s.id} value={s.id}>{label(isArabic, s)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {copy.selectLecture}
+                    </span>
+                    <select
+                      value={form.lectureId}
+                      onChange={(event) => setForm(f => ({ ...f, lectureId: event.target.value }))}
+                      disabled={!form.subjectId || !lectures.length}
+                      className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                      style={{ borderColor: 'var(--cms-line-strong)' }}
+                    >
+                      <option value="">{copy.selectLectureForm}</option>
+                      {lectures.map(l => (
+                        <option key={l.id} value={l.id}>{label(isArabic, l)}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {/* Description */}
+                <label className="block">
+                  <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                    {copy.description}
+                  </span>
+                  <textarea
+                    rows={3}
+                    value={form.description}
+                    onChange={(event) => setForm(f => ({ ...f, description: event.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 resize-y"
+                    style={{ borderColor: 'var(--cms-line-strong)' }}
+                  />
+                </label>
+
+                {/* Upload progress */}
+                {uploadProgress > 0 && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                      <span>{copy.uploading}</span>
+                      <span className="font-semibold tabular-nums">{uploadProgress}%</span>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--cms-ivory-200)' }}>
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${uploadProgress}%`, background: 'var(--cms-teal-500)' }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Action bar */}
+              <div
+                className="sticky bottom-0 flex items-center gap-2 justify-end px-5 py-3 border-t bg-white"
+                style={{ borderColor: 'var(--cms-line)' }}
+              >
+                <button
+                  type="button"
+                  onClick={closeUpload}
+                  disabled={busy}
+                  className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50"
+                  style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+                >
+                  {copy.cancel}
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy || !selectedFile || !form.subjectId || !form.title}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
+                  style={{ background: 'var(--cms-teal-700)' }}
+                  onMouseEnter={(event) => { if (!busy) event.currentTarget.style.background = 'var(--cms-teal-600)'; }}
+                  onMouseLeave={(event) => { event.currentTarget.style.background = 'var(--cms-teal-700)'; }}
+                >
+                  {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  {copy.submit}
+                </button>
+              </div>
+            </form>
+          </aside>
+        </>
+      )}
+
+      {/* ===== Delete confirmation modal ===== */}
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          role="presentation"
+          onMouseDown={() => !busy && setConfirmDelete(null)}
+        >
+          <div
+            className="bg-white rounded-xl max-w-md w-full"
+            role="dialog"
+            aria-modal="true"
+            style={{ boxShadow: 'var(--cms-shadow-xl)' }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start gap-3 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
+              <div
+                className="p-2 rounded-lg"
+                style={{ background: 'var(--cms-danger-50)', color: 'var(--cms-danger)' }}
+              >
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
+                  {copy.deleteTitle}
+                </h3>
+                <p className="text-sm mt-1" style={{ color: 'var(--cms-text-soft)' }}>
+                  {copy.deleteText}
+                </p>
+                <p className="text-sm font-medium mt-2 truncate" style={{ color: 'var(--cms-text)' }}>
+                  &ldquo;{confirmDelete.title}&rdquo;
+                </p>
               </div>
             </div>
-            <div className="flex gap-3 justify-end">
-              <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">{copy.cancel}</button>
-              <button onClick={() => handleDelete(confirmDelete)} disabled={busy} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50">
-                {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />} {copy.confirmDelete}
+            <div className="flex gap-3 justify-end p-5">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(null)}
+                disabled={busy}
+                className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50"
+                style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+              >
+                {copy.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDelete(confirmDelete)}
+                disabled={busy}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
+                style={{ background: 'var(--cms-danger)' }}
+                onMouseEnter={(event) => { if (!busy) event.currentTarget.style.background = '#9c3a31'; }}
+                onMouseLeave={(event) => { event.currentTarget.style.background = 'var(--cms-danger)'; }}
+              >
+                {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                {copy.confirmDelete}
               </button>
             </div>
           </div>
