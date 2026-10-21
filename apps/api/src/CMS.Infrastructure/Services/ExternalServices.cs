@@ -281,6 +281,8 @@ public class UpstashBlobStorageService : IFileStorageService
             throw new InvalidOperationException("Upstash:Blob:Token must be configured at runtime");
         _token = token!;
         _httpClient = httpClientFactory.CreateClient(HttpClientName);
+        // Set the Authorization header once — every presign request to Upstash requires it.
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
     }
 
     /// <inheritdoc />
