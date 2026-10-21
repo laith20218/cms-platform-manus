@@ -3,7 +3,7 @@
 > **Branch**: `feature/admin-gap-closure`
 > **Base**: `feature/admin-05-student-profile` @ `a5f2f43`
 > **Started**: 2026-10-21
-> **Last updated**: 2026-10-21
+> **Last updated**: 2026-10-21 (after P1-05 — Checkpoint 1)
 
 ---
 
@@ -16,90 +16,81 @@
 | 0c | Batch 2: ADMIN-04 3.1 fixes | ✅ DONE | `27ac722` | HourlyActivity DTO fix + unused fields + honest labels |
 | 0d | Batch 3: P1-06 Audit Log Viewer | ✅ DONE | `a10877b` | New endpoint + UI (additive) |
 | 0e | c37f353 closure (cherry-pick) | ✅ DONE | `de59d73` | ADMIN-01_REPORT.md update |
-| 1 | **P1-08 — System Settings** | ✅ DONE | (this commit) | Entity + migration + API + UI |
-| 2 | P1-04 — Role/scope picker | 🔄 NEXT | — | — |
-| 3 | P1-05 — Permission Matrix | ⏳ PENDING | — | depends on P1-04 |
-| — | **Checkpoint 1 (after P1-05)** | ⏳ | — | — |
-| 4 | P1-07 — Security Console | ⏳ PENDING | — | — |
+| 1 | **P1-08 — System Settings** | ✅ DONE | `8d9e2f1` | Entity + migration + API + UI |
+| 2 | **P1-04 — Role/scope picker** | ✅ DONE | `6c572e3` | Backend resolved names + UI cascade selectors |
+| 3 | **P1-05 — Permission Matrix** | ✅ DONE | `5812e0c` | GET endpoint + grid UI editor |
+| — | **🏁 CHECKPOINT 1 (after P1-05)** | ✅ HERE | — | See summary below |
+| 4 | P1-07 — Security Console | 🔄 NEXT | — | — |
 | 5 | P1-01 — Student Profile + Avatar + 7 tabs | ⏳ PENDING | — | — |
 | 6 | P1-02 — Device fingerprint in profile | ⏳ PENDING | — | depends on P1-01 |
 | 7 | P1-11 — Student sessions + revoke + unbind | ⏳ PENDING | — | — |
-| — | **Checkpoint 2 (after P1-11)** | ⏳ | — | — |
+| — | **🏁 CHECKPOINT 2 (after P1-11)** | ⏳ | — | — |
 
 ---
 
 ## Verification Gates (run before each commit)
 
-| Gate | P1-08 Result |
-|---|---|
-| Backend `dotnet build` | ✅ 0 errors, 0 warnings |
-| Backend tests (InMemory) | ✅ 161/161 pass (18 Postgres-gated blocked, unchanged) |
-| admin-web `tsc --noEmit` | ✅ 0 errors |
-| admin-web `vite build` | ✅ 0 errors (2524 modules) |
-| Pre-commit hook | ✅ no secrets detected |
+| Gate | P1-08 | P1-04 | P1-05 |
+|---|---|---|---|
+| Backend `dotnet build` | ✅ 0/0 | ✅ 0/0 | ✅ 0/0 |
+| Backend tests (InMemory) | ✅ 161/161 | ✅ 161/161 | ✅ 161/161 |
+| admin-web `tsc --noEmit` | ✅ 0 | ✅ 0 | ✅ 0 |
+| admin-web `vite build` | ✅ 2524 modules | ✅ 2524 modules | ✅ 2525 modules |
+| Pre-commit hook | ✅ no secrets | ✅ no secrets | ✅ no secrets |
 
 ---
 
-## P1-08 — System Settings (detailed)
+## Checkpoint 1 Summary (after 3 P1 batches)
 
-### What was built
+### What was delivered
 
-**Backend (additive — no existing endpoint changed):**
-- `CMS.Domain/Entities/SystemSettingEntity.cs` — new entity (Key, Value, Description, Category, UpdatedBy)
-- `CMS.Infrastructure/Persistence/ApplicationDbContext.cs` — added `DbSet<SystemSetting>` + entity config (unique index on Key, FK to Admin)
-- `CMS.Infrastructure/Persistence/Migrations/20261022000000_Phase54SystemSettings.cs` — new migration:
-  - Creates `system_settings` table (uuid PK, key varchar(100) unique, value varchar(2000), description varchar(500), category varchar(50), updated_by FK to admins, created_at, updated_at)
-  - Seeds 11 default settings (platform_name, max_upload_size_mb, allowed_upload_types, watermark_text, content_review_policy, default_exam_duration_minutes, default_passing_score, session_timeout_minutes, refresh_token_expiry_days, auth_rate_limit_per_minute, otp_enabled)
-  - Uses `INSERT ... ON CONFLICT (key) DO NOTHING` for idempotency
-- `ApplicationDbContextModelSnapshot.cs` — updated to include SystemSetting entity + FK relationship
-- `CMS.Api/Controllers/SystemSettingsController.cs` — new controller:
-  - `GET /api/v1/admin/settings` — list (optional `?category=` filter)
-  - `GET /api/v1/admin/settings/{key}` — single by key
-  - `PUT /api/v1/admin/settings/{key}` — update value/description (super_admin required for security category)
-  - `POST /api/v1/admin/settings/{key}/reset` — reset to default value
-  - All require `Settings.View` (read) or `Settings.Edit` (write) permission
-  - Audit trail: every change logged via `ISecurityAuditWriter.LogSecurityEventAsync` (AdminAction, Info severity)
-  - Safe enum parsing (invalid values → null, no 500)
+**P1-08 — System Settings** (`8d9e2f1`)
+- New `SystemSetting` entity (Key, Value, Description, Category, UpdatedBy)
+- Migration `Phase54SystemSettings` with 11 seeded defaults (idempotent ON CONFLICT)
+- 4 endpoints: GET list, GET one, PUT update, POST reset
+- Security-category settings require super_admin
+- Every change logged via ISecurityAuditWriter
+- New `SettingsCenter.tsx` UI (category chips + inline edit + reset)
 
-**Frontend (additive — no existing UI changed):**
-- `apps/admin-web/src/components/SettingsCenter.tsx` — new component:
-  - Page header + category filter chips (All/Platform/Content/Upload/Exams/Security)
-  - Search input (filters by key/value/description)
-  - Settings list grouped by category
-  - Inline edit (click pencil → input + Save/Cancel)
-  - Reset to default button (with confirmation)
-  - Security-category settings locked for non-super_admin (badge + disabled buttons)
-  - Loading/empty/error states
-- `apps/admin-web/src/App.tsx` — integrated:
-  - Added `Settings` icon import
-  - Added `'settings'` to `View` type
-  - Added nav item in "Measurement & Audit" group (superOnly)
-  - Added render block (super_admin only)
-  - Updated `isManagementView` + `viewTitle`
+**P1-04 — Role/scope picker** (`6c572e3`)
+- AdminManagementDto: +4 resolved scope name fields
+- `ToAdminDtoAsync` resolves university/college/year/subject names
+- New `ScopePicker.tsx` component (cascading University→College→Year→Subject)
+- AdminsCenter DialogLayer: replaced placeholder info box with real ScopePicker
+- App.tsx: adminForm now carries scope fields; payload sends actual scope (was hardcoded null)
 
-### API contract
+**P1-05 — Permission Matrix** (`5812e0c`)
+- New `GetRolePermissionsQuery` + `RolePermissionGrantDto`
+- New `GET /api/v1/admin/roles/{id}/permissions` endpoint (SuperAdmin)
+- New `PermissionMatrixEditor.tsx` (19 resources × 6 actions grid + scope per resource)
+- RolesCenter: +Permissions button on each role card opens the matrix modal
+- System roles read-only; dirty indicator + Save/Reset
 
+### No regression evidence
+- All 161 InMemory tests pass after every batch (unchanged from base)
+- 18 Postgres-gated tests still blocked (env var not set — unchanged from base)
+- All existing endpoints preserved (additive only)
+- All existing UI components preserved (additive only)
+- No API contract changes to existing endpoints
+
+### Commits on branch
 ```
-GET    /api/v1/admin/settings?category=         → 200 [{id, key, value, description, category, updatedBy, updatedAt, createdAt}]
-GET    /api/v1/admin/settings/{key}             → 200 {id, key, value, ...} | 404
-PUT    /api/v1/admin/settings/{key}              → 200 {...} | 404 | 403 (security category, non-super)
-POST   /api/v1/admin/settings/{key}/reset        → 200 {...} | 404 | 400 (no default)
+5812e0c feat(p1-05): permission matrix editor — GET endpoint + grid UI
+6c572e3 feat(p1-04): role/scope picker — backend resolved names + UI cascade selectors
+8d9e2f1 feat(p1-08): system settings — entity + migration + API + UI
+de59d73 docs(closure): update ADMIN-01 report with final deployment + smoke test results
+a10877b feat(p1-06): audit log viewer with server-side filters + pagination + CSV export
+27ac722 fix(admin-04): critical DTO mismatch + use unused fields + honest metric labels
+bcbe91b fix: pre-commit hook — use grep -- to handle patterns starting with dashes
+864480d test: batch 1 — documentation + infra cleanup (Quick Wins)
 ```
 
-### Permissions enforced
-- Read: `Settings.View` (admin + super_admin)
-- Write: `Settings.Edit` (admin + super_admin)
-- Security-category write: super_admin only (enforced in controller + reflected in UI)
+### Files touched in checkpoint 1 (3 batches)
+- New: `SystemSettingEntity.cs`, `20261022000000_Phase54SystemSettings.cs`, `SystemSettingsController.cs`, `SettingsCenter.tsx`, `ScopePicker.tsx`, `PermissionMatrixEditor.tsx`
+- Modified: `ApplicationDbContext.cs`, `ApplicationDbContextModelSnapshot.cs`, `AdminCommands.cs`, `AdminHandlers.cs`, `AdminDashboardController.cs`, `AdminsCenter.tsx`, `RolesCenter.tsx`, `App.tsx`, `api.ts`
 
-### Audit trail
-- Every PUT/POST logs a `SecurityLog` entry:
-  - EventType: `AdminAction`
-  - Severity: `Info`
-  - Description: `"System setting '{key}' updated from '{old}' to '{new}'"` (or reset message)
-  - Actor: adminId (resolved to adminName in AuditLogViewer)
-
-### No regression
-- All existing endpoints unchanged
-- All existing tests pass (161/161 InMemory)
-- New migration is additive (CREATE TABLE + seed with ON CONFLICT DO NOTHING)
-- No API contract change to existing endpoints
+### Next up
+- **P1-07 — Security Console filters** (date range, structured actor/event-type filters in AuditCenter)
+- Then P1-01 (Student Profile + Avatar + 7 tabs) — the biggest batch
+- Then P1-02 (device fingerprint in profile, depends on P1-01)
+- Then P1-11 (Student sessions list + revoke + unbind)
