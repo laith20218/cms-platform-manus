@@ -27,6 +27,8 @@ import {
   Menu,
   Minus,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   ShieldCheck,
@@ -88,6 +90,13 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<View>('overview');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('cms-admin-sidebar-collapsed') === 'true'; } catch { return false; }
+  });
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState('');
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [operatorMenuOpen, setOperatorMenuOpen] = useState(false);
   const [admins, setAdmins] = useState<AdminRecord[]>([]);
   const [roles, setRoles] = useState<RoleRecord[]>([]);
   const [totalAdmins, setTotalAdmins] = useState(0);
@@ -139,6 +148,37 @@ function App() {
       .catch(() => { if (!cancelled) setApiStatus('degraded'); });
     return () => { cancelled = true; };
   }, []);
+
+  // Persist sidebar collapse state to localStorage.
+  useEffect(() => {
+    try { localStorage.setItem('cms-admin-sidebar-collapsed', String(sidebarCollapsed)); } catch { /* ignore */ }
+  }, [sidebarCollapsed]);
+
+  // Keyboard shortcut: Ctrl/Cmd + K opens command palette.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((open) => !open);
+      }
+      if (e.key === 'Escape') {
+        setCommandPaletteOpen(false);
+        setOperatorMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // Fetch real unread notification count when authenticated.
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    apiRequest<{ count: number }>('/api/v1/notifications/unread-count', token)
+      .then((data) => { if (!cancelled && typeof data?.count === 'number') setUnreadCount(data.count); })
+      .catch(() => { /* silent — notifications are non-critical */ });
+    return () => { cancelled = true; };
+  }, [token]);
 
   const notify = (message: string) => toast.success(message);
   const reportError = (message: string) => toast.error(message);
@@ -459,10 +499,10 @@ function App() {
 
   return (
     <main className="admin-shell" dir={isArabic ? 'rtl' : 'ltr'}>
-      <aside className={`sidebar ${mobileNavOpen ? 'open' : ''}`}>
+      <aside className={`sidebar ${mobileNavOpen ? 'open' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="side-brand">
           <img src={BRAND_MARK} alt="CMS" />
-          <span>CMS <i>CONTROL</i></span>
+          {!sidebarCollapsed && <span>CMS <i>CONTROL</i></span>}
           <button className="menu-close" aria-label={isArabic ? 'إغلاق القائمة' : 'Close navigation'} onClick={() => setMobileNavOpen(false)} style={{ display: mobileNavOpen ? 'flex' : 'none' }}>
             <X size={20} />
           </button>
@@ -473,12 +513,12 @@ function App() {
             if (visible.length === 0) return null;
             return (
               <div key={group.label} className="nav-group">
-                <div className="nav-group-label">{group.label}</div>
+                {!sidebarCollapsed && <div className="nav-group-label">{group.label}</div>}
                 {visible.map((item) => (
-                  <button key={item.key} className={view === item.key ? 'active' : ''} onClick={() => { setView(item.key); setMobileNavOpen(false); }}>
+                  <button key={item.key} className={view === item.key ? 'active' : ''} onClick={() => { setView(item.key); setMobileNavOpen(false); }} title={sidebarCollapsed ? item.label : undefined}>
                     <item.icon size={19} />
-                    {item.label}
-                    {view === item.key && <b />}
+                    {!sidebarCollapsed && item.label}
+                    {!sidebarCollapsed && view === item.key && <b />}
                   </button>
                 ))}
               </div>
@@ -486,27 +526,47 @@ function App() {
           })}
         </nav>
         <div className="side-bottom">
-          <div className="operator">
+          <div className="operator" onClick={() => setOperatorMenuOpen(!operatorMenuOpen)} style={{ cursor: 'pointer' }}>
             <div>{user.fullName?.[0] ?? 'C'}</div>
-            <span>
-              <strong>{user.fullName}</strong>
-              <small>{user.role}</small>
-            </span>
+            {!sidebarCollapsed && (
+              <span>
+                <strong>{user.fullName}</strong>
+                <small>{user.role}</small>
+              </span>
+            )}
           </div>
-          <button className="side-action" onClick={toggleTheme} aria-label={copy.toggleTheme}>
-            {theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}
-            {theme === 'light' ? copy.darkMode : copy.lightMode}
-          </button>
-          <button className="side-action danger" onClick={signOut}>
-            <LogOut size={17} />{copy.signOut}
-          </button>
+          {operatorMenuOpen && (
+            <div className="operator-menu" style={{ position: 'absolute', bottom: '100%', insetInlineStart: 0, right: 0, background: 'var(--cms-ink-800)', borderRadius: 'var(--cms-radius-md)', boxShadow: 'var(--cms-shadow-lg)', padding: '4px', margin: '4px', zIndex: 100 }}>
+              <button className="side-action" onClick={toggleTheme} aria-label={copy.toggleTheme}>
+                {theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}
+                {theme === 'light' ? copy.darkMode : copy.lightMode}
+              </button>
+              <button className="side-action danger" onClick={signOut}>
+                <LogOut size={17} />{copy.signOut}
+              </button>
+            </div>
+          )}
+          {!operatorMenuOpen && !sidebarCollapsed && (
+            <>
+              <button className="side-action" onClick={toggleTheme} aria-label={copy.toggleTheme}>
+                {theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}
+                {theme === 'light' ? copy.darkMode : copy.lightMode}
+              </button>
+              <button className="side-action danger" onClick={signOut}>
+                <LogOut size={17} />{copy.signOut}
+              </button>
+            </>
+          )}
         </div>
       </aside>
       {mobileNavOpen && <div className="sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />}
-      <section className="workspace">
+      <section className={`workspace ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
         <header className="topbar">
           <button className="menu-toggle" aria-label={isArabic ? 'فتح القائمة' : 'Open navigation'} onClick={() => setMobileNavOpen(true)}>
             <Menu />
+          </button>
+          <button className="menu-toggle collapse-toggle" aria-label={isArabic ? 'طي القائمة' : 'Toggle sidebar'} onClick={() => setSidebarCollapsed(!sidebarCollapsed)} style={{ display: 'flex' }}>
+            {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
           </button>
           <div className="breadcrumb">
             <span className="crumb">{isArabic ? 'الإدارة' : 'Admin'}</span>
@@ -514,6 +574,10 @@ function App() {
             <span className="crumb">{viewTitle}</span>
           </div>
           <div className="top-actions">
+            <button className="lang-btn" onClick={() => setCommandPaletteOpen(true)} aria-label={isArabic ? 'بحث سريع' : 'Command palette'} title="Ctrl+K">
+              <Search size={15} />
+              <span style={{ fontSize: '11px', opacity: 0.6 }}>⌘K</span>
+            </button>
             <div className={`status-indicator ${apiStatus === 'healthy' ? '' : apiStatus === 'degraded' ? 'degraded' : 'unknown'}`} title={statusLabel}>
               <span className="dot" />
               {statusLabel}
@@ -526,7 +590,7 @@ function App() {
             </button>
             <button className="icon-btn" aria-label={isArabic ? 'التنبيهات' : 'Notifications'}>
               <Bell size={19} />
-              <span className="dot">0</span>
+              {unreadCount > 0 && <span className="dot">{unreadCount > 99 ? '99+' : unreadCount}</span>}
             </button>
           </div>
         </header>
@@ -610,6 +674,46 @@ function App() {
           onSubmitDelete={submitDeleteAdmin}
           onSubmitRole={submitRole}
         />
+      )}
+      {commandPaletteOpen && (
+        <div className="sidebar-backdrop" style={{ zIndex: 60 }} onClick={() => setCommandPaletteOpen(false)} />
+      )}
+      {commandPaletteOpen && (
+        <div style={{ position: 'fixed', top: '20%', insetInlineStart: '50%', transform: 'translateX(-50%)', width: '90%', maxWidth: '480px', background: 'var(--cms-surface)', borderRadius: 'var(--cms-radius-lg)', boxShadow: 'var(--cms-shadow-xl)', zIndex: 70, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', borderBottom: '1px solid var(--cms-line)' }}>
+            <Search size={18} style={{ color: 'var(--cms-text-muted)' }} />
+            <input
+              type="text"
+              autoFocus
+              value={commandQuery}
+              onChange={(e) => setCommandQuery(e.target.value)}
+              placeholder={isArabic ? 'ابحث في القائمة...' : 'Search navigation...'}
+              style={{ flex: 1, border: 'none', background: 'transparent', color: 'var(--cms-text)', fontSize: '14px', outline: 'none' }}
+            />
+            <kbd style={{ fontSize: '10px', color: 'var(--cms-text-muted)', border: '1px solid var(--cms-line)', borderRadius: '4px', padding: '2px 6px' }}>ESC</kbd>
+          </div>
+          <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '4px' }}>
+            {navGroups.flatMap((group) => group.items.filter((item) => !item.superOnly || isSuperAdmin))
+              .filter((item) => {
+                if (!commandQuery) return true;
+                const q = commandQuery.toLowerCase();
+                return item.key.toLowerCase().includes(q) || item.label.toLowerCase().includes(q);
+              })
+              .map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => { setView(item.key); setCommandPaletteOpen(false); setCommandQuery(''); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '10px 14px', border: 'none', borderRadius: 'var(--cms-radius-sm)', background: view === item.key ? 'var(--cms-teal-50)' : 'transparent', color: view === item.key ? 'var(--cms-teal-700)' : 'var(--cms-text)', fontSize: '14px', fontWeight: 500, textAlign: 'start', cursor: 'pointer' }}
+                >
+                  <item.icon size={16} />
+                  {item.label}
+                </button>
+              ))}
+            {commandQuery && navGroups.flatMap((g) => g.items).filter((item) => (!item.superOnly || isSuperAdmin) && (item.key.toLowerCase().includes(commandQuery.toLowerCase()) || item.label.toLowerCase().includes(commandQuery.toLowerCase()))).length === 0 && (
+              <div style={{ padding: '20px', textAlign: 'center', color: 'var(--cms-text-muted)', fontSize: '13px' }}>{isArabic ? 'لا توجد نتائج' : 'No results'}</div>
+            )}
+          </div>
+        </div>
       )}
       <Toaster richColors position="top-center" />
     </main>
