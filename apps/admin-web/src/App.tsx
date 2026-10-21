@@ -28,6 +28,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Settings,
   ShieldCheck,
   ShieldOff,
   Sun,
@@ -45,6 +46,7 @@ import { StudentsCenter } from './components/StudentsCenter';
 import { QuestionsCenter } from './components/QuestionsCenter';
 import { ExamsCenter } from './components/ExamsCenter';
 import { LibraryCenter } from './components/LibraryCenter';
+import { SettingsCenter } from './components/SettingsCenter';
 
 const BRAND_MARK = '/brand/cms-admin-mark.png';
 const FULL_LOGO = '/brand/cms-cliver-medical-student-logo.jpg';
@@ -52,7 +54,7 @@ const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 
 type Locale = 'ar' | 'en';
 type Theme = 'light' | 'dark';
-type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'library' | 'reports';
+type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'library' | 'reports' | 'settings';
 type Dialog =
   | { kind: 'create-admin' }
   | { kind: 'edit-admin'; admin: AdminRecord }
@@ -479,15 +481,17 @@ function App() {
         { key: 'admins', label: copy.admins, icon: UsersRound, superOnly: true },
         { key: 'roles', label: copy.roles, icon: KeyRound, superOnly: true },
         { key: 'audit', label: isArabic ? 'السجل الأمني' : 'Security Audit', icon: ShieldCheck, superOnly: true },
+        { key: 'settings', label: isArabic ? 'إعدادات النظام' : 'System Settings', icon: Settings, superOnly: true },
       ],
     },
   ];
 
-  const isManagementView = view === 'admins' || view === 'roles' || view === 'audit' || view === 'reports';
+  const isManagementView = view === 'admins' || view === 'roles' || view === 'audit' || view === 'reports' || view === 'settings';
   const viewTitle = view === 'admins' ? copy.adminList
     : view === 'roles' ? copy.rolesTitle
     : view === 'audit' ? (isArabic ? 'السجل الأمني' : 'Security Audit')
     : view === 'reports' ? (isArabic ? 'التقارير والتحليلات' : 'Reports & Analytics')
+    : view === 'settings' ? (isArabic ? 'إعدادات النظام' : 'System Settings')
     : view === 'students' ? (isArabic ? 'الطلاب' : 'Students')
     : view === 'academic' ? (isArabic ? 'البنية الأكاديمية' : 'Academic Structure')
     : view === 'questions' ? (isArabic ? 'بنك الأسئلة' : 'Question Bank')
@@ -654,6 +658,9 @@ function App() {
               )}
               {view === 'reports' && isSuperAdmin && (
                 <ReportsCenter token={token} isArabic={isArabic} onError={reportError} />
+              )}
+              {view === 'settings' && isSuperAdmin && (
+                <SettingsCenter token={token} isArabic={isArabic} isSuperAdmin={isSuperAdmin} onError={reportError} onNotice={notify} />
               )}
               {isManagementView && !isSuperAdmin && (
                 <section className="notice" role="status">

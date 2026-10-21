@@ -62,6 +62,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<OfflinePackageRecord> OfflinePackageRecords => Set<OfflinePackageRecord>();
     public DbSet<OfflineKeyReleaseLog> OfflineKeyReleaseLogs => Set<OfflineKeyReleaseLog>();
 
+    // System configuration
+    public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Apply all IEntityTypeConfiguration from this assembly
@@ -115,6 +118,16 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<AdminRole>(entity =>
         {
             entity.Property(x => x.IsActive).HasDefaultValue(true);
+        });
+        modelBuilder.Entity<SystemSetting>(entity =>
+        {
+            entity.HasIndex(x => x.Key).IsUnique();
+            entity.HasIndex(x => x.Category);
+            entity.Property(x => x.Key).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.Value).HasMaxLength(2000).IsRequired();
+            entity.Property(x => x.Description).HasMaxLength(500);
+            entity.Property(x => x.Category).HasMaxLength(50);
+            entity.HasOne(x => x.UpdatedByAdmin).WithMany().HasForeignKey(x => x.UpdatedBy).OnDelete(DeleteBehavior.SetNull);
         });
         modelBuilder.Entity<ExamQuestion>(entity =>
         {
