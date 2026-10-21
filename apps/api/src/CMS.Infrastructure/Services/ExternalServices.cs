@@ -373,7 +373,10 @@ public class UpstashBlobStorageService : IFileStorageService
             ExpiresIn: expiresIn,
             Headers: contentType is null ? null : new Dictionary<string, string> { ["content-type"] = contentType });
 
-        using var response = await _httpClient.PostAsJsonAsync($"{AgentUrl}/v1/presign", body, ct);
+        // Upstash Blob's /v1/presign expects camelCase JSON field names (method, key, expiresIn, headers).
+        // PostAsJsonAsync defaults to PascalCase — pass camelCase options explicitly.
+        var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+        using var response = await _httpClient.PostAsJsonAsync($"{AgentUrl}/v1/presign", body, jsonOptions, ct);
 
         if (!response.IsSuccessStatusCode)
         {
