@@ -353,8 +353,8 @@ public class UpstashBlobStorageService : IFileStorageService
         try
         {
             var presigned = await PresignAsync(method: "GET", key: key, expiresIn: 30, ct: ct);
-            using var head = await _httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Head, presigned.Url), ct);
-            return head.IsSuccessStatusCode;
+            using var response = await _httpClient.GetAsync(presigned.Url, HttpCompletionOption.ResponseHeadersRead, ct);
+            return response.IsSuccessStatusCode;
         }
         catch
         {
