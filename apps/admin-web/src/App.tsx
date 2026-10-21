@@ -8,6 +8,7 @@ import {
   Activity,
   ArrowDownRight,
   ArrowUpRight,
+  BarChart3,
   Bell,
   BookOpenCheck,
   Building2,
@@ -38,6 +39,7 @@ import { AcademicCenter } from './components/AcademicCenter';
 import { AdminsCenter, DialogLayer } from './components/AdminsCenter';
 import { AuditCenter } from './components/AuditCenter';
 import { CodesCenter } from './components/CodesCenter';
+import { ReportsCenter } from './components/ReportsCenter';
 import { RolesCenter } from './components/RolesCenter';
 import { StudentsCenter } from './components/StudentsCenter';
 import { QuestionsCenter } from './components/QuestionsCenter';
@@ -50,7 +52,7 @@ const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 
 type Locale = 'ar' | 'en';
 type Theme = 'light' | 'dark';
-type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'library';
+type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'library' | 'reports';
 type Dialog =
   | { kind: 'create-admin' }
   | { kind: 'edit-admin'; admin: AdminRecord }
@@ -471,8 +473,9 @@ function App() {
       ],
     },
     {
-      label: isArabic ? 'الحوكمة' : 'Governance',
+      label: isArabic ? 'القياس والتدقيق' : 'Measurement & Audit',
       items: [
+        { key: 'reports', label: isArabic ? 'التقارير والتحليلات' : 'Reports & Analytics', icon: BarChart3, superOnly: true },
         { key: 'admins', label: copy.admins, icon: UsersRound, superOnly: true },
         { key: 'roles', label: copy.roles, icon: KeyRound, superOnly: true },
         { key: 'audit', label: isArabic ? 'السجل الأمني' : 'Security Audit', icon: ShieldCheck, superOnly: true },
@@ -480,10 +483,11 @@ function App() {
     },
   ];
 
-  const isManagementView = view === 'admins' || view === 'roles' || view === 'audit';
+  const isManagementView = view === 'admins' || view === 'roles' || view === 'audit' || view === 'reports';
   const viewTitle = view === 'admins' ? copy.adminList
     : view === 'roles' ? copy.rolesTitle
     : view === 'audit' ? (isArabic ? 'السجل الأمني' : 'Security Audit')
+    : view === 'reports' ? (isArabic ? 'التقارير والتحليلات' : 'Reports & Analytics')
     : view === 'students' ? (isArabic ? 'الطلاب' : 'Students')
     : view === 'academic' ? (isArabic ? 'البنية الأكاديمية' : 'Academic Structure')
     : view === 'questions' ? (isArabic ? 'بنك الأسئلة' : 'Question Bank')
@@ -647,6 +651,9 @@ function App() {
               )}
               {view === 'audit' && isSuperAdmin && (
                 <AuditCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+              )}
+              {view === 'reports' && isSuperAdmin && (
+                <ReportsCenter token={token} isArabic={isArabic} onError={reportError} />
               )}
               {isManagementView && !isSuperAdmin && (
                 <section className="notice" role="status">
