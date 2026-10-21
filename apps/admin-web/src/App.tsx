@@ -40,7 +40,6 @@ import { LibraryCenter } from './components/LibraryCenter';
 
 const BRAND_MARK = '/brand/cms-admin-mark.png';
 const FULL_LOGO = '/brand/cms-cliver-medical-student-logo.jpg';
-const LOGIN_HERO = '/brand/cms-admin-login-hero.jpg';
 const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 
 type Locale = 'ar' | 'en';
