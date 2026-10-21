@@ -172,7 +172,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     if (statusFilter) params.set('status', statusFilter);
     if (query.trim()) params.set('search', query.trim());
     try {
-      const data = await request<PagedResult<AdminLibraryFileListItem>>(`/api/v1/admin/files?${params.toString()}`);
+      const data = await request<PagedResult<AdminLibraryFileListItem>>(`/api/v1/admin/content/files?${params.toString()}`);
       setFiles(data.items);
       setPage(targetPage);
     } catch (error) {
