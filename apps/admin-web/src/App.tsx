@@ -672,7 +672,7 @@ function App() {
                 <AuditCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
               )}
               {view === 'reports' && isSuperAdmin && (
-                <ReportsCenter token={token} isArabic={isArabic} onError={reportError} />
+                <ReportsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
               )}
               {view === 'settings' && isSuperAdmin && (
                 <SettingsCenter token={token} isArabic={isArabic} isSuperAdmin={isSuperAdmin} onError={reportError} onNotice={notify} />

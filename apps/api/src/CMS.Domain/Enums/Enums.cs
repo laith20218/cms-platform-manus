@@ -285,7 +285,8 @@ public enum ErrorReportStatus
     Pending,
     Reviewing,
     Resolved,
-    Rejected
+    Rejected,
+    Closed
 }
 
 /// <summary>
