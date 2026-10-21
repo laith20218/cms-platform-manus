@@ -15,32 +15,30 @@ import {
   ChevronRight,
   ClipboardCheck,
   CircleAlert,
-  Edit3,
-  Eye,
   FileText,
   KeyRound,
   Languages,
   LayoutDashboard,
   LoaderCircle,
-  LockKeyhole,
   LogOut,
   Menu,
   Minus,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
-  Plus,
   Search,
   ShieldCheck,
   ShieldOff,
   Sun,
-  Trash2,
   UsersRound,
   X,
 } from 'lucide-react';
 import { API_BASE_URL, apiRequest, ApiError, type AdminRecord, type AdminUser, type PagedResult, type RoleRecord, login } from './lib/api';
 import { AcademicCenter } from './components/AcademicCenter';
+import { AdminsCenter, DialogLayer } from './components/AdminsCenter';
+import { AuditCenter } from './components/AuditCenter';
 import { CodesCenter } from './components/CodesCenter';
+import { RolesCenter } from './components/RolesCenter';
 import { StudentsCenter } from './components/StudentsCenter';
 import { QuestionsCenter } from './components/QuestionsCenter';
 import { ExamsCenter } from './components/ExamsCenter';
@@ -52,7 +50,7 @@ const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 
 type Locale = 'ar' | 'en';
 type Theme = 'light' | 'dark';
-type View = 'admins' | 'roles' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'library';
+type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'library';
 type Dialog =
   | { kind: 'create-admin' }
   | { kind: 'edit-admin'; admin: AdminRecord }
@@ -60,7 +58,6 @@ type Dialog =
   | { kind: 'delete-admin'; admin: AdminRecord }
   | { kind: 'create-role' }
   | null;
-type ActiveDialog = Exclude<Dialog, null>;
 type ApiStatus = 'healthy' | 'degraded' | 'unknown';
 type Trend = 'up' | 'down' | 'flat' | 'none';
 
@@ -478,13 +475,15 @@ function App() {
       items: [
         { key: 'admins', label: copy.admins, icon: UsersRound, superOnly: true },
         { key: 'roles', label: copy.roles, icon: KeyRound, superOnly: true },
+        { key: 'audit', label: isArabic ? 'السجل الأمني' : 'Security Audit', icon: ShieldCheck, superOnly: true },
       ],
     },
   ];
 
-  const isManagementView = view === 'admins' || view === 'roles';
+  const isManagementView = view === 'admins' || view === 'roles' || view === 'audit';
   const viewTitle = view === 'admins' ? copy.adminList
     : view === 'roles' ? copy.rolesTitle
+    : view === 'audit' ? (isArabic ? 'السجل الأمني' : 'Security Audit')
     : view === 'students' ? (isArabic ? 'الطلاب' : 'Students')
     : view === 'academic' ? (isArabic ? 'البنية الأكاديمية' : 'Academic Structure')
     : view === 'questions' ? (isArabic ? 'بنك الأسئلة' : 'Question Bank')
@@ -611,7 +610,7 @@ function App() {
               {view === 'library' && <LibraryCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />}
               {view === 'codes' && <CodesCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />}
               {view === 'admins' && isSuperAdmin && (
-                <AdminsView
+                <AdminsCenter
                   copy={copy}
                   isArabic={isArabic}
                   admins={admins}
@@ -635,7 +634,7 @@ function App() {
                 />
               )}
               {view === 'roles' && isSuperAdmin && (
-                <RolesView
+                <RolesCenter
                   copy={copy}
                   isArabic={isArabic}
                   roles={roles}
@@ -645,6 +644,9 @@ function App() {
                   onStatus={setRoleStatus}
                   onDelete={deleteRole}
                 />
+              )}
+              {view === 'audit' && isSuperAdmin && (
+                <AuditCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
               )}
               {isManagementView && !isSuperAdmin && (
                 <section className="notice" role="status">
@@ -895,202 +897,6 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
         {isArabic ? 'آخر تحديث' : 'Last updated'}: {updatedLabel}
       </p>
     </>
-  );
-}
-
-function AdminsView(props: {
-  copy: Record<string, string>; isArabic: boolean; admins: AdminRecord[]; roles: RoleRecord[]; total: number; query: string; roleFilter: string; statusFilter: string; busy: boolean; loading: boolean; scopeText: (admin: AdminRecord) => string; setQuery: (value: string) => void; setRoleFilter: (value: string) => void; setStatusFilter: (value: string) => void; clearFilters: () => void; onCreate: () => void; onEdit: (admin: AdminRecord) => void; onReset: (admin: AdminRecord) => void; onDelete: (admin: AdminRecord) => void; onStatus: (admin: AdminRecord, active: boolean) => void;
-}) {
-  const { copy, isArabic, admins, roles, total, query, roleFilter, statusFilter, busy, loading, scopeText, setQuery, setRoleFilter, setStatusFilter, clearFilters, onCreate, onEdit, onReset, onDelete, onStatus } = props;
-  const filtersActive = Boolean(query || roleFilter || statusFilter !== 'all');
-  return (
-    <section className="directory-panel">
-      <div className="directory-heading">
-        <div>
-          <p className="eyebrow">{isArabic ? 'الإدارة المركزية' : 'CENTRAL ADMINISTRATION'}</p>
-          <h2>{copy.adminList}<small>{total}</small></h2>
-        </div>
-        <button className="primary-action" onClick={onCreate}><Plus size={18} />{copy.addAdmin}</button>
-      </div>
-      <div className="filters">
-        <label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={copy.search} /></label>
-        <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
-          <option value="">{copy.role}: {copy.all}</option>
-          {roles.map((role) => <option key={role.id} value={role.id}>{isArabic ? role.nameAr : role.name}</option>)}
-        </select>
-        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-          <option value="all">{copy.status}: {copy.all}</option>
-          <option value="active">{copy.active}</option>
-          <option value="disabled">{copy.disabled}</option>
-        </select>
-        {filtersActive && <button className="clear-filter" onClick={clearFilters}><X size={15} />{copy.clear}</button>}
-      </div>
-      <div className="admin-table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>{isArabic ? 'المدير' : 'Administrator'}</th>
-              <th>{copy.role}</th>
-              <th>{copy.scope}</th>
-              <th>{copy.status}</th>
-              <th>{copy.lastLogin}</th>
-              <th>{copy.created}</th>
-              <th><span className="sr-only">{copy.actions}</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={7}><div className="table-loading"><LoaderCircle className="spin" size={20} />{isArabic ? 'جارٍ تحميل السجل…' : 'Loading directory…'}</div></td></tr>
-            ) : admins.length === 0 ? (
-              <tr><td colSpan={7}><div className="table-empty"><UsersRound size={22} /><strong>{copy.noAdmins}</strong>{filtersActive && <button onClick={clearFilters}>{copy.clear}</button>}</div></td></tr>
-            ) : admins.map((admin) => (
-              <tr key={admin.id}>
-                <td>
-                  <div className="identity">
-                    <div className="avatar">{admin.fullName[0]}</div>
-                    <span>
-                      <strong>{admin.fullName}</strong>
-                      <small>{admin.email}</small>
-                      {admin.phone && <small>{admin.phone}</small>}
-                    </span>
-                  </div>
-                </td>
-                <td><span className="role-tag">{isArabic ? admin.roleNameAr : admin.roleName}</span></td>
-                <td>{scopeText(admin)}</td>
-                <td><span className={`status-chip ${admin.status === 'active' ? 'active' : 'disabled'}`}>{admin.status === 'active' ? copy.active : copy.disabled}</span></td>
-                <td>{admin.lastLogin ? new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium' }).format(new Date(admin.lastLogin)) : '—'}</td>
-                <td>{new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium' }).format(new Date(admin.createdAt))}</td>
-                <td>
-                  <div className="row-actions">
-                    <button title={copy.view} onClick={() => onEdit(admin)}><Eye size={16} /></button>
-                    <button title={copy.edit} onClick={() => onEdit(admin)}><Edit3 size={16} /></button>
-                    <button title={copy.reset} onClick={() => onReset(admin)}><KeyRound size={16} /></button>
-                    <button title={admin.status === 'active' ? copy.deactivate : copy.activate} disabled={busy} onClick={() => onStatus(admin, admin.status !== 'active')}>
-                      {admin.status === 'active' ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
-                    </button>
-                    <button className="danger" title={copy.delete} onClick={() => onDelete(admin)}><Trash2 size={16} /></button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function RolesView({ copy, isArabic, roles, busy, loading, onCreate, onStatus, onDelete }: { copy: Record<string, string>; isArabic: boolean; roles: RoleRecord[]; busy: boolean; loading: boolean; onCreate: () => void; onStatus: (role: RoleRecord, active: boolean) => void; onDelete: (role: RoleRecord) => void }) {
-  return (
-    <section className="roles-panel">
-      <div className="directory-heading">
-        <div>
-          <p className="eyebrow">{isArabic ? 'سياسة الوصول' : 'ACCESS POLICY'}</p>
-          <h2>{copy.rolesTitle}</h2>
-        </div>
-        <button className="primary-action" onClick={onCreate}><Plus size={18} />{copy.addRole}</button>
-      </div>
-      <div className="role-grid">
-        {loading ? (
-          <div className="table-loading"><LoaderCircle className="spin" size={20} />{isArabic ? 'جارٍ تحميل الأدوار…' : 'Loading roles…'}</div>
-        ) : roles.length === 0 ? (
-          <div className="table-empty"><KeyRound size={22} /><strong>{copy.noRoles}</strong></div>
-        ) : roles.map((role) => (
-          <article key={role.id} className={`role-card ${role.isActive ? '' : 'is-disabled'}`}>
-            <div className="role-card-top">
-              <span className={`role-state ${role.isActive ? 'active' : 'disabled'}`}>{role.isActive ? copy.active : copy.disabled}</span>
-              <span className="role-badge">{role.isSystem ? copy.system : copy.custom}</span>
-            </div>
-            <h3>{isArabic ? role.nameAr : role.name}</h3>
-            <code>{role.name}</code>
-            <p>{role.description || (isArabic ? 'دور بلا وصف إضافي.' : 'Role without an additional description.')}</p>
-            <div className="role-metrics">
-              <span><strong>{role.adminCount}</strong>{copy.adminsCount}</span>
-              <span><strong>{role.permissionCount}</strong>{copy.permissions}</span>
-            </div>
-            <div className="role-actions">
-              <button onClick={() => onStatus(role, !role.isActive)} disabled={busy || role.name === 'super_admin'}>
-                {role.isActive ? <><ShieldOff size={15} />{copy.deactivate}</> : <><ShieldCheck size={15} />{copy.activate}</>}
-              </button>
-              {!role.isSystem && <button className="danger" onClick={() => onDelete(role)} disabled={busy}><Trash2 size={15} />{copy.delete}</button>}
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function DialogLayer(props: { copy: Record<string, string>; isArabic: boolean; dialog: ActiveDialog; roles: RoleRecord[]; adminForm: typeof initialAdminForm; selectedRole?: RoleRecord; roleForm: { name: string; nameAr: string; description: string }; busy: boolean; onClose: () => void; onAdminForm: (form: typeof initialAdminForm) => void; onRoleForm: (form: { name: string; nameAr: string; description: string }) => void; onSubmitAdmin: (event: FormEvent<HTMLFormElement>) => void; onSubmitReset: (event: FormEvent<HTMLFormElement>) => void; onSubmitDelete: (event: FormEvent<HTMLFormElement>) => void; onSubmitRole: (event: FormEvent<HTMLFormElement>) => void }) {
-  const { copy, isArabic, dialog, roles, adminForm, selectedRole, roleForm, busy, onClose, onAdminForm, onRoleForm, onSubmitAdmin, onSubmitReset, onSubmitDelete, onSubmitRole } = props;
-  const title = dialog.kind === 'create-admin' ? copy.newAdmin : dialog.kind === 'edit-admin' ? copy.updateAdmin : dialog.kind === 'reset-password' ? copy.resetTitle : dialog.kind === 'delete-admin' ? copy.deleteTitle : copy.addRole;
-  return (
-    <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="dialog-card" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => event.stopPropagation()}>
-        <div className="dialog-header">
-          <div>
-            <span className="eyebrow">{isArabic ? 'إجراء إداري' : 'ADMINISTRATIVE ACTION'}</span>
-            <h2>{title}</h2>
-          </div>
-          <button aria-label="Close dialog" onClick={onClose} disabled={busy}><X /></button>
-        </div>
-        {(dialog.kind === 'create-admin' || dialog.kind === 'edit-admin') && (
-          <form onSubmit={onSubmitAdmin} className="dialog-form">
-            <label>{copy.fullName}<input required value={adminForm.fullName} onChange={(event) => onAdminForm({ ...adminForm, fullName: event.target.value })} /></label>
-            <label>{copy.email}<input required type="email" value={adminForm.email} onChange={(event) => onAdminForm({ ...adminForm, email: event.target.value })} /></label>
-            <label>{copy.phone}<input value={adminForm.phone} onChange={(event) => onAdminForm({ ...adminForm, phone: event.target.value })} /></label>
-            <label>{copy.role}<select required value={adminForm.roleId} onChange={(event) => onAdminForm({ ...adminForm, roleId: event.target.value })}>{roles.filter((role) => role.isActive).map((role) => <option key={role.id} value={role.id}>{isArabic ? role.nameAr : role.name}</option>)}</select></label>
-            {dialog.kind === 'create-admin' && (
-              <label className="span-all">
-                {copy.initialPassword}
-                <input required minLength={12} type="password" value={adminForm.password} onChange={(event) => onAdminForm({ ...adminForm, password: event.target.value })} />
-                <small>{copy.passwordReminder}</small>
-              </label>
-            )}
-            {selectedRole && selectedRole.name !== 'super_admin' && (
-              <p className="scope-note"><LockKeyhole size={16} />{copy.scopeLabel}: {isArabic ? 'سيتم تحديد النطاق الأكاديمي من صفحة التعديل المتقدمة عند ربط دليل الجامعة.' : 'Academic scope will be selected in the extended edit view after the academic directory is connected.'}</p>
-            )}
-            <div className="dialog-actions">
-              <button type="button" className="secondary-action" onClick={onClose} disabled={busy}>{copy.cancel}</button>
-              <button type="submit" className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" size={16} />}{copy.save}</button>
-            </div>
-          </form>
-        )}
-        {dialog.kind === 'reset-password' && (
-          <form onSubmit={onSubmitReset} className="dialog-form">
-            <p className="dialog-copy">{isArabic ? `سيتم إبطال جميع جلسات ${dialog.admin.fullName} فورًا.` : `All ${dialog.admin.fullName}'s live sessions will be invalidated immediately.`}</p>
-            <label>{copy.newPassword}<input required name="newPassword" minLength={12} type="password" autoComplete="new-password" /></label>
-            <div className="dialog-actions">
-              <button type="button" className="secondary-action" onClick={onClose} disabled={busy}>{copy.cancel}</button>
-              <button type="submit" className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" size={16} />}{copy.reset}</button>
-            </div>
-          </form>
-        )}
-        {dialog.kind === 'delete-admin' && (
-          <form onSubmit={onSubmitDelete} className="dialog-form danger-form">
-            <p className="dialog-copy">{copy.deleteText}</p>
-            <p className="target-name">{dialog.admin.fullName}<span>{dialog.admin.email}</span></p>
-            <label>{copy.currentPassword}<input required name="currentSuperAdminPassword" type="password" autoComplete="current-password" /></label>
-            <div className="dialog-actions">
-              <button type="button" className="secondary-action" onClick={onClose} disabled={busy}>{copy.cancel}</button>
-              <button type="submit" className="danger-action" disabled={busy}>{busy && <LoaderCircle className="spin" size={16} />}{copy.deleteConfirm}</button>
-            </div>
-          </form>
-        )}
-        {dialog.kind === 'create-role' && (
-          <form onSubmit={onSubmitRole} className="dialog-form">
-            <label>{copy.roleName}<input required value={roleForm.name} pattern="[A-Za-z0-9_]{3,50}" onChange={(event) => onRoleForm({ ...roleForm, name: event.target.value })} placeholder="content_reviewer" /><small>{isArabic ? 'أحرف وأرقام وشرطة سفلية فقط، من 3 إلى 50 رمزًا.' : 'Letters, numbers and underscores only; 3–50 characters.'}</small></label>
-            <label>{copy.roleNameAr}<input required value={roleForm.nameAr} onChange={(event) => onRoleForm({ ...roleForm, nameAr: event.target.value })} /></label>
-            <label className="span-all">{copy.description}<textarea value={roleForm.description} onChange={(event) => onRoleForm({ ...roleForm, description: event.target.value })} rows={3} /></label>
-            <p className="scope-note"><KeyRound size={16} />{isArabic ? 'ينشأ الدور بلا صلاحيات. أضف الصلاحيات قبل تعيينه لأي مدير.' : 'The role begins with no permissions. Add grants before assigning it.'}</p>
-            <div className="dialog-actions">
-              <button type="button" className="secondary-action" onClick={onClose} disabled={busy}>{copy.cancel}</button>
-              <button type="submit" className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" size={16} />}{copy.create}</button>
-            </div>
-          </form>
-        )}
-      </section>
-    </div>
   );
 }
 
