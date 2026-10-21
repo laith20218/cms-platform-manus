@@ -59,22 +59,43 @@ public class AdminLoginCommandHandler :
     {
         var admin = await _db.Admins
             .Include(a => a.Role)
-            .FirstOrDefaultAsync(a => a.Email == email.ToLowerInvariant(), ct)
-            ?? throw new DomainException("البريد أو كلمة المرور غير صحيحة", "AUTH_INVALID_CREDENTIALS");
+            .FirstOrDefaultAsync(a => a.Email == email.ToLowerInvariant(), ct);
+
+        if (admin is null)
+        {
+            // Unknown admin email: record a LoginFailed security event with null admin id so the
+            // attempt is auditable without revealing whether the email exists. Description must not
+            // contain the supplied email or password.
+            await _audit.LogSecurityEventAsync(null, null, SecurityEventType.LoginFailed, SecuritySeverity.Warning,
+                "admin_login_result=unknown_principal", ct: ct);
+            throw new DomainException("البريد أو كلمة المرور غير صحيحة", "AUTH_INVALID_CREDENTIALS");
+        }
 
         // Verify password
         if (!_passwordHasher.VerifyPassword(password, admin.PasswordHash))
+        {
+            await _audit.LogSecurityEventAsync(null, admin.Id, SecurityEventType.LoginFailed, SecuritySeverity.Warning,
+                "admin_login_result=invalid_password", ct: ct);
             throw new DomainException("البريد أو كلمة المرور غير صحيحة", "AUTH_INVALID_CREDENTIALS");
+        }
 
         // Check status
         if (admin.Status != AdminStatus.Active || !admin.Role.IsActive)
+        {
+            await _audit.LogSecurityEventAsync(null, admin.Id, SecurityEventType.LoginFailed, SecuritySeverity.Warning,
+                "admin_login_result=inactive_account_or_role", ct: ct);
             throw new ForbiddenException("حسابك معطّل. تواصل مع Super Admin");
+        }
 
         // 2FA check
         if (admin.TwoFactorEnabled)
         {
             if (string.IsNullOrEmpty(twoFactorCode))
+            {
+                await _audit.LogSecurityEventAsync(null, admin.Id, SecurityEventType.MfaFailed, SecuritySeverity.Warning,
+                    "mfa_result=challenge_required", ct: ct);
                 throw new DomainException("مطلوب رمز التحقق الثنائي (2FA)", "TWO_FACTOR_REQUIRED");
+            }
 
             if (string.IsNullOrWhiteSpace(admin.TwoFactorSecret)
                 || !VerifyTotp(admin.TwoFactorSecret, twoFactorCode, out var timeStep))
@@ -273,15 +294,18 @@ public class Disable2FACommandHandler : IRequestHandler<Disable2FACommand, Unit>
     private readonly IApplicationDbContext _db;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ISecurityAuditWriter _audit;
 
     public Disable2FACommandHandler(
         IApplicationDbContext db,
         IPasswordHasher passwordHasher,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ISecurityAuditWriter audit)
     {
         _db = db;
         _passwordHasher = passwordHasher;
         _unitOfWork = unitOfWork;
+        _audit = audit;
     }
 
     public async Task<Unit> Handle(Disable2FACommand request, CancellationToken ct)
@@ -290,7 +314,12 @@ public class Disable2FACommandHandler : IRequestHandler<Disable2FACommand, Unit>
             ?? throw new NotFoundException("Admin", request.AdminId);
 
         if (!_passwordHasher.VerifyPassword(request.Password, admin.PasswordHash))
+        {
+            // Failed 2FA-disable attempt: audit as AdminAction (warning) without revealing the password.
+            await _audit.LogSecurityEventAsync(null, admin.Id, SecurityEventType.AdminAction, SecuritySeverity.Warning,
+                "admin_action=disable_2fa_result=invalid_password", ct: ct);
             throw new DomainException("كلمة المرور غير صحيحة", "INVALID_PASSWORD");
+        }
 
         // Disable 2FA
         typeof(CMS.Domain.Entities.Admin).GetProperty("TwoFactorEnabled")?.SetValue(admin, false);
@@ -299,6 +328,10 @@ public class Disable2FACommandHandler : IRequestHandler<Disable2FACommand, Unit>
 
         _db.Admins.Update(admin);
         await _unitOfWork.SaveChangesAsync(ct);
+
+        // Successful disable: persist as MfaDisabled (Warning) so it surfaces in security reviews.
+        await _audit.LogSecurityEventAsync(null, admin.Id, SecurityEventType.MfaDisabled, SecuritySeverity.Warning,
+            "mfa_disabled=success", ct: ct);
 
         return Unit.Value;
     }

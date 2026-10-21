@@ -184,6 +184,11 @@ try
     app.UseAuthorization();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.UseMiddleware<SecurityHeadersMiddleware>();
+    // AuditLoggingMiddleware runs late so it can observe the final status code of every
+    // request (including 401/403/5xx) for security-warning log entries. It already skips
+    // /health and /swagger to avoid noise. It logs to ILogger only — never to DB and never
+    // the Authorization header or request body, so no tokens or PII are persisted.
+    app.UseMiddleware<AuditLoggingMiddleware>();
 
     app.MapControllers();
 

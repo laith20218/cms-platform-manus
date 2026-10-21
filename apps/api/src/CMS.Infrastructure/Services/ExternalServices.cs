@@ -210,6 +210,29 @@ public class S3StorageService : IFileStorageService
         return await Task.FromResult(_client.GetPreSignedURL(request));
     }
 
+    /// <summary>
+    /// Issues a short-lived pre-signed URL for direct browser upload using the PUT verb.
+    /// The object key is always server-generated (Guid-based) and must never be derived
+    /// from raw user input to prevent path traversal. ContentType is bound so the client
+    /// cannot upload an arbitrary MIME type under the same key.
+    /// </summary>
+    public async Task<string> GetSignedUploadUrlAsync(string key, string contentType, TimeSpan expiry)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            throw new ArgumentException("Object key must be provided by the server.", nameof(key));
+
+        var request = new Amazon.S3.Model.GetPreSignedUrlRequest
+        {
+            BucketName = _bucketName,
+            Key = key,
+            Expires = DateTime.UtcNow.Add(expiry),
+            Verb = Amazon.S3.HttpVerb.PUT,
+            ContentType = contentType
+        };
+
+        return await Task.FromResult(_client.GetPreSignedURL(request));
+    }
+
     public async Task DeleteAsync(string key, CancellationToken ct = default)
     {
         await _client.DeleteObjectAsync(_bucketName, key, cancellationToken: ct);

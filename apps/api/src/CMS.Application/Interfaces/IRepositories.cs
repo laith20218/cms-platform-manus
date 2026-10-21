@@ -87,11 +87,14 @@ public interface ICacheService
 }
 
 /// <summary>
-/// File storage service interface (Cloudflare R2).
+/// File storage service interface (S3-compatible, Cloudflare R2 by configuration).
 /// </summary>
 public interface IFileStorageService
 {
     Task<string> UploadAsync(Stream fileStream, string fileName, string contentType, CancellationToken ct = default);
+    /// <summary>Issues a short-lived pre-signed URL for direct browser upload (PUT verb). The object key MUST be server-generated and never derived from user input.</summary>
+    Task<string> GetSignedUploadUrlAsync(string key, string contentType, TimeSpan expiry);
+    /// <summary>Issues a short-lived pre-signed URL for read access (GET verb). Never use this for uploads.</summary>
     Task<string> GetSignedUrlAsync(string key, TimeSpan expiry);
     Task DeleteAsync(string key, CancellationToken ct = default);
     Task<bool> ExistsAsync(string key, CancellationToken ct = default);

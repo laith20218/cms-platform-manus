@@ -178,12 +178,35 @@ public sealed class SessionService : ISessionService
             !FixedTimeEquals(session.InstallationId, installationId))
             return false;
 
-        if (!RequiresStudentDeviceBinding(session.Role))
-            return true;
+        // Student sessions rely on device binding below.
+        if (RequiresStudentDeviceBinding(session.Role))
+            return await _db.DeviceBindings.AsNoTracking()
+                .AnyAsync(i => i.StudentId == session.UserId && i.DeviceFingerprint == installationId && i.IsActive, ct);
 
-        return await _db.DeviceBindings.AsNoTracking()
-            .AnyAsync(i => i.StudentId == session.UserId && i.DeviceFingerprint == installationId && i.IsActive, ct);
+        // Admin / super_admin sessions must additionally verify that neither the admin account
+        // nor its role has been deactivated since the access token was issued. This closes the
+        // window where a disabled admin's token stays valid up to access-token expiry.
+        if (IsAdminRole(session.Role))
+        {
+            var admin = await _db.Admins.AsNoTracking()
+                .Include(a => a.Role)
+                .FirstOrDefaultAsync(a => a.Id == session.UserId, ct);
+            if (admin is null
+                || admin.DeletedAt is not null
+                || admin.Status != AdminStatus.Active
+                || admin.Role is null
+                || !admin.Role.IsActive)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
+
+    private static bool IsAdminRole(string role) =>
+        string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, "super_admin", StringComparison.OrdinalIgnoreCase);
 
     private async Task LogSessionSecurityEventAsync(
         Guid userId,

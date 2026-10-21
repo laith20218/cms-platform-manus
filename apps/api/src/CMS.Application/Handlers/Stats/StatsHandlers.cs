@@ -4,6 +4,7 @@ using CMS.Application.Commands.Stats;
 using CMS.Application.DTOs.Stats;
 using CMS.Application.Interfaces;
 using CMS.Domain.Enums;
+using CMS.Domain.Exceptions;
 
 namespace CMS.Application.Handlers.Stats;
 
@@ -17,11 +18,13 @@ public class StatsHandlers :
 {
     private readonly IApplicationDbContext _db;
     private readonly ICacheService _cache;
+    private readonly IEntitlementService _entitlements;
 
-    public StatsHandlers(IApplicationDbContext db, ICacheService cache)
+    public StatsHandlers(IApplicationDbContext db, ICacheService cache, IEntitlementService entitlements)
     {
         _db = db;
         _cache = cache;
+        _entitlements = entitlements;
     }
 
     // ===== Student Stats =====
@@ -119,6 +122,21 @@ public class StatsHandlers :
     // ===== Leaderboard =====
     public async Task<LeaderboardDto> Handle(GetLeaderboardQuery req, CancellationToken ct)
     {
+        // ABAC enforcement: only subject-scoped leaderboards are supported.
+        // year/college/all scopes would leak cross-cohort rankings because there is no
+        // entitlement path for them yet. Reject with 403 and record a security event
+        // surface via ForbiddenException (the caller's ExceptionHandlingMiddleware logs 403s).
+        if (!string.Equals(req.Scope, "subject", StringComparison.OrdinalIgnoreCase) || !req.ScopeId.HasValue)
+            throw new ForbiddenException("يرفض النظام طلبات لوحة المتصدرين خارج نطاق مادة محددة");
+
+        if (!req.StudentId.HasValue)
+            throw new ForbiddenException("هوية الطالب مطلوبة للوصول إلى لوحة المتصدرين");
+
+        // Server-side entitlement check: the student must have an active grant for the requested subject.
+        // A valid-looking Guid that the student has no entitlement for must not leak cohort data.
+        if (!await _entitlements.CanAccessSubjectAsync(req.StudentId.Value, req.ScopeId.Value, "read", ct))
+            throw new ForbiddenException("لا تملك صلاحية الوصول إلى لوحة متصدرين هذه المادة");
+
         var cacheKey = $"leaderboard:{req.Scope}:{req.ScopeId}:{req.Period}:{req.Count}";
         var cached = await _cache.GetAsync<LeaderboardDto?>(cacheKey, ct);
         if (cached != null) return cached;
@@ -130,19 +148,12 @@ public class StatsHandlers :
             _ => DateTime.MinValue
         };
 
-        // Build base query for first attempts only
+        // Build base query for first attempts only, scoped to the authorized subject
         var query = _db.AttemptLogs.AsNoTracking()
-            .Where(a => a.IsFirstAttempt && a.CreatedAt >= cutoff)
+            .Where(a => a.IsFirstAttempt && a.CreatedAt >= cutoff && a.Question.SubjectId == req.ScopeId.Value)
             .Include(a => a.Student)
             .Include(a => a.Question)
             .ThenInclude(q => q.Subject);
-
-        // Apply scope filter
-        if (req.Scope == "subject" && req.ScopeId.HasValue)
-        {
-            query = (Microsoft.EntityFrameworkCore.Query.IIncludableQueryable<Domain.Entities.AttemptLog, Domain.Entities.Subject>)query
-                .Where(a => a.Question.SubjectId == req.ScopeId.Value);
-        }
 
         var attempts = await query.ToListAsync(ct);
 
