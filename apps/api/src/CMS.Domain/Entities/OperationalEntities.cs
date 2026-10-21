@@ -171,6 +171,9 @@ public class ErrorReport : BaseEntity
     public string? Description { get; set; }
     public string? ScreenshotUrl { get; set; }
     public ErrorReportStatus Status { get; set; } = ErrorReportStatus.Pending;
+    public Guid? AssignedTo { get; set; }      // P1-09: admin assigned to review
+    public Guid? ReviewedBy { get; set; }       // P1-09: admin who started review
+    public DateTime? ReviewedAt { get; set; }    // P1-09: when review started
     public Guid? ResolvedBy { get; set; }
     public DateTime? ResolvedAt { get; set; }
     public string? ResolutionNotes { get; set; }
@@ -178,6 +181,8 @@ public class ErrorReport : BaseEntity
     public Student Student { get; set; } = null!;
     public Question Question { get; set; } = null!;
     public Admin? Resolver { get; set; }
+    public Admin? Assignee { get; set; }
+    public Admin? Reviewer { get; set; }
 }
 
 /// <summary>

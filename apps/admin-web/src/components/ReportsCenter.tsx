@@ -8,8 +8,9 @@ import {
   BookOpenCheck, Target, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
+import { ReportsModeration } from './ReportsModeration';
 
-type Props = { token: string; isArabic: boolean; onError: (message: string) => void };
+type Props = { token: string; isArabic: boolean; onError: (message: string) => void; onNotice?: (message: string) => void };
 
 type RevenueData = { period: string; revenue: number; codesSold: number; newSubscriptions: number };
 type GrowthData = { date: string; newRegistrations: number; activeUsers: number };
@@ -411,6 +412,11 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
             )}
           </div>
         )}
+      </div>
+
+      {/* P1-09: Reports Moderation panel (additive) */}
+      <div className="mt-2">
+        <ReportsModeration token={token} isArabic={isArabic} onError={onError} onNotice={() => {}} />
       </div>
     </section>
   );
