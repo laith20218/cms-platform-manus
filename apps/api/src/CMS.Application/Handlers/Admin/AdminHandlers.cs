@@ -611,7 +611,7 @@ public sealed class AdministratorManagementHandlers :
             .ToListAsync(ct);
 
         return new PagedResult<AdminManagementDto>(
-            admins.Select(admin => ToAdminDto(admin, admin.Role)).ToList(),
+            (await Task.WhenAll(admins.Select(admin => ToAdminDtoAsync(admin, admin.Role, ct)))).ToList(),
             total,
             page,
             pageSize,
@@ -624,7 +624,7 @@ public sealed class AdministratorManagementHandlers :
         var admin = await _db.Admins.AsNoTracking().Include(candidate => candidate.Role)
             .FirstOrDefaultAsync(candidate => candidate.Id == request.TargetAdminId, ct)
             ?? throw new NotFoundException("Admin", request.TargetAdminId);
-        return ToAdminDto(admin, admin.Role);
+        return await ToAdminDtoAsync(admin, admin.Role, ct);
     }
 
     public async Task<AdminRoleManagementDto> Handle(CreateRoleCommand request, CancellationToken ct)
@@ -807,9 +807,62 @@ public sealed class AdministratorManagementHandlers :
         admin.ScopeCollegeId,
         admin.ScopeYearId,
         admin.ScopeSubjectId,
+        // Resolved names populated by ToAdminDtoAsync overload; null here for the sync path
+        ScopeUniversityName: null,
+        ScopeCollegeName: null,
+        ScopeYearName: null,
+        ScopeSubjectName: null,
         admin.Status.ToString().ToLowerInvariant(),
         admin.LastLogin,
         admin.CreatedAt);
+
+    /// <summary>
+    /// Builds an AdminManagementDto with resolved scope names (university, college, year, subject).
+    /// Used by GetAdmin/GetAdmins to give the UI human-readable scope context.
+    /// </summary>
+    private async Task<AdminManagementDto> ToAdminDtoAsync(AdminEntity admin, AdminRole role, CancellationToken ct)
+    {
+        string? uniName = null, colName = null, yearName = null, subjName = null;
+        if (admin.ScopeUniversityId.HasValue)
+        {
+            var uni = await _db.Universities.AsNoTracking().FirstOrDefaultAsync(u => u.Id == admin.ScopeUniversityId.Value, ct);
+            uniName = uni?.NameAr;
+        }
+        if (admin.ScopeCollegeId.HasValue)
+        {
+            var col = await _db.Colleges.AsNoTracking().FirstOrDefaultAsync(c => c.Id == admin.ScopeCollegeId.Value, ct);
+            colName = col?.NameAr;
+        }
+        if (admin.ScopeYearId.HasValue)
+        {
+            var year = await _db.AcademicYears.AsNoTracking().FirstOrDefaultAsync(y => y.Id == admin.ScopeYearId.Value, ct);
+            yearName = year?.NameAr;
+        }
+        if (admin.ScopeSubjectId.HasValue)
+        {
+            var subj = await _db.Subjects.AsNoTracking().FirstOrDefaultAsync(s => s.Id == admin.ScopeSubjectId.Value, ct);
+            subjName = subj?.NameAr;
+        }
+        return new AdminManagementDto(
+            admin.Id,
+            admin.FullName,
+            admin.Email,
+            admin.Phone,
+            role.Id,
+            role.Name,
+            role.NameAr,
+            admin.ScopeUniversityId,
+            admin.ScopeCollegeId,
+            admin.ScopeYearId,
+            admin.ScopeSubjectId,
+            uniName,
+            colName,
+            yearName,
+            subjName,
+            admin.Status.ToString().ToLowerInvariant(),
+            admin.LastLogin,
+            admin.CreatedAt);
+    }
 
     private static AdminRoleManagementDto ToRoleDto(AdminRole role, int adminCount, int permissionCount) => new(
         role.Id,

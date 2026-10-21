@@ -78,7 +78,11 @@ type DashboardStats = {
   revenueChangePercent: number;
 };
 
-const initialAdminForm = { fullName: '', email: '', password: '', phone: '', roleId: '' };
+const initialAdminForm = {
+  fullName: '', email: '', password: '', phone: '', roleId: '',
+  // P1-04: academic scope fields (cascading selectors)
+  scopeUniversityId: '', scopeCollegeId: '', scopeYearId: '', scopeSubjectId: '',
+};
 
 function App() {
   const [locale, setLocale] = useState<Locale>('ar');
@@ -266,7 +270,14 @@ function App() {
   }
 
   function openEditAdmin(admin: AdminRecord) {
-    setAdminForm({ fullName: admin.fullName, email: admin.email, password: '', phone: admin.phone ?? '', roleId: admin.roleId });
+    setAdminForm({
+      fullName: admin.fullName, email: admin.email, password: '', phone: admin.phone ?? '', roleId: admin.roleId,
+      // P1-04: load existing scope from admin record
+      scopeUniversityId: admin.scopeUniversityId ?? '',
+      scopeCollegeId: admin.scopeCollegeId ?? '',
+      scopeYearId: admin.scopeYearId ?? '',
+      scopeSubjectId: admin.scopeSubjectId ?? '',
+    });
     setDialog({ kind: 'edit-admin', admin });
   }
 
@@ -280,10 +291,11 @@ function App() {
         email: adminForm.email,
         phone: adminForm.phone || null,
         roleId: adminForm.roleId,
-        scopeUniversityId: null,
-        scopeCollegeId: null,
-        scopeYearId: null,
-        scopeSubjectId: null,
+        // P1-04: pass actual scope from adminForm (was always null before)
+        scopeUniversityId: adminForm.scopeUniversityId || null,
+        scopeCollegeId: adminForm.scopeCollegeId || null,
+        scopeYearId: adminForm.scopeYearId || null,
+        scopeSubjectId: adminForm.scopeSubjectId || null,
         ...(dialog.kind === 'create-admin' ? { password: adminForm.password } : {}),
       };
       if (dialog.kind === 'create-admin') {
@@ -676,6 +688,7 @@ function App() {
         <DialogLayer
           copy={copy}
           isArabic={isArabic}
+          token={token}
           dialog={dialog}
           roles={roles}
           adminForm={adminForm}

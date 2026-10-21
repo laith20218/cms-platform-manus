@@ -20,6 +20,7 @@ import {
   Plus, Search, ShieldCheck, ShieldOff, Trash2, UsersRound, X,
 } from 'lucide-react';
 import type { AdminRecord, RoleRecord } from '../lib/api';
+import { ScopePicker } from './ScopePicker';
 
 type Copy = Record<string, string>;
 
@@ -46,7 +47,18 @@ type AdminsCenterProps = {
   onStatus: (admin: AdminRecord, active: boolean) => void;
 };
 
-type AdminForm = { fullName: string; email: string; password: string; phone: string; roleId: string };
+type AdminForm = {
+  fullName: string;
+  email: string;
+  password: string;
+  phone: string;
+  roleId: string;
+  // P1-04: academic scope (cascading selectors)
+  scopeUniversityId: string;
+  scopeCollegeId: string;
+  scopeYearId: string;
+  scopeSubjectId: string;
+};
 type RoleForm = { name: string; nameAr: string; description: string };
 type AdminDialog =
   | { kind: 'create-admin' }
@@ -58,6 +70,7 @@ type AdminDialog =
 type DialogLayerProps = {
   copy: Copy;
   isArabic: boolean;
+  token: string;  // P1-04: needed by ScopePicker to load hierarchy
   dialog: AdminDialog;
   roles: RoleRecord[];
   adminForm: AdminForm;
@@ -374,7 +387,7 @@ export function AdminsCenter(props: AdminsCenterProps) {
  */
 export function DialogLayer(props: DialogLayerProps) {
   const {
-    copy, isArabic, dialog, roles, adminForm, selectedRole, roleForm, busy,
+    copy, isArabic, token, dialog, roles, adminForm, selectedRole, roleForm, busy,
     onClose, onAdminForm, onRoleForm, onSubmitAdmin, onSubmitReset,
     onSubmitDelete, onSubmitRole,
   } = props;
@@ -504,17 +517,34 @@ export function DialogLayer(props: DialogLayerProps) {
               </div>
             )}
             {selectedRole && selectedRole.name !== 'super_admin' && (
-              <div
-                className="flex items-start gap-2 rounded-lg border p-3 text-xs"
-                style={{ background: 'var(--cms-ivory-100)', borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}
-              >
-                <LockKeyhole className="w-4 h-4 mt-0.5 shrink-0" style={{ color: 'var(--cms-teal-600)' }} />
-                <p>
-                  <strong className="font-semibold">{copy.scopeLabel}:</strong>{' '}
-                  {isArabic
-                    ? 'سيتم تحديد النطاق الأكاديمي من صفحة التعديل المتقدمة عند ربط دليل الجامعة.'
-                    : 'Academic scope will be selected in the extended edit view after the academic directory is connected.'}
-                </p>
+              <div className="rounded-lg border p-3 space-y-2" style={{ background: 'var(--cms-ivory-100)', borderColor: 'var(--cms-line)' }}>
+                <div className="flex items-center gap-2">
+                  <LockKeyhole className="w-4 h-4 shrink-0" style={{ color: 'var(--cms-teal-600)' }} />
+                  <strong className="text-xs font-semibold" style={{ color: 'var(--cms-text)' }}>{copy.scopeLabel}</strong>
+                </div>
+                <ScopePicker
+                  token={token}
+                  isArabic={isArabic}
+                  value={{
+                    universityId: adminForm.scopeUniversityId || '',
+                    collegeId: adminForm.scopeCollegeId || '',
+                    yearId: adminForm.scopeYearId || '',
+                    subjectId: adminForm.scopeSubjectId || '',
+                  }}
+                  onChange={(scope) => onAdminForm({
+                    ...adminForm,
+                    scopeUniversityId: scope.universityId,
+                    scopeCollegeId: scope.collegeId,
+                    scopeYearId: scope.yearId,
+                    scopeSubjectId: scope.subjectId,
+                  })}
+                  existingNames={dialog.kind === 'edit-admin' ? {
+                    universityName: dialog.admin.scopeUniversityName,
+                    collegeName: dialog.admin.scopeCollegeName,
+                    yearName: dialog.admin.scopeYearName,
+                    subjectName: dialog.admin.scopeSubjectName,
+                  } : undefined}
+                />
               </div>
             )}
             <div className="flex gap-3 justify-end pt-2 border-t" style={{ borderColor: 'var(--cms-line)' }}>

@@ -89,6 +89,10 @@ public record AdminManagementDto(
     Guid? ScopeCollegeId,
     Guid? ScopeYearId,
     Guid? ScopeSubjectId,
+    string? ScopeUniversityName,
+    string? ScopeCollegeName,
+    string? ScopeYearName,
+    string? ScopeSubjectName,
     string Status,
     DateTime? LastLogin,
     DateTime CreatedAt
