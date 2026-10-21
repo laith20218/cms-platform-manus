@@ -119,6 +119,12 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         {
             entity.Property(x => x.IsActive).HasDefaultValue(true);
         });
+        // P1-09: ErrorReport navigation relationships for moderation
+        modelBuilder.Entity<ErrorReport>(entity =>
+        {
+            entity.HasOne(x => x.Assignee).WithMany().HasForeignKey(x => x.AssignedTo).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(x => x.Reviewer).WithMany().HasForeignKey(x => x.ReviewedBy).OnDelete(DeleteBehavior.SetNull);
+        });
         modelBuilder.Entity<SystemSetting>(entity =>
         {
             entity.HasIndex(x => x.Key).IsUnique();
