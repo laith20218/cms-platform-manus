@@ -119,6 +119,11 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         {
             entity.Property(x => x.IsActive).HasDefaultValue(true);
         });
+        // P1-10: Map Notification.Sender navigation to SentBy FK (not auto-generated sender_id)
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.HasOne(n => n.Sender).WithMany().HasForeignKey(n => n.SentBy).OnDelete(DeleteBehavior.Restrict);
+        });
         // P1-09: ErrorReport navigation relationships for moderation
         modelBuilder.Entity<ErrorReport>(entity =>
         {
