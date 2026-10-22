@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   BarChart, Bar, Line, AreaChart, Area, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import {
   Activity, BarChart3, FileText, LoaderCircle, TrendingUp, Users,
-  BookOpenCheck, Target, AlertTriangle, RefreshCw,
+  BookOpenCheck, Target, AlertTriangle, RefreshCw, Download, Calendar, FileSpreadsheet,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
 import { ReportsModeration } from './ReportsModeration';
@@ -27,6 +27,45 @@ type GlobalStats = {
 
 const COLORS = ['#0d746b', '#12877d', '#1a9b90', '#4cb8ae', '#35718a', '#a36c1f', '#198566', '#b6473d'];
 
+// Date range presets
+const DATE_PRESETS = [
+  { value: '7d', ar: 'آخر 7 أيام', en: 'Last 7 days', months: 0, days: 7 },
+  { value: '30d', ar: 'آخر 30 يوم', en: 'Last 30 days', months: 0, days: 30 },
+  { value: '90d', ar: 'آخر 90 يوم', en: 'Last 90 days', months: 0, days: 90 },
+  { value: '6m', ar: 'آخر 6 أشهر', en: 'Last 6 months', months: 6, days: 0 },
+  { value: '12m', ar: 'آخر سنة', en: 'Last 12 months', months: 12, days: 0 },
+];
+
+function exportCsv(filename: string, headers: string[], rows: (string | number)[][]) {
+  const csv = [headers.join(','), ...rows.map(r => r.map(c => typeof c === 'string' && c.includes(',') ? `"${c.replace(/"/g, '""')}"` : c).join(','))].join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportHtmlPdf(title: string, sections: { heading: string; rows: (string | number)[][] }[]) {
+  const html = `<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>${title}</title>
+  <style>body{font-family:system-ui,sans-serif;padding:24px;color:#18384c}
+  h1{font-size:20px;margin-bottom:4px}h2{font-size:14px;margin-top:16px;margin-bottom:8px;color:#0d746b}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px}
+  th{background:#f7f4ec;padding:6px 8px;text-align:right;border:1px solid #dfe7e3}
+  td{padding:6px 8px;border:1px solid #dfe7e3}
+  .meta{font-size:11px;color:#7a8c97;margin-bottom:16px}</style></head>
+  <body><h1>${title}</h1><div class="meta">Generated: ${new Date().toLocaleString()}</div>
+  ${sections.map(s => `<h2>${s.heading}</h2><table><tr>${s.rows[0]?.map((_, i) => `<th>${i + 1}</th>`).join('') || ''}</tr>${s.rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</table>`).join('')}
+  </body></html>`;
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, '_blank');
+  if (w) { w.onload = () => setTimeout(() => w.print(), 500); }
+}
+
 export function ReportsCenter({ token, isArabic, onError }: Props) {
   const [revenue, setRevenue] = useState<RevenueData[]>([]);
   const [growth, setGrowth] = useState<GrowthData[]>([]);
@@ -35,43 +74,64 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
   const [globalStats, setGlobalStats] = useState<GlobalStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [dateRange, setDateRange] = useState('6m');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const preset = DATE_PRESETS.find(p => p.value === dateRange) ?? DATE_PRESETS[3];
+
+  const buildPaths = useCallback(() => {
+    const revenuePath = preset.months > 0
+      ? `/api/v1/admin/revenue?months=${preset.months}`
+      : `/api/v1/admin/revenue?months=${Math.max(1, Math.ceil(preset.days / 30))}`;
+    const growthDays = preset.days > 0 ? preset.days : preset.months * 30;
+    return {
+      revenue: revenuePath,
+      growth: `/api/v1/admin/student-growth?days=${growthDays}`,
+      topSubjects: '/api/v1/admin/top-subjects',
+      reportsSummary: '/api/v1/admin/reports/summary',
+      global: '/api/v1/stats/global',
+    };
+  }, [preset]);
 
   const request = async <T,>(path: string) => apiRequest<T>(path, token);
 
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     setRefreshing(true);
     try {
+      const paths = buildPaths();
       const [rev, grw, top, rep, glob] = await Promise.allSettled([
-        request<RevenueData[]>('/api/v1/admin/revenue?months=6'),
-        request<GrowthData[]>('/api/v1/admin/student-growth?days=30'),
-        request<TopSubject[]>('/api/v1/admin/top-subjects'),
-        request<ReportsSummary>('/api/v1/admin/reports/summary'),
-        request<GlobalStats>('/api/v1/stats/global'),
+        request<RevenueData[]>(paths.revenue),
+        request<GrowthData[]>(paths.growth),
+        request<TopSubject[]>(paths.topSubjects),
+        request<ReportsSummary>(paths.reportsSummary),
+        request<GlobalStats>(paths.global),
       ]);
       if (rev.status === 'fulfilled') setRevenue(rev.value);
       if (grw.status === 'fulfilled') setGrowth(grw.value);
       if (top.status === 'fulfilled') setTopSubjects(top.value);
       if (rep.status === 'fulfilled') setReportsSummary(rep.value);
       if (glob.status === 'fulfilled') setGlobalStats(glob.value);
+      setLastUpdated(new Date());
     } catch (error) {
       onError(error instanceof Error ? error.message : isArabic ? 'تعذّر تحميل التقارير' : 'Could not load reports');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [buildPaths, token, isArabic, onError]);
 
   useEffect(() => {
     let cancelled = false;
-    const doLoad = async () => {
+    (async () => {
       setRefreshing(true);
       try {
+        const paths = buildPaths();
         const [rev, grw, top, rep, glob] = await Promise.allSettled([
-          request<RevenueData[]>('/api/v1/admin/revenue?months=6'),
-          request<GrowthData[]>('/api/v1/admin/student-growth?days=30'),
-          request<TopSubject[]>('/api/v1/admin/top-subjects'),
-          request<ReportsSummary>('/api/v1/admin/reports/summary'),
-          request<GlobalStats>('/api/v1/stats/global'),
+          request<RevenueData[]>(paths.revenue),
+          request<GrowthData[]>(paths.growth),
+          request<TopSubject[]>(paths.topSubjects),
+          request<ReportsSummary>(paths.reportsSummary),
+          request<GlobalStats>(paths.global),
         ]);
         if (cancelled) return;
         if (rev.status === 'fulfilled') setRevenue(rev.value);
@@ -79,16 +139,37 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
         if (top.status === 'fulfilled') setTopSubjects(top.value);
         if (rep.status === 'fulfilled') setReportsSummary(rep.value);
         if (glob.status === 'fulfilled') setGlobalStats(glob.value);
+        setLastUpdated(new Date());
       } catch (error) {
         if (!cancelled) onError(error instanceof Error ? error.message : isArabic ? 'تعذّر تحميل التقارير' : 'Could not load reports');
       } finally {
         if (!cancelled) { setLoading(false); setRefreshing(false); }
       }
-    };
-    doLoad();
+    })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, dateRange]);
+
+  // CSV exports
+  const exportRevenueCsv = () => {
+    exportCsv(`revenue-${dateRange}.csv`, ['Period', 'Estimated Value', 'Codes Sold', 'New Subscriptions'],
+      revenue.map(r => [r.period, r.revenue, r.codesSold, r.newSubscriptions]));
+  };
+  const exportGrowthCsv = () => {
+    exportCsv(`student-growth-${dateRange}.csv`, ['Date', 'New Registrations', 'Active Users'],
+      growth.map(g => [g.date, g.newRegistrations, g.activeUsers]));
+  };
+  const exportTopSubjectsCsv = () => {
+    exportCsv('top-subjects.csv', ['Subject', 'Questions Answered', 'Average Accuracy (%)', 'Active Students'],
+      topSubjects.map(s => [s.subjectName, s.questionsAnswered, s.averageAccuracy.toFixed(1), s.activeStudents]));
+  };
+  const exportPdf = () => {
+    const sections: { heading: string; rows: (string | number)[][] }[] = [];
+    if (revenue.length > 0) sections.push({ heading: isArabic ? 'القيمة التقديرية' : 'Estimated Value', rows: [['Period', 'Value', 'Codes', 'Subs'], ...revenue.map(r => [r.period, r.revenue, r.codesSold, r.newSubscriptions])] });
+    if (growth.length > 0) sections.push({ heading: isArabic ? 'نمو الطلاب' : 'Student Growth', rows: [['Date', 'New Reg', 'Active'], ...growth.map(g => [g.date, g.newRegistrations, g.activeUsers])] });
+    if (topSubjects.length > 0) sections.push({ heading: isArabic ? 'أكثر المواد نشاطاً' : 'Top Subjects', rows: [['Subject', 'Answered', 'Accuracy %', 'Active Students'], ...topSubjects.map(s => [s.subjectName, s.questionsAnswered, s.averageAccuracy.toFixed(1), s.activeStudents])] });
+    exportHtmlPdf(isArabic ? 'تقرير المنصة' : 'Platform Report', sections);
+  };
 
   const t = isArabic
     ? {
@@ -104,6 +185,7 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
         recentReports: 'أحدث البلاغات', question: 'السؤال', count: 'العدد', reason: 'السبب', lastDate: 'آخر بلاغ',
         hourlyActivity: 'النشاط بالساعة', hour: 'الساعة', uniqueStudents: 'طلاب فريدون', totalAns: 'إجمالي الإجابات',
         refresh: 'تحديث', loading: 'جارٍ تحميل التقارير...', noData: 'لا توجد بيانات كافية',
+        dateRange: 'الفترة الزمنية', exportCsv: 'تصدير CSV', exportPdf: 'تصدير PDF', lastUpdate: 'آخر تحديث',
       }
     : {
         title: 'Reports & Analytics', desc: 'Comprehensive view of platform, student, and content performance',
@@ -118,6 +200,7 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
         recentReports: 'Recent Reports', question: 'Question', count: 'Count', reason: 'Reason', lastDate: 'Last reported',
         hourlyActivity: 'Hourly Activity', hour: 'Hour', uniqueStudents: 'Unique students', totalAns: 'Total answers',
         refresh: 'Refresh', loading: 'Loading reports...', noData: 'Not enough data',
+        dateRange: 'Date range', exportCsv: 'Export CSV', exportPdf: 'Export PDF', lastUpdate: 'Last updated',
       };
 
   if (loading) {
@@ -146,8 +229,8 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
 
   return (
     <section className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-4">
+      {/* Header + Date range + Export */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)' }}>
             <BarChart3 size={20} />
@@ -157,11 +240,52 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
             <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>{t.desc}</p>
           </div>
         </div>
-        <button onClick={() => loadAll()} disabled={refreshing} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all hover:shadow-sm disabled:opacity-50" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text-soft)' }}>
-          {refreshing ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
-          {t.refresh}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Date range selector */}
+          <div className="flex items-center gap-1.5">
+            <Calendar size={14} style={{ color: 'var(--cms-text-muted)' }} />
+            <select
+              value={dateRange}
+              onChange={(e) => { setDateRange(e.target.value); setLoading(true); }}
+              disabled={refreshing}
+              className="h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
+              style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+            >
+              {DATE_PRESETS.map(p => <option key={p.value} value={p.value}>{isArabic ? p.ar : p.en}</option>)}
+            </select>
+          </div>
+          {/* Export buttons */}
+          <div className="flex items-center gap-1">
+            <button onClick={exportRevenueCsv} disabled={revenue.length === 0}
+              className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg border text-xs font-medium disabled:opacity-40"
+              style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}
+              title={t.exportCsv + ' — ' + t.revenue}>
+              <FileSpreadsheet size={13} /> CSV
+            </button>
+            <button onClick={exportPdf} disabled={revenue.length === 0 && growth.length === 0 && topSubjects.length === 0}
+              className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg border text-xs font-medium disabled:opacity-40"
+              style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}
+              title={t.exportPdf}>
+              <Download size={13} /> PDF
+            </button>
+          </div>
+          {/* Refresh */}
+          <button onClick={() => loadAll()} disabled={refreshing}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all hover:shadow-sm disabled:opacity-50"
+            style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text-soft)' }}>
+            {refreshing ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
+            {t.refresh}
+          </button>
+        </div>
       </div>
+
+      {/* Last updated */}
+      {lastUpdated && (
+        <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+          {t.lastUpdate}: {new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(lastUpdated)}
+          {dateRange && ` · ${DATE_PRESETS.find(p => p.value === dateRange)?.[isArabic ? 'ar' : 'en'] ?? ''}`}
+        </div>
+      )}
 
       {/* Platform Overview Cards */}
       {globalStats && (
@@ -187,11 +311,18 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
 
       {/* Revenue + Growth Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Revenue */}
+        {/* Revenue (Estimated Value) */}
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <div className="flex items-center gap-2 mb-1">
-            <TrendingUp size={18} style={{ color: 'var(--cms-teal-700)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.revenue}</h3>
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <TrendingUp size={18} style={{ color: 'var(--cms-teal-700)' }} />
+              <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.revenue}</h3>
+            </div>
+            <button onClick={exportRevenueCsv} disabled={revenue.length === 0}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border disabled:opacity-40"
+              style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-muted)' }}>
+              <FileSpreadsheet size={10} /> CSV
+            </button>
           </div>
           <p className="text-[11px] mb-3" style={{ color: 'var(--cms-text-muted)' }}>{t.revenueNote}</p>
           {revenue.length > 0 ? (
@@ -205,6 +336,7 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
                 <Bar dataKey="revenue" name={t.revenue} fill="var(--cms-teal-600)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
+            {/* Consume codesSold + newSubscriptions fields */}
             <div className="grid grid-cols-2 gap-2 mt-3">
               <div className="text-center p-2 rounded-lg" style={{ background: 'var(--cms-ivory-100)' }}>
                 <div className="text-lg font-bold tabular-nums" style={{ color: 'var(--cms-text)' }}>{revenue.reduce((s, r) => s + r.codesSold, 0)}</div>
@@ -223,9 +355,16 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
 
         {/* Student Growth */}
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <div className="flex items-center gap-2 mb-4">
-            <Users size={18} style={{ color: 'var(--cms-teal-700)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.growth}</h3>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Users size={18} style={{ color: 'var(--cms-teal-700)' }} />
+              <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.growth}</h3>
+            </div>
+            <button onClick={exportGrowthCsv} disabled={growth.length === 0}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border disabled:opacity-40"
+              style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-muted)' }}>
+              <FileSpreadsheet size={10} /> CSV
+            </button>
           </div>
           {growth.length > 0 ? (
             <ResponsiveContainer width="100%" height={240}>
@@ -252,11 +391,18 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
 
       {/* Top Subjects + Hourly Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Top Subjects */}
+        {/* Top Subjects — consumes averageAccuracy + activeStudents */}
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <div className="flex items-center gap-2 mb-4">
-            <BookOpenCheck size={18} style={{ color: 'var(--cms-teal-700)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.topSubjects}</h3>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <BookOpenCheck size={18} style={{ color: 'var(--cms-teal-700)' }} />
+              <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.topSubjects}</h3>
+            </div>
+            <button onClick={exportTopSubjectsCsv} disabled={topSubjects.length === 0}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border disabled:opacity-40"
+              style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-muted)' }}>
+              <FileSpreadsheet size={10} /> CSV
+            </button>
           </div>
           {topSubjects.length > 0 ? (
             <>
@@ -271,6 +417,7 @@ export function ReportsCenter({ token, isArabic, onError }: Props) {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+            {/* Detail table consuming averageAccuracy + activeStudents */}
             <div className="space-y-1.5 mt-3">
               {topSubjects.slice(0, 5).map((s, i) => (
                 <div key={i} className="flex items-center justify-between py-1 border-b last:border-0" style={{ borderColor: 'var(--cms-line)' }}>
