@@ -1,12 +1,16 @@
 /** Style reminder — غرفة القيادة السريرية: production API calls stay explicit, fail visibly, and never persist credentials. */
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'https://cms-api-preview.onrender.com').replace(/\/$/, '');
 
+// FIX-2: Backend UserDto returns { id, phone, fullName, role, avatarUrl, university, college }
+// — no `email` field. AdminUser now matches the actual backend response.
 export type AdminUser = {
   id: string;
+  phone: string;
   fullName: string;
-  email: string;
   role: string;
   avatarUrl?: string | null;
+  university?: { id: string; nameAr: string } | null;
+  college?: { id: string; nameAr: string } | null;
 };
 
 export type AdminRecord = {
@@ -84,15 +88,49 @@ export async function apiRequest<T>(path: string, token: string, init?: RequestI
   return payload as T;
 }
 
-export async function login(email: string, password: string): Promise<{ accessToken: string; user: AdminUser }> {
+// FIX-1 + FIX-3: Capture refreshToken + use per-browser installationId
+const ADMIN_INSTALLATION_KEY = 'cms-admin-installation-id';
+
+function getOrCreateInstallationId(): string {
+  try {
+    let id = sessionStorage.getItem(ADMIN_INSTALLATION_KEY);
+    if (!id) {
+      id = `admin-web-${crypto.randomUUID()}`;
+      sessionStorage.setItem(ADMIN_INSTALLATION_KEY, id);
+    }
+    return id;
+  } catch {
+    return `admin-web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
+export async function login(email: string, password: string): Promise<{ accessToken: string; refreshToken: string; user: AdminUser }> {
   const response = await fetch(`${API_BASE_URL}/api/v1/auth/admin/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, twoFactorCode: null, installationId: 'cms-admin-web-production' }),
+    body: JSON.stringify({ email, password, twoFactorCode: null, installationId: getOrCreateInstallationId() }),
   });
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) throw new ApiError(readMessage(payload), response.status);
-  return payload as { accessToken: string; user: AdminUser };
+  // FIX-1: Backend returns { accessToken, refreshToken, tokenType, expiresIn, user }
+  const result = payload as { accessToken: string; refreshToken: string; tokenType: string; expiresIn: number; user: AdminUser };
+  return { accessToken: result.accessToken, refreshToken: result.refreshToken, user: result.user };
+}
+
+// FIX-1: Refresh token mechanism — calls /auth/refresh to get new accessToken
+export async function refreshAccessToken(refreshToken: string): Promise<string | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken, installationId: getOrCreateInstallationId() }),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json().catch(() => null);
+    return payload?.accessToken ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ===== Library (ADMIN-02) =====

@@ -10,7 +10,7 @@ import { apiClient } from '@/services/api-client';
 export default function SettingsPage() {
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
   const [notifEnabled, setNotifEnabled] = useState(true);
-  const [oldPassword, setOldPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
@@ -23,11 +23,11 @@ export default function SettingsPage() {
 
   const passwordMutation = useMutation({
     mutationFn: async () => {
-      await apiClient.post('/auth/change-password', { oldPassword, newPassword });
+      await apiClient.post('/auth/change-password', { currentPassword, newPassword });
     },
     onSuccess: () => {
       toast.success('تم تغيير كلمة المرور');
-      setOldPassword(''); setNewPassword(''); setConfirmPassword('');
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
     },
     onError: (error: any) => {
       toast.error(error?.response?.data?.detail || 'فشل');
@@ -76,7 +76,7 @@ export default function SettingsPage() {
       <section className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6">
         <h2 className="text-base font-semibold mb-4 text-[var(--cms-text)] flex items-center gap-2"><Lock className="w-4 h-4" /> تغيير كلمة المرور</h2>
         <form onSubmit={handlePassword} className="space-y-3">
-          <input type="password" placeholder="كلمة المرور الحالية" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} required className="w-full h-11 rounded-xl border border-[var(--cms-line)] bg-[var(--cms-ivory-50)] px-4 text-sm focus:outline-none" />
+          <input type="password" placeholder="كلمة المرور الحالية" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required className="w-full h-11 rounded-xl border border-[var(--cms-line)] bg-[var(--cms-ivory-50)] px-4 text-sm focus:outline-none" />
           <input type="password" placeholder="كلمة المرور الجديدة (8 أحرف)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={8} className="w-full h-11 rounded-xl border border-[var(--cms-line)] bg-[var(--cms-ivory-50)] px-4 text-sm focus:outline-none" />
           <input type="password" placeholder="تأكيد كلمة المرور" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={8} className="w-full h-11 rounded-xl border border-[var(--cms-line)] bg-[var(--cms-ivory-50)] px-4 text-sm focus:outline-none" />
           <button type="submit" disabled={passwordMutation.isPending} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-white disabled:opacity-50" style={{ background: 'var(--cms-teal-700)' }}>
