@@ -128,3 +128,28 @@ b6bf8ba feat(testing): Vitest in admin-web — 12 tests passing across 3 files
 21ace7e feat(student-web): /exams + /library catalog pages + real footer links + hide OTP
 42a7688 feat(admin-04): date range picker + CSV/PDF export + consume unused fields
 ```
+
+---
+
+## Wave 4 — Testing + Security (local only, not yet deployed)
+
+### What was delivered
+
+**1. Backend Integration Tests (19 tests, all passing)**
+- `AdminEndpointsIntegrationTests.cs` — tests 6 controllers:
+  - SystemSettings: 5 tests (GET all, GET by key, PUT update, GET 404, unauth 401)
+  - AdminStudents: 2 tests (PUT update profile, PUT 404)
+  - AdminReports: 2 tests (GET list, GET with status filter)
+  - AdminAnalytics: 7 tests (students, academic, exams, questions, content, codes, operations)
+  - SecurityController: 2 tests (audit-logs GET, unauth 401)
+  - Notifications: 1 test (GET sent)
+- `AdminEndpointFactory`: WebApplicationFactory with super_admin auth + seeded data + mocked services
+- Backend tests: **180/180 InMemory pass** (161 existing + 19 new)
+
+**2. HTML Sanitizer (content security)**
+- Ganss.XSS package installed
+- HtmlSanitizerService: strips scripts, event handlers, dangerous attributes
+- Wired into library upload flow
+
+### Not deployed yet
+All changes are local on `feature/wave4-testing-security` branch. Will be deployed in batch when Vercel limit resets.
