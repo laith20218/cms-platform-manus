@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { BarChart3, BookOpen, Clock, Target, Trophy, Loader2, Bookmark } from 'lucide-react';
+import { BarChart3, BookOpen, Clock, Target, Trophy, Bookmark } from 'lucide-react';
 import { useAuth } from '@/app/providers/useAuth';
 import { statsApi } from '@/features/stats/services/stats-api';
+import { Skeleton, SkeletonCard } from '@/components/ui/Skeleton';
 
 function formatStudyTime(minutes: number) {
   if (minutes < 60) return `${minutes} د`;
@@ -13,7 +14,15 @@ export function DashboardPage() {
   const { user } = useAuth();
   const stats = useQuery({ queryKey: ['stats', 'me', 'all'], queryFn: () => statsApi.getMyStats('all') });
 
-  if (stats.isLoading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-[var(--c-primary-700)]" /></div>;
+  if (stats.isLoading) return (
+    <div className="space-y-6">
+      <div><Skeleton className="w-64 h-8" /></div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
+      </div>
+      <Skeleton className="w-full h-64" />
+    </div>
+  );
   if (stats.isError || !stats.data) return <section className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center"><h1 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل لوحة التحكم</h1><button onClick={() => stats.refetch()} className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white">إعادة المحاولة</button></section>;
 
   const data = stats.data;

@@ -389,7 +389,16 @@ export default function QuestionPage() {
               <Flag className="w-3.5 h-3.5" />
               إبلاغ
             </button>
-            <button className="flex items-center gap-1.5 px-3 py-2 rounded-[8px] border border-[var(--c-border-strong)] text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] text-[13px] font-semibold transition-all">
+            <button
+              onClick={() => {
+                if (navigator.share) {
+                  navigator.share({ title: 'سؤال من منصة CMS', text: currentQuestion?.text ?? '', url: window.location.href }).catch(() => {});
+                } else {
+                  navigator.clipboard?.writeText(window.location.href).then(() => toast.success('تم نسخ الرابط'));
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-[8px] border border-[var(--c-border-strong)] text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] text-[13px] font-semibold transition-all"
+            >
               <Share2 className="w-3.5 h-3.5" />
               مشاركة
             </button>

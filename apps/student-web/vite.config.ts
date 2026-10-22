@@ -23,7 +23,28 @@ export default defineConfig(({ mode }) => {
             { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           ],
         },
-        workbox: { globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'], runtimeCaching: [{ urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*$/i, handler: 'CacheFirst', options: { cacheName: 'google-fonts-cache', expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 } } }] },
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+          navigateFallback: '/index.html',
+          navigateFallbackDenylist: [/^\/api\//],
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*$/i,
+              handler: 'CacheFirst',
+              options: { cacheName: 'google-fonts-cache', expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 } }
+            },
+            {
+              urlPattern: /^https:\/\/.*\.onrender\.com\/api\/.*$/i,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'api-cache',
+                networkTimeoutSeconds: 10,
+                expiration: { maxEntries: 50, maxAgeSeconds: 60 * 5 },
+                cacheableResponse: { statuses: [0, 200] }
+              }
+            }
+          ]
+        },
       }),
     ],
     resolve: { alias: { '@': path.resolve(__dirname, './src'), '@cms/ui': path.resolve(__dirname, '../../packages/ui/src'), '@cms/types': path.resolve(__dirname, '../../packages/types/src'), '@cms/utils': path.resolve(__dirname, '../../packages/utils/src') } },
@@ -33,9 +54,9 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist', sourcemap: false,
-      rollupOptions: { output: { manualChunks: { 'react-vendor': ['react', 'react-dom', 'react-router-dom'], 'query-vendor': ['@tanstack/react-query'], 'ui-vendor': ['framer-motion', 'lucide-react', 'sonner'], 'form-vendor': ['react-hook-form', '@hookform/resolvers', 'zod'] } } },
+      rollupOptions: { output: { manualChunks: { 'react-vendor': ['react', 'react-dom', 'react-router-dom'], 'query-vendor': ['@tanstack/react-query'], 'ui-vendor': ['framer-motion', 'lucide-react', 'sonner'] } } },
       minify: 'terser', terserOptions: { compress: { drop_console: true, drop_debugger: true } }, chunkSizeWarningLimit: 500, cssCodeSplit: true, assetsInlineLimit: 4096,
     },
-    optimizeDeps: { include: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query', 'axios', 'framer-motion', 'lucide-react', 'sonner', 'clsx', 'tailwind-merge'], exclude: ['@cms/ui', '@cms/types', '@cms/utils'] },
+    optimizeDeps: { include: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query', 'axios', 'framer-motion', 'lucide-react', 'sonner', 'clsx', 'tailwind-merge'] },
   };
 });

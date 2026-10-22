@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
@@ -160,6 +161,3 @@ export default function NotificationsPage() {
     </div>
   );
 }
-
-// Need useState import
-import { useState } from 'react';
