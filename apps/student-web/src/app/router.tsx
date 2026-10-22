@@ -18,12 +18,19 @@ const QuestionPage = lazy(() => import('@/features/questions/QuestionPage'));
 const FavoritesPage = lazy(() => import('@/features/questions/FavoritesPage'));
 const ExamPage = lazy(() => import('@/features/exams/pages/ExamPage'));
 const ExamReviewPage = lazy(() => import('@/features/exams/pages/ExamReviewPage'));
+const ExamsCatalogPage = lazy(() => import('@/features/exams/pages/ExamsCatalogPage'));
 const LibraryPage = lazy(() => import('@/features/library/LibraryPage'));
+const LibraryCatalogPage = lazy(() => import('@/features/library/LibraryCatalogPage'));
 const SearchPage = lazy(() => import('@/features/search/SearchPage'));
 const ProfilePage = lazy(() => import('@/features/profile/ProfilePage'));
 const NotificationsPage = lazy(() => import('@/features/notifications/pages/NotificationsPage'));
 const StatsPage = lazy(() => import('@/features/stats/pages/StatsPage'));
 const LeaderboardPage = lazy(() => import('@/features/stats/pages/LeaderboardPage'));
+const TermsPage = lazy(() => import('@/features/legal/TermsPage'));
+const PrivacyPage = lazy(() => import('@/features/legal/PrivacyPage'));
+
+// P2-31: Hide OTP route when OtpEnabled=false
+const otpEnabled = import.meta.env.VITE_OTP_ENABLED === 'true';
 
 export function AppRoutes() {
   return (
@@ -32,9 +39,14 @@ export function AppRoutes() {
         {/* Public Routes */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
-        <Route path="/verify-otp" element={<VerifyOtpPage />} />
+        {/* P2-31: Only register /verify-otp if OTP is enabled */}
+        {otpEnabled && <Route path="/verify-otp" element={<VerifyOtpPage />} />}
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+
+        {/* Legal pages (public, replace href="#" placeholders) */}
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
 
         {/* Protected Routes (require auth) */}
         <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
@@ -45,8 +57,12 @@ export function AppRoutes() {
           <Route path="/subjects/:subjectSlug/lectures/:lectureId/questions" element={<QuestionPage />} />
           <Route path="/subjects/:subjectSlug/questions/:questionId" element={<QuestionPage />} />
           <Route path="/favorites" element={<FavoritesPage />} />
+          {/* P2-27: Independent /exams catalog page */}
+          <Route path="/exams" element={<ExamsCatalogPage />} />
           <Route path="/exams/:examId" element={<ExamPage />} />
           <Route path="/exams/:sessionId/review" element={<ExamReviewPage />} />
+          {/* P2-28: Independent /library catalog page */}
+          <Route path="/library" element={<LibraryCatalogPage />} />
           <Route path="/subjects/:subjectSlug/library" element={<LibraryPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/profile" element={<ProfilePage />} />

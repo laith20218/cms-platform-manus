@@ -1,10 +1,12 @@
 import { NavLink } from 'react-router-dom';
-import { Bell, BarChart3, LayoutGrid, GraduationCap, Star, Search, Trophy } from 'lucide-react';
+import { Bell, BarChart3, LayoutGrid, GraduationCap, Star, Search, Trophy, ClipboardCheck, FileText } from 'lucide-react';
 import { cn } from '@/utils';
 
 const navItems = [
   { to: '/dashboard', icon: LayoutGrid, label: 'لوحة التحكم' },
   { to: '/subjects', icon: GraduationCap, label: 'المواد' },
+  { to: '/exams', icon: ClipboardCheck, label: 'الاختبارات' },
+  { to: '/library', icon: FileText, label: 'المكتبة' },
   { to: '/favorites', icon: Star, label: 'المفضلة' },
   { to: '/search', icon: Search, label: 'البحث' },
   { to: '/stats', icon: BarChart3, label: 'تقدمي' },
