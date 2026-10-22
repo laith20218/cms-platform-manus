@@ -116,13 +116,25 @@ public class NotificationsController : ControllerBase
         [FromBody] SendNotificationDto dto, CancellationToken ct)
     {
         if (!await CanTargetAsync(Actions.Create, dto.TargetType, dto.TargetId, ct)) return Forbid();
-        var result = await _mediator.Send(new SendNotificationCommand(
-            dto.Type, dto.Title, dto.Body,
-            dto.Icon, dto.ActionUrl, dto.ActionLabel,
-            dto.TargetType, dto.TargetId,
-            dto.ScheduledAt, dto.ExpiresAt, GetAdminId()
-        ), ct);
-        return Ok(result);
+        try
+        {
+            var result = await _mediator.Send(new SendNotificationCommand(
+                dto.Type, dto.Title, dto.Body,
+                dto.Icon, dto.ActionUrl, dto.ActionLabel,
+                dto.TargetType, dto.TargetId,
+                dto.ScheduledAt, dto.ExpiresAt, GetAdminId()
+            ), ct);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(502, new ProblemDetails
+            {
+                Title = "Notification send failed",
+                Status = 502,
+                Detail = $"{ex.GetType().Name}: {ex.Message}",
+            });
+        }
     }
 
     /// <summary>
