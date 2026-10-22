@@ -25,7 +25,7 @@ public record SendNotificationCommand(
     string Type, string Title, string Body,
     string? Icon, string? ActionUrl, string? ActionLabel,
     string TargetType, Guid? TargetId,
-    DateTime? ScheduledAt, Guid SentBy
+    DateTime? ScheduledAt, DateTime? ExpiresAt, Guid SentBy
 ) : IRequest<SendNotificationResultDto>;
 
 // ===== Admin: Get Notification Stats =====
