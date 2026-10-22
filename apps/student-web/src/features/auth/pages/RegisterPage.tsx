@@ -225,7 +225,7 @@ export default function RegisterPage() {
               <span className={`w-[18px] h-[18px] rounded-[5px] border-[1.5px] flex items-center justify-center transition-all ${formData.acceptTerms ? 'bg-[var(--c-primary-700)] border-[var(--c-primary-700)]' : 'border-[var(--c-border-strong)] bg-white'}`}>
                 {formData.acceptTerms && <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="w-3 h-3"><polyline points="20 6 9 17 4 12" /></svg>}
               </span>
-              أوافق على <a href="#" className="text-[var(--c-primary-700)] font-semibold hover:underline">الشروط</a> و<a href="#" className="text-[var(--c-primary-700)] font-semibold hover:underline">سياسة الخصوصية</a>
+              أوافق على <a href="/terms" className="text-[var(--c-primary-700)] font-semibold hover:underline">الشروط</a> و<a href="/privacy" className="text-[var(--c-primary-700)] font-semibold hover:underline">سياسة الخصوصية</a>
             </label>
 
             {/* Submit */}
