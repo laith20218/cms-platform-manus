@@ -36,7 +36,8 @@ public record SendNotificationDto(
     string? ActionLabel,
     string TargetType,       // student, subject, semester, year, college, university, all
     Guid? TargetId,          // null for "all"
-    DateTime? ScheduledAt    // null for immediate
+    DateTime? ScheduledAt,   // null for immediate
+    DateTime? ExpiresAt      // P1-10: optional expiry (null = never expires)
 );
 
 public record SendNotificationResultDto(

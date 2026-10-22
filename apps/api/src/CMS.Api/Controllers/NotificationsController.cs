@@ -120,7 +120,7 @@ public class NotificationsController : ControllerBase
             dto.Type, dto.Title, dto.Body,
             dto.Icon, dto.ActionUrl, dto.ActionLabel,
             dto.TargetType, dto.TargetId,
-            dto.ScheduledAt, GetAdminId()
+            dto.ScheduledAt, dto.ExpiresAt, GetAdminId()
         ), ct);
         return Ok(result);
     }

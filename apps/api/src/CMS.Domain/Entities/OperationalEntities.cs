@@ -200,6 +200,7 @@ public class Notification : BaseEntity
     public Guid? TargetId { get; set; }
     public DateTime? ScheduledAt { get; set; }
     public DateTime? SentAt { get; set; }
+    public DateTime? ExpiresAt { get; set; }  // P1-10: optional expiry
     public string Status { get; set; } = "draft";
     public Guid SentBy { get; set; }
 

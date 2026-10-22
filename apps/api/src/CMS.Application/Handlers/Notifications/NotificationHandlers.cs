@@ -148,6 +148,7 @@ public class NotificationHandlers :
             TargetType = targetType,
             TargetId = req.TargetId,
             ScheduledAt = req.ScheduledAt,
+            ExpiresAt = req.ExpiresAt,
             Status = isScheduled ? "scheduled" : "sending",
             SentBy = req.SentBy
         };

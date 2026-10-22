@@ -47,6 +47,7 @@ import { QuestionsCenter } from './components/QuestionsCenter';
 import { ExamsCenter } from './components/ExamsCenter';
 import { LibraryCenter } from './components/LibraryCenter';
 import { SettingsCenter } from './components/SettingsCenter';
+import { NotificationCompose } from './components/NotificationCompose';
 
 const BRAND_MARK = '/brand/cms-admin-mark.png';
 const FULL_LOGO = '/brand/cms-cliver-medical-student-logo.jpg';
@@ -102,6 +103,7 @@ function App() {
   const [commandQuery, setCommandQuery] = useState('');
   const [unreadCount, setUnreadCount] = useState(0);
   const [operatorMenuOpen, setOperatorMenuOpen] = useState(false);
+  const [notificationComposeOpen, setNotificationComposeOpen] = useState(false);
   const [admins, setAdmins] = useState<AdminRecord[]>([]);
   const [roles, setRoles] = useState<RoleRecord[]>([]);
   const [totalAdmins, setTotalAdmins] = useState(0);
@@ -607,7 +609,7 @@ function App() {
             <button className="icon-btn" aria-label={copy.toggleTheme} onClick={toggleTheme}>
               {theme === 'light' ? <Moon size={19} /> : <Sun size={19} />}
             </button>
-            <button className="icon-btn" aria-label={isArabic ? 'التنبيهات' : 'Notifications'}>
+            <button className="icon-btn" aria-label={isArabic ? 'التنبيهات' : 'Notifications'} onClick={() => setNotificationComposeOpen(true)} title={isArabic ? 'إنشاء إشعار' : 'Compose notification'}>
               <Bell size={19} />
               {unreadCount > 0 && <span className="dot">{unreadCount > 99 ? '99+' : unreadCount}</span>}
             </button>
@@ -705,6 +707,15 @@ function App() {
           onSubmitReset={submitResetPassword}
           onSubmitDelete={submitDeleteAdmin}
           onSubmitRole={submitRole}
+        />
+      )}
+      {notificationComposeOpen && (
+        <NotificationCompose
+          token={token}
+          isArabic={isArabic}
+          onClose={() => setNotificationComposeOpen(false)}
+          onError={reportError}
+          onNotice={notify}
         />
       )}
       {commandPaletteOpen && (
