@@ -128,11 +128,12 @@ public class NotificationsController : ControllerBase
         }
         catch (Exception ex)
         {
+            var innerMsg = ex.InnerException?.Message ?? ex.Message;
             return StatusCode(502, new ProblemDetails
             {
                 Title = "Notification send failed",
                 Status = 502,
-                Detail = $"{ex.GetType().Name}: {ex.Message}",
+                Detail = $"{ex.GetType().Name}: {innerMsg}",
             });
         }
     }
