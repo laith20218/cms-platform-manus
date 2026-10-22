@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => {
         manifest: {
           name: 'CMS - College Medical System', short_name: 'CMS', description: 'منصة تعليمية طبية متكاملة',
           lang: 'ar', dir: 'rtl', start_url: '/', display: 'standalone', orientation: 'portrait-primary',
-          theme_color: '#1976D2', background_color: '#EEF6FF',
+          theme_color: '#0b2235', background_color: '#f7f4ec',
           icons: [
             { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
             { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
