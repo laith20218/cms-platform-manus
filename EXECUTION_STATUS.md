@@ -1,146 +1,130 @@
-# EXECUTION STATUS — Admin Gap Closure
+# EXECUTION STATUS — Wave 2: Quick Wins & Testing
 
-> **Branch**: `feature/admin-gap-closure`
-> **Base**: `feature/admin-05-student-profile` @ `a5f2f43`
-> **Started**: 2026-10-21
-> **Last updated**: 2026-10-22 (after P1-11 — Checkpoint 2 FINAL)
+> **Branch**: `feature/wave2-quick-wins-testing`
+> **Base**: `34e2d54` (main after P1-10)
+> **Started**: 2026-10-22
+> **Last updated**: 2026-10-22
 
 ---
 
-## Sequence Progress
+## Wave 2 Progress
 
 | # | Task | Status | Commit | Notes |
 |---|---|---|---|---|
-| 0a | Batch 1: Quick Wins (docs + infra) | ✅ DONE | `864480d` | RELEASE_NOTES + PROJECT_HANDOFF + setup-dev.sh + monitoring-setup.tf + .env.example + pre-commit hook + package.json |
-| 0b | Batch 1 fix: grep -- flag | ✅ DONE | `bcbe91b` | pre-commit hook patterns starting with dashes |
-| 0c | Batch 2: ADMIN-04 3.1 fixes | ✅ DONE | `27ac722` | HourlyActivity DTO fix + unused fields + honest labels |
-| 0d | Batch 3: P1-06 Audit Log Viewer | ✅ DONE | `a10877b` | New endpoint + UI (additive) |
-| 0e | c37f353 closure (cherry-pick) | ✅ DONE | `de59d73` | ADMIN-01_REPORT.md update |
-| 1 | **P1-08 — System Settings** | ✅ DONE | `8d9e2f1` | Entity + migration + API + UI |
-| 2 | **P1-04 — Role/scope picker** | ✅ DONE | `6c572e3` | Backend resolved names + UI cascade selectors |
-| 3 | **P1-05 — Permission Matrix** | ✅ DONE | `5812e0c` | GET endpoint + grid UI editor |
-| — | **🏁 CHECKPOINT 1** | ✅ | `f3df714` | 3 P1 batches — zero regression |
-| 4 | **P1-07 — Security Console** | ✅ DONE | `2414298` | Event type + date range + real counts |
-| 5 | **P1-01 — Student Profile + Avatar + 7 tabs** | ✅ DONE | `ca82012` | PUT + avatar + 7-tab drawer + edit modal |
-| 6 | **P1-02 — Device fingerprint in profile** | ✅ DONE | `5a58659` | Device info card in Sessions tab |
-| 7 | **P1-11 — Student sessions + revoke** | ✅ DONE | `1f4a915` | GET sessions + single-session revoke + UI |
-| — | **🏁 CHECKPOINT 2 (FINAL)** | ✅ HERE | — | See summary below |
+| 1 | **ADMIN-04 Quick Wins** | ✅ DONE | `42a7688` | Date range picker + CSV/PDF export + consume unused fields |
+| 2 | **Student Web Quick Wins** | ✅ DONE | `21ace7e` | /exams + /library + real footer links + hide OTP |
+| 3 | **Testing Foundation** | ✅ DONE | `b6bf8ba` | Vitest in admin-web, 12 tests passing |
+| — | **Wave 2 COMPLETE** | ✅ | — | See summary below |
 
 ---
 
-## Verification Gates (run before each commit)
+## 1. ADMIN-04 Quick Wins (`42a7688`)
 
-| Gate | P1-08 | P1-04 | P1-05 | P1-07 | P1-01 | P1-02 | P1-11 |
-|---|---|---|---|---|---|---|---|
-| Backend build | ✅ | ✅ | ✅ | — | ✅ | — | ✅ |
-| Backend tests (161/161) | ✅ | ✅ | ✅ | — | ✅ | — | ✅ |
-| admin-web tsc | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| admin-web vite build | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Pre-commit hook | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+### What was delivered
+- **Date range picker**: 5 presets (7d/30d/90d/6m/12m) — changes revenue + growth API queries dynamically
+- **Last updated timestamp**: Shows when data was last fetched + selected range label
+- **CSV export**: 3 separate buttons (revenue, growth, top subjects) — downloads UTF-8 BOM CSV files
+- **PDF export**: Opens print-ready HTML with all sections (revenue, growth, top subjects)
+- **Revenue label**: Already "Estimated Value" (done in batch 2) — note explains: codesSold × 25,000 fixed price
+- **Unused fields consumed**:
+  - `codesSold` + `newSubscriptions`: stat tiles below revenue chart (totals)
+  - `averageAccuracy` + `activeStudents`: detail list below top subjects chart
 
-"—" = frontend-only batch (no backend changes)
+### Files changed
+- `apps/admin-web/src/components/ReportsCenter.tsx` — major rewrite (+182/-35 lines)
 
 ---
 
-## Checkpoint 2 Summary (FINAL — after 7 P1 batches)
+## 2. Student Web Quick Wins (`21ace7e`)
 
-### What was delivered (batches 4-7)
+### What was delivered
 
-**P1-07 — Security Console filters** (`2414298`)
-- AuditCenter: added structured event-type filter (14 options)
-- Added date range filter (dateFrom + dateTo)
-- Fixed long-standing bug: Warning/Info summary cards now show real counts from /audit-logs
-  (was always 0 because /alerts returns Critical only)
+**P2-27: ExamsCatalogPage** (new component)
+- Aggregates all published exams from subscribed subjects
+- Expandable subject sections with exam count badges
+- Exam type badges (Final/Midterm/Quiz/Practice)
+- Links to `/exams/:examId` for each exam
 
-**P1-01 — Student Profile + Avatar + 7 tabs** (`ca82012`)
-- Backend: `AdminStudentsController` (new)
-  - `PUT /api/v1/admin/students/{id}` — update fullName + gender
-  - `POST /api/v1/admin/students/{id}/avatar` — upload avatar (3MB max, jpeg/png/webp)
-- Frontend: StudentsCenter drawer expanded from 3 → 7 tabs
-  - Basic info · Academic progress · Exams · Subscriptions · Sessions & devices · Security log · Reports
-  - Edit button (Pencil) in row actions
-  - Edit modal with avatar upload (Camera + preview) + fullName + gender
-  - 4 new tabs honestly note "requires dedicated endpoint — to be added" (no fake data)
+**P2-28: LibraryCatalogPage** (new component)
+- Aggregates all library files across subscribed subjects
+- Type filter (PDF/HTML/Image/Video/Audio/Summary/Comprehensive/Paragraph)
+- File cards with type icon + subject name + views count
+- Links to subject library page
 
-**P1-02 — Device fingerprint in profile** (`5a58659`)
-- StudentsCenter Sessions tab: added "Bound device" info card
-- Displays: fingerprint (truncated + tooltip), device chips (type/OS/browser/name),
-  binding date, last used date, active/inactive badge
-- Extracts from existing securityLogs data (no new API call)
+**P2-30: Real footer links** (replaces `href="#"`)
+- `/terms` → TermsPage (Arabic terms of use, 4 sections)
+- `/privacy` → PrivacyPage (Arabic privacy policy, 5 sections)
+- Both are public routes (no auth required)
+- RegisterPage: `href="#"` → `href="/terms"` + `href="/privacy"`
 
-**P1-11 — Student sessions list + revoke** (`1f4a915`)
-- Backend: 2 new endpoints in SecurityController
-  - `GET /api/v1/security/students/{id}/sessions` — list last 100 sessions + device context
-  - `POST /api/v1/security/students/{id}/sessions/{sessionId}/revoke` — revoke single session
-- Frontend: Sessions tab now shows full session list with:
-  - Status badge (Active/Revoked/Expired)
-  - Device chips per session
-  - Per-session Revoke button
-  - Fetches in parallel with security logs
+**P2-31: OTP route hidden when OtpEnabled=false**
+- Conditional Route registration: `{otpEnabled && <Route path="/verify-otp" .../>}`
+- `otpEnabled` reads `VITE_OTP_ENABLED` env var
+- Route simply not registered when disabled (clean approach)
 
-### No regression evidence
-- All 161 InMemory tests pass after every backend batch (unchanged from base)
-- 18 Postgres-gated tests still blocked (env var not set — unchanged from base)
-- All existing endpoints preserved (additive only)
-- All existing UI components preserved (additive only)
-- No API contract changes to existing endpoints
+**Sidebar enhancement**
+- Added `/exams` (ClipboardCheck icon) + `/library` (FileText icon) nav items
 
-### New backend endpoints added (8 total across all batches)
-| # | Method | Path | Batch |
-|---|---|---|---|
-| 1 | GET | `/api/v1/admin/settings` | P1-08 |
-| 2 | GET | `/api/v1/admin/settings/{key}` | P1-08 |
-| 3 | PUT | `/api/v1/admin/settings/{key}` | P1-08 |
-| 4 | POST | `/api/v1/admin/settings/{key}/reset` | P1-08 |
-| 5 | GET | `/api/v1/admin/roles/{id}/permissions` | P1-05 |
-| 6 | PUT | `/api/v1/admin/students/{id}` | P1-01 |
-| 7 | POST | `/api/v1/admin/students/{id}/avatar` | P1-01 |
-| 8 | GET | `/api/v1/security/audit-logs` | P1-06 (batch 3) |
-| 9 | GET | `/api/v1/security/students/{id}/sessions` | P1-11 |
-| 10 | POST | `/api/v1/security/students/{id}/sessions/{sessionId}/revoke` | P1-11 |
+### Files changed (new: 4, modified: 3)
+- New: `ExamsCatalogPage.tsx`, `LibraryCatalogPage.tsx`, `TermsPage.tsx`, `PrivacyPage.tsx`
+- Modified: `router.tsx`, `Sidebar.tsx`, `RegisterPage.tsx`
 
-### New admin-web components (4 total)
-| Component | Purpose | Batch |
+---
+
+## 3. Testing Foundation (`b6bf8ba`)
+
+### What was delivered
+
+**Vitest setup in admin-web** (first test framework in this app — was 0 tests before)
+- Installed: `vitest@2` + `@testing-library/react@16` + `@testing-library/jest-dom@6` + `@testing-library/user-event@14` + `jsdom@25`
+- `vitest.config.ts`: jsdom environment, globals, css:false, postcss:false override
+- `postcss.config.mjs`: empty local config (overrides parent project's incompatible Tailwind CSS 4 PostCSS plugin)
+- `src/test/setup.ts`: jest-dom matchers + matchMedia/IntersectionObserver/ResizeObserver mocks
+- `package.json`: `+test` + `test:watch` scripts
+
+**12 tests across 3 files** (all passing):
+
+| File | Tests | What's tested |
 |---|---|---|
-| `SettingsCenter.tsx` | System settings UI | P1-08 |
-| `ScopePicker.tsx` | Cascading University→Subject selectors | P1-04 |
-| `PermissionMatrixEditor.tsx` | 19×6 permission grid | P1-05 |
-| `AuditLogViewer.tsx` | Full audit log with pagination + CSV | P1-06 (batch 3) |
+| `api.test.ts` | 7 | Authorization header, Content-Type for JSON vs FormData, 204 handling, ApiError throw + status, non-JSON error |
+| `audit-log-viewer.test.tsx` | 3 | English title, Arabic title, empty state |
+| `settings-center.test.tsx` | 2 | English title, Arabic title |
 
-### New backend migrations (1)
-| Migration | Purpose |
+### Result: 3 files, 12 tests, 0 failures ✅
+
+---
+
+## Verification
+
+| Gate | Result |
 |---|---|
-| `20261022000000_Phase54SystemSettings` | system_settings table + 11 seeded defaults |
+| admin-web tsc | ✅ 0 errors |
+| admin-web vite build | ✅ 0 errors |
+| admin-web vitest | ✅ 12/12 pass |
+| student-web tsc | ✅ 0 errors |
+| student-web vite build | ✅ success (PWA + workbox) |
+| Backend unchanged | ✅ no backend changes in this wave |
 
-### Full commit log (feature/admin-gap-closure)
-```
-1f4a915 feat(p1-11): student sessions list + single-session revoke + device context
-5a58659 feat(p1-02): device fingerprint display in student profile
-ca82012 feat(p1-01): student profile + avatar + 7-tab drawer
-2414298 feat(p1-07): security console filters — event type + date range + real counts
-f3df714 docs: checkpoint 1 — EXECUTION_STATUS update after P1-08 + P1-04 + P1-05
-5812e0c feat(p1-05): permission matrix editor — GET endpoint + grid UI
-6c572e3 feat(p1-04): role/scope picker — backend resolved names + UI cascade selectors
-8d9e2f1 feat(p1-08): system settings — entity + migration + API + UI
-de59d73 docs(closure): update ADMIN-01 report with final deployment + smoke test results
-a10877b feat(p1-06): audit log viewer with server-side filters + pagination + CSV export
-27ac722 fix(admin-04): critical DTO mismatch + use unused fields + honest metric labels
-bcbe91b fix: pre-commit hook — use grep -- to handle patterns starting with dashes
-864480d test: batch 1 — documentation + infra cleanup (Quick Wins)
-```
+---
 
-### Files touched across all batches
-- New backend files: `SystemSettingEntity.cs`, `Phase54SystemSettings` migration, `SystemSettingsController.cs`, `AdminStudentsController.cs`, `AuditLogViewer.tsx`, `SettingsCenter.tsx`, `ScopePicker.tsx`, `PermissionMatrixEditor.tsx`, `.githooks/pre-commit`
-- Modified backend: `ApplicationDbContext.cs`, `ModelSnapshot.cs`, `AdminCommands.cs`, `AdminHandlers.cs`, `AdminDashboardController.cs`, `SecurityController.cs`, `SecurityService.cs`
-- Modified frontend: `App.tsx`, `api.ts`, `AdminsCenter.tsx`, `RolesCenter.tsx`, `AuditCenter.tsx`, `StudentsCenter.tsx`, `ReportsCenter.tsx`
-- Modified docs: `RELEASE_NOTES.md`, `PROJECT_HANDOFF.md`, `EXECUTION_STATUS.md`, `ADMIN_IMPLEMENTATION_PLAN.md`, `ADMIN-01_REPORT.md`
-- Modified infra: `setup-dev.sh`, `monitoring-setup.tf`, `.env.example`, `package.json`
-
-### What remains (from the original 93-item plan)
+## What remains (from the original 93-item plan)
 - P0 items (8): all BLOCKED_EXTERNAL — require credentials/decisions from project owner
-- P1-09: Reports moderation lifecycle (entity ✓, API/UI ✗)
-- P1-10: Notification compose UI (backend ✓, UI ✗)
 - P1-12: Live monitoring evidence (BLOCKED_EXTERNAL — Sentry/Better Stack account)
 - P1-13: Content seed strategy (BLOCKED_EXTERNAL — content)
-- P2/P3: 72 items (test coverage, content security, performance, accessibility, etc.)
-- ADMIN-04 3.2-3.4: date picker + export + 8 new tabs (requires 8 new backend endpoints)
+- P2/P3 remaining: ~65 items
+  - Backend integration tests for 12 missing controllers (next priority)
+  - packages/ui tests (needs vitest setup similar to admin-web)
+  - Content security (watermark, HTML sanitizer)
+  - Security tests (IDOR/BOLA, JWT pipeline, penetration)
+  - Performance (Lighthouse, Web Vitals)
+  - Accessibility (axe-core, screen reader, keyboard nav)
+  - Documentation (6 new admin docs)
+
+---
+
+## Commits on branch
+```
+b6bf8ba feat(testing): Vitest in admin-web — 12 tests passing across 3 files
+21ace7e feat(student-web): /exams + /library catalog pages + real footer links + hide OTP
+42a7688 feat(admin-04): date range picker + CSV/PDF export + consume unused fields
+```
