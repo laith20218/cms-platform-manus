@@ -8,7 +8,9 @@ import { Settings as SettingsIcon, Moon, Bell, Lock, Loader2 } from 'lucide-reac
 import { apiClient } from '@/services/api-client';
 
 export default function SettingsPage() {
-  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
+  // ThemeProvider persists the choice under 'cms-theme' — the key must match exactly
+  // or the selection is lost on the next full page load.
+  const [theme, setTheme] = useState(localStorage.getItem('cms-theme') || 'light');
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -18,7 +20,7 @@ export default function SettingsPage() {
     const next = theme === 'light' ? 'dark' : 'light';
     setTheme(next);
     document.documentElement.dataset.theme = next;
-    localStorage.setItem('theme', next);
+    localStorage.setItem('cms-theme', next);
   };
 
   const passwordMutation = useMutation({

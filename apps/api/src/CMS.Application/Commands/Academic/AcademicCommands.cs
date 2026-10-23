@@ -41,6 +41,11 @@ public record CreateSemesterCommand(Guid AcademicYearId, string NameAr, string? 
 // ===== Subjects =====
 public record GetSubjectByIdQuery(Guid Id, Guid? StudentId = null) : IRequest<SubjectDto>;
 public record GetSubjectBySlugQuery(string Slug, Guid? StudentId = null) : IRequest<SubjectDto>;
+/// <summary>
+/// Subjects the authenticated student currently has an active, content-scope-aware
+/// subscription grant for, across the whole visible academic tree.
+/// </summary>
+public record GetMySubjectsQuery(Guid StudentId) : IRequest<List<SubjectDto>>;
 public record CreateSubjectCommand(Guid SemesterId, string NameAr, string? NameEn, string Slug, string? Code, string? Description, string? Color, Guid CreatedBy) : IRequest<SubjectDto>;
 public record UpdateSubjectCommand(Guid Id, string NameAr, string? NameEn, string? Description, string? Color) : IRequest<SubjectDto>;
 

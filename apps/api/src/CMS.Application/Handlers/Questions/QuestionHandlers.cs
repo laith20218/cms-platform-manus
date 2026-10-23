@@ -60,7 +60,18 @@ public class QuestionQueryHandlers :
             .Include(q => q.Lecture)
             .ToListAsync(ct);
 
-        var items = questions.Select(q => MapToListItem(q, req.StudentId)).ToList();
+        // Batch favorite lookup — one query for the whole page, never per item.
+        var favoriteIds = req.StudentId.HasValue
+            ? (await _db.Favorites.AsNoTracking()
+                .Where(f => f.StudentId == req.StudentId.Value
+                    && f.QuestionId.HasValue
+                    && questions.Select(q => q.Id).Contains(f.QuestionId.Value))
+                .Select(f => f.QuestionId!.Value)
+                .ToListAsync(ct))
+                .ToHashSet()
+            : new HashSet<Guid>();
+
+        var items = questions.Select(q => MapToListItem(q, favoriteIds.Contains(q.Id))).ToList();
 
         // Load user answers if studentId provided
         if (req.StudentId.HasValue)
@@ -104,7 +115,10 @@ public class QuestionQueryHandlers :
             .FirstOrDefaultAsync(q => q.Id == req.Id && q.Status == ContentStatus.Published, ct)
             ?? throw new NotFoundException("Question", req.Id);
 
-        var dto = MapToDto(question);
+        var isFavorite = req.StudentId.HasValue && await _db.Favorites.AsNoTracking()
+            .AnyAsync(f => f.StudentId == req.StudentId.Value && f.QuestionId == req.Id, ct);
+
+        var dto = MapToDto(question, isFavorite);
 
         // Load user answer if student
         if (req.StudentId.HasValue)
@@ -148,22 +162,33 @@ public class QuestionQueryHandlers :
             .Include(q => q.Lecture)
             .ToListAsync(ct);
 
-        return questions.Select(q => MapToListItem(q, req.StudentId)).ToList();
+        // Batch favorite lookup — one query for the whole lecture, never per item.
+        var favoriteIds = req.StudentId.HasValue
+            ? (await _db.Favorites.AsNoTracking()
+                .Where(f => f.StudentId == req.StudentId.Value
+                    && f.QuestionId.HasValue
+                    && questions.Select(q => q.Id).Contains(f.QuestionId.Value))
+                .Select(f => f.QuestionId!.Value)
+                .ToListAsync(ct))
+                .ToHashSet()
+            : new HashSet<Guid>();
+
+        return questions.Select(q => MapToListItem(q, favoriteIds.Contains(q.Id))).ToList();
     }
 
     // ===== Mappers =====
-    private static QuestionListItemDto MapToListItem(Question q, Guid? studentId) => new(
+    private static QuestionListItemDto MapToListItem(Question q, bool isFavorite) => new(
         q.Id, q.Text.Length > 150 ? q.Text[..150] + "..." : q.Text,
         q.Type.ToString(), q.Difficulty.ToString(),
-        q.Tags, q.Lecture?.NameAr, q.Year, null, false
+        q.Tags, q.Lecture?.NameAr, q.Year, null, isFavorite
     );
 
-    private static QuestionDto MapToDto(Question q) => new(
+    private static QuestionDto MapToDto(Question q, bool isFavorite) => new(
         q.Id, q.Text, q.TextHtml, q.Type.ToString(), q.Difficulty.ToString(),
         q.Tags, q.Lecture?.NameAr, q.Year, q.Reference,
         q.Options.OrderBy(o => o.SortOrder).Select(o => new QuestionOptionDto(o.Id, o.OptionLetter, o.Text, o.ImageUrl)).ToList(),
         q.Images.Select(img => new QuestionImageDto(img.Id, img.ImageUrl, img.AltText, img.Caption)).ToList(),
-        null, false, new QuestionStatsDto(q.AttemptsCount, q.GetCorrectRate())
+        null, isFavorite, new QuestionStatsDto(q.AttemptsCount, q.GetCorrectRate())
     );
 }
 
@@ -310,15 +335,31 @@ public class QuestionCommandHandlers :
         var isFirstAttempt = !await _db.AttemptLogs.AnyAsync(a => a.StudentId == req.StudentId && a.QuestionId == req.QuestionId, ct);
 
         // Essay answers are compared only after whitespace/case normalization. They are not AI-graded.
-        var correctOption = question.Options.FirstOrDefault(o => o.IsCorrect);
+        var correctOptions = question.Options.Where(o => o.IsCorrect).ToList();
+        var correctOption = correctOptions.FirstOrDefault();
         var submittedAnswer = question.Type == QuestionType.Essay
             ? req.AnswerText?.Trim()
             : req.SelectedOptionId;
         if (string.IsNullOrWhiteSpace(submittedAnswer))
             throw new DomainException(question.Type == QuestionType.Essay ? "An answer is required" : "An option is required");
-        var isCorrect = question.Type == QuestionType.Essay
-            ? string.Equals(NormalizeAnswer(submittedAnswer), NormalizeAnswer(question.CorrectAnswer), StringComparison.Ordinal)
-            : submittedAnswer == correctOption?.Id.ToString();
+        bool isCorrect;
+        if (question.Type == QuestionType.Essay)
+        {
+            isCorrect = string.Equals(NormalizeAnswer(submittedAnswer), NormalizeAnswer(question.CorrectAnswer), StringComparison.Ordinal);
+        }
+        else if (question.Type == QuestionType.MultipleSelect)
+        {
+            // Multi-select practice answers mirror the exam-engine contract: a JSON array of
+            // option ids (comma-separated ids are accepted as a legacy fallback). The submitted
+            // set must match the correct set exactly — no missing, no extra, no duplicates.
+            var expectedIds = correctOptions.Select(o => o.Id).ToHashSet();
+            var selectedIds = ParseSelectedOptionIds(submittedAnswer);
+            isCorrect = selectedIds.Count > 0 && selectedIds.ToHashSet().SetEquals(expectedIds);
+        }
+        else
+        {
+            isCorrect = submittedAnswer == correctOption?.Id.ToString();
+        }
 
         // Record attempt
         var attempt = new AttemptLog
@@ -348,10 +389,16 @@ public class QuestionCommandHandlers :
         await _unitOfWork.SaveChangesAsync(ct);
 
         // Build response
+        var correctOptionIdDisplay = question.Type == QuestionType.MultipleSelect
+            ? string.Join(",", correctOptions.Select(o => o.Id))
+            : correctOption?.Id.ToString() ?? "";
+        var correctOptionLetterDisplay = question.Type == QuestionType.MultipleSelect
+            ? string.Join(",", correctOptions.Select(o => o.OptionLetter))
+            : correctOption?.OptionLetter ?? "";
         return new AnswerResultDto(
             IsCorrect: isCorrect,
-            CorrectOptionId: correctOption?.Id.ToString() ?? "",
-            CorrectOptionLetter: correctOption?.OptionLetter ?? "",
+            CorrectOptionId: correctOptionIdDisplay,
+            CorrectOptionLetter: correctOptionLetterDisplay,
             Explanation: question.Explanation,
             ExplanationHtml: question.ExplanationHtml,
             Reference: question.Reference,
@@ -368,6 +415,35 @@ public class QuestionCommandHandlers :
     }
 
     private static string NormalizeAnswer(string value) => string.Join(' ', value.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant();
+
+    /// <summary>
+    /// Parses a multi-select answer payload. Identical semantics to the exam engine:
+    /// a JSON array of option ids, with a comma-separated list accepted as a legacy fallback.
+    /// </summary>
+    private static IReadOnlyCollection<Guid> ParseSelectedOptionIds(string answer)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(answer);
+            if (document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                return document.RootElement.EnumerateArray()
+                    .Where(element => Guid.TryParse(element.GetString(), out _))
+                    .Select(element => Guid.Parse(element.GetString()!))
+                    .Distinct()
+                    .ToList();
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Existing client contracts submit one GUID directly; parse it below.
+        }
+        return answer.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(value => Guid.TryParse(value, out var id) ? id : Guid.Empty)
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToList();
+    }
 
     public async Task<Unit> Handle(ReportQuestionCommand req, CancellationToken ct)
     {

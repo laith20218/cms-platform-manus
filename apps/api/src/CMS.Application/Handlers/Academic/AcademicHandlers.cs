@@ -23,6 +23,7 @@ public class AcademicQueryHandlers :
     IRequestHandler<GetSemestersByYearQuery, List<SemesterDto>>,
     IRequestHandler<GetSemesterByIdQuery, SemesterDto>,
     IRequestHandler<GetSubjectsBySemesterQuery, List<SubjectDto>>,
+    IRequestHandler<GetMySubjectsQuery, List<SubjectDto>>,
     IRequestHandler<GetSubjectByIdQuery, SubjectDto>,
     IRequestHandler<GetSubjectBySlugQuery, SubjectDto>,
     IRequestHandler<GetLecturesBySubjectQuery, List<LectureDto>>,
@@ -150,6 +151,26 @@ public class AcademicQueryHandlers :
             visibleSubjects.Add(await ApplyStudentContentScopeAsync(subject, req.StudentId, ct));
         }
         return visibleSubjects;
+    }
+
+    /// <summary>
+    /// Returns every visible subject the student holds an active subscription grant for,
+    /// regardless of semester. Reuses the same per-subject entitlement decision as the
+    /// semester listing so both catalogs can never disagree.
+    /// </summary>
+    public async Task<List<SubjectDto>> Handle(GetMySubjectsQuery req, CancellationToken ct)
+    {
+        var subjects = await VisibleSubjectQuery()
+            .OrderBy(subject => subject.Slug)
+            .ToListAsync(ct);
+
+        var visible = new List<SubjectDto>();
+        foreach (var subject in subjects)
+        {
+            if (!await _entitlements.CanAccessSubjectAsync(req.StudentId, subject.Id, "read", ct)) continue;
+            visible.Add(await ApplyStudentContentScopeAsync(ToSubjectDto(subject), req.StudentId, ct));
+        }
+        return visible;
     }
 
     public async Task<SubjectDto> Handle(GetSubjectByIdQuery req, CancellationToken ct)

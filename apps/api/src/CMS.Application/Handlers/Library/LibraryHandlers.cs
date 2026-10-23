@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using CMS.Application.Commands.Library;
 using CMS.Application.DTOs.Library;
 using CMS.Application.Interfaces;
@@ -31,19 +32,22 @@ public class LibraryHandlers :
     private readonly IFileStorageService _storage;
     private readonly IFileScanner _scanner;
     private readonly IEntitlementService _entitlements;
+    private readonly ILogger<LibraryHandlers> _logger;
 
     public LibraryHandlers(
         IApplicationDbContext db,
         IUnitOfWork unitOfWork,
         IFileStorageService storage,
         IFileScanner scanner,
-        IEntitlementService entitlements)
+        IEntitlementService entitlements,
+        ILogger<LibraryHandlers> logger)
     {
         _db = db;
         _unitOfWork = unitOfWork;
         _storage = storage;
         _scanner = scanner;
         _entitlements = entitlements;
+        _logger = logger;
     }
 
     // ===== Queries =====
@@ -198,8 +202,29 @@ public class LibraryHandlers :
     }
 
     // ===== Admin: Upload =====
+    /// <summary>
+    /// Strict server-side MIME allow-list for the institutional library. Video and audio
+    /// media are intentionally rejected here — they belong to course episodes, not the
+    /// document library. The declared type is enforced before any presigned URL is issued,
+    /// because the PUT URL binds the Content-Type server-side.
+    /// </summary>
+    private static readonly HashSet<string> AllowedLibraryContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "application/pdf",
+        "text/html",
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/msword"
+    };
+
     public async Task<UploadUrlDto> Handle(RequestUploadUrlCommand req, CancellationToken ct)
     {
+        // Validate declared content type against the strict library allow-list.
+        if (string.IsNullOrWhiteSpace(req.ContentType) || !AllowedLibraryContentTypes.Contains(req.ContentType.Trim()))
+            throw new DomainException("نوع الملف غير مسموح به في المكتبة", "INVALID_FILE_TYPE");
+
         // Validate file type
         if (!Enum.TryParse<LibraryFileType>(req.Type, true, out var fileType))
             throw new DomainException("نوع الملف غير صالح", "INVALID_FILE_TYPE");
@@ -318,6 +343,22 @@ public class LibraryHandlers :
         typeof(LibraryFile).GetProperty("Status")?.SetValue(file, ContentStatus.Deleted);
 
         await _unitOfWork.SaveChangesAsync(ct);
+
+        // Best-effort blob cleanup: removing the stored object keeps storage free of
+        // orphaned blobs after a delete. A storage failure must NOT fail the already
+        // committed database delete — the warning is logged and an idempotent cleanup
+        // pass can retry later.
+        try
+        {
+            await _storage.DeleteAsync(file.FileUrl, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Blob cleanup failed after library file delete. FileId={FileId} FileKey={FileKey}",
+                file.Id, file.FileUrl);
+        }
+
         return Unit.Value;
     }
 

@@ -244,6 +244,46 @@ public class QuestionHandlerTests
         result.Total.Should().Be(2);
     }
 
+    // ===== FIX-3: IsFavorite must reflect persisted favorites (not hardcoded false) =====
+
+    [Fact]
+    public async Task GetQuestionsQuery_WithPersistedFavorite_MarksIsFavoriteTrue()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var subject = db.Subjects.First();
+        var student = db.Students.First();
+        var questions = db.Questions.Include(q => q.Lecture).ToList();
+        var favorited = questions[0];
+        var notFavorited = questions[1];
+        db.Favorites.Add(new Favorite { StudentId = student.Id, QuestionId = favorited.Id });
+        await db.SaveChangesAsync();
+
+        var handler = new QuestionQueryHandlers(db, AllowAllEntitlements());
+        var result = await handler.Handle(new GetQuestionsQuery(subject.Id, null, null, student.Id, null, null), CancellationToken.None);
+
+        result.Items.Single(item => item.Id == favorited.Id).IsFavorite.Should().BeTrue(
+            "a persisted favorite must survive a reload of the question list");
+        result.Items.Single(item => item.Id == notFavorited.Id).IsFavorite.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetQuestionById_WithPersistedFavorite_MarksIsFavoriteTrue()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var question = db.Questions
+            .Include(q => q.Options)
+            .Include(q => q.Lecture)
+            .First();
+        db.Favorites.Add(new Favorite { StudentId = student.Id, QuestionId = question.Id });
+        await db.SaveChangesAsync();
+
+        var handler = new QuestionQueryHandlers(db, AllowAllEntitlements());
+        var result = await handler.Handle(new GetQuestionByIdQuery(question.Id, student.Id), CancellationToken.None);
+
+        result.IsFavorite.Should().BeTrue("the star must remain filled after a page reload");
+    }
+
     [Fact]
     public async Task AnswerQuestionCommand_CorrectAnswer_ShouldReturnCorrectResult()
     {
@@ -311,6 +351,102 @@ public class QuestionHandlerTests
 
         // Assert
         result.IsFirstAttempt.Should().BeFalse();
+    }
+
+    // ===== FIX-4: MultiSelect practice answers are graded as exact sets =====
+
+    private static (Question Question, List<QuestionOption> Correct, List<QuestionOption> Wrong) SeedMultipleSelectQuestion(ApplicationDbContext db)
+    {
+        var subject = db.Subjects.First();
+        var question = Question.Create("أي مما يلي من عوامل خطر القلاء المعوي؟", QuestionType.MultipleSelect, subject.Id, null, Difficulty.Medium, null, Guid.NewGuid());
+        question.AddOption("الإقياء المستمر", true);
+        question.AddOption("الإسهال المستمر", false);
+        question.AddOption("تناول مضادات الحموضة بكثرة", true);
+        question.AddOption("الفشل الكلوي المزمن", false);
+        question.UpdateExplanation("الإقياء يفقد الحمض ومضادات الحموضة ترفع القلاء.");
+        question.Publish();
+        db.Questions.Add(question);
+        db.SaveChanges();
+        var tracked = db.Questions.Include(q => q.Options).Single(q => q.Id == question.Id);
+        return (
+            tracked,
+            tracked.Options.Where(o => o.IsCorrect).ToList(),
+            tracked.Options.Where(o => !o.IsCorrect).ToList()
+        );
+    }
+
+    [Fact]
+    public async Task AnswerQuestionCommand_MultipleSelect_ExactCorrectSet_ShouldPass()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var (question, correct, _) = SeedMultipleSelectQuestion(db);
+        using var uow = new UnitOfWork(db);
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+
+        // Exam-engine contract: JSON array of option ids. Order must not matter.
+        var ordered = correct.OrderByDescending(o => o.Id).Select(o => o.Id).ToList();
+        var payload = System.Text.Json.JsonSerializer.Serialize(ordered);
+
+        var result = await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, payload, null, 30, false), CancellationToken.None);
+
+        result.IsCorrect.Should().BeTrue("an exact set match (in any order) must be graded correct");
+        result.CorrectOptionId.Should().Be(string.Join(",", correct.OrderBy(o => o.OptionLetter).Select(o => o.Id)));
+    }
+
+    [Fact]
+    public async Task AnswerQuestionCommand_MultipleSelect_OneOffSet_ShouldFail()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var (question, correct, wrong) = SeedMultipleSelectQuestion(db);
+        using var uow = new UnitOfWork(db);
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+
+        // Correct set + one extra wrong option → must fail.
+        var oneOff = correct.Select(o => o.Id).Append(wrong.First().Id).ToList();
+        var payload = System.Text.Json.JsonSerializer.Serialize(oneOff);
+
+        var result = await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, payload, null, 30, false), CancellationToken.None);
+
+        result.IsCorrect.Should().BeFalse("a set with one extra option must not be graded correct");
+
+        // Missing one correct option → must fail as well.
+        var missingOne = correct.Take(correct.Count - 1).Select(o => o.Id).ToList();
+        var missingPayload = System.Text.Json.JsonSerializer.Serialize(missingOne);
+        var secondResult = await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, missingPayload, null, 20, false), CancellationToken.None);
+        secondResult.IsCorrect.Should().BeFalse("a set missing one correct option must not be graded correct");
+    }
+
+    [Fact]
+    public async Task AnswerQuestionCommand_MultipleSelect_EmptySet_ShouldFail()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var (question, _, _) = SeedMultipleSelectQuestion(db);
+        using var uow = new UnitOfWork(db);
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+
+        var result = await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, "[]", null, 15, false), CancellationToken.None);
+
+        result.IsCorrect.Should().BeFalse("an empty submitted set must not be graded correct");
+    }
+
+    [Fact]
+    public async Task AnswerQuestionCommand_MultipleSelect_LegacyCommaSeparatedPayload_ShouldPass()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var (question, correct, _) = SeedMultipleSelectQuestion(db);
+        using var uow = new UnitOfWork(db);
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+
+        // Legacy fallback contract: comma-separated ids.
+        var payload = string.Join(",", correct.Select(o => o.Id));
+
+        var result = await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, payload, null, 30, false), CancellationToken.None);
+
+        result.IsCorrect.Should().BeTrue();
     }
 
     [Fact]

@@ -122,6 +122,14 @@ try
         options.AddPolicy("security-events", context => FixedWindow(context, 6, TimeSpan.FromMinutes(1)));
     });
 
+    // === Admin login throttling (FIX-5) ===
+    // In-process dual-partition limiter for POST /api/v1/auth/admin/login: 5/min per IP
+    // and 20/5min per normalized e-mail, answered with 429 + Retry-After. The student
+    // login keeps its existing "login" policy untouched.
+    builder.Services.AddMemoryCache();
+    builder.Services.AddSingleton(TimeProvider.System);
+    builder.Services.AddSingleton<CMS.Api.Security.AdminLoginRateLimiter>();
+
     // === Swagger ===
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(c =>

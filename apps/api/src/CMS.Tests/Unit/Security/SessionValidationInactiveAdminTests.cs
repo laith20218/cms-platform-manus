@@ -185,4 +185,82 @@ public sealed class SessionValidationInactiveAdminTests
 
         result.Should().BeFalse("super_admin tokens must also be rejected when the underlying role is inactive");
     }
+
+    // ===== FIX-9: custom (non-built-in) admin roles are session-validated too =====
+
+    [Fact]
+    public async Task IsActiveAsync_CustomRoleAdminWithActiveAccountAndRole_IsAllowed()
+    {
+        using var db = CreateContext();
+        var (activeRole, _, activeAdmin, _, _) = SeedAdminScenarios(db);
+        // The session stores the persisted role NAME, not a built-in constant.
+        var session = CreateAdminSession(activeAdmin, activeRole.Name);
+        db.UserSessions.Add(session);
+        await db.SaveChangesAsync();
+
+        var svc = BuildSessionService(db);
+        var result = await svc.IsActiveAsync(session.Id, session.TokenVersion, session.InstallationId);
+
+        result.Should().BeTrue("a custom-role admin with an active account and role must pass session validation");
+    }
+
+    [Fact]
+    public async Task IsActiveAsync_CustomRoleAdminWhoseRoleIsInactive_IsRejected()
+    {
+        using var db = CreateContext();
+        var (_, inactiveRole, _, inactiveRoleAdmin, _) = SeedAdminScenarios(db);
+        var session = CreateAdminSession(inactiveRoleAdmin, inactiveRole.Name);
+        db.UserSessions.Add(session);
+        await db.SaveChangesAsync();
+
+        var svc = BuildSessionService(db);
+        var result = await svc.IsActiveAsync(session.Id, session.TokenVersion, session.InstallationId);
+
+        result.Should().BeFalse("a custom-role admin whose role was deactivated must not keep using an old access token");
+    }
+
+    [Fact]
+    public async Task IsActiveAsync_CustomRoleSuspendedAdmin_IsRejected()
+    {
+        using var db = CreateContext();
+        var (activeRole, _, _, _, suspendedAdmin) = SeedAdminScenarios(db);
+        var session = CreateAdminSession(suspendedAdmin, activeRole.Name);
+        db.UserSessions.Add(session);
+        await db.SaveChangesAsync();
+
+        var svc = BuildSessionService(db);
+        var result = await svc.IsActiveAsync(session.Id, session.TokenVersion, session.InstallationId);
+
+        result.Should().BeFalse("a suspended custom-role admin must not keep using an old access token");
+    }
+
+    [Fact]
+    public async Task IsActiveAsync_NonStudentIdentityThatIsNotAnAdmin_IsRejected()
+    {
+        using var db = CreateContext();
+        var stranger = Student.Create("0999998888", "hash-stranger", "غير مدير");
+        stranger.VerifyPhone();
+        db.Students.Add(stranger);
+        // A session claiming a non-student role for a user with no Admin row must be
+        // rejected (fail-closed) instead of silently remaining valid.
+        var session = new UserSession
+        {
+            UserId = stranger.Id,
+            Role = "mystery-role",
+            InstallationId = "mystery-installation",
+            FamilyId = Guid.NewGuid(),
+            RefreshTokenHash = "hash",
+            RefreshTokenExpiresAt = DateTime.UtcNow.AddDays(7),
+            LastActivityAt = DateTime.UtcNow,
+            TokenVersion = 1,
+            Status = SessionStatus.Active
+        };
+        db.UserSessions.Add(session);
+        await db.SaveChangesAsync();
+
+        var svc = BuildSessionService(db);
+        var result = await svc.IsActiveAsync(session.Id, session.TokenVersion, session.InstallationId);
+
+        result.Should().BeFalse("a non-student session whose user is not an admin must fail closed");
+    }
 }

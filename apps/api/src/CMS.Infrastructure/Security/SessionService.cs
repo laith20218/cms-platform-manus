@@ -183,30 +183,26 @@ public sealed class SessionService : ISessionService
             return await _db.DeviceBindings.AsNoTracking()
                 .AnyAsync(i => i.StudentId == session.UserId && i.DeviceFingerprint == installationId && i.IsActive, ct);
 
-        // Admin / super_admin sessions must additionally verify that neither the admin account
-        // nor its role has been deactivated since the access token was issued. This closes the
-        // window where a disabled admin's token stays valid up to access-token expiry.
-        if (IsAdminRole(session.Role))
+        // Every non-student principal is an administrator principal — including custom
+        // (non-built-in) roles, which also carry the "admin" role claim in access tokens.
+        // Such sessions must additionally verify that neither the admin account nor its
+        // role has been deactivated since the access token was issued. This closes the
+        // window where a disabled admin's token — or a session backed by an unknown
+        // non-admin identity — stays valid up to access-token expiry.
+        var admin = await _db.Admins.AsNoTracking()
+            .Include(a => a.Role)
+            .FirstOrDefaultAsync(a => a.Id == session.UserId, ct);
+        if (admin is null
+            || admin.DeletedAt is not null
+            || admin.Status != AdminStatus.Active
+            || admin.Role is null
+            || !admin.Role.IsActive)
         {
-            var admin = await _db.Admins.AsNoTracking()
-                .Include(a => a.Role)
-                .FirstOrDefaultAsync(a => a.Id == session.UserId, ct);
-            if (admin is null
-                || admin.DeletedAt is not null
-                || admin.Status != AdminStatus.Active
-                || admin.Role is null
-                || !admin.Role.IsActive)
-            {
-                return false;
-            }
+            return false;
         }
 
         return true;
     }
-
-    private static bool IsAdminRole(string role) =>
-        string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, "super_admin", StringComparison.OrdinalIgnoreCase);
 
     private async Task LogSessionSecurityEventAsync(
         Guid userId,

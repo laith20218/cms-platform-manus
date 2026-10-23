@@ -205,36 +205,36 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   }, []);
 
   useEffect(() => {
-    if (!universityId) return;
-    void request<PagedResult<College>>(`/api/v1/colleges?Page=1&PageSize=100&universityId=${universityId}`)
-      .then(data => setColleges(data.items))
+    if (!universityId) { setColleges([]); setCollegeId(''); return; }
+    void request<College[]>(`/api/v1/universities/${universityId}/colleges`)
+      .then(data => setColleges(Array.isArray(data) ? data : []))
       .catch(() => setColleges([]));
     setCollegeId(''); setYears([]); setYearId(''); setSemesters([]); setSemesterId(''); setSubjects([]); setSubjectId('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [universityId]);
 
   useEffect(() => {
-    if (!collegeId) return;
-    void request<PagedResult<AcademicYear>>(`/api/v1/years?Page=1&PageSize=100&collegeId=${collegeId}`)
-      .then(data => setYears(data.items))
+    if (!collegeId) { setYears([]); setYearId(''); return; }
+    void request<AcademicYear[]>(`/api/v1/colleges/${collegeId}/years`)
+      .then(data => setYears(Array.isArray(data) ? data : []))
       .catch(() => setYears([]));
     setYearId(''); setSemesters([]); setSemesterId(''); setSubjects([]); setSubjectId('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collegeId]);
 
   useEffect(() => {
-    if (!yearId) return;
-    void request<PagedResult<Semester>>(`/api/v1/semesters?Page=1&PageSize=100&yearId=${yearId}`)
-      .then(data => setSemesters(data.items))
+    if (!yearId) { setSemesters([]); setSemesterId(''); return; }
+    void request<Semester[]>(`/api/v1/years/${yearId}/semesters`)
+      .then(data => setSemesters(Array.isArray(data) ? data : []))
       .catch(() => setSemesters([]));
     setSemesterId(''); setSubjects([]); setSubjectId('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yearId]);
 
   useEffect(() => {
-    if (!semesterId) return;
-    void request<PagedResult<Subject>>(`/api/v1/subjects?Page=1&PageSize=100&semesterId=${semesterId}`)
-      .then(data => setSubjects(data.items))
+    if (!semesterId) { setSubjects([]); setSubjectId(''); return; }
+    void request<Subject[]>(`/api/v1/semesters/${semesterId}/subjects`)
+      .then(data => setSubjects(Array.isArray(data) ? data : []))
       .catch(() => setSubjects([]));
     setSubjectId('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -242,8 +242,10 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
 
   useEffect(() => {
     if (!subjectId) { setLectures([]); setLectureId(''); return; }
-    void request<PagedResult<Lecture>>(`/api/v1/lectures?Page=1&PageSize=100&subjectId=${subjectId}`)
-      .then(data => setLectures(data.items))
+    // Admin lecture listing lives under /admin/content (the student-facing
+    // /subjects/{id}/lectures route requires a student entitlement).
+    void request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${subjectId}/lectures`)
+      .then(data => setLectures(Array.isArray(data) ? data : []))
       .catch(() => setLectures([]));
     setLectureId('');
     // eslint-disable-next-line react-hooks/exhaustive-deps

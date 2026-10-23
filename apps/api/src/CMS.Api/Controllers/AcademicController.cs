@@ -202,6 +202,20 @@ public class AcademicController : ControllerBase
         return Ok(await _mediator.Send(new GetSubjectsBySemesterQuery(semesterId, GetStudentId(), includeArchived), ct));
     }
 
+    /// <summary>
+    /// Subjects the authenticated student currently has an active subscription grant for
+    /// (contentScope-aware), across the whole academic tree. Consumed by the student
+    /// exams and library catalog pages.
+    /// </summary>
+    [HttpGet("subjects/my-subjects")]
+    [Authorize(Roles = "student")]
+    public async Task<ActionResult<List<SubjectDto>>> GetMySubjects(CancellationToken ct)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+        return Ok(await _mediator.Send(new GetMySubjectsQuery(studentId.Value), ct));
+    }
+
     [HttpGet("subjects/{id:guid}")]
     [Authorize]
     public async Task<ActionResult<SubjectDto>> GetSubject(Guid id, CancellationToken ct)

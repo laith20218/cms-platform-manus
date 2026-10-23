@@ -151,7 +151,14 @@ public class SessionServicePostgresIntegrationTests
         var auditBatch = new Mock<ISecurityEventBatch>();
         var securityService = new SecurityService(db, cache.Object, auditBatch.Object, new CorrelationContext(), configuration);
         var service = new SessionService(db, tokenService.Object, securityService, configuration);
-        var administratorId = Guid.NewGuid();
+        // The session must reference a real admin account: IsActiveAsync additionally verifies
+        // that the admin and its role are still active on every request (ADMIN-01 / FIX-9).
+        var superRole = AdminRole.Create("super_admin", "مدير عام");
+        var superAdmin = Admin.Create("super-admin@example.test", "not-used", "Super Admin", superRole.Id);
+        db.AdminRoles.Add(superRole);
+        db.Admins.Add(superAdmin);
+        await db.SaveChangesAsync();
+        var administratorId = superAdmin.Id;
         const string installationId = "super-admin-installation-00000001";
 
         var initial = await service.CreateAsync(

@@ -5,6 +5,7 @@ using System.Security.Claims;
 using CMS.Application.Commands.Admin;
 using CMS.Application.DTOs.Auth;
 using CMS.Application.Interfaces;
+using CMS.Api.Security;
 
 namespace CMS.Api.Controllers;
 
@@ -16,18 +17,37 @@ namespace CMS.Api.Controllers;
 public class AdminAuthController : ControllerBase
 {
     private readonly ISender _mediator;
+    private readonly AdminLoginRateLimiter _loginRateLimiter;
 
-    public AdminAuthController(ISender mediator) => _mediator = mediator;
+    public AdminAuthController(ISender mediator, AdminLoginRateLimiter loginRateLimiter)
+    {
+        _mediator = mediator;
+        _loginRateLimiter = loginRateLimiter;
+    }
 
     /// <summary>
-    /// Login as admin (with optional 2FA).
+    /// Login as admin (with optional 2FA). Rate limited per IP and per normalized e-mail.
     /// </summary>
     [HttpPost("login")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<AuthResponse>> Login(
         [FromBody] AdminLoginRequest request, CancellationToken ct)
     {
+        var verdict = _loginRateLimiter.Acquire(
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            request.Email);
+        if (!verdict.Allowed)
+        {
+            Response.Headers.RetryAfter = verdict.RetryAfterSeconds.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                error = "TOO_MANY_ATTEMPTS",
+                message = "تم تجاوز الحد المسموح من محاولات الدخول. حاول مجدداً بعد قليل."
+            });
+        }
+
         var result = await _mediator.Send(new AdminLoginCommand(
             request.Email, request.Password, request.TwoFactorCode, request.InstallationId
         ), ct);
