@@ -203,6 +203,170 @@ public class AdminStudentsController : ControllerBase
             sizeBytes = file.Length,
         });
     }
+
+    // ===== Student profile drawer — per-student detail endpoints =====
+    // All read-only, require Students.View permission + scope check.
+
+    private async Task<IActionResult> CheckStudentAccess(Guid studentId, CancellationToken ct)
+    {
+        var adminId = GetAdminId();
+        if (!await _permissions.HasPermissionAsync(adminId, Resources.Students, Actions.View, ct)
+            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Forbid();
+
+        var exists = await _db.Students.AnyAsync(s => s.Id == studentId, ct);
+        return exists ? null! : NotFound(new ProblemDetails
+        {
+            Title = "Student not found",
+            Status = 404,
+            Detail = $"No student with id '{studentId}'",
+        });
+    }
+
+    /// <summary>
+    /// Get a student's exam sessions (for the profile drawer "Exams" tab).
+    /// Returns the most recent 50 sessions with exam title, score, pass/fail.
+    /// </summary>
+    [HttpGet("{studentId:guid}/exam-sessions")]
+    public async Task<IActionResult> GetStudentExamSessions(Guid studentId, CancellationToken ct = default)
+    {
+        var accessCheck = await CheckStudentAccess(studentId, ct);
+        if (accessCheck is not null) return accessCheck;
+
+        var sessions = await _db.ExamSessions.AsNoTracking()
+            .Where(es => es.StudentId == studentId)
+            .OrderByDescending(es => es.StartedAt)
+            .Take(50)
+            .Select(es => new
+            {
+                id = es.Id,
+                examId = es.ExamId,
+                examTitle = es.Exam.TitleAr,
+                status = es.Status.ToString(),
+                score = es.Score,
+                passed = es.Passed,
+                startedAt = es.StartedAt,
+                completedAt = es.CompletedAt,
+                totalQuestions = es.TotalQuestions,
+                correctAnswers = es.CorrectAnswers,
+                durationMinutes = es.DurationMinutesSnapshot,
+            })
+            .ToListAsync(ct);
+
+        return Ok(new { items = sessions, total = sessions.Count });
+    }
+
+    /// <summary>
+    /// Get a student's subscriptions (for the profile drawer "Subscriptions" tab).
+    /// Returns the most recent 50 subscriptions with scope + status + dates.
+    /// </summary>
+    [HttpGet("{studentId:guid}/subscriptions")]
+    public async Task<IActionResult> GetStudentSubscriptions(Guid studentId, CancellationToken ct = default)
+    {
+        var accessCheck = await CheckStudentAccess(studentId, ct);
+        if (accessCheck is not null) return accessCheck;
+
+        var subs = await _db.StudentSubscriptions.AsNoTracking()
+            .Where(s => s.StudentId == studentId)
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(50)
+            .Select(s => new
+            {
+                id = s.Id,
+                status = s.Status.ToString(),
+                scopeType = s.ScopeType.ToString(),
+                startsAt = s.StartsAt,
+                expiresAt = s.ExpiresAt,
+                revokedAt = s.RevokedAt,
+                revocationReason = s.RevocationReason,
+                createdAt = s.CreatedAt,
+            })
+            .ToListAsync(ct);
+
+        return Ok(new { items = subs, total = subs.Count });
+    }
+
+    /// <summary>
+    /// Get a student's error reports (for the profile drawer "Reports" tab).
+    /// Returns the most recent 50 reports filed by this student.
+    /// </summary>
+    [HttpGet("{studentId:guid}/reports")]
+    public async Task<IActionResult> GetStudentReports(Guid studentId, CancellationToken ct = default)
+    {
+        var accessCheck = await CheckStudentAccess(studentId, ct);
+        if (accessCheck is not null) return accessCheck;
+
+        var reports = await _db.ErrorReports.AsNoTracking()
+            .Where(r => r.StudentId == studentId)
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(50)
+            .Select(r => new
+            {
+                id = r.Id,
+                questionId = r.QuestionId,
+                questionText = r.Question.Text,
+                reason = r.ReasonType.ToString(),
+                description = r.Description,
+                status = r.Status.ToString(),
+                createdAt = r.CreatedAt,
+                resolvedAt = r.ResolvedAt,
+            })
+            .ToListAsync(ct);
+
+        return Ok(new { items = reports, total = reports.Count });
+    }
+
+    /// <summary>
+    /// Get a student's per-subject progress (for the profile drawer "Academic" tab).
+    /// Aggregates AttemptLogs by subject: total answered, correct, accuracy.
+    /// </summary>
+    [HttpGet("{studentId:guid}/progress")]
+    public async Task<IActionResult> GetStudentProgress(Guid studentId, CancellationToken ct = default)
+    {
+        var accessCheck = await CheckStudentAccess(studentId, ct);
+        if (accessCheck is not null) return accessCheck;
+
+        // Server-side: filter + join AttemptLogs → Questions to get SubjectId.
+        // Client-side: aggregate (to avoid EF Core Count(predicate) translation
+        // pitfalls — see EXECUTION_STATUS.md "Critical Testing Gap").
+        var attempts = await _db.AttemptLogs.AsNoTracking()
+            .Where(a => a.StudentId == studentId)
+            .Join(_db.Questions, a => a.QuestionId, q => q.Id, (a, q) => new { a.IsCorrect, a.AnsweredAt, q.SubjectId })
+            .ToListAsync(ct);
+
+        var grouped = attempts
+            .GroupBy(x => x.SubjectId)
+            .Select(g => new
+            {
+                subjectId = g.Key,
+                questionsAnswered = g.Count(),
+                correctAnswers = g.Count(x => x.IsCorrect),
+                lastActivityDate = g.Max(x => x.AnsweredAt),
+            })
+            .ToList();
+
+        var subjectIds = grouped.Select(p => p.subjectId).ToList();
+        var subjects = await _db.Subjects.AsNoTracking()
+            .Where(s => subjectIds.Contains(s.Id))
+            .Select(s => new { s.Id, s.NameAr, s.NameEn })
+            .ToListAsync(ct);
+
+        var progress = grouped
+            .Join(subjects, p => p.subjectId, s => s.Id, (p, s) => new
+            {
+                subjectId = p.subjectId,
+                subjectName = s.NameAr,
+                subjectNameEn = s.NameEn,
+                questionsAnswered = p.questionsAnswered,
+                correctAnswers = p.correctAnswers,
+                accuracy = p.questionsAnswered > 0 ? Math.Round(p.correctAnswers * 100.0 / p.questionsAnswered, 1) : 0,
+                lastActivityDate = p.lastActivityDate,
+            })
+            .OrderByDescending(p => p.questionsAnswered)
+            .Take(50)
+            .ToList();
+
+        return Ok(new { items = progress, total = progress.Count });
+    }
 }
 
 /// <summary>Request body for PUT /admin/students/{id}.</summary>

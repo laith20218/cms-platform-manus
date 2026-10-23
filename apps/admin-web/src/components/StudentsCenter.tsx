@@ -158,6 +158,32 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
   }>>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
+  // P1-01: student profile drawer — detail tabs data
+  const [examSessions, setExamSessions] = useState<Array<{
+    id: string; examId: string; examTitle: string; status: string;
+    score: number | null; passed: boolean | null;
+    startedAt: string; completedAt: string | null;
+    totalQuestions: number; correctAnswers: number; durationMinutes: number;
+  }>>([]);
+  const [examSessionsLoading, setExamSessionsLoading] = useState(false);
+  const [subscriptions, setSubscriptions] = useState<Array<{
+    id: string; status: string; scopeType: string;
+    startsAt: string; expiresAt: string; revokedAt: string | null;
+    revocationReason: string | null; createdAt: string;
+  }>>([]);
+  const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
+  const [studentReports, setStudentReports] = useState<Array<{
+    id: string; questionId: string; questionText: string; reason: string;
+    description: string | null; status: string;
+    createdAt: string; resolvedAt: string | null;
+  }>>([]);
+  const [studentReportsLoading, setStudentReportsLoading] = useState(false);
+  const [studentProgress, setStudentProgress] = useState<Array<{
+    subjectId: string; subjectName: string; subjectNameEn: string | null;
+    questionsAnswered: number; correctAnswers: number; accuracy: number;
+    lastActivityDate: string;
+  }>>([]);
+  const [studentProgressLoading, setStudentProgressLoading] = useState(false);
 
   const request = <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
   const filtersActive = Boolean(query.trim() || status || universityId);
@@ -214,9 +240,17 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     setDrawerTab('overview');
     setSecurityLogs([]);
     setSessions([]);
+    setExamSessions([]);
+    setSubscriptions([]);
+    setStudentReports([]);
+    setStudentProgress([]);
     setLogsLoading(true);
-    // P1-11: fetch sessions in parallel with security logs
+    // P1-11: fetch sessions in parallel with security logs + detail tabs data
     setSessionsLoading(true);
+    setExamSessionsLoading(true);
+    setSubscriptionsLoading(true);
+    setStudentReportsLoading(true);
+    setStudentProgressLoading(true);
     Promise.all([
       request<SecurityLog[]>(`/api/v1/security/students/${student.id}/logs?count=50`)
         .then(data => setSecurityLogs(data))
@@ -232,6 +266,26 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
         .then(data => setSessions(Array.isArray(data) ? data : []))
         .catch(() => { /* sessions are optional — don't block the drawer */ })
         .finally(() => setSessionsLoading(false)),
+      // P1-01: fetch exam sessions for the Exams tab
+      request<{ items: typeof examSessions }>(`/api/v1/admin/students/${student.id}/exam-sessions`)
+        .then(data => setExamSessions(data.items || []))
+        .catch(() => { /* best-effort — don't block the drawer */ })
+        .finally(() => setExamSessionsLoading(false)),
+      // P1-01: fetch subscriptions for the Subscriptions tab
+      request<{ items: typeof subscriptions }>(`/api/v1/admin/students/${student.id}/subscriptions`)
+        .then(data => setSubscriptions(data.items || []))
+        .catch(() => { /* best-effort */ })
+        .finally(() => setSubscriptionsLoading(false)),
+      // P1-01: fetch error reports for the Reports tab
+      request<{ items: typeof studentReports }>(`/api/v1/admin/students/${student.id}/reports`)
+        .then(data => setStudentReports(data.items || []))
+        .catch(() => { /* best-effort */ })
+        .finally(() => setStudentReportsLoading(false)),
+      // P1-01: fetch per-subject progress for the Academic tab
+      request<{ items: typeof studentProgress }>(`/api/v1/admin/students/${student.id}/progress`)
+        .then(data => setStudentProgress(data.items || []))
+        .catch(() => { /* best-effort */ })
+        .finally(() => setStudentProgressLoading(false)),
     ]).finally(() => setLogsLoading(false));
   };
 
@@ -1073,9 +1127,34 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       <div className="text-sm font-bold tabular-nums" style={{ color: 'var(--cms-success)' }}>{Math.round(selected.accuracy)}%</div>
                     </div>
                   </div>
-                  <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                    {isArabic ? 'بيانات التقدم التفصيلية حسب المادة تتطلب endpoint خاص — سيُضاف لاحقاً.' : 'Per-subject progress detail requires a dedicated endpoint — to be added.'}
-                  </p>
+                  {/* Per-subject progress from GET /admin/students/{id}/progress */}
+                  <div className="mt-3">
+                    <h4 className="text-xs font-semibold mb-2" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'التقدم حسب المادة' : 'Per-subject progress'}</h4>
+                    {studentProgressLoading ? (
+                      <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span></div>
+                    ) : studentProgress.length === 0 ? (
+                      <div className="text-center py-6">
+                        <BookOpenCheck size={24} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
+                        <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لا توجد بيانات تقدم بعد. سيظهر هنا عند إجابة الطالب على الأسئلة.' : 'No progress data yet. It will appear here once the student answers questions.'}</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {studentProgress.map(p => (
+                          <div key={p.subjectId} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-medium" style={{ color: 'var(--cms-text)' }}>{isArabic ? p.subjectName : (p.subjectNameEn || p.subjectName)}</span>
+                              <span className="text-xs font-bold tabular-nums" style={{ color: p.accuracy >= 60 ? 'var(--cms-success)' : 'var(--cms-danger)' }}>{Math.round(p.accuracy)}%</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
+                              <span>{p.correctAnswers}/{p.questionsAnswered} {isArabic ? 'صحيحة' : 'correct'}</span>
+                              <span>·</span>
+                              <span>{isArabic ? 'آخر نشاط' : 'Last activity'}: {new Date(p.lastActivityDate).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1086,9 +1165,35 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <ClipboardCheck size={18} style={{ color: 'var(--cms-teal-600)' }} />
                     <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'الاختبارات والنتائج' : 'Exams & results'}</h3>
                   </div>
-                  <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                    {isArabic ? 'نتائج اختبارات الطالب تتطلب endpoint GET /admin/students/{id}/exam-sessions — سيُضاف لاحقاً.' : 'Student exam sessions require GET /admin/students/{id}/exam-sessions — to be added.'}
-                  </p>
+                  {examSessionsLoading ? (
+                    <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span></div>
+                  ) : examSessions.length === 0 ? (
+                    <div className="text-center py-6">
+                      <ClipboardCheck size={24} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
+                      <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لم يخض هذا الطالب أي اختبار بعد.' : 'This student has not taken any exams yet.'}</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {examSessions.map(es => (
+                        <div key={es.id} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium truncate" style={{ color: 'var(--cms-text)' }}>{es.examTitle}</span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{
+                              background: es.passed ? 'rgba(34,197,94,0.12)' : 'rgba(255,82,82,0.12)',
+                              color: es.passed ? 'var(--cms-success)' : 'var(--cms-danger)'
+                            }}>{es.passed === null ? (isArabic ? 'قيد التقدم' : 'In progress') : es.passed ? (isArabic ? 'ناجح' : 'Passed') : (isArabic ? 'راسب' : 'Failed')}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
+                            <span>{isArabic ? 'الدرجة' : 'Score'}: {es.score !== null ? Math.round(es.score) + '%' : '—'}</span>
+                            <span>·</span>
+                            <span>{es.correctAnswers}/{es.totalQuestions}</span>
+                            <span>·</span>
+                            <span>{new Date(es.startedAt).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1099,9 +1204,42 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <KeyRound size={18} style={{ color: 'var(--cms-teal-600)' }} />
                     <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'الاشتراكات والأكواد' : 'Subscriptions & codes'}</h3>
                   </div>
-                  <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                    {isArabic ? 'اشتراكات الطالب تتطلب endpoint GET /admin/students/{id}/subscriptions — سيُضاف لاحقاً.' : 'Student subscriptions require GET /admin/students/{id}/subscriptions — to be added.'}
-                  </p>
+                  {subscriptionsLoading ? (
+                    <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span></div>
+                  ) : subscriptions.length === 0 ? (
+                    <div className="text-center py-6">
+                      <KeyRound size={24} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
+                      <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لا توجد اشتراكات لهذا الطالب.' : 'No subscriptions for this student.'}</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {subscriptions.map(s => {
+                        const isActive = s.status === 'Active' && !s.revokedAt && new Date(s.expiresAt) > new Date();
+                        return (
+                          <div key={s.id} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-medium" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'نطاق' : 'Scope'}: {isArabic ? s.scopeType.replace(/([A-Z])/g, ' $1').trim() : s.scopeType}</span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{
+                                background: isActive ? 'rgba(34,197,94,0.12)' : 'rgba(255,159,28,0.12)',
+                                color: isActive ? 'var(--cms-success)' : 'var(--cms-warning)'
+                              }}>{isArabic ? (isActive ? 'نشط' : 'منتهي') : (isActive ? 'Active' : 'Expired')}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
+                              <span>{isArabic ? 'من' : 'From'}: {new Date(s.startsAt).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
+                              <span>·</span>
+                              <span>{isArabic ? 'إلى' : 'Until'}: {new Date(s.expiresAt).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
+                            </div>
+                            {s.revokedAt && (
+                              <div className="text-[11px] mt-1" style={{ color: 'var(--cms-danger)' }}>
+                                {isArabic ? 'ألغي في' : 'Revoked at'}: {new Date(s.revokedAt).toLocaleDateString(isArabic ? 'ar' : 'en')}
+                                {s.revocationReason ? ` — ${s.revocationReason}` : ''}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1112,9 +1250,36 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <FileWarning size={18} style={{ color: 'var(--cms-teal-600)' }} />
                     <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'البلاغات المرتبطة' : 'Associated reports'}</h3>
                   </div>
-                  <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                    {isArabic ? 'بلاغات الطالب تتطلب endpoint GET /admin/students/{id}/reports — سيُضاف لاحقاً.' : 'Student reports require GET /admin/students/{id}/reports — to be added.'}
-                  </p>
+                  {studentReportsLoading ? (
+                    <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span></div>
+                  ) : studentReports.length === 0 ? (
+                    <div className="text-center py-6">
+                      <FileWarning size={24} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
+                      <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لم يقدّم هذا الطالب أي بلاغ.' : 'This student has not filed any reports.'}</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {studentReports.map(r => (
+                        <div key={r.id} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium truncate" style={{ color: 'var(--cms-text)' }}>{r.questionText.slice(0, 80)}{r.questionText.length > 80 ? '…' : ''}</span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{
+                              background: r.status === 'Pending' ? 'rgba(255,159,28,0.12)' : r.status === 'Resolved' ? 'rgba(34,197,94,0.12)' : 'rgba(13,116,107,0.12)',
+                              color: r.status === 'Pending' ? 'var(--cms-warning)' : r.status === 'Resolved' ? 'var(--cms-success)' : 'var(--cms-teal-600)'
+                            }}>{isArabic ? r.reason : r.reason}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
+                            <span>{isArabic ? 'الحالة' : 'Status'}: {r.status}</span>
+                            <span>·</span>
+                            <span>{new Date(r.createdAt).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
+                          </div>
+                          {r.description && (
+                            <p className="text-[11px] mt-1" style={{ color: 'var(--cms-text-muted)' }}>{r.description}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

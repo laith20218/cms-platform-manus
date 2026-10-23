@@ -36,6 +36,14 @@ const DATE_PRESETS = [
 
 const COLORS = ['#0d746b', '#12877d', '#1a9b90', '#4cb8ae', '#35718a', '#a36c1f', '#198566', '#b6473d'];
 
+/** Format ISO date strings (yyyy-MM-dd) into short locale-friendly labels for chart x-axes. */
+function formatShortDate(value: string): string {
+  if (!value) return '';
+  const parts = value.split('-');
+  if (parts.length !== 3) return value;
+  return `${parts[1]}/${parts[2]}`;
+}
+
 function exportCsv(filename: string, headers: string[], rows: (string | number)[][]) {
   const csv = [headers.join(','), ...rows.map(r => r.map(c => typeof c === 'string' && c.includes(',') ? `"${c.replace(/"/g, '""')}"` : c).join(','))].join('\n');
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
@@ -70,8 +78,11 @@ function LoadingState() {
 function EmptyState({ icon: Icon }: { icon: typeof Users }) {
   return (
     <div className="text-center py-12">
-      <Icon size={28} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
-      <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>No data available</p>
+      <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background: 'var(--cms-teal-50, rgba(13,116,107,0.08))' }}>
+        <Icon size={24} style={{ color: 'var(--cms-teal-500, #1a9b90)' }} />
+      </div>
+      <p className="text-sm font-medium" style={{ color: 'var(--cms-text, #0b2940)' }}>No data available</p>
+      <p className="text-xs mt-1" style={{ color: 'var(--cms-text-muted, #6b7280)' }}>Try adjusting the date range or check back later.</p>
     </div>
   );
 }
@@ -123,7 +134,7 @@ function OverviewTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
             <AreaChart data={data.growth}>
               <defs><linearGradient id="ovGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--cms-teal-500)" stopOpacity={0.3} /><stop offset="95%" stopColor="var(--cms-teal-500)" stopOpacity={0} /></linearGradient></defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--cms-line)" />
-              <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--cms-text-muted)' }} />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--cms-text-muted)' }} tickFormatter={formatShortDate} interval="preserveStartEnd" minTickGap={20} />
               <YAxis tick={{ fontSize: 11, fill: 'var(--cms-text-muted)' }} />
               <Tooltip contentStyle={{ background: 'var(--cms-surface)', border: '1px solid var(--cms-line)', borderRadius: 8, fontSize: 12 }} />
               <Area type="monotone" dataKey="activeUsers" name="Active" stroke="var(--cms-teal-600)" fill="url(#ovGrad)" strokeWidth={2} />
@@ -176,7 +187,7 @@ function StudentsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={data.dailyBreakdown}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--cms-line)" />
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--cms-text-muted)' }} />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--cms-text-muted)' }} tickFormatter={formatShortDate} interval="preserveStartEnd" minTickGap={20} />
               <YAxis tick={{ fontSize: 11, fill: 'var(--cms-text-muted)' }} />
               <Tooltip contentStyle={{ background: 'var(--cms-surface)', border: '1px solid var(--cms-line)', borderRadius: 8, fontSize: 12 }} />
               <Bar dataKey="registrations" name="Registrations" fill="var(--cms-teal-600)" radius={[4, 4, 0, 0]} />
@@ -433,7 +444,7 @@ function CodesTab({ token, dateFrom, dateTo, isArabic, onError }: { token: strin
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={data.dailyActivation}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--cms-line)" />
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--cms-text-muted)' }} />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--cms-text-muted)' }} tickFormatter={formatShortDate} interval="preserveStartEnd" minTickGap={20} />
               <YAxis tick={{ fontSize: 11, fill: 'var(--cms-text-muted)' }} />
               <Tooltip contentStyle={{ background: 'var(--cms-surface)', border: '1px solid var(--cms-line)', borderRadius: 8, fontSize: 12 }} />
               <Bar dataKey="activated" name="Activated" fill="var(--cms-teal-600)" radius={[4, 4, 0, 0]} />
