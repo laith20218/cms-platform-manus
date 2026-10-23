@@ -1,6 +1,14 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const baseURL = process.env.E2E_WEB_URL ?? 'http://127.0.0.1:5173';
+// Default target: production student-web on Vercel.
+// For local dev testing: E2E_WEB_URL=http://127.0.0.1:5173 npx playwright test
+const baseURL = process.env.E2E_WEB_URL ?? 'https://cms-platform-manus-student-web.vercel.app';
+
+// Playwright bundles its own Chromium; use that instead of /usr/bin/chromium
+// (which may not exist on all CI/sandbox environments).
+const chromiumExecutable =
+  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ??
+  '/home/z/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome';
 
 export default defineConfig({
   testDir: './e2e',
@@ -16,6 +24,8 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     video: 'off',
+    // Allow cross-origin API calls to Render backend
+    ignoreHTTPSErrors: true,
   },
   projects: [
     {
@@ -23,8 +33,8 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: {
-          executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ?? '/usr/bin/chromium',
-          args: ['--no-sandbox', '--disable-dev-shm-usage'],
+          executablePath: chromiumExecutable,
+          args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
         },
       },
     },
