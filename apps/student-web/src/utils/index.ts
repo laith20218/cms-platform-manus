@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+export { sanitizeActionUrl } from './sanitizeActionUrl';
+
 /**
  * Merge Tailwind CSS classes with conflict resolution.
  * Combines clsx + tailwind-merge.
