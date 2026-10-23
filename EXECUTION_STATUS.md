@@ -227,6 +227,50 @@ before pushing.
 
 ---
 
+## 🎉 Wave 5 — CLOSED — Production Ready (2026-10-23)
+
+### Final Verification
+- **13/13 Playwright E2E tests passed** (7 student + 6 admin, 2.0 min total)
+- **7/7 Analytics endpoints return 200** on production
+- **PWA installable + service worker registered** (3 icons: 192, 512, maskable-512)
+- **Device binding working** with fixed Playwright fingerprint (`web-deadbeefcafe...`)
+- **Auth (student + admin) verified** on production Render API
+
+### Deployed SHA
+| Environment | SHA | Status |
+|---|---|---|
+| origin/main (GitHub) | `07c8f35` | ✅ pushed (includes 13 E2E tests) |
+| Vercel student-web | `cac5052` | ✅ READY (production) |
+| Vercel admin-web | `cac5052` | ✅ READY (production) |
+| Render API | `cac5052` | ✅ LIVE |
+| Neon DB | — | ✅ Phase 54-57 migrations + test fixtures seeded |
+
+### Test Summary (final)
+| Suite | Count | Status |
+|---|---|---|
+| Backend integration tests (InMemory) | 182/182 | ✅ |
+| Backend Postgres-gated tests | 18 (blocked by `CMS_PHASE34_TEST_POSTGRES` env — Wave 6) | ⏸️ |
+| student-web Vitest | 70/70 | ✅ |
+| admin-web Vitest | 12/12 | ✅ |
+| Playwright E2E (student) | 7/7 | ✅ |
+| Playwright E2E (admin) | 6/6 | ✅ |
+| **Total automated tests passing** | **271/271** | ✅ |
+
+### Known Issues
+- **None blocking launch.**
+- 2 analytics endpoints fixed in Wave 5D (`/students` + `/codes` — EF Core translation error)
+- Critical Testing Gap documented (InMemory doesn't catch EF translation errors — Wave 6: Testcontainers)
+- 18 Postgres-gated tests require `CMS_PHASE34_TEST_POSTGRES` env var (deferred to Wave 6)
+
+### What's Next (Wave 6 — Post-Launch)
+- Adopt Testcontainers + real PostgreSQL in CI
+- Migrate critical query-path tests from InMemory to Testcontainers
+- Periodic Playwright E2E against production (scheduled smoke tests)
+- Backend monitoring + alerting on Render
+- Vercel Analytics for frontend performance metrics
+
+---
+
 ## Critical Testing Gap (Discovered 2026-10-22)
 
 ### The Problem
