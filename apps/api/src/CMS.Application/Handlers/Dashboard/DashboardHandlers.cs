@@ -407,6 +407,19 @@ public class AdminManagementHandlers :
         {
             string code;
             string fullCode;
+            // Pre-load ALL existing codes once (server-side, translatable) so the
+            // uniqueness check is done client-side. EF Core cannot translate
+            // `new string((c.Code ?? "").Where(char.IsLetterOrDigit).ToArray())`
+            // to SQL — it throws InvalidOperationException (same class of bug as
+            // the Wave 5D DateTime.ToString(format) translation error). See
+            // EXECUTION_STATUS.md → "Critical Testing Gap" for full context.
+            var existingCodes = await _db.SubscriptionCodes
+                .AsNoTracking()
+                .Select(c => c.Code ?? "")
+                .ToListAsync(ct);
+            var existingNormalized = existingCodes
+                .Select(c => new string(c.Where(char.IsLetterOrDigit).ToArray()))
+                .ToHashSet();
             do {
                 // Generate 16 alphanumeric chars and format as XXXX-XXXX-XXXX-XXXX
                 // (4 groups of 4) to match the student-web activate-code UI which
@@ -418,9 +431,7 @@ public class AdminManagementHandlers :
                 // Uniqueness check uses the dash-stripped form so legacy no-dash
                 // codes can't collide with the new dash-formatted ones.
                 var normalizedForCheck = new string(fullCode.Where(char.IsLetterOrDigit).ToArray());
-                var exists = await _db.SubscriptionCodes.AnyAsync(
-                    c => new string((c.Code ?? "").Where(char.IsLetterOrDigit).ToArray()) == normalizedForCheck, ct);
-                if (!exists) break;
+                if (!existingNormalized.Contains(normalizedForCheck)) break;
             } while (true);
 
             var codeEntity = new SubscriptionCode

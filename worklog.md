@@ -128,3 +128,36 @@ Stage Summary:
 - ✅ Bilingual labels (Arabic + English) via `isArabic` prop throughout the modal.
 - ✅ `tsc --noEmit` → 0 errors; `vite build` → success.
 - File size grew from 1555 → ~1800 lines (one cohesive addition; no refactor of existing code).
+
+---
+Task ID: ITEM-2-STUDENT-REDESIGN
+Agent: full-stack-developer
+Task: Premium redesign of ProfilePage + AppShell + Sidebar
+
+Work Log:
+- Read worklog.md (prior ITEM-3-STUDENT-CREATE record) + agent-ctx/ITEM-3-STUDENT-REDESIGN-full-stack-developer.md to inherit the established `--cms-*` token vocabulary and modal/CTA patterns.
+- Read all three target files + globals.css, Navbar.tsx, BottomNav.tsx, profile-api.ts, auth-api.ts, useAuth.ts, utils/index.ts, vitest.config.ts, tsconfig.json, package.json, src/test/component.test.tsx to confirm framer-motion is already a dep, that `motion` is the canonical import, that `--cms-*` tokens are defined and `--c-*` aliases are deprecated.
+- AppShell.tsx: swapped `bg-[var(--c-bg)]` → `bg-[var(--cms-ivory-100)]` (no alias). Reordered main className so `w-full max-w-[1280px] mx-auto` is explicit. Added subtle extra top spacing via `pt-8 md:pt-10` on top of the existing `p-6 md:p-8` so content has breathing room below the sticky navbar.
+- Sidebar.tsx: swapped translucent `--cms-surface-glass` background → clean `--cms-surface` (white). Replaced the leftover emerald rgba(13,116,107,*) hover/active tokens with the correct `--cms-teal-50/600/700` family. Active state now `bg-[var(--cms-teal-50)] text-[var(--cms-teal-700)] font-semibold` + start-side accent (`border-s-2 border-s-[var(--cms-teal-600)]`) so the accent bar sits on the RTL leading edge (right). Hover state `hover:bg-[var(--cms-teal-50)] hover:text-[var(--cms-teal-700)]`. Group labels `text-[11px] font-semibold uppercase tracking-wider text-[var(--cms-text-muted)]`. Group spacing bumped `mb-4` → `mb-6 last:mb-0`. Item spacing stays `space-y-1`. Items use `rounded-lg`, `transition-all duration-200 ease-out`. Icons stay `w-5 h-5`.
+- ProfilePage.tsx — full visual redesign:
+  * Removed the colored gradient banner strip (the `h-24` div with `--grad-primary`) entirely. Header is now a single white card (`bg-[var(--cms-surface)] rounded-2xl border-[var(--cms-line)] shadow-sm p-6 md:p-8`).
+  * Top row: ghost/outline "تعديل" (Edit) button with Pencil icon — wired to a new `startEmailEdit()` helper that seeds `emailValue` from `data.email` and flips `emailEditing=true`. Shares the same code path as the inline email-edit link in the account-info section.
+  * Main row: `flex items-center justify-between gap-6`. Avatar block (first child = right/start in RTL) — circular `h-20 w-20 rounded-full` with `border border-[var(--cms-line)]` and `bg-[var(--cms-teal-50)]` fallback + `text-[var(--cms-teal-700)]` initial. Camera upload button preserved (`absolute -bottom-1 -left-1`, 7×7, white border, teal-600 bg, hover teal-700). File input + accept list unchanged. Name+phone+status block (second child, `flex-1 text-end`) — `text-xl font-bold` name, `text-sm` muted phone (dir=ltr for proper phone rendering), and a status pill (`bg-[var(--cms-success-50)] text-[var(--cms-success)]` when Active, otherwise muted ivory) with a small dot indicator.
+  * 2-column grid preserved (account info `lg:col-span-2` + academic path `lg:col-span-3`). Academic path 3-card grid (`university/college/year`) upgraded to bordered ivory tiles. Email inline edit (save/cancel) preserved 1:1 with new X-icon cancel button and `--cms-teal-600/700` save button. Password change form preserved — input borders `--cms-line-strong`, focus border `--cms-teal-500`, submit `--cms-teal-600`. Subscriptions list preserved — masked codes with mono font, active/expired pills, expiry dates with CalendarDays icon.
+  * Logout button relocated from the profile header (where it collided with the new Edit button placement) to the security section header — sits next to the "تغيير كلمة المرور" toggle as a destructive red-50/red-700 ghost button. `void logout()` call semantics unchanged.
+  * Wrapped the whole `<main>` in `motion.main` with `initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{duration:0.3, ease:'easeOut'}}` for the subtle fade-in. Error state also wrapped in `motion.section` with the same fade-up variant. Defined the variant object once (`fadeUp`) and spread via `{...fadeUp}` to keep both call sites consistent.
+  * Headings changed `font-extrabold` → `font-bold` throughout (account info, academic path, security, subscriptions). Icons swapped from `text-[var(--c-primary-700)]` → `text-[var(--cms-teal-600)]` (calm blue, not dark). All `--c-*` aliases replaced with the canonical `--cms-*` tokens.
+- Ran the three required verifications from `apps/student-web/`:
+  * `node_modules/.bin/tsc --noEmit` → 0 errors
+  * `node_modules/.bin/vite build` → success, built in 7.08s (ProfilePage chunk: 15.85 kB / 4.16 kB gzip)
+  * `node_modules/.bin/vitest run` → 4 test files, 70 tests, all passed (3.17s)
+  * Also tried `eslint` on the three files — it fails at the rule-loader level on EVERY file in the repo (confirmed identical failure on the untouched `src/utils/index.ts`). Pre-existing env issue with `@typescript-eslint/no-unused-expressions` reading `allowShortCircuit` under ESLint 8.57.1; not caused by this change and not in the required verification set.
+- Wrote `agent-ctx/ITEM-2-STUDENT-REDESIGN-full-stack-developer.md` with context-read summary, design intent per file, and verification results — following the same format as the ITEM-3 record.
+
+Stage Summary:
+- ✅ AppShell.tsx — `--cms-ivory-100` background, `max-w-[1280px] mx-auto w-full` main, `p-6 md:p-8` padding with `pt-8 md:pt-10` extra top spacing.
+- ✅ Sidebar.tsx — clean white `--cms-surface` background, `--cms-teal-*` accent tokens (replacing leftover emerald rgba), `border-s-2` active-state accent bar on RTL leading edge, `mb-6` group spacing, `text-[11px] uppercase tracking-wider` group labels, `transition-all duration-200 ease-out` on items.
+- ✅ ProfilePage.tsx — premium Profile Header Card (NO colored strip). Avatar on RIGHT (RTL start), name+phone+status on LEFT (RTL end, `text-end` for left-aligned text). Ghost/outline Edit button in top-right corner. `motion.main` fade-in (`opacity:0,y:8 → opacity:1,y:0`, 300ms ease-out). All `font-bold` (not `font-extrabold`). All `--cms-*` tokens (no `--c-*` aliases). framer-motion fade-up variant shared between success and error states.
+- ✅ All existing functionality preserved 1:1: avatar upload (camera button + POST /profile/avatar + invalidateQueries), email inline edit (PUT /profile with {email}, save/cancel with X-icon), password change (current/new/confirm form + authApi.changePassword), subscriptions list (masked codes + active/expired pills + expiry dates), logout button (`void logout()` — relocated to security section), all sidebar links (/profile, /activate-code, /settings + 9 others), all imports (`useAuth`, `profileApi`, `authApi`, `useQuery`, `useQueryClient`, useRef, useState).
+- ✅ No new dependencies added. framer-motion already in package.json (^11.11.0).
+- ✅ `tsc --noEmit` → 0 errors; `vite build` → success (7.08s); `vitest run` → 70/70 tests pass.

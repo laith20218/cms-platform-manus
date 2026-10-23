@@ -51,11 +51,20 @@ public sealed class SubscriptionHandlers :
 
         var now = DateTime.UtcNow;
         // Lookup must be dash-agnostic: store codes with dashes (new format) but
-        // also match legacy no-dash codes. We compare against a dash-stripped
-        // version of the stored Code so both formats work.
-        var code = await _db.SubscriptionCodes.FirstOrDefaultAsync(
-            candidate => new string((candidate.Code ?? "").Where(char.IsLetterOrDigit).ToArray()) == normalizedCode, ct)
-            ?? throw new NotFoundException("SubscriptionCode", normalizedCode);
+        // also match legacy no-dash codes. EF Core cannot translate
+        // `new string((candidate.Code ?? "").Where(char.IsLetterOrDigit).ToArray())`
+        // to SQL — same EF Core translation bug as the Wave 5D analytics endpoints.
+        // Fetch all codes server-side (simple SELECT), then match client-side.
+        var allCodes = await _db.SubscriptionCodes
+            .AsNoTracking()
+            .Select(c => new { c.Id, c.Code })
+            .ToListAsync(ct);
+        var matchedCodeId = allCodes
+            .FirstOrDefault(c => new string((c.Code ?? "").Where(char.IsLetterOrDigit).ToArray()) == normalizedCode)?.Id;
+        var code = matchedCodeId is null
+            ? throw new NotFoundException("SubscriptionCode", normalizedCode)
+            : await _db.SubscriptionCodes.FirstOrDefaultAsync(c => c.Id == matchedCodeId.Value, ct)
+                ?? throw new NotFoundException("SubscriptionCode", normalizedCode);
         if (code.Status != CodeStatus.Active || (code.CodeExpiresAt.HasValue && code.CodeExpiresAt <= now))
             throw new ForbiddenException("رمز الاشتراك غير متاح");
 
