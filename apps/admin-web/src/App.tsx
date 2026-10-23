@@ -35,7 +35,7 @@ import {
   UsersRound,
   X,
 } from 'lucide-react';
-import { API_BASE_URL, apiRequest, ApiError, type AdminRecord, type AdminUser, type PagedResult, type RoleRecord, login } from './lib/api';
+import { API_BASE_URL, apiRequest, ApiError, type AdminRecord, type AdminUser, type PagedResult, type RoleRecord, login, refreshAccessToken } from './lib/api';
 import { AcademicCenter } from './components/AcademicCenter';
 import { AdminsCenter, DialogLayer } from './components/AdminsCenter';
 import { AuditCenter } from './components/AuditCenter';
@@ -133,9 +133,11 @@ function App() {
   }, [theme]);
 
   // Restore session on first load (credentials never persisted across sessions).
+  // FIX-1: Also restore refreshToken so we can refresh when accessToken expires.
   useEffect(() => {
     const savedUser = sessionStorage.getItem('cms-admin-user');
     const savedToken = sessionStorage.getItem('cms-admin-token');
+    const savedRefresh = sessionStorage.getItem('cms-admin-refresh');
     if (savedUser && savedToken) {
       try {
         setUser(JSON.parse(savedUser) as AdminUser);
@@ -143,7 +145,18 @@ function App() {
       } catch {
         sessionStorage.removeItem('cms-admin-user');
         sessionStorage.removeItem('cms-admin-token');
+        sessionStorage.removeItem('cms-admin-refresh');
       }
+    }
+    // If we have a refreshToken but the accessToken might be expired,
+    // try to refresh on load
+    if (savedRefresh && savedToken) {
+      refreshAccessToken(savedRefresh).then((newToken) => {
+        if (newToken) {
+          setToken(newToken);
+          sessionStorage.setItem('cms-admin-token', newToken);
+        }
+      });
     }
   }, []);
 
@@ -243,6 +256,8 @@ function App() {
       const result = await login(email, password);
       sessionStorage.setItem('cms-admin-user', JSON.stringify(result.user));
       sessionStorage.setItem('cms-admin-token', result.accessToken);
+      // FIX-1: Store refreshToken for session refresh
+      sessionStorage.setItem('cms-admin-refresh', result.refreshToken);
       setUser(result.user);
       setToken(result.accessToken);
       setView(result.user.role === 'super_admin' ? 'admins' : 'overview');
@@ -258,6 +273,7 @@ function App() {
   function signOut() {
     sessionStorage.removeItem('cms-admin-user');
     sessionStorage.removeItem('cms-admin-token');
+    sessionStorage.removeItem('cms-admin-refresh');
     setUser(null);
     setToken('');
     setAdmins([]);

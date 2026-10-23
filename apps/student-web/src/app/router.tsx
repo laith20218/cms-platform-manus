@@ -28,6 +28,9 @@ const StatsPage = lazy(() => import('@/features/stats/pages/StatsPage'));
 const LeaderboardPage = lazy(() => import('@/features/stats/pages/LeaderboardPage'));
 const TermsPage = lazy(() => import('@/features/legal/TermsPage'));
 const PrivacyPage = lazy(() => import('@/features/legal/PrivacyPage'));
+const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
+const ActivateCodePage = lazy(() => import('@/features/subscriptions/ActivateCodePage'));
+const SettingsPage = lazy(() => import('@/features/settings/SettingsPage'));
 
 // P2-31: Hide OTP route when OtpEnabled=false
 const otpEnabled = import.meta.env.VITE_OTP_ENABLED === 'true';
@@ -39,16 +42,15 @@ export function AppRoutes() {
         {/* Public Routes */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
-        {/* P2-31: Only register /verify-otp if OTP is enabled */}
         {otpEnabled && <Route path="/verify-otp" element={<VerifyOtpPage />} />}
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-        {/* Legal pages (public, replace href="#" placeholders) */}
+        {/* Legal pages */}
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
 
-        {/* Protected Routes (require auth) */}
+        {/* Protected Routes */}
         <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/subjects" element={<SubjectsPage />} />
@@ -57,11 +59,9 @@ export function AppRoutes() {
           <Route path="/subjects/:subjectSlug/lectures/:lectureId/questions" element={<QuestionPage />} />
           <Route path="/subjects/:subjectSlug/questions/:questionId" element={<QuestionPage />} />
           <Route path="/favorites" element={<FavoritesPage />} />
-          {/* P2-27: Independent /exams catalog page */}
           <Route path="/exams" element={<ExamsCatalogPage />} />
           <Route path="/exams/:examId" element={<ExamPage />} />
           <Route path="/exams/:sessionId/review" element={<ExamReviewPage />} />
-          {/* P2-28: Independent /library catalog page */}
           <Route path="/library" element={<LibraryCatalogPage />} />
           <Route path="/subjects/:subjectSlug/library" element={<LibraryPage />} />
           <Route path="/search" element={<SearchPage />} />
@@ -69,11 +69,14 @@ export function AppRoutes() {
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/stats" element={<StatsPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
+          {/* 5C: Missing features */}
+          <Route path="/activate-code" element={<ActivateCodePage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Route>
 
-        {/* Redirects */}
+        {/* 404 page (replaces wildcard redirect) */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Suspense>
   );

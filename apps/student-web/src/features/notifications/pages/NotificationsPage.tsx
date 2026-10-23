@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
@@ -7,7 +8,7 @@ import {
   Megaphone, AlertTriangle, ShieldAlert, MessageSquare, Trophy, FileText,
 } from 'lucide-react';
 import { notificationApi, type Notification } from '../services/notification-api';
-import { formatRelativeTime } from '@/utils';
+import { formatRelativeTime, sanitizeActionUrl } from '@/utils';
 
 const typeConfig: Record<string, { icon: typeof Bell; color: string; bg: string }> = {
   announcement: { icon: Megaphone, color: 'var(--c-primary-700)', bg: 'var(--c-primary-50)' },
@@ -52,12 +53,14 @@ export default function NotificationsPage() {
 
   const notifications: Notification[] = data?.items || [];
 
-  const handleNotificationClick = (notif: Notification) => {
+  const handleNotificationClick = (notif: Notification, safeActionUrl: string | null) => {
     if (!notif.isRead) {
       markReadMutation.mutate(notif.id);
     }
-    if (notif.actionUrl) {
-      window.location.href = notif.actionUrl;
+    // SECURITY: only navigate to actionUrls that pass the strict whitelist
+    // (same-origin + internal path). See utils/sanitizeActionUrl.ts.
+    if (safeActionUrl) {
+      window.location.href = safeActionUrl;
     }
   };
 
@@ -117,13 +120,16 @@ export default function NotificationsPage() {
           {notifications.map((notif, i) => {
             const config = typeConfig[notif.type] || typeConfig.message;
             const Icon = config.icon;
+            // Sanitize once per notification — used both for navigation and
+            // to gate the "View" affordance, so a rejected URL shows no chevron.
+            const safeActionUrl = sanitizeActionUrl(notif.actionUrl);
             return (
               <motion.div
                 key={notif.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.03 }}
-                onClick={() => handleNotificationClick(notif)}
+                onClick={() => handleNotificationClick(notif, safeActionUrl)}
                 className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
                   notif.isRead
                     ? 'bg-[var(--c-surface)] border-[var(--c-border)]'
@@ -144,7 +150,7 @@ export default function NotificationsPage() {
                   <p className="text-sm text-[var(--c-text-soft)] line-clamp-2">{notif.body}</p>
                   <div className="flex items-center justify-between mt-1.5">
                     <span className="text-xs text-[var(--c-text-muted)]">{formatRelativeTime(notif.createdAt)}</span>
-                    {notif.actionLabel && notif.actionUrl && (
+                    {notif.actionLabel && safeActionUrl && (
                       <span className="text-xs font-semibold text-[var(--c-primary-700)] flex items-center gap-0.5">
                         {notif.actionLabel}
                         <ChevronLeft className="w-3 h-3" />
@@ -160,6 +166,3 @@ export default function NotificationsPage() {
     </div>
   );
 }
-
-// Need useState import
-import { useState } from 'react';

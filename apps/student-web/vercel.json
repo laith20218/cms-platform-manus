@@ -52,7 +52,6 @@
     { "source": "/((?!assets/|icons/|sw.js|manifest.webmanifest).*)", "destination": "/index.html" }
   ],
   "redirects": [
-    { "source": "/home", "destination": "/", "permanent": true },
-    { "source": "/login", "destination": "/auth/login", "permanent": true }
+    { "source": "/home", "destination": "/dashboard", "permanent": true }
   ]
 }
