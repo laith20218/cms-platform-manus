@@ -35,7 +35,12 @@ public sealed class SubscriptionHandlers :
 
     public async Task<SubscriptionRedemptionDto> Handle(RedeemSubscriptionCodeCommand request, CancellationToken ct)
     {
-        var normalizedCode = request.Code?.Trim().ToUpperInvariant();
+        // Normalize the code: trim, uppercase, and strip dashes/spaces so that
+        // both the new 16-char dash-formatted codes (XXXX-XXXX-XXXX-XXXX) and
+        // any legacy 12-char no-dash codes can be redeemed by students who type
+        // or paste them with or without dashes.
+        var normalizedCode = new string((request.Code ?? "").Trim().ToUpperInvariant()
+            .Where(c => char.IsLetterOrDigit(c)).ToArray());
         if (request.StudentId == Guid.Empty || string.IsNullOrWhiteSpace(normalizedCode))
             throw new DomainException("رمز الاشتراك غير صالح", "INVALID_SUBSCRIPTION_CODE");
 
@@ -45,7 +50,11 @@ public sealed class SubscriptionHandlers :
             throw new ForbiddenException("حساب الطالب غير نشط");
 
         var now = DateTime.UtcNow;
-        var code = await _db.SubscriptionCodes.FirstOrDefaultAsync(candidate => candidate.Code == normalizedCode, ct)
+        // Lookup must be dash-agnostic: store codes with dashes (new format) but
+        // also match legacy no-dash codes. We compare against a dash-stripped
+        // version of the stored Code so both formats work.
+        var code = await _db.SubscriptionCodes.FirstOrDefaultAsync(
+            candidate => new string((candidate.Code ?? "").Where(char.IsLetterOrDigit).ToArray()) == normalizedCode, ct)
             ?? throw new NotFoundException("SubscriptionCode", normalizedCode);
         if (code.Status != CodeStatus.Active || (code.CodeExpiresAt.HasValue && code.CodeExpiresAt <= now))
             throw new ForbiddenException("رمز الاشتراك غير متاح");

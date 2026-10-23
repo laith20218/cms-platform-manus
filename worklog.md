@@ -98,3 +98,33 @@ Important decisions:
 - أنشأت 4 runbooks منفصلة بدلاً من ملف واحد كبير (أسهل في الصيانة + البحث)
 - استخدمت v1.0.0 tag convention للإصدار الأول (semantic versioning)
 - PROJECT_HANDOFF.md يحتوي على جميع المعلومات اللازمة لتسليم المشروع لفريق جديد
+
+---
+Task ID: ITEM-3-STUDENT-CREATE
+Agent: full-stack-developer
+Task: Add "Create Student" modal to StudentsCenter.tsx
+
+Work Log:
+- Read existing StudentsCenter.tsx (1555 lines) + CodesCenter.tsx cascade pattern + lib/api.ts to understand the apiRequest contract and existing modal patterns (edit-profile modal, protected-action dialog).
+- Added `UserPlus` to the lucide-react imports (line 23) — needed for the header button + modal title + submit button.
+- Defined two missing cascade types (`College`, `AcademicYear`) after the existing `University` type (lines 44-46). The task description said they were already defined but they weren't — only `University` was present in StudentsCenter.tsx.
+- Added 8 new state hooks (lines 191-199) for the create-student modal — kept SEPARATE from the existing filter state (`universityId`, `collegeId`, `yearId`) so cascade selections in the modal never leak into the filter URL: `createOpen`, `createForm { fullName, phone, password, gender, email }`, `createUniversityId`, `createCollegeId`, `createYearId`, `createColleges`, `createYears`, `createBusy`.
+- Added `chooseCreateUniversity(id)` and `chooseCreateCollege(id)` cascade functions (lines 448-474) that mirror the existing CodesCenter pattern: `GET /api/v1/universities/{id}/colleges` → `College[]` and `GET /api/v1/colleges/{id}/years` → `AcademicYear[]`. Each resets downstream selections on change and surfaces failures via `onError`.
+- Added `openCreate()` (lines 476-485) which resets all create-form state before opening — guarantees a clean form every time.
+- Added `submitCreate(e)` (lines 487-531) with client-side validation BEFORE the network call: phone must match `/^09\d{8}$/` (Syrian format), password minLength 8, fullName non-empty, all three cascade IDs required. Sends `POST /api/v1/admin/students` via the existing `request` helper. On 2xx: closes modal + calls `loadStudents(1)` to refresh the table. Errors are surfaced via `onError`.
+- Added an "Add student" button (lines 564-577) on the RIGHT side of the page header — primary teal CTA using `var(--cms-teal-600)` with hover/focus promotion to `var(--cms-teal-700)`, mirroring how CodesCenter places its primary action.
+- Added the create-student modal JSX (lines 1604-1784) before the closing `</section>`. Structure mirrors the existing edit-profile modal: fixed inset-0 z-50 backdrop + centered `<section>` card. Form fields: fullName (required), phone (required, `pattern="09\d{8}"`, `maxLength=10`, dir=ltr, digits-only filter on change), password (required, `type=password`, `minLength=8`), university/college/academic-year cascade selects (required, college disabled until university picked, year disabled until college picked), gender (optional), email (optional, `type=email`). Submit button shows `LoaderCircle` spinner while `createBusy`. Backdrop click + Cancel button + X button all close the modal unless `createBusy`. Modal is bilingual via the `isArabic` prop. All design tokens (`--cms-teal-50/100/600/700`, `--cms-line`, `--cms-line-strong`, `--cms-surface`, `--cms-text`, `--cms-text-soft`, `--cms-text-muted`, `--cms-danger`) match existing usage.
+- Ran `node_modules/.bin/tsc --noEmit` → 0 errors. Ran `node_modules/.bin/vite build` → built successfully in 10.45s (the only warning is the pre-existing >500kB chunk-size notice, unrelated to this change).
+
+Stage Summary:
+- ✅ Header "Add student" button wired to `openCreate()` — primary teal CTA on the right side of the page header.
+- ✅ Modal form with all 8 fields (fullName, phone, password, universityId, collegeId, academicYearId, gender?, email?) — phone + password + cascade are required; gender + email optional.
+- ✅ Cascade selects reuse `universities` (already loaded by the component) but have SEPARATE state for `createColleges` / `createYears` — filter state is untouched.
+- ✅ `POST /api/v1/admin/students` called via existing `request` helper; body matches the deployed backend contract exactly.
+- ✅ On success: modal closes, `loadStudents(1)` refreshes the list, success toast via `onNotice`.
+- ✅ On error: `onError` surfaces a bilingual message; modal stays open so the user can retry.
+- ✅ Client-side validation: phone `/^09\d{8}$/` (Syrian), password minLength 8, all cascade IDs required.
+- ✅ Loading state: submit button shows `LoaderCircle` spinner while `createBusy`; backdrop/Cancel/X disabled during submit.
+- ✅ Bilingual labels (Arabic + English) via `isArabic` prop throughout the modal.
+- ✅ `tsc --noEmit` → 0 errors; `vite build` → success.
+- File size grew from 1555 → ~1800 lines (one cohesive addition; no refactor of existing code).

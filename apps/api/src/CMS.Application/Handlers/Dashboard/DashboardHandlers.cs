@@ -308,6 +308,17 @@ public class AdminManagementHandlers :
         if (req.SubjectId.HasValue)
             query = query.Where(c => c.ScopeSubjectId == req.SubjectId);
 
+        // Search by code substring (dash-agnostic: strip dashes for comparison)
+        if (!string.IsNullOrWhiteSpace(req.Search))
+        {
+            var search = req.Search.Trim().ToUpperInvariant();
+            query = query.Where(c => c.Code.ToUpper().Contains(search));
+        }
+
+        // Filter by scope type
+        if (!string.IsNullOrEmpty(req.ScopeType) && Enum.TryParse<SubscriptionScopeType>(req.ScopeType, true, out var scopeTypeFilter))
+            query = query.Where(c => c.ScopeType == scopeTypeFilter);
+
         var candidates = await query.OrderByDescending(c => c.CreatedAt).ToListAsync(ct);
         var scopedCodes = new List<SubscriptionCode>();
         foreach (var candidate in candidates)
@@ -395,12 +406,22 @@ public class AdminManagementHandlers :
         for (int i = 0; i < req.Quantity; i++)
         {
             string code;
+            string fullCode;
             do {
-                code = new string(Enumerable.Repeat(chars, 12)
+                // Generate 16 alphanumeric chars and format as XXXX-XXXX-XXXX-XXXX
+                // (4 groups of 4) to match the student-web activate-code UI which
+                // expects exactly 4 input boxes of maxLength 4.
+                var raw = new string(Enumerable.Repeat(chars, 16)
                     .Select(s => s[RandomNumberGenerator.GetInt32(s.Length)]).ToArray());
-            } while (await _db.SubscriptionCodes.AnyAsync(c => c.Code == code, ct));
-
-            var fullCode = prefix + code;
+                code = $"{raw[..4]}-{raw[4..8]}-{raw[8..12]}-{raw[12..16]}";
+                fullCode = prefix + code;
+                // Uniqueness check uses the dash-stripped form so legacy no-dash
+                // codes can't collide with the new dash-formatted ones.
+                var normalizedForCheck = new string(fullCode.Where(char.IsLetterOrDigit).ToArray());
+                var exists = await _db.SubscriptionCodes.AnyAsync(
+                    c => new string((c.Code ?? "").Where(char.IsLetterOrDigit).ToArray()) == normalizedForCheck, ct);
+                if (!exists) break;
+            } while (true);
 
             var codeEntity = new SubscriptionCode
             {

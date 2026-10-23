@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using CMS.Application.Commands.Dashboard;
 using CMS.Application.Commands.Admin;
@@ -7,6 +8,9 @@ using CMS.Application.Commands.Subscriptions;
 using CMS.Application.DTOs.Dashboard;
 using CMS.Api.Authorization;
 using CMS.Application.Interfaces;
+using CMS.Infrastructure.Persistence;
+using CMS.Domain.Entities;
+using CMS.Domain.Enums;
 
 namespace CMS.Api.Controllers;
 
@@ -22,12 +26,16 @@ public class AdminDashboardController : ControllerBase
     private readonly MediatR.ISender _mediator;
     private readonly IPermissionService _permissions;
     private readonly ISessionService _sessions;
+    private readonly ApplicationDbContext _db;
+    private readonly ISecurityAuditWriter _audit;
 
-    public AdminDashboardController(MediatR.ISender mediator, IPermissionService permissions, ISessionService sessions)
+    public AdminDashboardController(MediatR.ISender mediator, IPermissionService permissions, ISessionService sessions, ApplicationDbContext db, ISecurityAuditWriter audit)
     {
         _mediator = mediator;
         _permissions = permissions;
         _sessions = sessions;
+        _db = db;
+        _audit = audit;
     }
 
     private Guid GetAdminId()
@@ -316,10 +324,11 @@ public class AdminDashboardController : ControllerBase
     [Authorize(Policy = Policies.CodeView)]
     public async Task<ActionResult<PagedResult<CodeManagementDto>>> GetCodes(
         [FromQuery] string? status, [FromQuery] Guid? subjectId,
+        [FromQuery] string? search, [FromQuery] string? scopeType,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        var result = await _mediator.Send(new GetCodesQuery(status, subjectId, page, pageSize, GetAdminId()), ct);
+        var result = await _mediator.Send(new GetCodesQuery(status, subjectId, page, pageSize, GetAdminId(), search, scopeType), ct);
         return Ok(result);
     }
 
@@ -336,10 +345,82 @@ public class AdminDashboardController : ControllerBase
         ), ct);
         return Ok(result);
     }
+
+    /// <summary>
+    /// Manually activate a code for a student (admin-side activation).
+    /// Bypasses the student self-redeem flow — the admin selects a code +
+    /// a student, and the subscription is created immediately.
+    /// </summary>
+    [HttpPost("codes/{codeId:guid}/activate")]
+    [Authorize(Policy = Policies.CodeEdit)]
+    public async Task<IActionResult> ActivateCodeForStudent(Guid codeId, [FromBody] ActivateCodeRequestDto dto, CancellationToken ct)
+    {
+        var adminId = GetAdminId();
+
+        // Validate code exists + is active
+        var code = await _db.SubscriptionCodes.FirstOrDefaultAsync(c => c.Id == codeId, ct);
+        if (code is null) return NotFound(new ProblemDetails { Title = "Code not found", Status = 404 });
+        if (code.Status != Domain.Enums.CodeStatus.Active)
+            return BadRequest(new ProblemDetails { Title = "Code is not active", Status = 400 });
+
+        // Validate student exists + is active
+        var student = await _db.Students.FirstOrDefaultAsync(s => s.Id == dto.StudentId && s.DeletedAt == null, ct);
+        if (student is null) return NotFound(new ProblemDetails { Title = "Student not found", Status = 404 });
+        if (student.Status != Domain.Enums.StudentStatus.Active)
+            return BadRequest(new ProblemDetails { Title = "Student is not active", Status = 400 });
+
+        // Check no existing subscription for this code+student
+        var existing = await _db.StudentSubscriptions.AnyAsync(s => s.StudentId == dto.StudentId && s.SubscriptionCodeId == code.Id, ct);
+        if (existing) return BadRequest(new ProblemDetails { Title = "This code is already activated for this student", Status = 400 });
+
+        // Create the subscription
+        var now = DateTime.UtcNow;
+        var durationExpiresAt = code.DurationDays > 0 ? now.AddDays(code.DurationDays) : DateTime.MaxValue;
+        var subscriptionExpiresAt = code.CodeExpiresAt.HasValue && code.CodeExpiresAt.Value < durationExpiresAt
+            ? code.CodeExpiresAt.Value : durationExpiresAt;
+
+        var subscription = new CMS.Domain.Entities.StudentSubscription
+        {
+            StudentId = student.Id,
+            SubscriptionCodeId = code.Id,
+            ScopeType = code.ScopeType,
+            ContentScope = code.ContentScope,
+            ScopeUniversityId = code.ScopeUniversityId,
+            ScopeCollegeId = code.ScopeCollegeId,
+            ScopeYearId = code.ScopeYearId,
+            ScopeSemesterId = code.ScopeSemesterId,
+            ScopeSubjectId = code.ScopeSubjectId,
+            Status = Domain.Enums.SubscriptionStatus.Active,
+            StartsAt = now,
+            ExpiresAt = subscriptionExpiresAt,
+        };
+        _db.StudentSubscriptions.Add(subscription);
+
+        // Mark code as used if not already
+        if (!code.UsedAt.HasValue)
+        {
+            typeof(CMS.Domain.Entities.SubscriptionCode).GetProperty(nameof(CMS.Domain.Entities.SubscriptionCode.UsedAt))?.SetValue(code, now);
+            typeof(CMS.Domain.Entities.SubscriptionCode).GetProperty(nameof(CMS.Domain.Entities.SubscriptionCode.UsedBy))?.SetValue(code, student.Id);
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        // Audit log the manual activation
+        await _audit.LogSecurityEventAsync(
+            studentId: student.Id, adminId: adminId,
+            eventType: SecurityEventType.AdminAction, severity: SecuritySeverity.Info,
+            description: $"Code '{code.Code}' manually activated for student '{student.FullName}' by admin",
+            ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString(),
+            userAgent: Request.Headers.UserAgent.ToString(),
+            ct: ct);
+
+        return Ok(new { subscriptionId = subscription.Id, codeId = code.Id, studentId = student.Id, expiresAt = subscriptionExpiresAt });
+    }
 }
 
 // ===== Request DTOs =====
 public record BanRequestDto(string Reason, DateTime? BanUntil);
+public record ActivateCodeRequestDto(Guid StudentId);
 public record RolePermissionGrantRequestDto(string Resource, List<string> Actions, string Scope);
 public record ReplaceRolePermissionsRequestDto(List<RolePermissionGrantRequestDto> Permissions);
 public record RevokeSubscriptionRequestDto(string Reason);

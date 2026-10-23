@@ -90,6 +90,16 @@ public class Student : BaseEntity
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Set or update the student's email address (optional field).
+    /// Used by admin manual creation + student profile edit.
+    /// </summary>
+    public void SetEmail(string? email)
+    {
+        Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public void UpdateProfile(string? fullName, string? avatarUrl, string? gender)
     {
         if (!string.IsNullOrWhiteSpace(fullName))

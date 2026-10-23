@@ -20,6 +20,7 @@ import {
   Eye, LaptopMinimal, LoaderCircle, MonitorSmartphone, RotateCcw,
   Search, ShieldAlert, ShieldCheck, UserRound, Users, X,
   Pencil, Camera, Check, BookOpenCheck, ClipboardCheck, KeyRound, FileWarning,
+  UserPlus,
 } from 'lucide-react';
 import { ApiError, apiRequest, type PagedResult } from '../lib/api';
 
@@ -40,6 +41,9 @@ type StudentRecord = {
 };
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
+// ITEM-3-STUDENT-CREATE: cascade types for the create-student form
+type College = { id: string; nameAr: string; nameEn?: string | null };
+type AcademicYear = { id: string; nameAr: string; nameEn?: string | null; yearNumber: number };
 type SecurityLog = {
   id: string;
   eventType: string;
@@ -184,6 +188,15 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     lastActivityDate: string;
   }>>([]);
   const [studentProgressLoading, setStudentProgressLoading] = useState(false);
+  // ITEM-3-STUDENT-CREATE: create-student modal state (kept separate from filter state)
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({ fullName: '', phone: '', password: '', gender: '', email: '' });
+  const [createUniversityId, setCreateUniversityId] = useState('');
+  const [createCollegeId, setCreateCollegeId] = useState('');
+  const [createYearId, setCreateYearId] = useState('');
+  const [createColleges, setCreateColleges] = useState<College[]>([]);
+  const [createYears, setCreateYears] = useState<AcademicYear[]>([]);
+  const [createBusy, setCreateBusy] = useState(false);
 
   const request = <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
   const filtersActive = Boolean(query.trim() || status || universityId);
@@ -432,6 +445,91 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     } finally { setAvatarBusy(false); }
   };
 
+  // ITEM-3-STUDENT-CREATE: cascade — university → colleges (create-student form only)
+  const chooseCreateUniversity = async (id: string) => {
+    setCreateUniversityId(id);
+    setCreateCollegeId('');
+    setCreateYearId('');
+    setCreateYears([]);
+    if (!id) { setCreateColleges([]); return; }
+    try {
+      setCreateColleges(await request<College[]>(`/api/v1/universities/${id}/colleges`));
+    } catch (error) {
+      onError(error instanceof Error ? error.message : (isArabic ? 'تعذّر تحميل الكليات.' : 'Unable to load colleges.'));
+      setCreateColleges([]);
+    }
+  };
+
+  // ITEM-3-STUDENT-CREATE: cascade — college → academic years (create-student form only)
+  const chooseCreateCollege = async (id: string) => {
+    setCreateCollegeId(id);
+    setCreateYearId('');
+    if (!id) { setCreateYears([]); return; }
+    try {
+      setCreateYears(await request<AcademicYear[]>(`/api/v1/colleges/${id}/years`));
+    } catch (error) {
+      onError(error instanceof Error ? error.message : (isArabic ? 'تعذّر تحميل السنوات.' : 'Unable to load academic years.'));
+      setCreateYears([]);
+    }
+  };
+
+  // ITEM-3-STUDENT-CREATE: open the modal with a fresh form (does not touch filter state)
+  const openCreate = () => {
+    setCreateForm({ fullName: '', phone: '', password: '', gender: '', email: '' });
+    setCreateUniversityId('');
+    setCreateCollegeId('');
+    setCreateYearId('');
+    setCreateColleges([]);
+    setCreateYears([]);
+    setCreateOpen(true);
+  };
+
+  // ITEM-3-STUDENT-CREATE: submit POST /api/v1/admin/students — validates phone (Syrian 09…) + password (min 8)
+  const submitCreate = async (e: FormEvent) => {
+    e.preventDefault();
+    const fullName = createForm.fullName.trim();
+    const phone = createForm.phone.trim();
+    if (!fullName) {
+      onError(isArabic ? 'أدخل الاسم الكامل.' : 'Enter the full name.');
+      return;
+    }
+    if (!/^09\d{8}$/.test(phone)) {
+      onError(isArabic ? 'رقم الهاتف يجب أن يبدأ بـ 09 ويتكون من 10 أرقام.' : 'Phone must start with 09 and be 10 digits.');
+      return;
+    }
+    if (createForm.password.length < 8) {
+      onError(isArabic ? 'كلمة المرور يجب أن تكون 8 أحرف على الأقل.' : 'Password must be at least 8 characters.');
+      return;
+    }
+    if (!createUniversityId || !createCollegeId || !createYearId) {
+      onError(isArabic ? 'اختر الجامعة والكلية والسنة.' : 'Choose university, college and academic year.');
+      return;
+    }
+    setCreateBusy(true);
+    try {
+      await request('/api/v1/admin/students', {
+        method: 'POST',
+        body: JSON.stringify({
+          phone,
+          password: createForm.password,
+          fullName,
+          universityId: createUniversityId,
+          collegeId: createCollegeId,
+          academicYearId: createYearId,
+          gender: createForm.gender || undefined,
+          email: createForm.email.trim() || undefined,
+        }),
+      });
+      onNotice(isArabic ? 'تم إنشاء حساب الطالب بنجاح.' : 'Student account created successfully.');
+      setCreateOpen(false);
+      await loadStudents(1);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : (isArabic ? 'تعذّر إنشاء حساب الطالب.' : 'Unable to create the student.'));
+    } finally {
+      setCreateBusy(false);
+    }
+  };
+
   return (
     <section className="space-y-6">
       {/* ===== Page header ===== */}
@@ -463,6 +561,20 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
             </p>
           </div>
         </div>
+        {/* ITEM-3-STUDENT-CREATE: primary action — open the create-student modal */}
+        <button
+          type="button"
+          onClick={openCreate}
+          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-white text-sm font-medium transition-colors"
+          style={{ background: 'var(--cms-teal-600)' }}
+          onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-700)'; }}
+          onMouseLeave={(event) => { event.currentTarget.style.background = 'var(--cms-teal-600)'; }}
+          onFocus={(event) => { event.currentTarget.style.background = 'var(--cms-teal-700)'; }}
+          onBlur={(event) => { event.currentTarget.style.background = 'var(--cms-teal-600)'; }}
+        >
+          <UserPlus className="w-4 h-4" />
+          {isArabic ? 'إضافة طالب' : 'Add student'}
+        </button>
       </header>
 
       {/* ===== Filter bar ===== */}
@@ -1482,6 +1594,188 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 >
                   {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : dialog.kind === 'ban' ? <Ban className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
                   {dialogConfirm}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {/* ITEM-3-STUDENT-CREATE: create-student modal — mirrors the edit-profile modal style */}
+      {createOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          role="presentation"
+          onMouseDown={() => !createBusy && setCreateOpen(false)}
+        >
+          <section
+            className="bg-white rounded-xl max-w-lg w-full shadow-xl max-h-[90vh] flex flex-col"
+            role="dialog"
+            aria-modal="true"
+            aria-label={isArabic ? 'إضافة طالب' : 'Add student'}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
+                  <UserPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'إدارة المستخدمين' : 'User management'}</p>
+                  <h2 className="text-lg font-bold" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'إضافة طالب جديد' : 'Add new student'}</h2>
+                </div>
+              </div>
+              <button aria-label={isArabic ? 'إغلاق' : 'Close'} onClick={() => !createBusy && setCreateOpen(false)} disabled={createBusy} className="p-1.5 rounded-md" style={{ color: 'var(--cms-text-muted)' }}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={submitCreate} className="p-5 space-y-4 overflow-y-auto">
+              {/* Full name */}
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                  {isArabic ? 'الاسم الكامل' : 'Full name'} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                </label>
+                <input
+                  required
+                  value={createForm.fullName}
+                  onChange={(e) => setCreateForm({ ...createForm, fullName: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                  style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                />
+              </div>
+              {/* Phone + Password */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                    {isArabic ? 'رقم الهاتف' : 'Phone'} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                  </label>
+                  <input
+                    required
+                    inputMode="tel"
+                    dir="ltr"
+                    pattern="09\d{8}"
+                    maxLength={10}
+                    value={createForm.phone}
+                    onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value.replace(/[^\d]/g, '') })}
+                    placeholder="09XXXXXXXX"
+                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-left"
+                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                  />
+                  <p className="text-[10px] mt-1" style={{ color: 'var(--cms-text-muted)' }}>
+                    {isArabic ? 'صيغة سورية: يبدأ بـ 09 ويتكون من 10 أرقام.' : 'Syrian format: starts with 09, 10 digits.'}
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                    {isArabic ? 'كلمة المرور' : 'Password'} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                  </label>
+                  <input
+                    required
+                    type="password"
+                    minLength={8}
+                    value={createForm.password}
+                    onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                  />
+                  <p className="text-[10px] mt-1" style={{ color: 'var(--cms-text-muted)' }}>
+                    {isArabic ? '8 أحرف على الأقل.' : 'At least 8 characters.'}
+                  </p>
+                </div>
+              </div>
+              {/* University → College → Academic year cascade */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                    {isArabic ? 'الجامعة' : 'University'} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                  </label>
+                  <select
+                    required
+                    value={createUniversityId}
+                    onChange={(e) => void chooseCreateUniversity(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                  >
+                    <option value="">{isArabic ? 'اختر الجامعة' : 'Choose university'}</option>
+                    {universities.map((u) => (
+                      <option key={u.id} value={u.id}>{isArabic ? u.nameAr : (u.nameEn || u.nameAr)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                    {isArabic ? 'الكلية' : 'College'} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                  </label>
+                  <select
+                    required
+                    value={createCollegeId}
+                    onChange={(e) => void chooseCreateCollege(e.target.value)}
+                    disabled={!createUniversityId}
+                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 disabled:opacity-50"
+                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                  >
+                    <option value="">{isArabic ? 'اختر الكلية' : 'Choose college'}</option>
+                    {createColleges.map((c) => (
+                      <option key={c.id} value={c.id}>{isArabic ? c.nameAr : (c.nameEn || c.nameAr)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                    {isArabic ? 'السنة' : 'Academic year'} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                  </label>
+                  <select
+                    required
+                    value={createYearId}
+                    onChange={(e) => setCreateYearId(e.target.value)}
+                    disabled={!createCollegeId}
+                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 disabled:opacity-50"
+                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                  >
+                    <option value="">{isArabic ? 'اختر السنة' : 'Choose year'}</option>
+                    {createYears.map((y) => (
+                      <option key={y.id} value={y.id}>{isArabic ? y.nameAr : (y.nameEn || y.nameAr)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {/* Gender + Email (both optional) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                    {isArabic ? 'الجنس (اختياري)' : 'Gender (optional)'}
+                  </label>
+                  <select
+                    value={createForm.gender}
+                    onChange={(e) => setCreateForm({ ...createForm, gender: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                  >
+                    <option value="">{isArabic ? 'غير محدد' : 'Not specified'}</option>
+                    <option value="male">{isArabic ? 'ذكر' : 'Male'}</option>
+                    <option value="female">{isArabic ? 'أنثى' : 'Female'}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                    {isArabic ? 'البريد الإلكتروني (اختياري)' : 'Email (optional)'}
+                  </label>
+                  <input
+                    type="email"
+                    value={createForm.email}
+                    onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 justify-end pt-2 border-t" style={{ borderColor: 'var(--cms-line)' }}>
+                <button type="button" onClick={() => !createBusy && setCreateOpen(false)} disabled={createBusy} className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-50" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}>
+                  {isArabic ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button type="submit" disabled={createBusy} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50" style={{ background: 'var(--cms-teal-700)' }}>
+                  {createBusy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                  {isArabic ? 'إنشاء الحساب' : 'Create student'}
                 </button>
               </div>
             </form>

@@ -34,13 +34,17 @@ public class AdminStudentsController : ControllerBase
         ApplicationDbContext db,
         IPermissionService permissions,
         IFileStorageService storage,
-        ISecurityAuditWriter audit)
+        ISecurityAuditWriter audit,
+        IPasswordHasher passwordHasher)
     {
         _db = db;
         _permissions = permissions;
         _storage = storage;
         _audit = audit;
+        _passwordHasher = passwordHasher;
     }
+
+    private readonly IPasswordHasher _passwordHasher;
 
     private Guid GetAdminId()
     {
@@ -204,8 +208,72 @@ public class AdminStudentsController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Create a student manually (admin-side). Bypasses OTP verification —
+    /// the student's phone is marked verified immediately so they can log in.
+    /// Requires Students.Create permission + scope check.
+    /// </summary>
+    [HttpPost]
+    public async Task<IActionResult> CreateStudent([FromBody] CreateStudentRequest body, CancellationToken ct = default)
+    {
+        var adminId = GetAdminId();
+        if (!await _permissions.HasPermissionAsync(adminId, Resources.Students, Actions.Create, ct))
+            return Forbid();
+
+        // Validate required fields
+        if (string.IsNullOrWhiteSpace(body.Phone) || string.IsNullOrWhiteSpace(body.Password)
+            || string.IsNullOrWhiteSpace(body.FullName))
+            return BadRequest(new ProblemDetails { Title = "Missing required fields (phone, password, fullName)", Status = 400 });
+
+        if (body.Password.Length < 8)
+            return BadRequest(new ProblemDetails { Title = "Password must be at least 8 characters", Status = 400 });
+
+        // Check phone uniqueness
+        var normalized = body.Phone.Trim();
+        var phoneExists = await _db.Students.AnyAsync(s => s.Phone == normalized || s.PhoneNormalized == normalized, ct);
+        if (phoneExists)
+            return Conflict(new ProblemDetails { Title = "Phone number already registered", Status = 409 });
+
+        // Validate academic hierarchy exists
+        if (body.UniversityId == Guid.Empty || body.CollegeId == Guid.Empty || body.AcademicYearId == Guid.Empty)
+            return BadRequest(new ProblemDetails { Title = "University, college, and academic year are required", Status = 400 });
+
+        // Scope check: admin must be in scope of the university/college/year
+        if (!await _permissions.IsInScopeAsync(adminId, "university", body.UniversityId, ct))
+            return Forbid();
+
+        // Create student
+        var passwordHash = _passwordHasher.HashPassword(body.Password);
+        var student = Student.Create(normalized, passwordHash, body.FullName.Trim());
+        student.SetAcademicInfo(body.UniversityId, body.CollegeId, body.AcademicYearId);
+        student.VerifyPhone(); // Admin bypass — skip OTP
+        if (!string.IsNullOrWhiteSpace(body.Gender))
+            student.UpdateProfile(fullName: null, avatarUrl: null, gender: body.Gender);
+        if (!string.IsNullOrWhiteSpace(body.Email))
+            student.SetEmail(body.Email);
+
+        _db.Students.Add(student);
+        await _db.SaveChangesAsync(ct);
+
+        await _audit.LogSecurityEventAsync(
+            studentId: student.Id, adminId: adminId,
+            eventType: SecurityEventType.AdminAction, severity: SecuritySeverity.Info,
+            description: $"Student '{student.FullName}' ({student.Phone}) created manually by admin (phone pre-verified)",
+            ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString(),
+            userAgent: Request.Headers.UserAgent.ToString(),
+            ct: ct);
+
+        return CreatedAtAction(nameof(GetStudentExamSessions), new { studentId = student.Id }, new
+        {
+            id = student.Id,
+            phone = student.Phone,
+            fullName = student.FullName,
+            phoneVerified = true,
+            createdAt = student.CreatedAt,
+        });
+    }
+
     // ===== Student profile drawer — per-student detail endpoints =====
-    // All read-only, require Students.View permission + scope check.
 
     private async Task<IActionResult> CheckStudentAccess(Guid studentId, CancellationToken ct)
     {
@@ -373,4 +441,16 @@ public class AdminStudentsController : ControllerBase
 public record UpdateStudentProfileRequest(
     string? FullName,
     string? Gender  // "male" | "female" | null to keep
+);
+
+/// <summary>Request body for POST /admin/students (manual creation).</summary>
+public record CreateStudentRequest(
+    string Phone,
+    string Password,
+    string FullName,
+    Guid UniversityId,
+    Guid CollegeId,
+    Guid AcademicYearId,
+    string? Gender,  // "male" | "female" | null
+    string? Email    // optional
 );

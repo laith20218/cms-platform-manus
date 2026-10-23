@@ -53,7 +53,9 @@ public record GetCodesQuery(
     Guid? SubjectId,
     int Page = 1,
     int PageSize = 20,
-    Guid AdminId = default
+    Guid AdminId = default,
+    string? Search = null,
+    string? ScopeType = null
 ) : IRequest<PagedResult<CodeManagementDto>>;
 
 public record CodeManagementDto(

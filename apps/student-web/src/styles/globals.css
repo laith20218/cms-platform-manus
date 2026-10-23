@@ -1,57 +1,57 @@
 /* ============================================
    CMS Student Web — Design System Foundation (STUDENT-DESIGN-01)
-   Aligned with admin-web's --cms-* token system:
-   navy authority, ivory surface, teal clinical signal.
+   Calm Blue + White medical academic theme.
+   Warm sky-blue primary, pure white surfaces, vibrant emerald accents.
    No glassmorphism excess. No neon. No ECG overlay.
    ============================================ */
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
-/* ===== 1. New --cms-* Color Tokens (aligned with admin-web) ===== */
+/* ===== 1. --cms-* Color Tokens (Calm Blue + White) ===== */
 :root {
-  /* Ink (navy — authority surfaces) */
-  --cms-ink-950: #081a26;
-  --cms-ink-900: #0b2235;
-  --cms-ink-800: #102f45;
-  --cms-ink-700: #173f57;
-  --cms-ink-600: #1e4f69;
+  /* Ink (deep blue — authority surfaces) */
+  --cms-ink-950: #0a1929;
+  --cms-ink-900: #0d2240;
+  --cms-ink-800: #112c52;
+  --cms-ink-700: #16386a;
+  --cms-ink-600: #1c4480;
 
-  /* Ivory (work surface — warm off-white) */
-  --cms-ivory-50: #fdfcf8;
-  --cms-ivory-100: #f7f4ec;
-  --cms-ivory-200: #f0ece0;
-  --cms-ivory-300: #e8e3d2;
+  /* White (work surface — pure white + warm off-white) */
+  --cms-ivory-50: #ffffff;
+  --cms-ivory-100: #f7faff;
+  --cms-ivory-200: #eef4fc;
+  --cms-ivory-300: #e1ecf7;
 
-  /* Teal (clinical signal — actions, active states) */
-  --cms-teal-700: #0d746b;
-  --cms-teal-600: #12877d;
-  --cms-teal-500: #1a9b90;
-  --cms-teal-400: #4cb8ae;
-  --cms-teal-100: #e1f3ef;
-  --cms-teal-50: #f0faf7;
+  /* Blue (calm medical signal — actions, active states) */
+  --cms-teal-700: #1e6feb;
+  --cms-teal-600: #2d7ff0;
+  --cms-teal-500: #4a90f5;
+  --cms-teal-400: #6ba5f7;
+  --cms-teal-100: #dbeafe;
+  --cms-teal-50: #eff6ff;
 
-  /* Status colors */
-  --cms-success: #198566;
-  --cms-success-50: #e8f5ee;
-  --cms-warning: #a36c1f;
-  --cms-warning-50: #fbf3e6;
-  --cms-danger: #b6473d;
-  --cms-danger-50: #faecea;
-  --cms-info: #35718a;
-  --cms-info-50: #e8f0f4;
+  /* Status colors — vibrant accents */
+  --cms-success: #059669;
+  --cms-success-50: #ecfdf5;
+  --cms-warning: #d97706;
+  --cms-warning-50: #fffbeb;
+  --cms-danger: #dc2626;
+  --cms-danger-50: #fef2f2;
+  --cms-info: #0891b2;
+  --cms-info-50: #ecfeff;
 
   /* Lines + text */
-  --cms-line: #dfe7e3;
-  --cms-line-strong: #c4d0c9;
-  --cms-text: #18384c;
-  --cms-text-soft: #4a6172;
-  --cms-text-muted: #7a8c97;
-  --cms-text-inverse: #f0ece0;
+  --cms-line: #e2e8f0;
+  --cms-line-strong: #cbd5e1;
+  --cms-text: #0f172a;
+  --cms-text-soft: #475569;
+  --cms-text-muted: #94a3b8;
+  --cms-text-inverse: #ffffff;
 
   /* Surfaces */
   --cms-surface: #ffffff;
-  --cms-surface-elevated: #fdfcf8;
-  --cms-surface-glass: rgba(255, 253, 248, 0.85);
+  --cms-surface-elevated: #ffffff;
+  --cms-surface-glass: rgba(255, 255, 255, 0.90);
 
   /* ===== 2. Spacing Scale (4px base) ===== */
   --cms-space-0: 0;
@@ -73,13 +73,13 @@
   --cms-radius-xl: 20px;
   --cms-radius-full: 9999px;
 
-  /* ===== 4. Shadow Scale (no glows) ===== */
-  --cms-shadow-xs: 0 1px 2px rgba(11, 34, 53, 0.04);
-  --cms-shadow-sm: 0 2px 8px rgba(11, 34, 53, 0.06);
-  --cms-shadow-md: 0 4px 16px rgba(11, 34, 53, 0.08);
-  --cms-shadow-lg: 0 12px 32px rgba(11, 34, 53, 0.12);
-  --cms-shadow-xl: 0 20px 56px rgba(11, 34, 53, 0.16);
-  --cms-shadow-focus: 0 0 0 3px rgba(18, 135, 125, 0.18);
+  /* ===== 4. Shadow Scale (soft, light) ===== */
+  --cms-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --cms-shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.06);
+  --cms-shadow-md: 0 4px 16px rgba(15, 23, 42, 0.08);
+  --cms-shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.10);
+  --cms-shadow-xl: 0 20px 56px rgba(15, 23, 42, 0.14);
+  --cms-shadow-focus: 0 0 0 3px rgba(45, 127, 240, 0.20);
 
   /* ===== 5. Z-index Scale ===== */
   --cms-z-base: 0;
@@ -289,36 +289,36 @@
 }
 
 /* ============================================
-   Dark Mode (aligned with admin-web)
+   Dark Mode (Calm Blue + White dark variant)
    ============================================ */
 [data-theme="dark"] {
-  --cms-ink-950: #050d14;
-  --cms-ink-900: #0a1620;
-  --cms-ink-800: #0f1f2c;
+  --cms-ink-950: #020617;
+  --cms-ink-900: #0f172a;
+  --cms-ink-800: #1e293b;
 
-  --cms-ivory-50: #0e1a24;
-  --cms-ivory-100: #0a141c;
-  --cms-ivory-200: #121f2a;
-  --cms-ivory-300: #1a2a36;
+  --cms-ivory-50: #0f172a;
+  --cms-ivory-100: #0a0f1c;
+  --cms-ivory-200: #1e293b;
+  --cms-ivory-300: #334155;
 
-  --cms-line: #1c2d39;
-  --cms-line-strong: #2a3f4e;
+  --cms-line: #1e293b;
+  --cms-line-strong: #334155;
 
-  --cms-text: #dde4ea;
-  --cms-text-soft: #a8b8c4;
-  --cms-text-muted: #6a7a88;
+  --cms-text: #e2e8f0;
+  --cms-text-soft: #94a3b8;
+  --cms-text-muted: #64748b;
 
-  --cms-surface: #121f2a;
-  --cms-surface-elevated: #0e1a24;
-  --cms-surface-glass: rgba(14, 26, 36, 0.85);
+  --cms-surface: #1e293b;
+  --cms-surface-elevated: #0f172a;
+  --cms-surface-glass: rgba(15, 23, 42, 0.90);
 
-  --cms-teal-100: #0e2e2a;
-  --cms-teal-50: #0a2220;
+  --cms-teal-100: #1e3a5f;
+  --cms-teal-50: #172554;
 
-  --cms-success-50: #0e2a1e;
-  --cms-warning-50: #2a2410;
-  --cms-danger-50: #2a1210;
-  --cms-info-50: #0e1e28;
+  --cms-success-50: #052e1e;
+  --cms-warning-50: #2a1c08;
+  --cms-danger-50: #2a0a0a;
+  --cms-info-50: #082027;
 
   --cms-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.30);
   --cms-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.40);
@@ -388,7 +388,7 @@ body {
 
 /* Selection */
 ::selection {
-  background: rgba(13, 116, 107, 0.20);
+  background: rgba(45, 127, 240, 0.20);
   color: var(--cms-text);
 }
 

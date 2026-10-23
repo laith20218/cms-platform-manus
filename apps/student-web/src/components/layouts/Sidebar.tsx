@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Bell, BarChart3, LayoutGrid, GraduationCap, Star, Search, Trophy, ClipboardCheck, FileText, Ticket, Settings } from 'lucide-react';
+import { Bell, BarChart3, LayoutGrid, GraduationCap, Star, Search, Trophy, ClipboardCheck, FileText, Ticket, Settings, UserRound } from 'lucide-react';
 import { cn } from '@/utils';
 
 const navGroups = [
@@ -25,6 +25,7 @@ const navGroups = [
   {
     label: 'الحساب',
     items: [
+      { to: '/profile', icon: UserRound, label: 'الملف الشخصي' },
       { to: '/activate-code', icon: Ticket, label: 'تفعيل كود' },
       { to: '/settings', icon: Settings, label: 'الإعدادات' },
     ],
