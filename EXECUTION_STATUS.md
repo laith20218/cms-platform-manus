@@ -200,10 +200,30 @@ before pushing.
 ### Known Issues (post-deploy smoke tests)
 
 - ~~**2 of 7 analytics endpoints return HTTP 500**~~ — **RESOLVED in Wave 5D fix
-  (see below)**. Root cause: `DateTime.ToString("yyyy-MM-dd")` inside LINQ GroupBy
+  (commit `cac5052`)**. Root cause: `DateTime.ToString("yyyy-MM-dd")` inside LINQ GroupBy
   projection is not translatable by Npgsql EF Core 9. Fix: split server-side query
   (raw `Date`) from client-side formatting (post-`ToListAsync`). Both endpoints now
   return 200 with correct `dailyBreakdown` / `dailyActivation` arrays.
+
+---
+
+## Wave 5D Closed — All Known Issues Resolved (2026-10-22)
+
+**Status**: ✅ All known issues resolved. Production is fully operational.
+
+| Environment | SHA | Status | Verified |
+|---|---|---|---|
+| Vercel admin-web | `cac5052` | READY | ✅ all routes 200 |
+| Vercel student-web | `cac5052` | READY | ✅ all routes 200 |
+| Render API | `cac5052` | LIVE | ✅ /health/live=200, 7/7 analytics endpoints 200 |
+| Neon DB | — | ✅ | Phase 54-57 migrations applied |
+
+**Post-fix smoke test results**:
+- `/api/v1/admin/analytics/students` → 200 (6 students, 2 registrations, dailyBreakdown ✓)
+- `/api/v1/admin/analytics/codes` → 38 issued, 2 revoked, 0 activated
+- All 7 analytics endpoints: 7/7 → HTTP 200
+
+**Ready for Playwright E2E testing (final pre-launch gate).**
 
 ---
 
