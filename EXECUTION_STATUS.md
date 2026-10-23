@@ -153,3 +153,55 @@ b6bf8ba feat(testing): Vitest in admin-web — 12 tests passing across 3 files
 
 ### Not deployed yet
 All changes are local on `feature/wave4-testing-security` branch. Will be deployed in batch when Vercel limit resets.
+
+---
+
+## Wave 5D — Cleanup Items + Production Deploy (2026-10-22)
+
+### Items Completed (local, committed)
+1. **Item A** (`1331963`): Removed dead admin code from student-web
+   - 4 files deleted (−377 lines): `features/admin/` (3 files) + `components/common/PermissionRoute.tsx`
+   - Zero external references; not in router.tsx; no build chunk
+2. **Item B** (`a00eda4`): Sanitized notification actionUrl (XSS / open-redirect fix)
+   - New `utils/sanitizeActionUrl.ts` — strict whitelist (protocol + origin + path)
+   - Wired into `NotificationsPage.tsx`
+   - 59 new Vitest cases (70/70 total pass)
+
+### Production Deploy
+- **Merge commit** `7e91f1f` (2026-10-22): `git merge --no-ff fix/critical-auth-resilience` into main
+- **Lockfile fix** `254f278` (2026-10-22): `pnpm install --lockfile-only` (see Lessons Learned)
+- **Deployed to production**:
+  - Vercel admin-web: READY on `254f278` → https://cms-platform-manus-admin-web.vercel.app
+  - Vercel student-web: READY on `254f278` → https://cms-platform-manus-student-web.vercel.app
+  - Render API: LIVE on `254f278` → https://cms-api-preview.onrender.com
+
+### Lessons Learned
+
+**Incident**: First production push (`7e91f1f`) failed on Vercel with
+`ERR_PNPM_OUTDATED_LOCKFILE`. Wave 5a/5b/5c removed 5 unused dependencies from
+`apps/student-web/package.json` but `pnpm-lock.yaml` was never regenerated.
+Vercel runs `pnpm install --frozen-lockfile` (strict mode), which rejects a
+lockfile that doesn't match `package.json`.
+
+**Root cause**: Local build verification (`tsc --noEmit` + `vite build` + `vitest`)
+succeeded because `node_modules` already existed from a prior install — so the
+lockfile mismatch was invisible. The CI environment (Vercel) starts from scratch
+and relies entirely on the lockfile.
+
+**Lesson**: **Changing `package.json` (add/remove/upgrade deps) ALWAYS requires
+regenerating `pnpm-lock.yaml` before pushing to main.** Local builds are not a
+sufficient pre-deploy check when dependency manifests have changed.
+
+**Preventive measure**: Added `scripts/pre-deploy-check.sh` — a pre-push gate
+that runs `pnpm install --frozen-lockfile` (the exact CI command) plus full
+build + test suite, BEFORE any push to main. This script must pass locally
+before pushing.
+
+### Known Issues (post-deploy smoke tests)
+
+- **2 of 7 analytics endpoints return HTTP 500** (backend runtime error, NOT a
+  deploy issue):
+  - `/api/v1/admin/analytics/students` → 500 (traceId: `5c5eeee2b03a40cfa71e82f7ead5962c`)
+  - `/api/v1/admin/analytics/codes` → 500 (traceId: `f715986013654661a208d09b6b435b8b`)
+  - Other 5 endpoints (academic, exams, questions, content, operations) return 200.
+  - **Not auto-fixed** — requires backend debugging in a separate session.
