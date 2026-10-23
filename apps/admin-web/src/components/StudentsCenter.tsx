@@ -253,7 +253,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     setStudentProgressLoading(true);
     Promise.all([
       request<SecurityLog[]>(`/api/v1/security/students/${student.id}/logs?count=50`)
-        .then(data => setSecurityLogs(data))
+        .then(data => setSecurityLogs(Array.isArray(data) ? data : []))
         .catch(error => {
           if (error instanceof ApiError && error.status === 403) {
             onError(isArabic ? 'لا تملك صلاحية عرض السجل الأمني لهذا الطالب.' : 'You do not have permission to view this student\u2019s security log.');
@@ -268,22 +268,22 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
         .finally(() => setSessionsLoading(false)),
       // P1-01: fetch exam sessions for the Exams tab
       request<{ items: typeof examSessions }>(`/api/v1/admin/students/${student.id}/exam-sessions`)
-        .then(data => setExamSessions(data.items || []))
+        .then(data => setExamSessions(data?.items || []))
         .catch(() => { /* best-effort — don't block the drawer */ })
         .finally(() => setExamSessionsLoading(false)),
       // P1-01: fetch subscriptions for the Subscriptions tab
       request<{ items: typeof subscriptions }>(`/api/v1/admin/students/${student.id}/subscriptions`)
-        .then(data => setSubscriptions(data.items || []))
+        .then(data => setSubscriptions(data?.items || []))
         .catch(() => { /* best-effort */ })
         .finally(() => setSubscriptionsLoading(false)),
       // P1-01: fetch error reports for the Reports tab
       request<{ items: typeof studentReports }>(`/api/v1/admin/students/${student.id}/reports`)
-        .then(data => setStudentReports(data.items || []))
+        .then(data => setStudentReports(data?.items || []))
         .catch(() => { /* best-effort */ })
         .finally(() => setStudentReportsLoading(false)),
       // P1-01: fetch per-subject progress for the Academic tab
       request<{ items: typeof studentProgress }>(`/api/v1/admin/students/${student.id}/progress`)
-        .then(data => setStudentProgress(data.items || []))
+        .then(data => setStudentProgress(data?.items || []))
         .catch(() => { /* best-effort */ })
         .finally(() => setStudentProgressLoading(false)),
     ]).finally(() => setLogsLoading(false));
@@ -900,7 +900,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       <LoaderCircle className="w-5 h-5 animate-spin ml-2" />
                       {isArabic ? 'جارٍ التحميل...' : 'Loading...'}
                     </div>
-                  ) : securityLogs.length === 0 ? (
+                  ) : (securityLogs || []).length === 0 ? (
                     <div className="flex flex-col items-center justify-center text-center py-10" style={{ color: 'var(--cms-text-muted)' }}>
                       <ShieldCheck className="w-6 h-6" style={{ color: 'var(--cms-line-strong)' }} />
                       <p className="mt-2 text-sm">
@@ -912,7 +912,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     </div>
                   ) : (
                     <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-                      {securityLogs.map((log) => (
+                      {(securityLogs || []).map((log) => (
                         <article key={log.id} className={`rounded-lg border p-3 ${eventToneClass(log.severity)}`}>
                           <div className="flex items-start justify-between gap-2">
                             <strong className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>{log.eventType}</strong>
@@ -965,7 +965,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 <div className="flex flex-col gap-3">
                   {/* P1-02: Device fingerprint display (from security logs) */}
                   {(() => {
-                    const deviceLog = securityLogs.find(l => l.deviceFingerprint);
+                    const deviceLog = (securityLogs || []).find(l => l.deviceFingerprint);
                     if (!deviceLog) return null;
                     return (
                       <article className="flex flex-col gap-2 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-teal-100)', background: 'var(--cms-teal-50)' }}>
@@ -1053,18 +1053,18 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <div className="flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
                       <CalendarClock className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
                       <strong className="text-sm font-semibold">{isArabic ? 'قائمة الجلسات' : 'Sessions list'}</strong>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>{sessions.length}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>{(sessions || []).length}</span>
                     </div>
                     {sessionsLoading ? (
                       <div className="flex items-center gap-2 py-3">
                         <LoaderCircle className="w-4 h-4 animate-spin" style={{ color: 'var(--cms-text-muted)' }} />
                         <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span>
                       </div>
-                    ) : sessions.length === 0 ? (
+                    ) : (sessions || []).length === 0 ? (
                       <p className="text-xs py-2" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لا توجد جلسات مسجلة.' : 'No sessions recorded.'}</p>
                     ) : (
                       <div className="flex flex-col gap-1.5 mt-1">
-                        {sessions.slice(0, 20).map(s => {
+                        {(sessions || []).slice(0, 20).map(s => {
                           const isActive = s.status === 'Active';
                           return (
                             <div key={s.id} className="flex items-center justify-between gap-2 py-2 border-b last:border-0" style={{ borderColor: 'var(--cms-line)' }}>
@@ -1132,14 +1132,14 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <h4 className="text-xs font-semibold mb-2" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'التقدم حسب المادة' : 'Per-subject progress'}</h4>
                     {studentProgressLoading ? (
                       <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span></div>
-                    ) : studentProgress.length === 0 ? (
+                    ) : (studentProgress || []).length === 0 ? (
                       <div className="text-center py-6">
                         <BookOpenCheck size={24} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
                         <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لا توجد بيانات تقدم بعد. سيظهر هنا عند إجابة الطالب على الأسئلة.' : 'No progress data yet. It will appear here once the student answers questions.'}</p>
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {studentProgress.map(p => (
+                        {(studentProgress || []).map(p => (
                           <div key={p.subjectId} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
                             <div className="flex items-center justify-between mb-1">
                               <span className="text-xs font-medium" style={{ color: 'var(--cms-text)' }}>{isArabic ? p.subjectName : (p.subjectNameEn || p.subjectName)}</span>
@@ -1167,14 +1167,14 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   </div>
                   {examSessionsLoading ? (
                     <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span></div>
-                  ) : examSessions.length === 0 ? (
+                  ) : (examSessions || []).length === 0 ? (
                     <div className="text-center py-6">
                       <ClipboardCheck size={24} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
                       <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لم يخض هذا الطالب أي اختبار بعد.' : 'This student has not taken any exams yet.'}</p>
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {examSessions.map(es => (
+                      {(examSessions || []).map(es => (
                         <div key={es.id} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-xs font-medium truncate" style={{ color: 'var(--cms-text)' }}>{es.examTitle}</span>
@@ -1206,14 +1206,14 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   </div>
                   {subscriptionsLoading ? (
                     <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span></div>
-                  ) : subscriptions.length === 0 ? (
+                  ) : (subscriptions || []).length === 0 ? (
                     <div className="text-center py-6">
                       <KeyRound size={24} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
                       <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لا توجد اشتراكات لهذا الطالب.' : 'No subscriptions for this student.'}</p>
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {subscriptions.map(s => {
+                      {(subscriptions || []).map(s => {
                         const isActive = s.status === 'Active' && !s.revokedAt && new Date(s.expiresAt) > new Date();
                         return (
                           <div key={s.id} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
@@ -1252,14 +1252,14 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   </div>
                   {studentReportsLoading ? (
                     <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span></div>
-                  ) : studentReports.length === 0 ? (
+                  ) : (studentReports || []).length === 0 ? (
                     <div className="text-center py-6">
                       <FileWarning size={24} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
                       <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لم يقدّم هذا الطالب أي بلاغ.' : 'This student has not filed any reports.'}</p>
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {studentReports.map(r => (
+                      {(studentReports || []).map(r => (
                         <div key={r.id} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-xs font-medium truncate" style={{ color: 'var(--cms-text)' }}>{r.questionText.slice(0, 80)}{r.questionText.length > 80 ? '…' : ''}</span>
