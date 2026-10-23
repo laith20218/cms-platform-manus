@@ -199,9 +199,74 @@ before pushing.
 
 ### Known Issues (post-deploy smoke tests)
 
-- **2 of 7 analytics endpoints return HTTP 500** (backend runtime error, NOT a
-  deploy issue):
-  - `/api/v1/admin/analytics/students` → 500 (traceId: `5c5eeee2b03a40cfa71e82f7ead5962c`)
-  - `/api/v1/admin/analytics/codes` → 500 (traceId: `f715986013654661a208d09b6b435b8b`)
-  - Other 5 endpoints (academic, exams, questions, content, operations) return 200.
-  - **Not auto-fixed** — requires backend debugging in a separate session.
+- ~~**2 of 7 analytics endpoints return HTTP 500**~~ — **RESOLVED in Wave 5D fix
+  (see below)**. Root cause: `DateTime.ToString("yyyy-MM-dd")` inside LINQ GroupBy
+  projection is not translatable by Npgsql EF Core 9. Fix: split server-side query
+  (raw `Date`) from client-side formatting (post-`ToListAsync`). Both endpoints now
+  return 200 with correct `dailyBreakdown` / `dailyActivation` arrays.
+
+---
+
+## Critical Testing Gap (Discovered 2026-10-22)
+
+### The Problem
+The 19 integration tests from Wave 4 (`AdminEndpointsIntegrationTests.cs`) used
+`UseInMemoryDatabase`, which does NOT translate LINQ to SQL. It executes the query
+expression tree directly on in-memory objects. As a result, `DateTime.ToString("yyyy-MM-dd")`
+works fine in InMemory but throws `InvalidOperationException` ("LINQ expression could
+not be translated") on Npgsql (PostgreSQL) in production.
+
+### The Evidence
+- **19/19 tests passed locally** (InMemory) before the deploy of `7e91f1f`.
+- **2 endpoints returned HTTP 500** on Render (real PostgreSQL) after deploy.
+- The failing code path (`ToString` with format string inside `GroupBy.Select`) was
+  invisible to the test suite because InMemory doesn't enforce translation.
+
+### Root Cause Analysis
+EF Core (since v3.0) does NOT fall back to client-side evaluation when a LINQ
+expression cannot be translated. Instead it throws at runtime. InMemory provider
+bypasses translation entirely, so these errors only surface against a real database
+provider (Npgsql/SQL Server/etc.).
+
+### Immediate Actions Taken (Wave 5D)
+1. **Manual fix** for `/students` and `/codes` endpoints: split server-side query
+   from client-side formatting (see `AdminAnalyticsController.cs` lines 52-65 + 323-333).
+2. **2 new response-shape tests** added to `AdminEndpointsIntegrationTests.cs` with
+   an explicit `⚠️ WARNING — CRITICAL TESTING GAP` comment block explaining the
+   InMemory limitation. These tests verify the response SHAPE (arrays exist + dates
+   are `yyyy-MM-dd` formatted) but cannot catch translation errors.
+3. **`pre-deploy-check.sh` updated** with a "Manual Endpoint Smoke Checklist" that
+   prints a pre-push reminder for contributors.
+
+### Deferred Actions (Wave 6 — Post-Launch)
+1. **Adopt Testcontainers + real PostgreSQL** in the integration test suite so EF
+   Core translation errors are caught at test time, not in production.
+2. **Migrate critical query-path tests** from InMemory to Testcontainers (focus on
+   endpoints that use `GroupBy`, `ToString`, custom projections, or raw SQL fragments).
+3. **Run the full test suite against a staging environment** before pushing to main.
+
+---
+
+## Wave 5D Fix — Analytics Endpoints Translation Error (2026-10-22)
+
+### Commit
+- `fix(api): split EF Core query from client-side ToString formatting`
+
+### Root Cause
+`DateTime.ToString(string format)` is not translatable by Npgsql EF Core 9.0.2.
+EF Core 9 does not fall back to client evaluation → throws `InvalidOperationException`
+→ ASP.NET Core returns HTTP 500.
+
+### Fix
+For both `/students` and `/codes` endpoints, the LINQ `GroupBy(...).Select(g => new { date = g.Key.ToString("yyyy-MM-dd"), ... })`
+was split into:
+1. **Server-side** (translatable): `.Select(g => new { date = g.Key, ... })` → materializes
+   raw `DateTime` via `ToListAsync(ct)`.
+2. **Client-side** (formatting): `.Select(x => new { date = x.date.ToString("yyyy-MM-dd"), ... })`
+   on the materialized list.
+
+### Tests
+- 2 new response-shape tests in `AdminEndpointsIntegrationTests.cs` (with InMemory
+  warning comment).
+- Full suite: **182 passed** (180 original + 2 new), 18 blocked (Postgres-gated,
+  require `CMS_PHASE34_TEST_POSTGRES` env var — unchanged baseline).

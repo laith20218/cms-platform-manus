@@ -181,6 +181,72 @@ public sealed class AdminEndpointsIntegrationTests : IClassFixture<AdminEndpoint
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    // ===== Response-shape tests for the 2 endpoints fixed in Wave 5D =====
+    //
+    // ⚠️ WARNING — CRITICAL TESTING GAP:
+    // These tests run against UseInMemoryDatabase, which does NOT translate LINQ
+    // to SQL. It executes the query expression tree directly on in-memory objects,
+    // so DateTime.ToString("yyyy-MM-dd") works here but FAILS on Npgsql (PostgreSQL)
+    // in production. These tests verify the response SHAPE only (that the
+    // dailyBreakdown / dailyActivation arrays exist and are well-formed) — they
+    // do NOT and CANNOT catch EF Core translation errors.
+    //
+    // Translation errors are only caught by: (1) manual smoke test on staging/prod
+    // after deploy, or (2) Testcontainers + real PostgreSQL (planned Wave 6).
+    // See EXECUTION_STATUS.md → "Critical Testing Gap" for full context.
+
+    [Fact]
+    public async Task Analytics_Students_ResponseShape_HasDailyBreakdownArray()
+    {
+        var request = _factory.SuperAdminRequest(HttpMethod.Get, "/api/v1/admin/analytics/students");
+        var response = await _factory.Client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+
+        var json = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        json.GetProperty("totalStudents").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Number);
+        json.GetProperty("newRegistrations").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Number);
+        json.GetProperty("activeStudents").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Number);
+        json.GetProperty("inactiveStudents").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Number);
+        json.GetProperty("dailyBreakdown").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Array);
+
+        // Each element of dailyBreakdown must have a string `date` + numeric `registrations`.
+        foreach (var item in json.GetProperty("dailyBreakdown").EnumerateArray())
+        {
+            item.GetProperty("date").ValueKind.Should().Be(System.Text.Json.JsonValueKind.String);
+            item.GetProperty("registrations").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Number);
+            // date must match the yyyy-MM-dd format (10 chars, starts with a 4-digit year).
+            var dateStr = item.GetProperty("date").GetString();
+            dateStr.Should().MatchRegex(@"^\d{4}-\d{2}-\d{2}$", "dailyBreakdown dates must be yyyy-MM-dd formatted");
+        }
+    }
+
+    [Fact]
+    public async Task Analytics_Codes_ResponseShape_HasDailyActivationArray()
+    {
+        var request = _factory.SuperAdminRequest(HttpMethod.Get, "/api/v1/admin/analytics/codes");
+        var response = await _factory.Client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+
+        var json = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        json.GetProperty("totalIssued").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Number);
+        json.GetProperty("activated").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Number);
+        json.GetProperty("expired").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Number);
+        json.GetProperty("revoked").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Number);
+        json.GetProperty("activationRate").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Number);
+        json.GetProperty("activeSubscriptions").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Number);
+        json.GetProperty("estimatedValue").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Number);
+        json.GetProperty("dailyActivation").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Array);
+
+        // Each element of dailyActivation must have a string `date` + numeric `activated`.
+        foreach (var item in json.GetProperty("dailyActivation").EnumerateArray())
+        {
+            item.GetProperty("date").ValueKind.Should().Be(System.Text.Json.JsonValueKind.String);
+            item.GetProperty("activated").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Number);
+            var dateStr = item.GetProperty("date").GetString();
+            dateStr.Should().MatchRegex(@"^\d{4}-\d{2}-\d{2}$", "dailyActivation dates must be yyyy-MM-dd formatted");
+        }
+    }
+
     // ===== SecurityController audit-logs (P1-06) =====
 
     [Fact]

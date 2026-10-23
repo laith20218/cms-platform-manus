@@ -49,13 +49,20 @@ public class AdminAnalyticsController : ControllerBase
         var inactiveStudents = await _db.Students.CountAsync(s => s.DeletedAt == null && (s.LastActivityDate == null || s.LastActivityDate < inactiveThreshold), ct);
         var activeStudents = totalStudents - inactiveStudents;
 
-        // Daily breakdown
-        var dailyBreakdown = await _db.Students.AsNoTracking()
+        // Daily breakdown — server-side query (translatable) + client-side formatting.
+        // NOTE: DateTime.ToString("yyyy-MM-dd") is NOT translatable by Npgsql EF Core.
+        // We materialize the raw Date first, then format on the client. See
+        // EXECUTION_STATUS.md → "Critical Testing Gap" for why InMemory tests
+        // did not catch this (was a 500 in production).
+        var rawBreakdown = await _db.Students.AsNoTracking()
             .Where(s => s.CreatedAt >= from && s.CreatedAt <= to)
             .GroupBy(s => s.CreatedAt.Date)
-            .Select(g => new { date = g.Key.ToString("yyyy-MM-dd"), registrations = g.Count() })
+            .Select(g => new { date = g.Key, registrations = g.Count() })
             .OrderBy(x => x.date)
             .ToListAsync(ct);
+        var dailyBreakdown = rawBreakdown
+            .Select(x => new { date = x.date.ToString("yyyy-MM-dd"), x.registrations })
+            .ToList();
 
         return Ok(new
         {
@@ -313,13 +320,17 @@ public class AdminAnalyticsController : ControllerBase
         const decimal avgPrice = 25000m;
         var estimatedValue = activated * avgPrice;
 
-        // Daily activation breakdown
-        var dailyActivation = await _db.SubscriptionCodes.AsNoTracking()
+        // Daily activation breakdown — server-side query + client-side formatting.
+        // See students endpoint above for rationale on the split.
+        var rawActivation = await _db.SubscriptionCodes.AsNoTracking()
             .Where(c => c.UsedAt.HasValue && c.UsedAt >= from && c.UsedAt <= to)
             .GroupBy(c => c.UsedAt!.Value.Date)
-            .Select(g => new { date = g.Key.ToString("yyyy-MM-dd"), activated = g.Count() })
+            .Select(g => new { date = g.Key, activated = g.Count() })
             .OrderBy(x => x.date)
             .ToListAsync(ct);
+        var dailyActivation = rawActivation
+            .Select(x => new { date = x.date.ToString("yyyy-MM-dd"), x.activated })
+            .ToList();
 
         return Ok(new
         {

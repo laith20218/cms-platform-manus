@@ -143,8 +143,11 @@ echo ""
 
 # --- Check 6: secret scan (basic — check for common secret patterns) ---
 echo -e "${BLUE}[6/6] Secret scan (basic)${NC}"
-SECRETS=$(git diff HEAD~5..HEAD --name-only 2>/dev/null | xargs grep -lE \
-  '(github_pat_|rnd_|vcp_|napi_|sk-|AKIA[0-9A-Z]{16})' 2>/dev/null || true)
+# Exclude this script itself (it contains the patterns as detection strings).
+# Also exclude pnpm-lock.yaml (package names may match patterns coincidentally).
+SECRETS=$(git diff HEAD~5..HEAD --name-only 2>/dev/null \
+  | grep -vE '^(scripts/pre-deploy-check\.sh|pnpm-lock\.yaml)$' \
+  | xargs grep -lE '(github_pat_|rnd_|vcp_|napi_|sk-[a-zA-Z0-9]{20}|AKIA[0-9A-Z]{16})' 2>/dev/null || true)
 if [ -z "$SECRETS" ]; then
   echo -e "${GREEN}  ✓ no obvious secrets in recent changes${NC}"
 else
@@ -152,6 +155,32 @@ else
   echo "$SECRETS"
   FAILURES=$((FAILURES + 1))
 fi
+echo ""
+
+# --- Manual Endpoint Smoke Checklist (cannot be automated — printed as a reminder) ---
+echo -e "${BLUE}[!] Manual Endpoint Smoke Checklist (READ BEFORE PUSHING)${NC}"
+echo -e "${YELLOW}  The automated checks above do NOT catch EF Core translation errors${NC}"
+echo -e "${YELLOW}  because integration tests use InMemoryDatabase (no SQL translation).${NC}"
+echo -e "${YELLOW}  If you added/modified ANY backend endpoint, verify manually:${NC}"
+echo ""
+echo -e "  ${BLUE}Backend endpoints:${NC}"
+echo -e "    [ ] Did you add/modify any API controller endpoint? If NO, skip this section."
+echo -e "    [ ] If YES: did the change involve LINQ GroupBy/Select/Join with:"
+echo -e "        - DateTime.ToString(format)          ← NOT translatable by Npgsql"
+echo -e "        - enum.ToString()                     ← translatable (OK)"
+echo -e "        - custom projection with .Select()    ← verify translatable"
+echo -e "    [ ] If unsure: smoke-test the endpoint on Render staging BEFORE pushing."
+echo ""
+echo -e "  ${BLUE}InMemory test caveat:${NC}"
+echo -e "    [ ] If your test uses UseInMemoryDatabase for query logic, it CANNOT"
+echo -e "        catch EF Core translation errors. Add a Testcontainers test (Wave 6)"
+echo -e "        or do a manual smoke test after deploy."
+echo ""
+echo -e "  ${BLUE}Frontend routes:${NC}"
+echo -e "    [ ] New route added to router.tsx? Verify it renders on Vercel preview."
+echo -e "    [ ] New lazy import? Verify the chunk builds (check vite build output)."
+echo ""
+echo -e "${YELLOW}  → If any box above is unchecked and relevant, DO NOT push to main.${NC}"
 echo ""
 
 # --- Summary ---
