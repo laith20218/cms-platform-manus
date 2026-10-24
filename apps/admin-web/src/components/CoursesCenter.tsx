@@ -24,7 +24,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle, Archive, CheckCircle2, ChevronDown, ChevronUp, Film, GraduationCap,
-  LoaderCircle, Pencil, Plus, RefreshCw, Trash2, Upload, X, Youtube, Pause, Play,
+  AlertTriangle, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, Upload, X, Youtube, Pause, Play,
 } from 'lucide-react';
 import {
   apiRequest, type PagedResult, type AdminCourseListItem, type CourseDetail,
@@ -76,8 +76,14 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
 
-  const loadCourses = async () => {
-    setLoading(true);
+  /**
+   * Loads the course list. `silent` refreshes keep the table (and any open
+   * episode drawer / upload panel) mounted — a completed upload must never
+   * wipe the drawer state the admin is looking at (Push 6 fix).
+   */
+  const loadCourses = async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams({ page: '1', pageSize: '50' });
       if (subjectId) params.set('subjectId', subjectId);
@@ -86,7 +92,7 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
     } catch (error) {
       onError(error instanceof Error ? error.message : isArabic ? 'تعذر تحميل الكورسات.' : 'Failed to load courses.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -181,9 +187,9 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
     formTitle: 'عنوان الكورس', formDesc: 'الوصف', formCover: 'رابط صورة الغلاف (اختياري)',
     save: 'حفظ', cancel: 'إلغاء', createCourse: 'إنشاء كورس جديد', editCourse: 'تعديل الكورس',
     addEpisode: 'إضافة حلقة', youtubeId: 'معرّف فيديو يوتيوب', episodeTitle: 'عنوان الحلقة',
-    episodeNumber: 'رقم الحلقة', duration: 'المدة (ثانية، اختياري)', add: 'إضافة', uploadVideo: 'رفع فيديو (متعدد الأجزاء)',
+    episodeNumber: 'رقم الحلقة', duration: 'المدة (ثانية، اختياري)', add: 'إضافة', uploadVideo: 'رفع وسائط (فيديو/صوت)',
     uploading: 'جارٍ الرفع…', pause: 'إيقاف مؤقت', resume: 'استئناف', abort: 'إلغاء الرفع',
-    incomplete: 'لم يكتمل الرفع', ready: 'جاهز', close: 'إغلاق', selectFile: 'اختر ملف الفيديو',
+    incomplete: 'لم يكتمل الرفع', ready: 'جاهز', close: 'إغلاق', selectFile: 'اختر ملف الفيديو أو الصوت',
   } : {
     title: 'Courses', desc: 'Create and manage video courses and their episodes (multipart upload up to 2.5GB, or YouTube).',
     create: 'Create course', refresh: 'Refresh', episodes: 'Episodes', episodesCount: 'Episodes', views: 'Views',
@@ -194,9 +200,9 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
     formTitle: 'Course title', formDesc: 'Description', formCover: 'Cover image URL (optional)',
     save: 'Save', cancel: 'Cancel', createCourse: 'Create new course', editCourse: 'Edit course',
     addEpisode: 'Add episode', youtubeId: 'YouTube video id', episodeTitle: 'Episode title',
-    episodeNumber: 'Episode number', duration: 'Duration (seconds, optional)', add: 'Add', uploadVideo: 'Upload video (multipart)',
+    episodeNumber: 'Episode number', duration: 'Duration (seconds, optional)', add: 'Add', uploadVideo: 'Upload media (video/audio)',
     uploading: 'Uploading…', pause: 'Pause', resume: 'Resume', abort: 'Abort upload',
-    incomplete: 'Upload incomplete', ready: 'Ready', close: 'Close', selectFile: 'Choose video file',
+    incomplete: 'Upload incomplete', ready: 'Ready', close: 'Close', selectFile: 'Choose a video or audio file',
   };
 
   return (
@@ -343,7 +349,7 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
               {expandedId === course.id && (
                 <EpisodesManager
                   token={token} isArabic={isArabic} onError={onError} onNotice={onNotice}
-                  course={course} onChanged={loadCourses}
+                  course={course} onChanged={() => void loadCourses({ silent: true })}
                 />
               )}
             </div>
@@ -358,15 +364,15 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
 function buildCopy(isArabic: boolean) {
   return isArabic ? {
     addEpisode: 'إضافة حلقة', youtubeId: 'معرّف فيديو يوتيوب', episodeTitle: 'عنوان الحلقة',
-    episodeNumber: 'رقم الحلقة', duration: 'المدة (ثانية، اختياري)', add: 'إضافة', uploadVideo: 'رفع فيديو (متعدد الأجزاء)',
+    episodeNumber: 'رقم الحلقة', duration: 'المدة (ثانية، اختياري)', add: 'إضافة', uploadVideo: 'رفع وسائط (فيديو/صوت)',
     uploading: 'جارٍ الرفع…', pause: 'إيقاف مؤقت', resume: 'استئناف', abort: 'إلغاء الرفع',
-    incomplete: 'لم يكتمل الرفع', ready: 'جاهز', close: 'إغلاق', selectFile: 'اختر ملف الفيديو',
+    incomplete: 'لم يكتمل الرفع', ready: 'جاهز', close: 'إغلاق', selectFile: 'اختر ملف الفيديو أو الصوت',
     deleteEpisode: 'حذف الحلقة', episodes: 'الحلقات', retrying: 'إعادة المحاولة…',
   } : {
     addEpisode: 'Add episode', youtubeId: 'YouTube video id', episodeTitle: 'Episode title',
-    episodeNumber: 'Episode number', duration: 'Duration (seconds, optional)', add: 'Add', uploadVideo: 'Upload video (multipart)',
+    episodeNumber: 'Episode number', duration: 'Duration (seconds, optional)', add: 'Add', uploadVideo: 'Upload media (video/audio)',
     uploading: 'Uploading…', pause: 'Pause', resume: 'Resume', abort: 'Abort upload',
-    incomplete: 'Upload incomplete', ready: 'Ready', close: 'Close', selectFile: 'Choose video file',
+    incomplete: 'Upload incomplete', ready: 'Ready', close: 'Close', selectFile: 'Choose a video or audio file',
     deleteEpisode: 'Delete episode', episodes: 'Episodes', retrying: 'Retrying…',
   };
 }
@@ -543,6 +549,8 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
   const [episodeId, setEpisodeId] = useState<string | null>(null);
   const [completedParts, setCompletedParts] = useState(0);
   const [totalParts, setTotalParts] = useState(0);
+  // Push 6: the failure reason persists inline in the panel (a toast alone is too easy to miss).
+  const [lastError, setLastError] = useState<string | null>(null);
 
   // Mutable upload session — survives pause/resume cycles.
   const sessionRef = useRef<{
@@ -559,6 +567,20 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
   } | null>(null);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
+
+  /**
+   * Push 6: the API's global 500 handler answers with a generic English detail
+   * ("An unexpected error occurred. Please try again later.") — usually a transient
+   * upstream hiccup (storage credentials / R2). Show a clear, actionable Arabic
+   * message instead, and keep the retry affordances visible.
+   */
+  const describeUploadError = (error: unknown, fallback: string): string => {
+    const message = error instanceof Error ? error.message : '';
+    if (isArabic && /unexpected error occurred/i.test(message)) {
+      return 'حدث خطأ مؤقت في الخادم أثناء الرفع — أعد المحاولة، وإن استمر الخطأ فتحقّق من الاتصال ثم أعد المحاولة لاحقاً.';
+    }
+    return message || fallback;
+  };
 
   /** Maps the server's pendingPartUrls (ascending) onto the missing part numbers (ascending). */
   const mapPendingUrls = (status: MultipartStatus, urls: Map<number, string>) => {
@@ -646,6 +668,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
         }),
       });
       setState('done');
+      setLastError(null);
       onNotice(isArabic ? 'تم رفع الحلقة والتحقق من حجمها بنجاح.' : 'Episode uploaded and size-verified.');
       await onDone();
       sessionRef.current = null;
@@ -653,7 +676,9 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
       setTitle('');
     } catch (error) {
       setState('failed');
-      onError(error instanceof Error ? error.message : 'complete-upload failed.');
+      const message = describeUploadError(error, 'complete-upload failed.');
+      setLastError(message);
+      onError(message);
     }
   };
 
@@ -669,6 +694,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
       return;
     }
     setState('initiating');
+    setLastError(null);
     try {
       const initiated = await request<InitiateUploadResponse>(`/api/v1/admin/courses/${courseId}/episodes/initiate-upload`, {
         method: 'POST',
@@ -702,7 +728,9 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
       await runSession();
     } catch (error) {
       setState('failed');
-      onError(error instanceof Error ? error.message : 'initiate-upload failed.');
+      const message = describeUploadError(error, 'initiate-upload failed.');
+      setLastError(message);
+      onError(message);
     }
   };
 
@@ -774,7 +802,24 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
             <span>{percent}% {state === 'uploading' ? `· ${eta}` : ''}</span>
           </div>
           <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--cms-ivory-100)' }}>
-            <div className="h-full transition-all" style={{ width: `${percent}%`, background: 'var(--cms-teal-600)' }} />
+            <div className="h-full transition-all" style={{ width: `${percent}%`, background: state === 'failed' ? 'var(--cms-red-500)' : 'var(--cms-teal-600)' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Push 6: persistent inline failure banner with retry guidance */}
+      {state === 'failed' && lastError && (
+        <div role="alert" data-testid="upload-error-banner" className="flex items-start gap-2 rounded-lg border p-3 text-sm"
+          style={{ background: 'rgba(239, 68, 68, 0.06)', borderColor: 'var(--cms-red-200)', color: 'var(--cms-red-600)' }}>
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-medium">{isArabic ? 'تعذّر إتمام الرفع' : 'Upload failed'}</p>
+            <p className="mt-0.5 text-xs leading-relaxed" style={{ color: 'var(--cms-text-soft)' }}>{lastError}</p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+              {episodeId
+                ? (isArabic ? 'الأجزاء المرفوعة محفوظة — اضغط «استئناف» للمتابعة دون إعادة إرسالها.' : 'Uploaded parts are kept — press Resume to continue without re-sending them.')
+                : (isArabic ? 'اضغط «بدء الرفع» لإعادة المحاولة.' : 'Press Start upload to try again.')}
+            </p>
           </div>
         </div>
       )}
@@ -794,6 +839,13 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
         )}
         {state === 'paused' && (
           <button type="button" onClick={() => void resume()}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-medium" style={{ background: 'var(--cms-teal-700)' }}>
+            <Play className="w-4 h-4" /> {copy.resume}
+          </button>
+        )}
+        {/* Push 6: a failed session with a live episode can be resumed (e.g. transient 500 at complete) */}
+        {state === 'failed' && episodeId && sessionRef.current && (
+          <button type="button" onClick={() => { setLastError(null); void resume(); }} data-testid="retry-resume-button"
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-medium" style={{ background: 'var(--cms-teal-700)' }}>
             <Play className="w-4 h-4" /> {copy.resume}
           </button>

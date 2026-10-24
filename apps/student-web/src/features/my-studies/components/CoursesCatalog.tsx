@@ -1,15 +1,21 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { BookOpen, Clock, Eye, GraduationCap, LoaderCircle, MonitorPlay, PlayCircle } from 'lucide-react';
+import { BookOpen, Clock, Eye, GraduationCap, LoaderCircle, MonitorPlay, PlayCircle, Target } from 'lucide-react';
 import { coursesApi } from '../services/courses-api';
 import { useMySubjects } from '../hooks/useMySubjects';
 import { LockedEmptyState } from './LockedEmptyState';
 
-/** Catalog of courses across every subject the student is entitled to (VideoAudio scope). */
-export function CoursesCatalog() {
+/**
+ * Catalog of courses across every subject the student is entitled to (VideoAudio
+ * scope). `subjectId` (Push 6) narrows the catalog to a single subject — used by
+ * the /my-studies?subjectId=…&tab=courses deep links from the subjects browser.
+ */
+export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
   const mySubjects = useMySubjects();
-  const subjects = mySubjects.data ?? [];
+  const allSubjects = mySubjects.data ?? [];
+
+  const subjects = subjectId ? allSubjects.filter((s) => s.id === subjectId) : allSubjects;
 
   const { data: courses, isLoading } = useQuery({
     queryKey: ['courses-catalog', subjects.map((s) => s.id).join(',')],
@@ -37,8 +43,20 @@ export function CoursesCatalog() {
   }
 
   // No active subscription code → locked state with the activation CTA.
-  if (subjects.length === 0) {
+  // (Based on the FULL entitled list — a subject filter must not fake a lock.)
+  if (allSubjects.length === 0) {
     return <LockedEmptyState title="الكورسات مُقفلة" hint="كورسات الفيديو والصوت لموادك تُفتح بعد تفعيل كود اشتراك يشمل محتوى الفيديو." />;
+  }
+
+  // Deep-linked subject the student holds no grant for (stale link).
+  if (subjectId && subjects.length === 0) {
+    return (
+      <div className="text-center py-14 rounded-2xl border border-dashed border-[var(--c-border)]" data-testid="courses-subject-locked">
+        <Target className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" />
+        <p className="text-[var(--c-text-muted)]">لا يمكنك الوصول إلى كورسات هذه المادة بعد</p>
+        <p className="text-xs text-[var(--c-text-faint)] mt-1">فعّل كوداً يشمل هذه المادة لفتح كورساتها</p>
+      </div>
+    );
   }
 
   if (isLoading) {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { ClipboardCheck, Clock, ChevronLeft, LoaderCircle } from 'lucide-react';
+import { ClipboardCheck, Clock, ChevronLeft, LoaderCircle, Target } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
 import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
@@ -25,11 +25,17 @@ interface SubjectWithExams {
   exams: ExamListItem[];
 }
 
-export function ExamsCatalogPage() {
+/**
+ * Exams catalog (My Studies → الاختبارات tab). `subjectId` (Push 6) narrows
+ * the catalog to a single subject — used by the /my-studies?subjectId=…&tab=exams
+ * deep links from the subjects browser.
+ */
+export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
 
   const mySubjects = useMySubjects();
-  const subjects = mySubjects.data ?? [];
+  const allSubjects = mySubjects.data ?? [];
+  const subjects = subjectId ? allSubjects.filter((s) => s.id === subjectId) : allSubjects;
 
   const { data: subjectsWithExams, isLoading } = useQuery({
     queryKey: ['exams-catalog', subjects.map((s) => s.id).join(',')],
@@ -72,8 +78,19 @@ export function ExamsCatalogPage() {
   }
 
   // No active subscription code → locked state with the activation CTA.
-  if (subjects.length === 0) {
+  if (allSubjects.length === 0) {
     return <LockedEmptyState title="الاختبارات مُقفلة" hint="اختبارات موادك تُفتح بعد تفعيل كود الاشتراك — جرّب بنك الأسئلة والحلقات التفاعلية." />;
+  }
+
+  // Deep-linked subject the student holds no grant for (stale link).
+  if (subjectId && subjects.length === 0) {
+    return (
+      <div className="text-center py-14 rounded-2xl border border-dashed border-[var(--c-border)]" data-testid="exams-subject-locked">
+        <Target className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" />
+        <p className="text-[var(--c-text-muted)]">لا يمكنك الوصول إلى اختبارات هذه المادة بعد</p>
+        <p className="text-xs text-[var(--c-text-faint)] mt-1">فعّل كوداً يشمل هذه المادة لفتح اختباراتها</p>
+      </div>
+    );
   }
 
   return (
