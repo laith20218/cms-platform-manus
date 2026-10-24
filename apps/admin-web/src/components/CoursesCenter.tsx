@@ -76,8 +76,14 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
 
-  const loadCourses = async () => {
-    setLoading(true);
+  /**
+   * Loads the course list. `silent` refreshes keep the table (and any open
+   * episode drawer / upload panel) mounted — a completed upload must never
+   * wipe the drawer state the admin is looking at (Push 6 fix).
+   */
+  const loadCourses = async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams({ page: '1', pageSize: '50' });
       if (subjectId) params.set('subjectId', subjectId);
@@ -86,7 +92,7 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
     } catch (error) {
       onError(error instanceof Error ? error.message : isArabic ? 'تعذر تحميل الكورسات.' : 'Failed to load courses.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -343,7 +349,7 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
               {expandedId === course.id && (
                 <EpisodesManager
                   token={token} isArabic={isArabic} onError={onError} onNotice={onNotice}
-                  course={course} onChanged={loadCourses}
+                  course={course} onChanged={() => void loadCourses({ silent: true })}
                 />
               )}
             </div>
