@@ -176,22 +176,24 @@ public class AcademicQueryHandlers :
 
     public async Task<SubjectDto> Handle(GetSubjectByIdQuery req, CancellationToken ct)
     {
-        var subject = await VisibleSubjectQuery()
-            .Where(item => item.Id == req.Id)
-            .Select(item => ToSubjectDto(item))
-            .FirstOrDefaultAsync(ct)
+        // Fetch the entity first, then map client-side: projecting through the
+        // instance method ToSubjectDto inside the query is rejected by EF Core's
+        // relational client-projection compiler ("reference to a constant expression
+        // ... through the instance method") and 500'd on PostgreSQL.
+        var subjectEntity = await VisibleSubjectQuery()
+            .FirstOrDefaultAsync(item => item.Id == req.Id, ct)
             ?? throw new NotFoundException("Subject", req.Id);
-        return await ApplyStudentContentScopeAsync(subject, req.StudentId, ct);
+        return await ApplyStudentContentScopeAsync(ToSubjectDto(subjectEntity), req.StudentId, ct);
     }
 
     public async Task<SubjectDto> Handle(GetSubjectBySlugQuery req, CancellationToken ct)
     {
-        var subject = await VisibleSubjectQuery()
-            .Where(item => item.Slug == req.Slug)
-            .Select(item => ToSubjectDto(item))
-            .FirstOrDefaultAsync(ct)
+        // Entity-first + client-side mapping — same reasoning as GetSubjectByIdQuery
+        // (instance-method client projections throw on the relational provider).
+        var subjectEntity = await VisibleSubjectQuery()
+            .FirstOrDefaultAsync(item => item.Slug == req.Slug, ct)
             ?? throw new NotFoundException("Subject", req.Slug);
-        return await ApplyStudentContentScopeAsync(subject, req.StudentId, ct);
+        return await ApplyStudentContentScopeAsync(ToSubjectDto(subjectEntity), req.StudentId, ct);
     }
 
     public async Task<List<LectureDto>> Handle(GetLecturesBySubjectQuery req, CancellationToken ct)
