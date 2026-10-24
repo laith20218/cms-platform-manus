@@ -298,7 +298,7 @@ public class CourseHandlers :
         var course = await _db.Courses.FirstOrDefaultAsync(course => course.Id == req.CourseId && course.DeletedAt == null, ct)
             ?? throw new NotFoundException("Course", req.CourseId);
 
-        await EnsureEpisodeNumberFreeAsync(req.CourseId, req.EpisodeNumber, null, ct);
+        await EnsureEpisodeNumberUsableAsync(req.CourseId, req.EpisodeNumber, null, ct);
 
         var episode = new CourseEpisode
         {
@@ -312,7 +312,7 @@ public class CourseHandlers :
         typeof(CourseEpisode).GetProperty("CreatedBy")?.SetValue(episode, req.CreatedBy);
 
         await _db.CourseEpisodes.AddAsync(episode, ct);
-        await _unitOfWork.SaveChangesAsync(ct);
+        await SaveEpisodesWithNumberGuardAsync(ct);
         return MapToEpisodeDto(episode);
     }
 
@@ -321,13 +321,13 @@ public class CourseHandlers :
         var episode = await _db.CourseEpisodes.FirstOrDefaultAsync(episode => episode.Id == req.Id && episode.DeletedAt == null, ct)
             ?? throw new NotFoundException("CourseEpisode", req.Id);
 
-        await EnsureEpisodeNumberFreeAsync(episode.CourseId, req.EpisodeNumber, req.Id, ct);
+        await EnsureEpisodeNumberUsableAsync(episode.CourseId, req.EpisodeNumber, req.Id, ct);
 
         typeof(CourseEpisode).GetProperty("Title")?.SetValue(episode, req.Title);
         typeof(CourseEpisode).GetProperty("EpisodeNumber")?.SetValue(episode, req.EpisodeNumber);
         typeof(CourseEpisode).GetProperty("DurationSeconds")?.SetValue(episode, req.DurationSeconds);
 
-        await _unitOfWork.SaveChangesAsync(ct);
+        await SaveEpisodesWithNumberGuardAsync(ct);
         return MapToEpisodeDto(episode);
     }
 
@@ -377,9 +377,12 @@ public class CourseHandlers :
         if (partCount > MaxPartCount)
             throw new DomainException("عدد الأجزاء المطلوب يتجاوز الحد المسموح", "FILE_TOO_LARGE");
 
-        await EnsureEpisodeNumberFreeAsync(req.CourseId, req.EpisodeNumber, null, ct);
+        await EnsureEpisodeNumberUsableAsync(req.CourseId, req.EpisodeNumber, null, ct);
 
-        // Server-generated key (never user input — prevents path traversal).
+        // Server-generated key (never user input — prevents path traversal). NOTE (Push 7):
+        // the original fileName — Arabic or otherwise — is NEVER part of the key and never
+        // enters any S3 request header; only this pure-GUID key and the sniffed content
+        // type reach storage. Arabic filenames were proven innocent by production logs.
         var fileKey = $"courses/{req.CourseId}/{Guid.NewGuid():N}/{Guid.NewGuid():N}";
         var uploadId = await _storage.InitiateMultipartUploadAsync(fileKey, req.ContentType.Trim(), ct);
 
@@ -397,7 +400,7 @@ public class CourseHandlers :
         typeof(CourseEpisode).GetProperty("CreatedBy")?.SetValue(episode, req.CreatedBy);
 
         await _db.CourseEpisodes.AddAsync(episode, ct);
-        await _unitOfWork.SaveChangesAsync(ct);
+        await SaveEpisodesWithNumberGuardAsync(ct);
 
         var partUrls = new List<string>();
         for (var partNumber = 1; partNumber <= partCount; partNumber++)
@@ -491,18 +494,82 @@ public class CourseHandlers :
     }
 
     // ===== Helpers =====
-    private async Task EnsureEpisodeNumberFreeAsync(Guid courseId, int episodeNumber, Guid? excludeEpisodeId, CancellationToken ct)
+
+    /// <summary>
+    /// Push 7 — episode-number availability with GHOST PURGE.
+    ///
+    /// ix_course_episodes_course_id_episode_number (ApplicationDbContext) is a HARD
+    /// unique index: it has no partial filter on DeletedAt, so soft-deleted "ghost"
+    /// rows keep holding their numbers forever. The previous check only looked at
+    /// live rows (DeletedAt == null), so a retry at a ghost-held number passed the
+    /// check and then the INSERT died with Postgres 23505 — surfacing as the
+    /// persistent 500 the admin saw on course تجربة (ghost episode #2).
+    ///
+    /// Live rows still block (EPISODE_NUMBER_TAKEN). Ghosts are hard-deleted here —
+    /// aborting any lingering multipart session and deleting the stored blob
+    /// best-effort — and the removal rides the CALLER's SaveChanges so the purge
+    /// and the new/renumbered row commit atomically.
+    /// </summary>
+    private async Task EnsureEpisodeNumberUsableAsync(Guid courseId, int episodeNumber, Guid? excludeEpisodeId, CancellationToken ct)
     {
         if (episodeNumber < 1)
             throw new DomainException("رقم الحلقة يجب أن يكون 1 على الأقل", "INVALID_EPISODE_NUMBER");
 
-        var taken = await _db.CourseEpisodes.AsNoTracking()
-            .AnyAsync(episode => episode.CourseId == courseId
-                && episode.EpisodeNumber == episodeNumber
-                && episode.DeletedAt == null
-                && (excludeEpisodeId == null || episode.Id != excludeEpisodeId), ct);
-        if (taken)
+        // Tracked query (NOT AsNoTracking): the ghost removals below must ride the caller's SaveChanges.
+        var rows = await _db.CourseEpisodes
+            .Where(episode => episode.CourseId == courseId && episode.EpisodeNumber == episodeNumber)
+            .ToListAsync(ct);
+
+        if (rows.Any(row => row.DeletedAt == null && (excludeEpisodeId == null || row.Id != excludeEpisodeId)))
             throw new DomainException("رقم الحلقة مستخدم داخل هذا الكورس", "EPISODE_NUMBER_TAKEN");
+
+        foreach (var ghost in rows.Where(row => row.DeletedAt != null))
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(ghost.UploadId) && !string.IsNullOrEmpty(ghost.FileKey))
+                    await _storage.AbortMultipartUploadAsync(ghost.FileKey, ghost.UploadId, ct);
+                if (ghost.SourceType == CourseEpisodeSource.Upload && !string.IsNullOrEmpty(ghost.FileKey))
+                    await _storage.DeleteAsync(ghost.FileKey, ct);
+            }
+            catch (Exception ex)
+            {
+                // Best-effort: a storage hiccup must never block number reuse.
+                _logger.LogWarning(ex, "Ghost-episode cleanup failed during episode-number reuse. EpisodeId={EpisodeId} FileKey={FileKey}", ghost.Id, ghost.FileKey);
+            }
+            _db.CourseEpisodes.Remove(ghost);
+        }
+    }
+
+    /// <summary>
+    /// SaveChanges with a race guard (Push 7): two concurrent initiates can both pass
+    /// the availability check and the second INSERT dies on the unique index. The raw
+    /// DbUpdateException would surface as a 500; translate unique violations into the
+    /// friendly EPISODE_NUMBER_TAKEN domain error instead (provider-agnostic matcher:
+    /// PostgreSQL 23505 / "duplicate key", SQLite "UNIQUE constraint failed").
+    /// </summary>
+    private async Task SaveEpisodesWithNumberGuardAsync(CancellationToken ct)
+    {
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            throw new DomainException("رقم الحلقة مستخدم داخل هذا الكورس (حاول برقم آخر)", "EPISODE_NUMBER_TAKEN");
+        }
+    }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException exception)
+    {
+        for (var scan = (Exception?)exception; scan is not null; scan = scan.InnerException)
+        {
+            var message = scan.Message;
+            if (message.Contains("23505", StringComparison.Ordinal)) return true; // PostgreSQL
+            if (message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)) return true; // PostgreSQL / SQL Server
+            if (message.Contains("unique constraint", StringComparison.OrdinalIgnoreCase)) return true; // SQLite & generic
+        }
+        return false;
     }
 
     private async Task<long> GetVideoLimitBytesAsync(CancellationToken ct)

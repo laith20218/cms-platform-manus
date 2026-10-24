@@ -93,3 +93,82 @@ describe('CoursesCenter — media upload panel', () => {
     expect(screen.getAllByText('رفع وسائط (فيديو/صوت)').length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// ================= Push 7: honest content-type sniffing on upload =================
+
+describe('CoursesCenter — Push 7 upload typing', () => {
+  it('sends the sniffed audio/mpeg for an Arabic-named MP3 (browser type empty)', async () => {
+    const onError = vi.fn();
+    const { container } = render(
+      <UiPermissionsProvider value={{ phase: 'idle' }}>
+        <CoursesCenter
+          token="test-token" isArabic onError={onError} onNotice={vi.fn()}
+          subjectId="s1" refreshSignal={0}
+        />
+      </UiPermissionsProvider>
+    );
+
+    const courseButton = await screen.findByRole('button', { name: /كورس تجريبي/ });
+    fireEvent.click(courseButton);
+    const uploadButton = await screen.findByRole('button', { name: /رفع وسائط/ });
+    fireEvent.click(uploadButton);
+
+    // A real MP3 whose name carries Arabic characters — jsdom leaves file.type
+    // empty exactly like the user's browser did for unrecognized extensions.
+    const mp3 = new File([new Uint8Array(1024)], 'test-عربي.mp3', { type: '' });
+    const fileInput = await waitFor(() => container.querySelector('input[type="file"]') as HTMLInputElement);
+    fireEvent.change(fileInput, { target: { files: [mp3] } });
+    fireEvent.change(screen.getByPlaceholderText('عنوان الحلقة'), { target: { value: 'حلقة عربية' } });
+
+    apiRequestMock.mockImplementation(async () => ({
+      episodeId: 'ep-9', uploadId: 'mpu-1', fileKey: 'courses/k1/x/y',
+      partSizeBytes: 67108864, partCount: 1, partUrls: ['https://r2/part1'],
+    }));
+    const startButton = await screen.findByRole('button', { name: /بدء الرفع/ });
+    fireEvent.click(startButton);
+
+    await waitFor(() => {
+      const initiate = apiRequestMock.mock.calls.find(([path]) => String(path).includes('initiate-upload'));
+      expect(initiate).toBeDefined();
+    });
+    // apiRequest(path, token, init) — the body lives on the third argument.
+    const initiateCall = apiRequestMock.mock.calls.find(([path]) => String(path).includes('initiate-upload'));
+    const body = JSON.parse(String(initiateCall?.[2]?.body));
+    expect(body.fileName).toBe('test-عربي.mp3');
+    // Sniffed from the .mp3 extension — never invented.
+    expect(body.contentType).toBe('audio/mpeg');
+    expect(onError).not.toHaveBeenCalledWith(expect.stringContaining('لا يمكن التعرّف'));
+  });
+
+  it('rejects an unrecognizable file (mp3.رقيق) client-side — initiate is never called', async () => {
+    const onError = vi.fn();
+    const { container } = render(
+      <UiPermissionsProvider value={{ phase: 'idle' }}>
+        <CoursesCenter
+          token="test-token" isArabic onError={onError} onNotice={vi.fn()}
+          subjectId="s1" refreshSignal={0}
+        />
+      </UiPermissionsProvider>
+    );
+
+    const courseButton = await screen.findByRole('button', { name: /كورس تجريبي/ });
+    fireEvent.click(courseButton);
+    const uploadButton = await screen.findByRole('button', { name: /رفع وسائط/ });
+    fireEvent.click(uploadButton);
+
+    // The user's exact mystery file: Arabic extension → no browser type, no known extension.
+    const mystery = new File([new Uint8Array(1024)], 'mp3.رقيق', { type: '' });
+    const fileInput = await waitFor(() => container.querySelector('input[type="file"]') as HTMLInputElement);
+    fireEvent.change(fileInput, { target: { files: [mystery] } });
+    fireEvent.change(screen.getByPlaceholderText('عنوان الحلقة'), { target: { value: 'ملف غامض' } });
+
+    fireEvent.click(await screen.findByRole('button', { name: /بدء الرفع/ }));
+
+    await waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(expect.stringContaining('لا يمكن التعرّف على نوع الملف'));
+    });
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining('mp3.رقيق'));
+    // Zero initiate calls — the server never sees an untypeable file.
+    expect(apiRequestMock.mock.calls.some(([path]) => String(path).includes('initiate-upload'))).toBe(false);
+  });
+});

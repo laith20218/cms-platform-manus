@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using CMS.Application.Commands.Courses;
 using CMS.Application.DTOs.Courses;
 using CMS.Application.Handlers.Courses;
@@ -30,7 +31,7 @@ public sealed class CourseHandlersTests
     private const long PartSize = 64L * 1024 * 1024;
 
     private static (CourseHandlers Handler, Mock<IFileStorageService> Storage, Mock<IEntitlementService> Entitlements, Mock<ISystemSettingsService> Settings, RecordingActivityWriter Activity) Create(
-        ApplicationDbContext db, Mock<ISystemSettingsService>? settings = null)
+        ApplicationDbContext db, Mock<ISystemSettingsService>? settings = null, IUnitOfWork? unitOfWork = null)
     {
         var storage = new Mock<IFileStorageService>(MockBehavior.Strict);
         var entitlements = new Mock<IEntitlementService>();
@@ -41,7 +42,7 @@ public sealed class CourseHandlersTests
         var activity = new RecordingActivityWriter();
         var handler = new CourseHandlers(
             db,
-            new UnitOfWork(db),
+            unitOfWork ?? new UnitOfWork(db),
             storage.Object,
             entitlements.Object,
             settingsService.Object,
@@ -60,13 +61,13 @@ public sealed class CourseHandlersTests
     }
 
     private static async Task<CourseEpisode> SeedUploadEpisodeAsync(ApplicationDbContext db, Course course, string fileKey,
-        string? uploadId = null, long fileSize = 1024)
+        string? uploadId = null, long fileSize = 1024, int episodeNumber = 1)
     {
         var episode = new CourseEpisode
         {
             CourseId = course.Id,
             Title = "الحلقة الأولى",
-            EpisodeNumber = 1,
+            EpisodeNumber = episodeNumber,
             SourceType = CourseEpisodeSource.Upload,
             FileKey = fileKey,
             FileSize = fileSize,
@@ -76,6 +77,13 @@ public sealed class CourseHandlersTests
         db.CourseEpisodes.Add(episode);
         await db.SaveChangesAsync();
         return episode;
+    }
+
+    /// <summary>Soft-deletes a seeded episode — a "ghost" that still holds its number in the hard unique index.</summary>
+    private static async Task GhostifyAsync(ApplicationDbContext db, CourseEpisode episode)
+    {
+        episode.DeletedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
     }
 
     // ===== Course CRUD =====
@@ -462,6 +470,146 @@ public sealed class CourseHandlersTests
         courses.Should().ContainSingle().Which.Id.Should().Be(course.Id, "draft courses are invisible to students");
         courses[0].EpisodesCount.Should().Be(1);
         _ = draft;
+    }
+
+    // ===== Push 7: Arabic filenames + ghost-number recycling =====
+
+    [Fact]
+    public async Task InitiateUpload_ArabicFileName_StoresPureGuidKey_NeverLeaksIntoStorage()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.InitiateMultipartUploadAsync(It.IsAny<string>(), "audio/mpeg", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("mpu-arabic");
+        storage.Setup(s => s.PresignUploadPartAsync(It.IsAny<string>(), "mpu-arabic", It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string key, string uploadId, int partNumber, TimeSpan ttl, CancellationToken _) => $"https://r2/part{partNumber}");
+
+        // The user's real-world case: an MP3 whose name carries Arabic characters.
+        var initiate = await handler.Handle(new InitiateEpisodeUploadCommand(
+            course.Id, "test-عربي.mp3", "audio/mpeg", 1024, "حلقة عربية الاسم", 1, Guid.NewGuid()), CancellationToken.None);
+
+        initiate.FileKey.Should().MatchRegex($"^courses/{course.Id}/[0-9a-f]{{32}}/[0-9a-f]{{32}}$",
+            "the Arabic fileName never enters the S3 key — keys are pure server-generated GUIDs");
+        storage.Verify(s => s.InitiateMultipartUploadAsync(
+            It.Is<string>(key => Regex.IsMatch(key, $"^courses/{course.Id}/[0-9a-f]{{32}}/[0-9a-f]{{32}}$")),
+            "audio/mpeg", It.IsAny<CancellationToken>()), Times.Once,
+            "storage sees only the GUID key and the sniffed content type — no Arabic in any request");
+        var episode = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == initiate.EpisodeId);
+        episode.ContentType.Should().Be("audio/mpeg");
+        episode.FileKey.Should().NotContain("عربي");
+    }
+
+    [Fact]
+    public async Task InitiateUpload_RecyclesNumberFromSoftDeletedGhost_PurgesRowAndBlob()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var ghost = await SeedUploadEpisodeAsync(db, course, "courses/ghost/done", uploadId: null, episodeNumber: 2);
+        await GhostifyAsync(db, ghost);
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.DeleteAsync("courses/ghost/done", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        storage.Setup(s => s.InitiateMultipartUploadAsync(It.IsAny<string>(), "audio/mpeg", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("mpu-42");
+        storage.Setup(s => s.PresignUploadPartAsync(It.IsAny<string>(), "mpu-42", It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string key, string uploadId, int partNumber, TimeSpan ttl, CancellationToken _) => $"https://r2/part{partNumber}");
+
+        // The exact production scenario: re-uploading at a number a soft-deleted
+        // episode still holds (hard unique index → Postgres 23505 → persistent 500).
+        var initiate = await handler.Handle(new InitiateEpisodeUploadCommand(
+            course.Id, "retry.mp3", "audio/mpeg", 1024, "إعادة المحاولة", 2, Guid.NewGuid()), CancellationToken.None);
+
+        db.CourseEpisodes.AsNoTracking().Any(e => e.Id == ghost.Id).Should().BeFalse(
+            "the ghost is hard-purged so the hard unique index frees the number");
+        var stored = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == initiate.EpisodeId);
+        stored.EpisodeNumber.Should().Be(2);
+        storage.Verify(s => s.DeleteAsync("courses/ghost/done", It.IsAny<CancellationToken>()), Times.Once,
+            "the ghost's completed blob is cleaned best-effort");
+    }
+
+    [Fact]
+    public async Task InitiateUpload_GhostWithInFlightUpload_AbortsMultipartBeforeReuse()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var ghost = await SeedUploadEpisodeAsync(db, course, "courses/ghost/inflight", uploadId: "mpu-stuck", episodeNumber: 2);
+        await GhostifyAsync(db, ghost);
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.AbortMultipartUploadAsync("courses/ghost/inflight", "mpu-stuck", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        storage.Setup(s => s.DeleteAsync("courses/ghost/inflight", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        storage.Setup(s => s.InitiateMultipartUploadAsync(It.IsAny<string>(), "video/mp4", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("mpu-new");
+        storage.Setup(s => s.PresignUploadPartAsync(It.IsAny<string>(), "mpu-new", It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string key, string uploadId, int partNumber, TimeSpan ttl, CancellationToken _) => $"https://r2/part{partNumber}");
+
+        await handler.Handle(new InitiateEpisodeUploadCommand(
+            course.Id, "lesson.mp4", "video/mp4", 1024, "الدرس الثاني", 2, Guid.NewGuid()), CancellationToken.None);
+
+        storage.Verify(s => s.AbortMultipartUploadAsync("courses/ghost/inflight", "mpu-stuck", It.IsAny<CancellationToken>()), Times.Once,
+            "a lingering multipart session is aborted before the number is reused");
+        storage.Verify(s => s.DeleteAsync("courses/ghost/inflight", It.IsAny<CancellationToken>()), Times.Once);
+        db.CourseEpisodes.AsNoTracking().Any(e => e.Id == ghost.Id).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task UpdateEpisode_RenumberOntoGhost_PurgesGhostAndSucceeds()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var live = await SeedUploadEpisodeAsync(db, course, "courses/live/ep1", uploadId: null, episodeNumber: 1);
+        var ghost = await SeedUploadEpisodeAsync(db, course, "courses/ghost/done", uploadId: null, episodeNumber: 2);
+        await GhostifyAsync(db, ghost);
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.DeleteAsync("courses/ghost/done", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var updated = await handler.Handle(new UpdateEpisodeCommand(live.Id, "عنوان جديد", 2, 120), CancellationToken.None);
+
+        updated.EpisodeNumber.Should().Be(2);
+        db.CourseEpisodes.AsNoTracking().Single(e => e.Id == live.Id).EpisodeNumber.Should().Be(2);
+        db.CourseEpisodes.AsNoTracking().Any(e => e.Id == ghost.Id).Should().BeFalse(
+            "renumbering onto a ghost-held number purges the ghost atomically");
+    }
+
+    [Fact]
+    public async Task InitiateUpload_LiveRowBlocks_GhostIsNotPurgedOnRejection()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        await SeedUploadEpisodeAsync(db, course, "courses/live/ep2", uploadId: null, episodeNumber: 2);
+        var ghost = await SeedUploadEpisodeAsync(db, course, "courses/ghost/ep2", uploadId: null, episodeNumber: 2);
+        await GhostifyAsync(db, ghost);
+        var (handler, storage, _, _, _) = Create(db);
+
+        var act = () => handler.Handle(new InitiateEpisodeUploadCommand(
+            course.Id, "clash.mp4", "video/mp4", 1024, "تعارض", 2, Guid.NewGuid()), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("EPISODE_NUMBER_TAKEN");
+        db.CourseEpisodes.AsNoTracking().Any(e => e.Id == ghost.Id).Should().BeTrue(
+            "a rejected request must not purge anything — only the caller's committed SaveChanges does");
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task InitiateUpload_ConcurrentNumberRace_UniqueViolationTranslatedToFriendlyError()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var throwing = new Mock<IUnitOfWork>();
+        throwing.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DbUpdateException(
+                "An error occurred while saving the entity changes. See the inner exception for details.",
+                new Exception("23505: duplicate key value violates unique constraint \"ix_course_episodes_course_id_episode_number\"")));
+        var (handler, storage, _, _, _) = Create(db, unitOfWork: throwing.Object);
+        storage.Setup(s => s.InitiateMultipartUploadAsync(It.IsAny<string>(), "video/mp4", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("mpu-race");
+
+        // Two concurrent initiates both passed the availability check; the second
+        // INSERT hits the hard unique index. The raw DbUpdateException must surface
+        // as a friendly domain error — NOT the 500 the admin kept seeing.
+        var act = () => handler.Handle(new InitiateEpisodeUploadCommand(
+            course.Id, "race.mp4", "video/mp4", 1024, "سباق", 2, Guid.NewGuid()), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("EPISODE_NUMBER_TAKEN");
     }
 
     /// <summary>Activity writer that records entries in memory for assertions.</summary>

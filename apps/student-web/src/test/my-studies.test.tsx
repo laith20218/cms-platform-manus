@@ -216,6 +216,16 @@ function renderPlayer(entry: string) {
   );
 }
 
+/**
+ * jsdom reports videoWidth === 0 for every <video> — which the Push 7 fallback
+ * interprets as "no video track". Tests that exercise the VIDEO path (lease
+ * refresh, aspect swap) stub a real track so the fallback stays out of the way.
+ */
+function stubVideoTrack(el: HTMLVideoElement, width = 1280, height = 720) {
+  Object.defineProperty(el, 'videoWidth', { configurable: true, get: () => width });
+  Object.defineProperty(el, 'videoHeight', { configurable: true, get: () => height });
+}
+
 describe('CoursePlayerPage — rendering', () => {
   it('renders the native video player with the signed URL + watermark + episode list', async () => {
     postMock.mockResolvedValue({ data: access('https://r2.example.com/video?sig=1') });
@@ -288,6 +298,7 @@ describe('CoursePlayerPage — the lease trap (auto-refresh)', () => {
     await waitFor(() => expect(video.getAttribute('src')).toBe('https://r2.example.com/v2?sig=b'));
 
     // Metadata of the new source loads → timestamp + playback resume seamlessly.
+    stubVideoTrack(video); // jsdom's videoWidth===0 would otherwise trigger the Push 7 audio fallback
     playMock.mockClear();
     fireEvent(video, new Event('loadedmetadata'));
     expect(video.currentTime).toBe(42);
@@ -303,5 +314,106 @@ describe('CoursePlayerPage — the lease trap (auto-refresh)', () => {
 
     fireEvent.error(video);
     await waitFor(() => expect(postMock.mock.calls.length).toBe(2));
+  });
+});
+
+// ================= Push 7: video → audio graceful fallback =================
+// An episode stored under video/* whose bytes are actually audio-only (the
+// mislabeled-MP3 incident) must not dead-end the student: the player detects
+// it and swaps to the custom audio stage — per episode, watermark preserved.
+
+describe('CoursePlayerPage — Push 7 video→audio fallback', () => {
+  it('falls back to the custom audio stage when metadata has no video track (videoWidth 0)', async () => {
+    postMock.mockResolvedValue({ data: access('https://r2.example.com/v1?sig=a') });
+    renderPlayer('/my-studies/courses/c1');
+
+    const video = await screen.findByTestId('course-video') as HTMLVideoElement;
+    await waitFor(() => expect(video.getAttribute('src')).toBe('https://r2.example.com/v1?sig=a'));
+
+    // Mid-playback when the metadata reveals there is nothing to show.
+    act(() => {
+      video.currentTime = 30;
+      mediaPaused = false;
+    });
+    fireEvent(video, new Event('loadedmetadata')); // jsdom videoWidth === 0 here
+
+    const audio = await screen.findByTestId('course-audio') as HTMLAudioElement;
+    expect(screen.queryByTestId('course-video')).not.toBeInTheDocument();
+    expect(audio.getAttribute('src')).toBe('https://r2.example.com/v1?sig=a');
+    // The designed audio stage + the watermark survive the swap.
+    expect(screen.getByTestId('audio-stage')).toBeInTheDocument();
+    expect(screen.getByTestId('audio-play-button')).toBeInTheDocument();
+    expect(screen.getByTestId('course-watermark')).toBeInTheDocument();
+
+    // The audio element's metadata loads → timestamp + playback resume seamlessly.
+    playMock.mockClear();
+    fireEvent(audio, new Event('loadedmetadata'));
+    expect(playMock).toHaveBeenCalled();
+  });
+
+  it('falls back when the video bytes cannot be decoded (error code 3)', async () => {
+    postMock.mockResolvedValue({ data: access('https://r2.example.com/v1?sig=a') });
+    renderPlayer('/my-studies/courses/c1');
+
+    const video = await screen.findByTestId('course-video') as HTMLVideoElement;
+    await waitFor(() => expect(postMock.mock.calls.length).toBe(1));
+
+    Object.defineProperty(video, 'error', { configurable: true, value: { code: 3 } });
+    fireEvent.error(video);
+
+    await screen.findByTestId('audio-stage');
+    expect(screen.queryByTestId('course-video')).not.toBeInTheDocument();
+  });
+
+  it('falls back when the source is not supported (error code 4)', async () => {
+    postMock.mockResolvedValue({ data: access('https://r2.example.com/v1?sig=a') });
+    renderPlayer('/my-studies/courses/c1');
+
+    const video = await screen.findByTestId('course-video') as HTMLVideoElement;
+    await waitFor(() => expect(postMock.mock.calls.length).toBe(1));
+
+    Object.defineProperty(video, 'error', { configurable: true, value: { code: 4 } });
+    fireEvent.error(video);
+
+    await screen.findByTestId('audio-stage');
+    expect(screen.queryByTestId('course-video')).not.toBeInTheDocument();
+  });
+
+  it('keeps the lease-refetch path for codes 1–2 — no stage swap', async () => {
+    postMock.mockResolvedValue({ data: access('https://r2.example.com/v1?sig=a') });
+    renderPlayer('/my-studies/courses/c1');
+
+    const video = await screen.findByTestId('course-video') as HTMLVideoElement;
+    await waitFor(() => expect(postMock.mock.calls.length).toBe(1));
+
+    // MEDIA_ERR_ABORTED / MEDIA_ERR_NETWORK — likely an expired lease → refetch.
+    Object.defineProperty(video, 'error', { configurable: true, value: { code: 1 } });
+    fireEvent.error(video);
+
+    await waitFor(() => expect(postMock.mock.calls.length).toBe(2));
+    expect(screen.getByTestId('course-video')).toBeInTheDocument();
+    expect(screen.queryByTestId('audio-stage')).not.toBeInTheDocument();
+  });
+
+  it('resets the fallback per episode — switching back re-mounts the video stage', async () => {
+    postMock.mockResolvedValue({ data: access('https://r2.example.com/v1?sig=a') });
+    renderPlayer('/my-studies/courses/c1');
+
+    // ep1 (mislabeled video) falls back to audio…
+    const video = await screen.findByTestId('course-video') as HTMLVideoElement;
+    fireEvent(video, new Event('loadedmetadata')); // videoWidth 0
+    await screen.findByTestId('audio-stage');
+
+    // …then ep2 (real audio) plays in the audio stage…
+    fireEvent.click(screen.getByText('الحلقة الصوتية'));
+    await screen.findByTestId('course-audio');
+
+    // …and returning to ep1 starts fresh in the VIDEO stage (no leak across episodes).
+    fireEvent.click(screen.getByText('الحلقة الأولى'));
+    const videoAgain = await screen.findByTestId('course-video') as HTMLVideoElement;
+    stubVideoTrack(videoAgain);
+    fireEvent(videoAgain, new Event('loadedmetadata'));
+    expect(screen.getByTestId('course-video')).toBeInTheDocument();
+    expect(screen.queryByTestId('audio-stage')).not.toBeInTheDocument();
   });
 });
