@@ -56,6 +56,28 @@ public sealed class HtmlSanitizerServiceTests
             Puts.Add((key, contentType));
             return Task.CompletedTask;
         }
+
+        // Push 4 / Track 4: multipart members are not exercised by these tests.
+        public Task<string> InitiateMultipartUploadAsync(string key, string contentType, CancellationToken ct = default)
+            => throw new NotSupportedException("not used by these tests");
+
+        public Task<string> PresignUploadPartAsync(string key, string uploadId, int partNumber, TimeSpan expiry, CancellationToken ct = default)
+            => throw new NotSupportedException("not used by these tests");
+
+        public Task<List<CMS.Application.Interfaces.UploadedPartInfo>> ListMultipartPartsAsync(string key, string uploadId, CancellationToken ct = default)
+            => throw new NotSupportedException("not used by these tests");
+
+        public Task CompleteMultipartUploadAsync(string key, string uploadId, IReadOnlyList<CMS.Application.Interfaces.CompletedPart> parts, CancellationToken ct = default)
+            => throw new NotSupportedException("not used by these tests");
+
+        public Task AbortMultipartUploadAsync(string key, string uploadId, CancellationToken ct = default)
+            => throw new NotSupportedException("not used by these tests");
+
+        public Task<long> GetObjectSizeAsync(string key, CancellationToken ct = default)
+            => Task.FromResult(Objects.TryGetValue(key, out var bytes) ? (long)bytes.Length : 0L);
+
+        public Task<string> GetSignedUrlViaCredentialsAsync(string key, TimeSpan desiredExpiry, CancellationToken ct = default)
+            => throw new NotSupportedException("not used by these tests");
     }
 
     private static HtmlSanitizerService Build(FakeStorage storage) =>

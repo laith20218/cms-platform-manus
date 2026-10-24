@@ -102,7 +102,32 @@ public interface IFileStorageService
     Task<Stream> DownloadAsync(string key, CancellationToken ct = default);
     /// <summary>Overwrites an existing object at the given key (server-side upload with explicit key, used by in-place transforms such as HTML sanitization).</summary>
     Task PutAsync(string key, Stream content, string contentType, CancellationToken ct = default);
+
+    // ===== Push 4 / Track 4: S3 multipart (course episode videos up to 2.5 GB) =====
+    // All object keys are server-generated. The browser uploads parts directly to storage
+    // against pre-signed UploadPart URLs; the API never proxies media bytes.
+
+    /// <summary>Starts a multipart upload and returns the storage-side upload id.</summary>
+    Task<string> InitiateMultipartUploadAsync(string key, string contentType, CancellationToken ct = default);
+    /// <summary>Pre-signs a single UploadPart PUT URL (partNumber + uploadId query params). Expiry is capped by the provider (Upstash session-credential leases live ~10 minutes).</summary>
+    Task<string> PresignUploadPartAsync(string key, string uploadId, int partNumber, TimeSpan expiry, CancellationToken ct = default);
+    /// <summary>Lists the parts already stored for a multipart upload — the resume primitive.</summary>
+    Task<List<UploadedPartInfo>> ListMultipartPartsAsync(string key, string uploadId, CancellationToken ct = default);
+    /// <summary>Finalizes a multipart upload. Parts are supplied as (partNumber, etag) pairs captured by the browser from each part PUT response.</summary>
+    Task CompleteMultipartUploadAsync(string key, string uploadId, IReadOnlyList<CompletedPart> parts, CancellationToken ct = default);
+    /// <summary>Aborts a multipart upload and discards its stored parts (idempotent).</summary>
+    Task AbortMultipartUploadAsync(string key, string uploadId, CancellationToken ct = default);
+    /// <summary>Returns the stored object's exact size in bytes (HEAD) — used to verify the final multipart result against the upload ceiling.</summary>
+    Task<long> GetObjectSizeAsync(string key, CancellationToken ct = default);
+    /// <summary>Pre-signs a GET URL through the credential (lease) path instead of the capped presign agent — for long-lived playback of large videos. Actual validity is still bounded by the session-credential lifetime; callers must be ready to refresh.</summary>
+    Task<string> GetSignedUrlViaCredentialsAsync(string key, TimeSpan desiredExpiry, CancellationToken ct = default);
 }
+
+/// <summary>A part already stored for a multipart upload, as reported by ListParts.</summary>
+public sealed record UploadedPartInfo(int PartNumber, long Size, string ETag);
+
+/// <summary>An (partNumber, ETag) pair required to complete a multipart upload.</summary>
+public sealed record CompletedPart(int PartNumber, string ETag);
 
 /// <summary>
 /// Read-only access to admin-editable system settings (key/value store). Values are raw strings;

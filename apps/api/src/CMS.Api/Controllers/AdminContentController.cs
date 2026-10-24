@@ -78,7 +78,7 @@ public sealed class AdminContentController : ControllerBase
 
     [HttpGet("files")]
     public async Task<ActionResult<AdminPagedResult<AdminLibraryFileListItem>>> GetFiles(
-        [FromQuery] Guid? subjectId, [FromQuery] string? status, [FromQuery] string? search,
+        [FromQuery] Guid? subjectId, [FromQuery] string? status, [FromQuery] string? search, [FromQuery] string? category,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
     {
         var scope = await GetAuthorizedScopeAsync(Resources.Library, ct);
@@ -89,9 +89,13 @@ public sealed class AdminContentController : ControllerBase
         if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<CMS.Domain.Enums.ContentStatus>(status, true, out var parsedStatus))
             query = query.Where(file => file.Status == parsedStatus);
         if (!string.IsNullOrWhiteSpace(search)) query = query.Where(file => file.Title.Contains(search));
+        // Push 4: institutional category filter (Curriculum | Lecture | Summary | GoldenIdeas).
+        if (!string.IsNullOrWhiteSpace(category) && Enum.TryParse<CMS.Domain.Enums.LibraryFileCategory>(category, true, out var parsedCategory))
+            query = query.Where(file => file.Category == parsedCategory);
 
         return Ok(await PageAsync(query, page, pageSize, file => new AdminLibraryFileListItem(
             file.Id, file.SubjectId, file.LectureId, file.Subject.NameAr, file.Title, file.Type.ToString(),
+            file.Category == null ? null : file.Category.ToString(),
             file.FileSize, file.DurationSeconds, file.Status.ToString(), file.VirusScanStatus.ToString(), file.CreatedAt), ct));
     }
 
@@ -159,5 +163,5 @@ public sealed class AdminContentController : ControllerBase
 public record AdminPagedResult<T>(List<T> Items, int Total, int Page, int PageSize, int TotalPages);
 public record AdminQuestionListItem(Guid Id, string Text, Guid SubjectId, Guid? LectureId, string SubjectName, string? LectureName, string Difficulty, string Status, DateTime CreatedAt);
 public record AdminExamListItem(Guid Id, Guid SubjectId, string SubjectName, string TitleAr, string? TitleEn, string ExamType, int DurationMinutes, int TotalQuestions, string Status, DateTime CreatedAt);
-public record AdminLibraryFileListItem(Guid Id, Guid SubjectId, Guid? LectureId, string SubjectName, string Title, string Type, long FileSize, int? DurationSeconds, string Status, string VirusScanStatus, DateTime CreatedAt);
+public record AdminLibraryFileListItem(Guid Id, Guid SubjectId, Guid? LectureId, string SubjectName, string Title, string Type, string? Category, long FileSize, int? DurationSeconds, string Status, string VirusScanStatus, DateTime CreatedAt);
 public record AdminLectureListItem(Guid Id, Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, string? Description, string? InstructorName, string? SourceReference, string Status, bool IsArchived);

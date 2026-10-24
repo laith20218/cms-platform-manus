@@ -1,8 +1,8 @@
 /**
  * Mirror of the backend UI permission registry (CMS.Application.Interfaces.UiPermissionRegistry).
- * 62 keys = 12 views + 10 top-level tabs + 40 buttons. Keep in lockstep with the backend —
- * the /me/ui-permissions envelope carries allKeys + registryVersion so drift between this
- * mirror and the backend is detectable at runtime (see useUiPermissions).
+ * v2 (Push 4): 70 keys = 12 views + 11 top-level tabs + 47 buttons. Keep in lockstep with
+ * the backend — the /me/ui-permissions envelope carries allKeys + registryVersion so drift
+ * between this mirror and the backend is detectable at runtime (see useUiPermissions).
  *
  * TWO SECURITY LAYERS — important:
  *   1. REAL security lives ONLY in the API: [Authorize] policies + CanManageAsync → Forbid().
@@ -13,7 +13,7 @@
  *      the backend remains the real gate either way.
  */
 
-export const UI_PERMISSIONS_REGISTRY_VERSION = '2026-10-24.1';
+export const UI_PERMISSIONS_REGISTRY_VERSION = 'v2';
 
 // ===== 12 views =====
 export const VIEW_KEYS = [
@@ -31,7 +31,7 @@ export const VIEW_KEYS = [
   'view:settings',
 ] as const;
 
-// ===== 10 tabs (overview 2 + reports 8 — StudentsCenter drawer deferred, Q3) =====
+// ===== 11 tabs (overview 2 + reports 8 + library courses 1 (v2) — StudentsCenter drawer deferred, Q3) =====
 export const TAB_KEYS = [
   'tab:overview.metrics',
   'tab:overview.activity',
@@ -43,9 +43,10 @@ export const TAB_KEYS = [
   'tab:reports.content',
   'tab:reports.codes',
   'tab:reports.operations',
+  'tab:library.courses',
 ] as const;
 
-// ===== 40 buttons =====
+// ===== 47 buttons =====
 export const BUTTON_KEYS = [
   'btn:questions.create',
   'btn:questions.publish',
@@ -60,6 +61,13 @@ export const BUTTON_KEYS = [
   'btn:library.publish',
   'btn:library.archive',
   'btn:library.delete',
+  'btn:library.course.create',
+  'btn:library.course.edit',
+  'btn:library.course.publish',
+  'btn:library.course.archive',
+  'btn:library.course.delete',
+  'btn:library.course.episode.upload',
+  'btn:library.course.episode.delete',
   'btn:codes.generate',
   'btn:codes.revoke',
   'btn:codes.revoke-bulk',
@@ -89,7 +97,7 @@ export const BUTTON_KEYS = [
   'btn:reports.export',
 ] as const;
 
-/** All 62 keys in canonical order: views, then tabs, then buttons. */
+/** All 70 keys in canonical order: views, then tabs, then buttons. */
 export const ALL_UI_KEYS: readonly string[] = [...VIEW_KEYS, ...TAB_KEYS, ...BUTTON_KEYS];
 
 /** View → ordered children (its tabs + buttons). Mirrors UiPermissionRegistry.Tree. */
@@ -106,7 +114,20 @@ export const UI_PERMISSIONS_TREE: Record<string, readonly string[]> = {
   ],
   'view:questions': ['btn:questions.create', 'btn:questions.publish', 'btn:questions.archive', 'btn:questions.delete', 'btn:questions.edit'],
   'view:exams': ['btn:exams.create', 'btn:exams.publish', 'btn:exams.archive', 'btn:exams.delete'],
-  'view:library': ['btn:library.upload', 'btn:library.publish', 'btn:library.archive', 'btn:library.delete'],
+  'view:library': [
+    'tab:library.courses',
+    'btn:library.upload',
+    'btn:library.publish',
+    'btn:library.archive',
+    'btn:library.delete',
+    'btn:library.course.create',
+    'btn:library.course.edit',
+    'btn:library.course.publish',
+    'btn:library.course.archive',
+    'btn:library.course.delete',
+    'btn:library.course.episode.upload',
+    'btn:library.course.episode.delete',
+  ],
   'view:students': ['btn:students.edit', 'btn:students.ban', 'btn:students.revoke-session'],
   'view:codes': ['btn:codes.generate', 'btn:codes.revoke', 'btn:codes.revoke-bulk', 'btn:codes.export'],
   'view:reports': [
@@ -151,6 +172,7 @@ export const UI_PERMISSION_LABELS: Record<string, { ar: string; en: string }> = 
   'tab:reports.content': { ar: 'تقرير المحتوى', en: 'Content report' },
   'tab:reports.codes': { ar: 'تقرير الأكواد', en: 'Codes report' },
   'tab:reports.operations': { ar: 'التقرير التشغيلي', en: 'Operations report' },
+  'tab:library.courses': { ar: 'تبويب الكورسات (داخل المكتبة)', en: 'Courses tab (inside Library)' },
 
   'btn:questions.create': { ar: 'إنشاء سؤال (يشمل "حفظ وإضافة آخر")', en: 'New question (incl. Save & Add Another)' },
   'btn:questions.publish': { ar: 'نشر السؤال', en: 'Publish question' },
@@ -165,6 +187,13 @@ export const UI_PERMISSION_LABELS: Record<string, { ar: string; en: string }> = 
   'btn:library.publish': { ar: 'نشر الملف', en: 'Publish file' },
   'btn:library.archive': { ar: 'أرشفة الملف', en: 'Archive file' },
   'btn:library.delete': { ar: 'حذف الملف', en: 'Delete file' },
+  'btn:library.course.create': { ar: 'إنشاء كورس', en: 'Create course' },
+  'btn:library.course.edit': { ar: 'تعديل الكورس', en: 'Edit course' },
+  'btn:library.course.publish': { ar: 'نشر الكورس', en: 'Publish course' },
+  'btn:library.course.archive': { ar: 'أرشفة الكورس', en: 'Archive course' },
+  'btn:library.course.delete': { ar: 'حذف الكورس', en: 'Delete course' },
+  'btn:library.course.episode.upload': { ar: 'رفع حلقة فيديو (متعدد الأجزاء)', en: 'Upload video episode (multipart)' },
+  'btn:library.course.episode.delete': { ar: 'حذف حلقة', en: 'Delete episode' },
   'btn:codes.generate': { ar: 'توليد الأكواد', en: 'Generate codes' },
   'btn:codes.revoke': { ar: 'إبطال كود', en: 'Revoke code' },
   'btn:codes.revoke-bulk': { ar: 'إبطال جماعي للأكواد', en: 'Bulk revoke' },

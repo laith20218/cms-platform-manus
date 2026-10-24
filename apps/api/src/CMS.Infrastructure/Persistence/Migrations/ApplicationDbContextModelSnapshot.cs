@@ -548,6 +548,151 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.ToTable("colleges");
                 });
 
+            modelBuilder.Entity("CMS.Domain.Entities.Course", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CoverImageUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("cover_image_url");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("SubjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("subject_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("title");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_courses");
+
+                    b.HasIndex("SubjectId")
+                        .HasDatabaseName("ix_courses_subject_id");
+
+                    b.ToTable("courses");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.CourseEpisode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ContentType")
+                        .HasColumnType("text")
+                        .HasColumnName("content_type");
+
+                    b.Property<Guid>("CourseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("course_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<int?>("DurationSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_seconds");
+
+                    b.Property<int>("EpisodeNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("episode_number");
+
+                    b.Property<string>("FileKey")
+                        .HasColumnType("text")
+                        .HasColumnName("file_key");
+
+                    b.Property<long?>("FileSize")
+                        .HasColumnType("bigint")
+                        .HasColumnName("file_size");
+
+                    b.Property<int>("SourceType")
+                        .HasColumnType("integer")
+                        .HasColumnName("source_type");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("title");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UploadId")
+                        .HasColumnType("text")
+                        .HasColumnName("upload_id");
+
+                    b.Property<int>("ViewsCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("views_count");
+
+                    b.Property<string>("YoutubeVideoId")
+                        .HasColumnType("text")
+                        .HasColumnName("youtube_video_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_course_episodes");
+
+                    b.HasIndex("CourseId")
+                        .HasDatabaseName("ix_course_episodes_course_id");
+
+                    b.HasIndex("CourseId", "EpisodeNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_course_episodes_course_id_episode_number");
+
+                    b.ToTable("course_episodes", t =>
+                        {
+                            t.HasCheckConstraint("ck_course_episodes_source", "(source_type = 1) OR (file_key IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("CMS.Domain.Entities.DeviceBinding", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2864,6 +3009,30 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Navigation("University");
                 });
 
+            modelBuilder.Entity("CMS.Domain.Entities.Course", b =>
+                {
+                    b.HasOne("CMS.Domain.Entities.Subject", "Subject")
+                        .WithMany("Courses")
+                        .HasForeignKey("SubjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_courses_subjects_subject_id");
+
+                    b.Navigation("Subject");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.CourseEpisode", b =>
+                {
+                    b.HasOne("CMS.Domain.Entities.Course", "Course")
+                        .WithMany("Episodes")
+                        .HasForeignKey("CourseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_course_episodes_courses_course_id");
+
+                    b.Navigation("Course");
+                });
+
             modelBuilder.Entity("CMS.Domain.Entities.DeviceBinding", b =>
                 {
                     b.HasOne("CMS.Domain.Entities.Student", "Student")
@@ -3311,6 +3480,11 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Navigation("AcademicYears");
                 });
 
+            modelBuilder.Entity("CMS.Domain.Entities.Course", b =>
+                {
+                    b.Navigation("Episodes");
+                });
+
             modelBuilder.Entity("CMS.Domain.Entities.Exam", b =>
                 {
                     b.Navigation("ExamQuestions");
@@ -3371,6 +3545,8 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("CMS.Domain.Entities.Subject", b =>
                 {
+                    b.Navigation("Courses");
+
                     b.Navigation("Exams");
 
                     b.Navigation("Lectures");

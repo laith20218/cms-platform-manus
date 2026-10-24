@@ -26,12 +26,12 @@ public class UiPermissionHandlerTests
     // ===== Registry invariants =====
 
     [Fact]
-    public void Registry_Has62Keys_Split_12Views_10Tabs_40Buttons()
+    public void Registry_Has70Keys_Split_12Views_11Tabs_47Buttons()
     {
-        UiPermissionRegistry.AllKeys.Should().HaveCount(62);
+        UiPermissionRegistry.AllKeys.Should().HaveCount(70);
         UiPermissionRegistry.ViewKeys.Should().HaveCount(12);
-        UiPermissionRegistry.TabKeys.Should().HaveCount(10);
-        UiPermissionRegistry.ButtonKeys.Should().HaveCount(40);
+        UiPermissionRegistry.TabKeys.Should().HaveCount(11);
+        UiPermissionRegistry.ButtonKeys.Should().HaveCount(47);
     }
 
     [Fact]
@@ -39,12 +39,12 @@ public class UiPermissionHandlerTests
     {
         UiPermissionRegistry.AllKeys.Should().OnlyHaveUniqueItems();
         UiPermissionRegistry.AllKeys.Take(12).Should().BeEquivalentTo(UiPermissionRegistry.ViewKeys, options => options.WithStrictOrdering());
-        UiPermissionRegistry.AllKeys.Skip(12).Take(10).Should().BeEquivalentTo(UiPermissionRegistry.TabKeys, options => options.WithStrictOrdering());
-        UiPermissionRegistry.AllKeys.Skip(22).Should().BeEquivalentTo(UiPermissionRegistry.ButtonKeys, options => options.WithStrictOrdering());
+        UiPermissionRegistry.AllKeys.Skip(12).Take(11).Should().BeEquivalentTo(UiPermissionRegistry.TabKeys, options => options.WithStrictOrdering());
+        UiPermissionRegistry.AllKeys.Skip(23).Should().BeEquivalentTo(UiPermissionRegistry.ButtonKeys, options => options.WithStrictOrdering());
         UiPermissionRegistry.AllKeys.Should().OnlyContain(key => key.StartsWith("view:", StringComparison.Ordinal)
             || key.StartsWith("tab:", StringComparison.Ordinal)
             || key.StartsWith("btn:", StringComparison.Ordinal));
-        UiPermissionRegistry.RegistryVersion.Should().Be("2026-10-24.1");
+        UiPermissionRegistry.RegistryVersion.Should().Be("v2");
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public class UiPermissionHandlerTests
     {
         UiPermissionRegistry.Tree.Keys.Should().BeEquivalentTo(UiPermissionRegistry.ViewKeys);
         var flattened = UiPermissionRegistry.Tree.Values.SelectMany(children => children).ToList();
-        flattened.Should().HaveCount(62 - 12, "only the 50 non-view keys live as tree children");
+        flattened.Should().HaveCount(70 - 12, "only the 58 non-view keys live as tree children");
         flattened.Should().OnlyHaveUniqueItems("every key appears exactly once across the tree");
         var everything = UiPermissionRegistry.Tree.Keys.Concat(flattened).ToList();
         everything.Should().BeEquivalentTo(UiPermissionRegistry.AllKeys, "tree ∪ view keys == the registry, no orphans on either side");
@@ -123,7 +123,7 @@ public class UiPermissionHandlerTests
         envelope.Mode.Should().Be("super_admin");
         envelope.IsSuperAdmin.Should().BeTrue();
         envelope.AllowedKeys.Should().BeEquivalentTo(UiPermissionRegistry.AllKeys, options => options.WithStrictOrdering());
-        envelope.AllowedKeys.Should().HaveCount(62);
+        envelope.AllowedKeys.Should().HaveCount(70);
         envelope.AllowedKeys.Should().Equal(envelope.AllKeys);
     }
 
@@ -138,7 +138,7 @@ public class UiPermissionHandlerTests
 
         envelope.Mode.Should().Be("unconfigured");
         envelope.IsSuperAdmin.Should().BeFalse();
-        envelope.AllowedKeys.Should().HaveCount(62);
+        envelope.AllowedKeys.Should().HaveCount(70);
         envelope.AllowedKeys.Should().Equal(envelope.AllKeys);
     }
 
@@ -155,7 +155,7 @@ public class UiPermissionHandlerTests
 
         envelope.Mode.Should().Be("custom");
         envelope.IsSuperAdmin.Should().BeFalse();
-        envelope.AllKeys.Should().HaveCount(62);
+        envelope.AllKeys.Should().HaveCount(70);
         envelope.AllowedKeys.Should().Equal(["view:codes", "btn:codes.export"]);
     }
 
@@ -191,7 +191,7 @@ public class UiPermissionHandlerTests
 
         var second = await handler.Handle(new GetMyUiPermissionsQuery(customAdmin.Id), CancellationToken.None);
         second.Mode.Should().Be("unconfigured");
-        second.AllowedKeys.Should().HaveCount(62);
+        second.AllowedKeys.Should().HaveCount(70);
         second.AllowedKeys.Should().Equal(second.AllKeys);
     }
 
@@ -207,7 +207,7 @@ public class UiPermissionHandlerTests
         var envelope = await handler.Handle(new GetMyUiPermissionsQuery(customAdmin.Id), CancellationToken.None);
 
         envelope.Mode.Should().Be("unconfigured");
-        envelope.AllowedKeys.Should().HaveCount(62);
+        envelope.AllowedKeys.Should().HaveCount(70);
         cache.Gets.Should().Be(1);
     }
 
@@ -242,7 +242,7 @@ public class UiPermissionHandlerTests
         var envelope = await handler.Handle(new GetMyUiPermissionsQuery(customAdmin.Id), CancellationToken.None);
 
         envelope.Mode.Should().Be("unconfigured");
-        envelope.AllowedKeys.Should().HaveCount(62);
+        envelope.AllowedKeys.Should().HaveCount(70);
         cache.Sets.Should().Be(1);
     }
 
@@ -429,7 +429,7 @@ public class UiPermissionHandlerTests
         var before = await handler.Handle(new GetRoleUiPermissionsQuery(superAdmin.Id, role.Id), CancellationToken.None);
         before.Configured.Should().BeFalse();
         before.AllowedKeys.Should().BeNull();
-        before.AllKeys.Should().HaveCount(62);
+        before.AllKeys.Should().HaveCount(70);
         before.RegistryVersion.Should().Be(UiPermissionRegistry.RegistryVersion);
 
         await handler.Handle(new ReplaceRoleUiPermissionsCommand(superAdmin.Id, role.Id, ["view:codes"]), CancellationToken.None);

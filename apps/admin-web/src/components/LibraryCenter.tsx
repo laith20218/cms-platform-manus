@@ -44,10 +44,11 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle, Archive, CheckCircle2, FileText, FileImage, FileVideo,
   FileAudio, FileCode, Library, LoaderCircle, Plus, RefreshCw, Search,
-  Trash2, Upload, X,
+  Trash2, Upload, X, Film,
 } from 'lucide-react';
 import { apiRequest, type PagedResult, type AdminLibraryFileListItem, type UploadUrlResponse } from '../lib/api';
 import { useUiPermissions } from '../hooks/useUiPermissions';
+import { CoursesCenter } from './CoursesCenter';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
 type College = { id: string; nameAr: string; nameEn?: string | null };
@@ -66,11 +67,12 @@ type UploadForm = {
   type: 'Pdf' | 'Html' | 'Image' | 'Video' | 'Audio' | 'Summary' | 'Comprehensive' | 'Paragraph';
   title: string;
   description: string;
+  category: '' | 'Curriculum' | 'Lecture' | 'Summary' | 'GoldenIdeas';
 };
 
 const emptyForm = (): UploadForm => ({
   fileName: '', contentType: 'application/pdf', fileSize: 0,
-  subjectId: '', lectureId: '', type: 'Pdf', title: '', description: '',
+  subjectId: '', lectureId: '', type: 'Pdf', title: '', description: '', category: '',
 });
 
 const label = (arabic: boolean, item: { nameAr?: string; nameEn?: string | null; titleAr?: string; titleEn?: string | null }) =>
@@ -168,9 +170,35 @@ const contentTypeMap: Record<string, { type: UploadForm['type']; ct: string }> =
   'audio/wav': { type: 'Audio', ct: 'audio/wav' },
 };
 
+// Push 4: institutional category (منهاج/محاضرة/تلخيص/أفكار ذهبية) — backend-complete since A2-2,
+// surfaced here for the first time. NULL/'' keeps legacy rows uncategorized.
+const categoryLabel = (category: string | null | undefined, isArabic: boolean) => {
+  switch (category) {
+    case 'Curriculum': return isArabic ? 'منهاج' : 'Curriculum';
+    case 'Lecture': return isArabic ? 'محاضرة' : 'Lecture';
+    case 'Summary': return isArabic ? 'تلخيص' : 'Summary';
+    case 'GoldenIdeas': return isArabic ? 'أفكار ذهبية' : 'Golden ideas';
+    default: return isArabic ? 'غير مصنّف' : 'Uncategorized';
+  }
+};
+
+const categoryBadgeClass = (category: string | null | undefined) => {
+  switch (category) {
+    case 'Curriculum': return 'text-teal-700 bg-teal-50 border-teal-200';
+    case 'Lecture': return 'text-sky-700 bg-sky-50 border-sky-200';
+    case 'Summary': return 'text-violet-700 bg-violet-50 border-violet-200';
+    case 'GoldenIdeas': return 'text-amber-700 bg-amber-50 border-amber-200';
+    default: return 'text-slate-500 bg-slate-50 border-slate-200';
+  }
+};
+
 export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   // Push 3: cosmetic gating — the API policies remain the real boundary.
   const { can } = useUiPermissions();
+  // Push 4: documents | courses tabs inside the Library center.
+  const [activeTab, setActiveTab] = useState<'files' | 'courses'>('files');
+  const [coursesRefresh, setCoursesRefresh] = useState(0);
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [universities, setUniversities] = useState<University[]>([]);
   const [colleges, setColleges] = useState<College[]>([]);
   const [years, setYears] = useState<AcademicYear[]>([]);
@@ -260,6 +288,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     const params = new URLSearchParams({ page: String(targetPage), pageSize: '25' });
     if (subjectId) params.set('subjectId', subjectId);
     if (statusFilter) params.set('status', statusFilter);
+    if (categoryFilter) params.set('category', categoryFilter);
     if (query.trim()) params.set('search', query.trim());
     try {
       const data = await request<PagedResult<AdminLibraryFileListItem>>(`/api/v1/admin/content/files?${params.toString()}`);
@@ -273,10 +302,10 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   };
 
   useEffect(() => {
-    if (subjectId || statusFilter || query) void loadFiles(1);
+    if (subjectId || statusFilter || query || categoryFilter) void loadFiles(1);
     else { setFiles([]); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subjectId, statusFilter]);
+  }, [subjectId, statusFilter, categoryFilter]);
 
   const handleFileSelect = (file: File) => {
     setSelectedFile(file);
@@ -313,6 +342,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
           type: form.type,
           title: form.title,
           description: form.description || null,
+          category: form.category || null,
         }),
       });
 
@@ -462,7 +492,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
             </p>
             <h2 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
               {copy.title}
-              {files.length > 0 && (
+              {activeTab === 'files' && files.length > 0 && (
                 <span
                   className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded-full text-xs font-semibold"
                   style={{ background: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)' }}
@@ -476,7 +506,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
             </p>
           </div>
         </div>
-        {can('btn:library.upload') && (
+        {can('btn:library.upload') && activeTab === 'files' && (
           <button
             type="button"
             onClick={() => { if (!showUpload) { setForm(emptyForm()); setSelectedFile(null); setUploadProgress(0); } setShowUpload(v => !v); }}
@@ -491,6 +521,34 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         )}
       </header>
 
+      {/* ===== Push 4: documents | courses tab bar ===== */}
+      <div className="flex items-center gap-1 border-b" style={{ borderColor: 'var(--cms-line)' }} role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'files'}
+          onClick={() => setActiveTab('files')}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${activeTab === 'files' ? 'border-teal-600 text-teal-700' : 'border-transparent'}`}
+          style={activeTab === 'files' ? undefined : { color: 'var(--cms-text-muted)' }}
+        >
+          <Library className="w-4 h-4" />
+          {isArabic ? 'الملفات' : 'Documents'}
+        </button>
+        {can('tab:library.courses') && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'courses'}
+            onClick={() => { setActiveTab('courses'); setCoursesRefresh(n => n + 1); }}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${activeTab === 'courses' ? 'border-teal-600 text-teal-700' : 'border-transparent'}`}
+            style={activeTab === 'courses' ? undefined : { color: 'var(--cms-text-muted)' }}
+          >
+            <Film className="w-4 h-4" />
+            {isArabic ? 'الكورسات' : 'Courses'}
+          </button>
+        )}
+      </div>
+
       {/* ===== Academic hierarchy filter bar ===== */}
       <div
         className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-4 rounded-xl border"
@@ -502,7 +560,8 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
           { label: copy.selectYear, value: yearId, onChange: setYearId, items: years, disabled: !collegeId },
           { label: copy.selectSemester, value: semesterId, onChange: setSemesterId, items: semesters, disabled: !yearId },
           { label: copy.selectSubject, value: subjectId, onChange: setSubjectId, items: subjects, disabled: !semesterId },
-          { label: copy.selectLecture, value: lectureId, onChange: setLectureId, items: lectures, disabled: !subjectId },
+          // The lecture level only applies to documents; courses are subject-scoped.
+          ...(activeTab === 'files' ? [{ label: copy.selectLecture, value: lectureId, onChange: setLectureId, items: lectures, disabled: !subjectId }] : []),
         ].map((field) => (
           <label key={field.label} className="block">
             <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
@@ -524,6 +583,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         ))}
       </div>
 
+      {activeTab === 'files' ? (<>
       {/* ===== Toolbar ===== */}
       <div
         className="flex flex-wrap gap-3 items-center p-4 rounded-xl border bg-white"
@@ -551,6 +611,19 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
           <option value="Draft">{isArabic ? 'مسودة' : 'Draft'}</option>
           <option value="Published">{isArabic ? 'منشور' : 'Published'}</option>
           <option value="Archived">{isArabic ? 'مؤرشف' : 'Archived'}</option>
+        </select>
+        {/* Push 4: institutional category filter (منهاج/محاضرة/تلخيص/أفكار ذهبية). */}
+        <select
+          value={categoryFilter}
+          onChange={(event) => setCategoryFilter(event.target.value)}
+          className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+          style={{ borderColor: 'var(--cms-line-strong)' }}
+        >
+          <option value="">{isArabic ? 'التصنيف: الكل' : 'Category: All'}</option>
+          <option value="Curriculum">{isArabic ? 'منهاج' : 'Curriculum'}</option>
+          <option value="Lecture">{isArabic ? 'محاضرة' : 'Lecture'}</option>
+          <option value="Summary">{isArabic ? 'تلخيص' : 'Summary'}</option>
+          <option value="GoldenIdeas">{isArabic ? 'أفكار ذهبية' : 'Golden ideas'}</option>
         </select>
         <button
           type="button"
@@ -609,6 +682,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
               <tr>
                 <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.title_ar}</th>
                 <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.type}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'التصنيف' : 'Category'}</th>
                 <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.subject}</th>
                 <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.size}</th>
                 <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.status}</th>
@@ -635,6 +709,11 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${typeBadgeClass(file.type)}`}>
                         {typeLabel(file.type, isArabic)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${categoryBadgeClass(file.category)}`}>
+                        {categoryLabel(file.category, isArabic)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
@@ -702,6 +781,13 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
             </tbody>
           </table>
         </div>
+      )}
+      </>) : (
+        /* Push 4: the Courses tab shares the academic cascade (subject scope) above. */
+        <CoursesCenter
+          token={token} isArabic={isArabic} onError={onError} onNotice={onNotice}
+          subjectId={subjectId} refreshSignal={coursesRefresh}
+        />
       )}
 
       {/* ===== Slide-in upload panel ===== */}
@@ -840,6 +926,25 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                     </select>
                   </label>
                 </div>
+
+                {/* Push 4: institutional category (منهاج/محاضرة/تلخيص/أفكار ذهبية) */}
+                <label className="block">
+                  <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                    {isArabic ? 'التصنيف' : 'Category'}
+                  </span>
+                  <select
+                    value={form.category}
+                    onChange={(event) => setForm(f => ({ ...f, category: event.target.value as UploadForm['category'] }))}
+                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    style={{ borderColor: 'var(--cms-line-strong)' }}
+                  >
+                    <option value="">{isArabic ? 'غير مصنّف' : 'Uncategorized'}</option>
+                    <option value="Curriculum">{isArabic ? 'منهاج' : 'Curriculum'}</option>
+                    <option value="Lecture">{isArabic ? 'محاضرة' : 'Lecture'}</option>
+                    <option value="Summary">{isArabic ? 'تلخيص' : 'Summary'}</option>
+                    <option value="GoldenIdeas">{isArabic ? 'أفكار ذهبية' : 'Golden ideas'}</option>
+                  </select>
+                </label>
 
                 {/* Description */}
                 <label className="block">

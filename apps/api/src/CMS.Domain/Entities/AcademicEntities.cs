@@ -137,6 +137,7 @@ public class Subject : LookupEntity
     public ICollection<Question> Questions { get; private set; } = new List<Question>();
     public ICollection<Exam> Exams { get; private set; } = new List<Exam>();
     public ICollection<LibraryFile> LibraryFiles { get; private set; } = new List<LibraryFile>();
+    public ICollection<Course> Courses { get; private set; } = new List<Course>();
 
     public static Subject Create(Guid semesterId, string nameAr, string slug, string? nameEn = null)
     {

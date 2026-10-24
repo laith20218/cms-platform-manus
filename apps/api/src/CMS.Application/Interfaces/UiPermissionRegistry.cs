@@ -4,7 +4,7 @@ namespace CMS.Application.Interfaces;
 
 /// <summary>
 /// Canonical registry of admin-web UI permission keys — Push 3 / Track 3.
-/// 62 keys = 12 views (view:*) + 10 top-level tabs (tab:*) + 40 buttons (btn:*).
+/// v2 (Push 4 / Track 4): 70 keys = 12 views (view:*) + 11 top-level tabs (tab:*) + 47 buttons (btn:*).
 /// Key format: level:area.item (dot-namespaced, lowercase; hyphen for multi-word items).
 ///
 /// TWO SECURITY LAYERS — this is critical and applies to every consumer:
@@ -19,7 +19,7 @@ namespace CMS.Application.Interfaces;
 public static class UiPermissionRegistry
 {
     /// <summary>Bump when the key set changes. Mirrored by admin-web src/lib/uiPermissions.ts.</summary>
-    public const string RegistryVersion = "2026-10-24.1";
+    public const string RegistryVersion = "v2";
 
     // ===== 12 views (view:*) =====
     public const string ViewOverview = "view:overview";
@@ -35,7 +35,7 @@ public static class UiPermissionRegistry
     public const string ViewAudit = "view:audit";
     public const string ViewSettings = "view:settings";
 
-    // ===== 10 tabs (tab:*) — overview 2 + reports 8. StudentsCenter drawer tabs deferred (Q3). =====
+    // ===== 11 tabs (tab:*) — overview 2 + reports 8 + library-courses 1 (v2). StudentsCenter drawer tabs deferred (Q3). =====
     public const string TabOverviewMetrics = "tab:overview.metrics";
     public const string TabOverviewActivity = "tab:overview.activity";
     public const string TabReportsOverview = "tab:reports.overview";
@@ -46,8 +46,10 @@ public static class UiPermissionRegistry
     public const string TabReportsContent = "tab:reports.content";
     public const string TabReportsCodes = "tab:reports.codes";
     public const string TabReportsOperations = "tab:reports.operations";
+    // v2 (Push 4): the Courses tab inside the Library center.
+    public const string TabLibraryCourses = "tab:library.courses";
 
-    // ===== 40 buttons (btn:*) =====
+    // ===== 47 buttons (btn:*) =====
     // Questions (5) — Save & Add Another is covered by btn:questions.create (Q4).
     public const string BtnQuestionsCreate = "btn:questions.create";
     public const string BtnQuestionsPublish = "btn:questions.publish";
@@ -64,6 +66,14 @@ public static class UiPermissionRegistry
     public const string BtnLibraryPublish = "btn:library.publish";
     public const string BtnLibraryArchive = "btn:library.archive";
     public const string BtnLibraryDelete = "btn:library.delete";
+    // Library / Courses (7) — v2 (Push 4): course CRUD + episode management inside the Library center.
+    public const string BtnLibraryCourseCreate = "btn:library.course.create";
+    public const string BtnLibraryCourseEdit = "btn:library.course.edit";
+    public const string BtnLibraryCoursePublish = "btn:library.course.publish";
+    public const string BtnLibraryCourseArchive = "btn:library.course.archive";
+    public const string BtnLibraryCourseDelete = "btn:library.course.delete";
+    public const string BtnLibraryCourseEpisodeUpload = "btn:library.course.episode.upload";
+    public const string BtnLibraryCourseEpisodeDelete = "btn:library.course.episode.delete";
     // Codes (4)
     public const string BtnCodesGenerate = "btn:codes.generate";
     public const string BtnCodesRevoke = "btn:codes.revoke";
@@ -110,7 +120,8 @@ public static class UiPermissionRegistry
     [
         TabOverviewMetrics, TabOverviewActivity,
         TabReportsOverview, TabReportsStudents, TabReportsAcademic, TabReportsExams,
-        TabReportsQuestions, TabReportsContent, TabReportsCodes, TabReportsOperations
+        TabReportsQuestions, TabReportsContent, TabReportsCodes, TabReportsOperations,
+        TabLibraryCourses
     ];
 
     public static readonly string[] ButtonKeys =
@@ -118,6 +129,8 @@ public static class UiPermissionRegistry
         BtnQuestionsCreate, BtnQuestionsPublish, BtnQuestionsArchive, BtnQuestionsDelete, BtnQuestionsEdit,
         BtnExamsCreate, BtnExamsPublish, BtnExamsArchive, BtnExamsDelete,
         BtnLibraryUpload, BtnLibraryPublish, BtnLibraryArchive, BtnLibraryDelete,
+        BtnLibraryCourseCreate, BtnLibraryCourseEdit, BtnLibraryCoursePublish, BtnLibraryCourseArchive,
+        BtnLibraryCourseDelete, BtnLibraryCourseEpisodeUpload, BtnLibraryCourseEpisodeDelete,
         BtnCodesGenerate, BtnCodesRevoke, BtnCodesRevokeBulk, BtnCodesExport,
         BtnStudentsEdit, BtnStudentsBan, BtnStudentsRevokeSession,
         BtnAcademicAddUniversity, BtnAcademicAddCollege, BtnAcademicAddYear, BtnAcademicAddSemester,
@@ -129,7 +142,7 @@ public static class UiPermissionRegistry
         BtnReportsExport
     ];
 
-    /// <summary>All 62 keys in canonical order: views, then tabs, then buttons.</summary>
+    /// <summary>All 70 keys in canonical order: views, then tabs, then buttons.</summary>
     public static readonly string[] AllKeys =
     [
         .. ViewKeys, .. TabKeys, .. ButtonKeys
@@ -149,7 +162,13 @@ public static class UiPermissionRegistry
         ],
         [ViewQuestions] = [BtnQuestionsCreate, BtnQuestionsPublish, BtnQuestionsArchive, BtnQuestionsDelete, BtnQuestionsEdit],
         [ViewExams] = [BtnExamsCreate, BtnExamsPublish, BtnExamsArchive, BtnExamsDelete],
-        [ViewLibrary] = [BtnLibraryUpload, BtnLibraryPublish, BtnLibraryArchive, BtnLibraryDelete],
+        [ViewLibrary] =
+        [
+            TabLibraryCourses,
+            BtnLibraryUpload, BtnLibraryPublish, BtnLibraryArchive, BtnLibraryDelete,
+            BtnLibraryCourseCreate, BtnLibraryCourseEdit, BtnLibraryCoursePublish, BtnLibraryCourseArchive,
+            BtnLibraryCourseDelete, BtnLibraryCourseEpisodeUpload, BtnLibraryCourseEpisodeDelete
+        ],
         [ViewStudents] = [BtnStudentsEdit, BtnStudentsBan, BtnStudentsRevokeSession],
         [ViewCodes] = [BtnCodesGenerate, BtnCodesRevoke, BtnCodesRevokeBulk, BtnCodesExport],
         [ViewReports] =

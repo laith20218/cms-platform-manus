@@ -104,8 +104,8 @@ public sealed class UiPermissionsHttpIntegrationTests : IClassFixture<UiPermissi
         var envelope = (await response.Content.ReadFromJsonAsync<MyUiPermissionsDto>())!;
         envelope.Mode.Should().Be("super_admin");
         envelope.IsSuperAdmin.Should().BeTrue();
-        envelope.RegistryVersion.Should().Be("2026-10-24.1");
-        envelope.AllKeys.Should().HaveCount(62);
+        envelope.RegistryVersion.Should().Be("v2");
+        envelope.AllKeys.Should().HaveCount(70);
         envelope.AllowedKeys.Should().Equal(envelope.AllKeys);
     }
 
@@ -117,7 +117,7 @@ public sealed class UiPermissionsHttpIntegrationTests : IClassFixture<UiPermissi
         var envelope = (await response.Content.ReadFromJsonAsync<MyUiPermissionsDto>())!;
         envelope.Mode.Should().Be("unconfigured");
         envelope.IsSuperAdmin.Should().BeFalse();
-        envelope.AllKeys.Should().HaveCount(62);
+        envelope.AllKeys.Should().HaveCount(70);
         envelope.AllowedKeys.Should().Equal(envelope.AllKeys);
     }
 
@@ -129,8 +129,8 @@ public sealed class UiPermissionsHttpIntegrationTests : IClassFixture<UiPermissi
         var state = (await response.Content.ReadFromJsonAsync<RoleUiPermissionsDto>())!;
         state.Configured.Should().BeFalse();
         state.AllowedKeys.Should().BeNull();
-        state.RegistryVersion.Should().Be("2026-10-24.1");
-        state.AllKeys.Should().HaveCount(62);
+        state.RegistryVersion.Should().Be("v2");
+        state.AllKeys.Should().HaveCount(70);
     }
 
     // ===== Lifecycle: PUT → GET role → GET me → DELETE =====
@@ -154,7 +154,7 @@ public sealed class UiPermissionsHttpIntegrationTests : IClassFixture<UiPermissi
         var me = await GetMyEnvelopeAsync(_factory.LifecycleAdminId, super: false);
         me.Mode.Should().Be("custom");
         me.IsSuperAdmin.Should().BeFalse();
-        me.AllKeys.Should().HaveCount(62);
+        me.AllKeys.Should().HaveCount(70);
         me.AllowedKeys.Should().Equal(["view:codes", "btn:codes.export"]);
 
         // DELETE → 204, back to unconfigured = full access.

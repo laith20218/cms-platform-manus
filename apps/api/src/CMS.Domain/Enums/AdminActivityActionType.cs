@@ -14,5 +14,11 @@ public enum AdminActivityActionType
     UploadFile = 2,
 
     /// <summary>توليد أكواد — a batch of subscription codes was generated.</summary>
-    GenerateCode = 3
+    GenerateCode = 3,
+
+    /// <summary>إنشاء كورس — a course was created (Push 4).</summary>
+    CreateCourse = 4,
+
+    /// <summary>رفع حلقة فيديو — a course episode upload was completed and verified (Push 4).</summary>
+    UploadEpisode = 5
 }
