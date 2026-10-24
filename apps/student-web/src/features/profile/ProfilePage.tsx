@@ -31,8 +31,10 @@ export default function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordStatus, setPasswordStatus] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
   const [passwordBusy, setPasswordBusy] = useState(false);
-  // Avatar upload state
+  // Avatar upload state — the freshly signed preview URL shows instantly while
+  // the profile query refetches (Push 8 avatar fix).
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [freshAvatarUrl, setFreshAvatarUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Email edit state
   const [emailEditing, setEmailEditing] = useState(false);
@@ -98,7 +100,9 @@ export default function ProfilePage() {
     if (!file) return;
     setAvatarBusy(true);
     try {
-      await profileApi.uploadAvatar(file);
+      const result = await profileApi.uploadAvatar(file);
+      // Instant feedback: the upload response carries a signed preview URL.
+      if (result.previewUrl) setFreshAvatarUrl(result.previewUrl);
       await queryClient.invalidateQueries({ queryKey: ['student-profile'] });
     } catch {
       // error — the profile query won't update, avatar stays unchanged
@@ -149,24 +153,34 @@ export default function ProfilePage() {
         <div className="flex items-center justify-between gap-6">
           {/* Avatar with upload camera button */}
           <div className="relative shrink-0">
-            <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-[var(--cms-line)] bg-[var(--cms-teal-50)] text-2xl font-bold text-[var(--cms-teal-700)]">
-              {data.avatarUrl ? (
-                <img
-                  src={data.avatarUrl.startsWith('http') ? data.avatarUrl : undefined}
-                  alt={data.fullName}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                data.fullName.charAt(0)
-              )}
-            </div>
+            {/* Push 8 avatar fix: the backend now presigns avatarUrl in GET /profile.
+                freshAvatarUrl covers the instant right after upload (preview URL from
+                the upload response) while the profile query refetches. */}
+            {(() => {
+              const avatarSrc = freshAvatarUrl
+                ?? (data.avatarUrl && /^https?:\/\//i.test(data.avatarUrl) ? data.avatarUrl : null);
+              return (
+                <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-[var(--cms-line)] bg-[var(--cms-teal-50)] text-2xl font-bold text-[var(--cms-teal-700)]">
+                  {avatarSrc ? (
+                    <img
+                      src={avatarSrc}
+                      alt={`الصورة الشخصية — ${data.fullName}`}
+                      className="h-full w-full object-cover"
+                      onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                    />
+                  ) : (
+                    data.fullName.charAt(0)
+                  )}
+                </div>
+              );
+            })()}
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={avatarBusy}
               title="تغيير الصورة الشخصية"
               aria-label="تغيير الصورة الشخصية"
-              className="absolute -bottom-1 -left-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-[var(--cms-teal-600)] text-white shadow-md transition-colors hover:bg-[var(--cms-teal-700)] disabled:opacity-50"
+              className="press absolute -bottom-1 -left-1 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-[var(--cms-teal-600)] text-white shadow-md transition-colors hover:bg-[var(--cms-teal-700)] disabled:opacity-50"
             >
               {avatarBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
             </button>

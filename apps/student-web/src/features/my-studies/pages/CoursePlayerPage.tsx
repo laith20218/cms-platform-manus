@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowRight, BookOpenCheck, ChevronLeft, Clock, Eye, ListVideo,
-  LoaderCircle, MonitorPlay, Music2, Pause, Play, PlayCircle, Volume2, Youtube,
+  LoaderCircle, MonitorPlay, Music2, Pause, Play, PlayCircle, RotateCcw,
+  SkipBack, SkipForward, Volume2, VolumeX, Youtube,
 } from 'lucide-react';
+import * as SliderPrimitive from '@radix-ui/react-slider';
 import { toast } from 'sonner';
 import { useAuth } from '@/app/providers/useAuth';
 import { SecurityWrapper } from '@/features/security/SecurityWrapper';
@@ -13,13 +15,18 @@ import type { CourseDetail, CourseEpisode, EpisodeAccess } from '../services/cou
 import '../watermark.css';
 
 /**
- * Course player (Push 4 Phase 5, polished in Push 5).
+ * Course player (Push 4 Phase 5 → Push 8 premium redesign).
  *
  * The Lease Trap: presigned playback URLs live on a short S3 credential lease
  * (≈10 minutes). A refresh interval fires at the 8-minute mark and swaps the
  * media source seamlessly — the current playback timestamp and play/pause
- * state survive the swap. DEV builds allow ?refreshMs= to shorten the cycle
- * for testing; production always uses the 8-minute default.
+ * state survive the swap (the student never notices). DEV builds allow
+ * ?refreshMs= to shorten the cycle for testing.
+ *
+ * Push 8: skeleton loaders instead of spinners, a cinema-grade video frame,
+ * and a Radix-Slider audio stage with a spinning disc, waveform strip and
+ * ±10s skip controls. All technical texts (lease expiry, piracy notices)
+ * stay OUT of the UI — the moving watermark overlay is the protection.
  */
 const DEFAULT_REFRESH_MS = 8 * 60 * 1000;
 
@@ -63,9 +70,32 @@ function CoursePlayerContent() {
   }, [courseId]);
 
   if (courseLoading) {
+    // Never a blank screen: the player skeleton mirrors the final layout.
     return (
-      <div className="max-w-5xl mx-auto flex items-center justify-center py-24" data-testid="player-loading">
-        <LoaderCircle className="w-8 h-8 animate-spin text-[var(--c-text-muted)]" />
+      <div className="max-w-5xl mx-auto" data-testid="player-loading">
+        <div className="h-4 w-40 rounded mb-4 player-skeleton" />
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-12 h-12 rounded-2xl player-skeleton" />
+          <div className="space-y-2">
+            <div className="h-6 w-56 rounded player-skeleton" />
+            <div className="h-3 w-28 rounded player-skeleton" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-6">
+          <div className="aspect-video rounded-3xl player-skeleton" />
+          <div className="rounded-3xl border border-[var(--c-border)] overflow-hidden">
+            <div className="h-12 border-b border-[var(--c-border)] player-skeleton rounded-none" />
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3.5 border-b border-[var(--c-border)] last:border-0">
+                <div className="w-7 h-7 rounded-lg player-skeleton" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-3.5 w-3/4 rounded player-skeleton" />
+                  <div className="h-3 w-1/3 rounded player-skeleton" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -73,9 +103,15 @@ function CoursePlayerContent() {
   if (courseError || !course) {
     return (
       <div className="max-w-5xl mx-auto text-center py-20" data-testid="player-error">
-        <MonitorPlay className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" />
-        <p className="text-[var(--c-text-muted)] mb-4">{courseError ?? 'الكورس غير متاح'}</p>
-        <Link to="/my-studies?tab=courses" className="inline-flex items-center gap-2 text-sm font-medium text-[var(--c-primary-700)] hover:underline">
+        <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-[var(--c-bg-hover)]">
+          <MonitorPlay className="h-9 w-9 text-[var(--c-text-faint)]" />
+        </div>
+        <p className="mb-1 font-bold text-[var(--c-text)]">{courseError ?? 'الكورس غير متاح'}</p>
+        <p className="mb-6 text-sm text-[var(--c-text-muted)]">قد يكون الرابط قديماً أو أن الجلسة انتهت</p>
+        <Link
+          to="/my-studies?tab=courses"
+          className="press inline-flex min-h-11 items-center gap-2 rounded-2xl border border-[var(--c-primary-200)] bg-[var(--c-primary-50)] px-5 py-2.5 text-sm font-bold text-[var(--c-primary-700)]"
+        >
           <ArrowRight className="w-4 h-4" /> العودة إلى الكورسات
         </Link>
       </div>
@@ -88,7 +124,7 @@ function CoursePlayerContent() {
     <div className="max-w-5xl mx-auto">
       {/* Breadcrumb + header */}
       <div className="flex items-center gap-2 mb-4 text-sm text-[var(--c-text-muted)]">
-        <Link to="/my-studies?tab=courses" className="inline-flex items-center gap-1 hover:text-[var(--c-primary-700)] transition-colors">
+        <Link to="/my-studies?tab=courses" className="press inline-flex items-center gap-1 rounded-lg px-1 py-1 transition-colors hover:text-[var(--c-primary-700)]">
           <ChevronLeft className="w-4 h-4" /> دراستي
         </Link>
         <span>/</span>
@@ -96,7 +132,7 @@ function CoursePlayerContent() {
       </div>
 
       <div className="flex items-start gap-3 mb-6">
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'var(--c-primary-50)', color: 'var(--c-primary-700)' }}>
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm" style={{ background: 'var(--c-primary-50)', color: 'var(--c-primary-700)' }}>
           <BookOpenCheck className="w-6 h-6" />
         </div>
         <div className="min-w-0">
@@ -109,9 +145,12 @@ function CoursePlayerContent() {
       </div>
 
       {playableEpisodes.length === 0 ? (
-        <div className="text-center py-16" data-testid="player-no-episodes">
-          <MonitorPlay className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" />
-          <p className="text-[var(--c-text-muted)]">لا توجد حلقات جاهزة للتشغيل بعد</p>
+        <div className="text-center py-16 rounded-3xl border border-dashed border-[var(--c-border)]" data-testid="player-no-episodes">
+          <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-[var(--c-bg-hover)]">
+            <MonitorPlay className="h-9 w-9 text-[var(--c-text-faint)]" />
+          </div>
+          <p className="font-bold text-[var(--c-text)]">لا توجد حلقات جاهزة للتشغيل بعد</p>
+          <p className="text-xs text-[var(--c-text-faint)] mt-1">سيظهر المحتوى هنا فور جهوزيته</p>
         </div>
       ) : (
         <EpisodeStage
@@ -249,23 +288,27 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-6">
       {/* Player column */}
       <div>
-        <div className="relative rounded-2xl overflow-hidden border border-[var(--c-border)] bg-black shadow-lg" data-testid="episode-stage">
+        <div
+          className="relative rounded-3xl overflow-hidden border border-[var(--c-border)] bg-black shadow-2xl ring-1 ring-black/5"
+          data-testid="episode-stage"
+          style={{ boxShadow: '0 24px 64px rgba(15, 23, 42, 0.22)' }}
+        >
           {accessLoading && !access && (
             <div className="aspect-video flex items-center justify-center">
               <LoaderCircle className="w-8 h-8 animate-spin text-white/70" />
             </div>
           )}
           {accessError && !access && (
-            <div className="aspect-video flex flex-col items-center justify-center gap-3 text-white/80">
+            <div className="aspect-video flex flex-col items-center justify-center gap-4 text-white/80">
               <MonitorPlay className="w-10 h-10" />
               <p className="text-sm">{accessError}</p>
               <button
                 type="button"
                 onClick={() => void fetchAccess(activeEpisodeId, { preserveTime: false })}
-                className="px-4 py-1.5 rounded-lg text-sm font-medium text-white"
+                className="press inline-flex min-h-11 items-center gap-2 rounded-2xl px-5 py-2 text-sm font-bold text-white shadow-lg"
                 style={{ background: 'var(--c-primary-700)' }}
               >
-                إعادة المحاولة
+                <RotateCcw className="w-4 h-4" /> إعادة المحاولة
               </button>
             </div>
           )}
@@ -318,7 +361,7 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
       </div>
 
       {/* Episode list column */}
-      <aside className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] overflow-hidden" data-testid="episode-list">
+      <aside className="rounded-3xl border border-[var(--c-border)] bg-[var(--c-surface)] overflow-hidden shadow-sm" data-testid="episode-list">
         <div className="px-4 py-3 border-b border-[var(--c-border)] font-semibold text-sm text-[var(--c-text)] flex items-center gap-2">
           <ListVideo className="w-4 h-4" /> الحلقات ({episodes.length})
         </div>
@@ -332,14 +375,14 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
                   onClick={() => setSelectedId(episode.id)}
                   aria-current={active ? 'true' : undefined}
                   className={cn(
-                    'w-full flex items-start gap-3 px-4 py-3 text-start border-b border-[var(--c-border)] last:border-0 transition-colors',
+                    'press w-full flex items-start gap-3 px-4 py-3.5 text-start border-b border-[var(--c-border)] last:border-0 transition-colors',
                     active ? 'bg-[var(--c-primary-50)]' : 'hover:bg-[var(--c-bg-hover)]'
                   )}
                 >
                   <span
                     className={cn(
                       'w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0',
-                      active ? 'text-white' : 'text-[var(--c-text-muted)] bg-[var(--c-bg-hover)]'
+                      active ? 'text-white shadow-sm' : 'text-[var(--c-text-muted)] bg-[var(--c-bg-hover)]'
                     )}
                     style={active ? { background: 'var(--c-primary-700)' } : undefined}
                   >
@@ -366,11 +409,11 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
   );
 }
 
-// ===== Premium video stage =====
+// ===== Cinema video stage =====
 
 /**
- * Native <video> in a premium frame: rounded, dynamically proportioned to the
- * actual media (portrait videos keep their aspect ratio), subtle elevation,
+ * Native <video> in a premium frame: rounded-3xl, deep elevation, dynamically
+ * proportioned to the actual media (portrait videos keep their aspect ratio),
  * download disabled. The lease-refresh watermark rides on top at ~4% opacity.
  *
  * Push 7: this stage also DETECTS audio-only bytes served under a video/*
@@ -434,14 +477,15 @@ function VideoStage({ access, videoRef, onLoadedMetadata, onError, onNoVideoTrac
   );
 }
 
-// ===== Elegant custom audio stage =====
+// ===== Premium custom audio stage (Push 8) =====
 
 /**
- * Custom audio experience (Push 5): instead of a black video box, a designed
- * stage — gradient backdrop, a spinning disc that follows playback, animated
- * equalizer bars, and a full custom control bar (play/pause, seek, time,
- * volume). The native <audio> element stays as the engine (hidden) so the
- * lease-refresh + watermark machinery works unchanged.
+ * The designed audio experience: a large spinning vinyl disc with concentric
+ * rings and a soft pulse, an animated waveform strip, and a full custom
+ * control bar — Radix Slider seek + volume, ±10s skip, big accessible play
+ * button (56px), tabular time display. The native <audio> element stays as
+ * the hidden engine so the lease-refresh + watermark machinery works
+ * unchanged, and every src swap preserves the exact playback position.
  */
 function AudioStage({ access, audioRef, title, onLoadedMetadata, onError, fallbackName, fallbackPhone }: {
   access: EpisodeAccess;
@@ -456,6 +500,7 @@ function AudioStage({ access, audioRef, title, onLoadedMetadata, onError, fallba
   const [currentSeconds, setCurrentSeconds] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
   const [seeking, setSeeking] = useState(false);
 
   const togglePlay = useCallback(() => {
@@ -472,28 +517,66 @@ function AudioStage({ access, audioRef, title, onLoadedMetadata, onError, fallba
   const seekTo = useCallback((seconds: number) => {
     const audio = audioRef.current;
     if (!audio || !Number.isFinite(seconds)) return;
-    try { audio.currentTime = seconds; } catch { /* ignore */ }
-    setCurrentSeconds(seconds);
-  }, [audioRef]);
+    const clamped = Math.max(0, Math.min(seconds, duration || seconds));
+    try { audio.currentTime = clamped; } catch { /* ignore */ }
+    setCurrentSeconds(clamped);
+  }, [audioRef, duration]);
+
+  const skip = useCallback((delta: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    seekTo(audio.currentTime + delta);
+  }, [audioRef, seekTo]);
+
+  const applyVolume = useCallback((next: number, nextMuted?: boolean) => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.volume = next;
+      audio.muted = nextMuted ?? muted;
+    }
+    setVolume(next);
+  }, [audioRef, muted]);
+
+  // Deterministic pseudo-waveform (stable per title) — decorative, animated
+  // with playback progress so the strip fills as the episode advances.
+  const waveform = useMemo(() => {
+    let seed = 0;
+    for (let i = 0; i < title.length; i += 1) seed = (seed * 31 + title.charCodeAt(i)) % 997;
+    return Array.from({ length: 44 }, (_, i) => {
+      const pseudo = Math.abs(Math.sin(seed + i * 0.7) * 0.6 + Math.sin(seed * 0.3 + i * 1.7) * 0.4);
+      return 22 + Math.round(pseudo * 78); // 22–100%
+    });
+  }, [title]);
+
+  const progressRatio = duration > 0 ? currentSeconds / duration : 0;
+  const activeBars = Math.round(progressRatio * waveform.length);
 
   return (
     <div className="relative" data-testid="audio-stage">
       <WatermarkLayer access={access} fallbackName={fallbackName} fallbackPhone={fallbackPhone} />
-      <div className="flex flex-col items-center justify-center gap-6 py-10 px-6"
+      <div
+        className="flex flex-col items-center justify-center gap-7 py-12 px-6"
         style={{ background: 'linear-gradient(160deg, var(--c-primary-50) 0%, var(--c-surface) 55%, var(--c-bg) 100%)' }}
       >
-        {/* Spinning disc + equalizer */}
-        <div className="relative w-28 h-28" data-testid="audio-disc">
+        {/* Spinning disc with concentric rings + soft pulse */}
+        <div className="relative h-32 w-32" data-testid="audio-disc">
+          <span className="disc-ring" aria-hidden="true" />
+          <span className="disc-ring disc-ring-2" aria-hidden="true" />
           <div
             className={cn(
-              'absolute inset-0 rounded-full flex items-center justify-center shadow-xl border-4 border-white/60',
+              'absolute inset-0 flex items-center justify-center rounded-full border-4 border-white/60 shadow-xl',
               playing && 'audio-disc-spin'
             )}
-            style={{ background: 'var(--grad-primary)' }}
+            style={{ background: 'var(--c-primary-700)' }}
           >
-            <Music2 className="w-10 h-10 text-white" />
+            <div className="absolute inset-3 rounded-full border border-white/25" aria-hidden="true" />
+            <div className="absolute inset-6 rounded-full border border-white/15" aria-hidden="true" />
+            <div className={cn('flex h-14 w-14 items-center justify-center rounded-full bg-white/15', playing && 'audio-disc-pulse')}>
+              <Music2 className="h-7 w-7 text-white" />
+            </div>
           </div>
-          <div className="absolute -bottom-1 -end-4 flex items-end gap-[3px] h-6" aria-hidden="true">
+          {/* Equalizer accent */}
+          <div className="absolute -bottom-1 -end-5 flex h-7 items-end gap-[3px]" aria-hidden="true">
             {[0, 1, 2, 3].map((bar) => (
               <span
                 key={bar}
@@ -504,61 +587,109 @@ function AudioStage({ access, audioRef, title, onLoadedMetadata, onError, fallba
           </div>
         </div>
 
-        <div className="text-center max-w-md">
-          <h2 className="text-lg font-bold text-[var(--c-text)] truncate">{title}</h2>
-          <p className="text-xs text-[var(--c-text-muted)] mt-1">حلقة صوتية</p>
+        <div className="max-w-md text-center">
+          <h2 className="truncate text-lg font-bold text-[var(--c-text)]">{title}</h2>
+          <p className="mt-0.5 text-xs font-medium text-[var(--c-text-muted)]">حلقة صوتية</p>
         </div>
 
-        {/* Custom control bar */}
-        <div className="w-full max-w-lg rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)]/90 backdrop-blur px-5 py-4 shadow-sm" data-testid="audio-controls">
-          <div className="flex items-center gap-4">
+        {/* Waveform strip — fills with playback */}
+        <div className="flex h-12 w-full max-w-xl items-center justify-between gap-[2px] px-1" aria-hidden="true" data-testid="audio-waveform">
+          {waveform.map((height, i) => (
+            <span
+              key={i}
+              className={cn('waveform-bar h-full', i < activeBars && 'is-active')}
+              style={{ height: `${height}%`, opacity: i < activeBars ? undefined : 0.35 }}
+            />
+          ))}
+        </div>
+
+        {/* Control bar */}
+        <div
+          className="w-full max-w-xl rounded-3xl border border-[var(--c-border)] bg-[var(--c-surface)]/92 px-5 py-4 shadow-lg backdrop-blur"
+          data-testid="audio-controls"
+        >
+          <div className="flex items-center gap-3 sm:gap-4">
+            {/* Skip back */}
+            <button
+              type="button"
+              onClick={() => skip(-10)}
+              aria-label="رجوع 10 ثوانٍ"
+              className="press hidden h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--c-text-soft)] transition-colors hover:bg-[var(--c-bg-hover)] hover:text-[var(--c-text)] sm:flex"
+            >
+              <SkipForward className="h-5 w-5 -scale-x-100" />
+            </button>
+
+            {/* Big play/pause — the hero control, 56px */}
             <button
               type="button"
               onClick={togglePlay}
               aria-label={playing ? 'إيقاف مؤقت' : 'تشغيل'}
-              className="w-12 h-12 rounded-full flex items-center justify-center text-white shrink-0 shadow-md transition-transform hover:scale-105 active:scale-95"
-              style={{ background: 'var(--grad-primary)' }}
+              className="press flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-white shadow-lg transition-transform hover:scale-105"
+              style={{ background: 'var(--c-primary-700)' }}
               data-testid="audio-play-button"
             >
-              {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 -scale-x-100 ms-0.5" />}
+              {playing ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 -scale-x-100 ms-1" />}
             </button>
 
-            <div className="flex-1 min-w-0">
-              <input
-                type="range"
+            {/* Skip forward */}
+            <button
+              type="button"
+              onClick={() => skip(10)}
+              aria-label="تقديم 10 ثوانٍ"
+              className="press hidden h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--c-text-soft)] transition-colors hover:bg-[var(--c-bg-hover)] hover:text-[var(--c-text)] sm:flex"
+            >
+              <SkipBack className="h-5 w-5 -scale-x-100" />
+            </button>
+
+            {/* Seek (Radix Slider) + time */}
+            <div className="min-w-0 flex-1">
+              <SliderPrimitive.Root
+                className="cms-slider-slider relative flex w-full touch-none select-none items-center"
+                value={[Math.min(currentSeconds, duration || 0)]}
                 min={0}
                 max={Math.max(duration, 0.1)}
-                step={0.1}
-                value={Math.min(currentSeconds, duration || 0)}
-                onChange={(event) => seekTo(Number(event.target.value))}
-                onPointerDown={() => setSeeking(true)}
-                onPointerUp={() => setSeeking(false)}
+                step={0.5}
+                onValueChange={([seconds]) => { setSeeking(true); setCurrentSeconds(seconds); }}
+                onValueCommit={([seconds]) => { seekTo(seconds); setSeeking(false); }}
                 aria-label="شريط التقدم"
-                className="audio-seek w-full"
                 data-testid="audio-seek"
-              />
-              <div className="flex justify-between text-[11px] text-[var(--c-text-muted)] mt-1 tabular-nums" dir="ltr">
+              >
+                <SliderPrimitive.Track className="cms-slider-track relative h-1.5 w-full grow overflow-hidden rounded-full bg-[var(--c-bg-hover)]">
+                  <SliderPrimitive.Range className="absolute h-full rounded-full" style={{ background: 'var(--c-primary-700)' }} />
+                </SliderPrimitive.Track>
+                <SliderPrimitive.Thumb className="cms-slider-thumb block h-4 w-4 rounded-full border-[2.5px] border-[var(--c-primary-700)] bg-white shadow" aria-label="نقطة التقدم" />
+              </SliderPrimitive.Root>
+              <div className="mt-1 flex justify-between text-[11px] font-medium tabular-nums text-[var(--c-text-muted)]" dir="ltr">
                 <span>{formatClock(currentSeconds)}</span>
                 <span>{formatClock(duration)}</span>
               </div>
             </div>
 
-            <div className="hidden sm:flex items-center gap-2 shrink-0" data-testid="audio-volume">
-              <Volume2 className="w-4 h-4 text-[var(--c-text-muted)]" />
-              <input
-                type="range"
+            {/* Volume (Radix Slider) */}
+            <div className="hidden shrink-0 items-center gap-2 md:flex" data-testid="audio-volume">
+              <button
+                type="button"
+                onClick={() => { const next = !muted; setMuted(next); if (audioRef.current) audioRef.current.muted = next; }}
+                aria-label={muted ? 'إلغاء كتم الصوت' : 'كتم الصوت'}
+                className="press flex h-11 w-11 items-center justify-center rounded-full text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-hover)] hover:text-[var(--c-text)]"
+              >
+                {muted || volume === 0 ? <VolumeX className="h-[18px] w-[18px]" /> : <Volume2 className="h-[18px] w-[18px]" />}
+              </button>
+              <SliderPrimitive.Root
+                className="cms-slider-slider relative flex w-24 touch-none select-none items-center"
+                value={[muted ? 0 : volume]}
                 min={0}
                 max={1}
                 step={0.05}
-                value={volume}
-                onChange={(event) => {
-                  const next = Number(event.target.value);
-                  setVolume(next);
-                  if (audioRef.current) audioRef.current.volume = next;
-                }}
+                onValueChange={([next]) => { applyVolume(next, false); if (next > 0) setMuted(false); }}
                 aria-label="مستوى الصوت"
-                className="audio-seek w-20"
-              />
+                data-testid="audio-volume-slider"
+              >
+                <SliderPrimitive.Track className="cms-slider-track relative h-1.5 w-full grow overflow-hidden rounded-full bg-[var(--c-bg-hover)]">
+                  <SliderPrimitive.Range className="absolute h-full rounded-full" style={{ background: 'var(--c-primary-700)' }} />
+                </SliderPrimitive.Track>
+                <SliderPrimitive.Thumb className="cms-slider-thumb block h-4 w-4 rounded-full border-[2.5px] border-[var(--c-primary-700)] bg-white shadow" aria-label="مستوى الصوت" />
+              </SliderPrimitive.Root>
             </div>
           </div>
         </div>

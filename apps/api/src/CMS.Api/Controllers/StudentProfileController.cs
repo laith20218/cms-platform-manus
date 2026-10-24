@@ -83,11 +83,27 @@ public sealed class StudentProfileController : ControllerBase
             })
             .ToListAsync(ct);
 
+        // Push 8 avatar fix: the stored value is a raw storage KEY
+        // (avatars/students/{id}/{guid}.ext), not a URL — the student web used to
+        // render <img src> with it directly (guarded by startsWith('http')), so
+        // avatars never displayed after a reload. Presign the key here so the
+        // profile payload always carries a browser-usable URL.
+        var avatarUrl = student.AvatarUrl;
+        if (!string.IsNullOrEmpty(avatarUrl))
+        {
+            try { avatarUrl = await _storage.GetSignedUrlAsync(avatarUrl, TimeSpan.FromHours(6), ct); }
+            catch
+            {
+                // Storage hiccup — fall back to the raw key (client shows initials).
+                avatarUrl = null;
+            }
+        }
+
         return Ok(new StudentProfileDto(
             student.FullName,
             student.Phone,
             student.Email,
-            student.AvatarUrl,
+            avatarUrl,
             student.Gender,
             student.Status.ToString(),
             student.CreatedAt,
