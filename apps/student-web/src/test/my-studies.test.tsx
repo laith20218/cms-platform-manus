@@ -68,7 +68,7 @@ beforeAll(() => {
 });
 
 // ---- fixtures ----
-const SUBJECTS = [{ id: 's1', nameAr: 'تشريح مرضي' }];
+const SUBJECTS = [{ id: 's1', slug: 'تشريح-مرضي', nameAr: 'تشريح مرضي' }];
 
 const COURSE_LIST = [{
   id: 'c1', subjectId: 's1', subjectNameAr: 'تشريح مرضي', title: 'كورس التشريح',
@@ -231,10 +231,12 @@ describe('CoursePlayerPage — rendering', () => {
 
     expect(screen.getByTestId('episode-list')).toBeInTheDocument();
     expect(screen.getByText('الحلقة الأولى')).toBeInTheDocument();
-    expect(screen.getByText(/رابط مؤقت حتى/)).toBeInTheDocument();
+    // Push 5: backend lease details are intentionally hidden from the student.
+    expect(screen.queryByText(/رابط مؤقت حتى/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/التسجيل أو التصوير/)).not.toBeInTheDocument();
   });
 
-  it('renders the audio element for audio-only episodes', async () => {
+  it('renders the elegant custom audio player for audio-only episodes', async () => {
     postMock.mockResolvedValue({ data: access('https://r2.example.com/audio?sig=1') });
     renderPlayer('/my-studies/courses/c1');
 
@@ -243,6 +245,12 @@ describe('CoursePlayerPage — rendering', () => {
     const audio = await screen.findByTestId('course-audio') as HTMLAudioElement;
     expect(audio.getAttribute('src')).toBe('https://r2.example.com/audio?sig=1');
     expect(screen.queryByTestId('course-video')).not.toBeInTheDocument();
+    // Push 5: the designed stage + custom control bar replace the black box.
+    expect(screen.getByTestId('audio-stage')).toBeInTheDocument();
+    expect(screen.getByTestId('audio-disc')).toBeInTheDocument();
+    expect(screen.getByTestId('audio-controls')).toBeInTheDocument();
+    expect(screen.getByTestId('audio-play-button')).toBeInTheDocument();
+    expect(screen.getByText('حلقة صوتية')).toBeInTheDocument();
   });
 
   it('renders the YouTube iframe for YouTube episodes (no refresh loop)', async () => {

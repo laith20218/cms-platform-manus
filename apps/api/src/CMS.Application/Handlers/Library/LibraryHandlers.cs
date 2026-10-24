@@ -96,7 +96,8 @@ public class LibraryHandlers :
         var items = files.Select(f => new LibraryFileListItemDto(
             f.Id, f.Type.ToString(), f.Title, f.Description,
             f.FileSize, f.DurationSeconds, f.PagesCount, f.ThumbnailUrl,
-            f.ViewsCount, favoriteFileIds.Contains(f.Id)
+            f.ViewsCount, favoriteFileIds.Contains(f.Id),
+            f.Category?.ToString(), f.CreatedAt
         )).ToList();
 
         return new PagedResult<LibraryFileListItemDto>(items, total, req.Page, req.PageSize, (int)Math.Ceiling(total / (double)req.PageSize));

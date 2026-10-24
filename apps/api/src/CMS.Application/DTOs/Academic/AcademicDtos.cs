@@ -77,7 +77,13 @@ public record SubjectDto(
     SubjectProgressDto? UserProgress,
     bool IsArchived,
     int TotalFiles = 0,
-    DateTime? LastContentUpdatedAt = null
+    DateTime? LastContentUpdatedAt = null,
+    /// <summary>
+    /// Content scopes the current student holds for this subject
+    /// (QuestionsExams / LecturesText / VideoAudio). Null for non-student callers;
+    /// empty list = subject visible but no active grant (locked).
+    /// </summary>
+    List<string>? ContentScopes = null
 );
 
 public record SubjectProgressDto(

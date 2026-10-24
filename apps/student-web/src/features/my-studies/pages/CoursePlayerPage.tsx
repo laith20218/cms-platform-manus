@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowRight, BookOpenCheck, ChevronLeft, Clock, Eye, ListVideo,
-  LoaderCircle, MonitorPlay, PlayCircle, ShieldCheck, Youtube,
+  LoaderCircle, MonitorPlay, Music2, Pause, Play, PlayCircle, Volume2, Youtube,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/app/providers/useAuth';
@@ -13,7 +13,7 @@ import type { CourseDetail, CourseEpisode, EpisodeAccess } from '../services/cou
 import '../watermark.css';
 
 /**
- * Course player (Push 4 Phase 5).
+ * Course player (Push 4 Phase 5, polished in Push 5).
  *
  * The Lease Trap: presigned playback URLs live on a short S3 credential lease
  * (≈10 minutes). A refresh interval fires at the 8-minute mark and swaps the
@@ -224,7 +224,7 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-6">
       {/* Player column */}
       <div>
-        <div className="relative rounded-2xl overflow-hidden border border-[var(--c-border)] bg-black" data-testid="episode-stage">
+        <div className="relative rounded-2xl overflow-hidden border border-[var(--c-border)] bg-black shadow-lg" data-testid="episode-stage">
           {accessLoading && !access && (
             <div className="aspect-video flex items-center justify-center">
               <LoaderCircle className="w-8 h-8 animate-spin text-white/70" />
@@ -257,44 +257,25 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
             </div>
           )}
           {access && !isYouTube && isAudioOnly && (
-            <div className="relative" data-testid="audio-stage">
-              <WatermarkLayer access={access} fallbackName={fallbackName} fallbackPhone={fallbackPhone} />
-              <div className="aspect-video flex flex-col items-center justify-center gap-4 bg-gradient-to-b from-[var(--c-bg-hover)] to-[var(--c-surface)]">
-                <PlayCircle className="w-16 h-16" style={{ color: 'var(--c-primary-700)' }} />
-                <audio
-                  ref={audioRef}
-                  src={access.accessUrl}
-                  className="w-4/5 max-w-lg"
-                  controls
-                  controlsList="nodownload"
-                  onLoadedMetadata={handleLoadedMetadata}
-                  onError={handleMediaError}
-                  data-testid="course-audio"
-                >
-                  متصفحك لا يدعم تشغيل الصوت.
-                </audio>
-              </div>
-            </div>
+            <AudioStage
+              access={access}
+              audioRef={audioRef}
+              title={selected.title}
+              onLoadedMetadata={handleLoadedMetadata}
+              onError={handleMediaError}
+              fallbackName={fallbackName}
+              fallbackPhone={fallbackPhone}
+            />
           )}
           {access && !isYouTube && !isAudioOnly && (
-            <div className="relative">
-              <WatermarkLayer access={access} fallbackName={fallbackName} fallbackPhone={fallbackPhone} />
-              <div className="aspect-video">
-                <video
-                  ref={videoRef}
-                  src={access.accessUrl}
-                  className="w-full h-full"
-                  controls
-                  controlsList="nodownload"
-                  onLoadedMetadata={handleLoadedMetadata}
-                  onError={handleMediaError}
-                  playsInline
-                  data-testid="course-video"
-                >
-                  متصفحك لا يدعم تشغيل الفيديو.
-                </video>
-              </div>
-            </div>
+            <VideoStage
+              access={access}
+              videoRef={videoRef}
+              onLoadedMetadata={handleLoadedMetadata}
+              onError={handleMediaError}
+              fallbackName={fallbackName}
+              fallbackPhone={fallbackPhone}
+            />
           )}
         </div>
 
@@ -307,18 +288,7 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
             <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{formatDuration(selected.durationSeconds)}</span>
           ) : null}
           <span className="inline-flex items-center gap-1"><Eye className="w-3.5 h-3.5" />{selected.viewsCount} مشاهدة</span>
-          {access && !isYouTube && (
-            <span className="inline-flex items-center gap-1" data-testid="lease-expiry">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              رابط مؤقت حتى {new Date(access.expiresAt).toLocaleTimeString('ar')}
-            </span>
-          )}
         </div>
-        {access && (
-          <p className="text-[11px] text-[var(--c-text-faint)] mt-2">
-            هذا المحتوى محمي — التسجيل أو التصوير يُعزى إلى حسابك ({access.watermark.studentName || fallbackName}).
-          </p>
-        )}
       </div>
 
       {/* Episode list column */}
@@ -355,6 +325,7 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
                     </span>
                     <span className="flex items-center gap-2 text-xs text-[var(--c-text-muted)] mt-0.5">
                       {isYouTubeEpisode(episode) ? <Youtube className="w-3.5 h-3.5" /> : null}
+                      {!isYouTubeEpisode(episode) && (episode.contentType ?? '').startsWith('audio/') ? <Music2 className="w-3.5 h-3.5" /> : null}
                       {episode.durationSeconds ? formatDuration(episode.durationSeconds) : null}
                       {episode.fileSize ? formatSize(episode.fileSize) : null}
                     </span>
@@ -369,9 +340,218 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
   );
 }
 
+// ===== Premium video stage =====
+
+/**
+ * Native <video> in a premium frame: rounded, dynamically proportioned to the
+ * actual media (portrait videos keep their aspect ratio), subtle elevation,
+ * download disabled. The lease-refresh watermark rides on top at ~4% opacity.
+ */
+function VideoStage({ access, videoRef, onLoadedMetadata, onError, fallbackName, fallbackPhone }: {
+  access: EpisodeAccess;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  onLoadedMetadata: () => void;
+  onError: () => void;
+  fallbackName: string;
+  fallbackPhone: string;
+}) {
+  const [aspect, setAspect] = useState<number | null>(null);
+
+  return (
+    <div className="relative" data-testid="video-stage">
+      <WatermarkLayer access={access} fallbackName={fallbackName} fallbackPhone={fallbackPhone} />
+      <div
+        className="flex items-center justify-center bg-black transition-[aspect-ratio] duration-300"
+        style={{ aspectRatio: aspect ? `${aspect}` : '16 / 9', maxHeight: '72vh' }}
+      >
+        <video
+          ref={videoRef}
+          src={access.accessUrl}
+          className="w-full h-full object-contain"
+          style={{ maxHeight: '72vh' }}
+          controls
+          controlsList="nodownload"
+          onLoadedMetadata={(event) => {
+            const media = event.currentTarget;
+            if (media.videoWidth > 0 && media.videoHeight > 0) {
+              setAspect(media.videoWidth / media.videoHeight);
+            }
+            onLoadedMetadata();
+          }}
+          onError={onError}
+          playsInline
+          data-testid="course-video"
+        >
+          متصفحك لا يدعم تشغيل الفيديو.
+        </video>
+      </div>
+    </div>
+  );
+}
+
+// ===== Elegant custom audio stage =====
+
+/**
+ * Custom audio experience (Push 5): instead of a black video box, a designed
+ * stage — gradient backdrop, a spinning disc that follows playback, animated
+ * equalizer bars, and a full custom control bar (play/pause, seek, time,
+ * volume). The native <audio> element stays as the engine (hidden) so the
+ * lease-refresh + watermark machinery works unchanged.
+ */
+function AudioStage({ access, audioRef, title, onLoadedMetadata, onError, fallbackName, fallbackPhone }: {
+  access: EpisodeAccess;
+  audioRef: React.RefObject<HTMLAudioElement | null>;
+  title: string;
+  onLoadedMetadata: () => void;
+  onError: () => void;
+  fallbackName: string;
+  fallbackPhone: string;
+}) {
+  const [playing, setPlaying] = useState(false);
+  const [currentSeconds, setCurrentSeconds] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [seeking, setSeeking] = useState(false);
+
+  const togglePlay = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      const maybe = audio.play();
+      if (maybe && typeof maybe.catch === 'function') maybe.catch(() => { /* autoplay policy */ });
+    } else {
+      audio.pause();
+    }
+  }, [audioRef]);
+
+  const seekTo = useCallback((seconds: number) => {
+    const audio = audioRef.current;
+    if (!audio || !Number.isFinite(seconds)) return;
+    try { audio.currentTime = seconds; } catch { /* ignore */ }
+    setCurrentSeconds(seconds);
+  }, [audioRef]);
+
+  return (
+    <div className="relative" data-testid="audio-stage">
+      <WatermarkLayer access={access} fallbackName={fallbackName} fallbackPhone={fallbackPhone} />
+      <div className="flex flex-col items-center justify-center gap-6 py-10 px-6"
+        style={{ background: 'linear-gradient(160deg, var(--c-primary-50) 0%, var(--c-surface) 55%, var(--c-bg) 100%)' }}
+      >
+        {/* Spinning disc + equalizer */}
+        <div className="relative w-28 h-28" data-testid="audio-disc">
+          <div
+            className={cn(
+              'absolute inset-0 rounded-full flex items-center justify-center shadow-xl border-4 border-white/60',
+              playing && 'audio-disc-spin'
+            )}
+            style={{ background: 'var(--grad-primary)' }}
+          >
+            <Music2 className="w-10 h-10 text-white" />
+          </div>
+          <div className="absolute -bottom-1 -end-4 flex items-end gap-[3px] h-6" aria-hidden="true">
+            {[0, 1, 2, 3].map((bar) => (
+              <span
+                key={bar}
+                className={cn('w-[3px] rounded-full bg-[var(--c-primary-700)]', playing ? 'audio-eq-bar' : 'opacity-30')}
+                style={{ animationDelay: `${bar * 0.15}s`, height: playing ? undefined : '8px' }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="text-center max-w-md">
+          <h2 className="text-lg font-bold text-[var(--c-text)] truncate">{title}</h2>
+          <p className="text-xs text-[var(--c-text-muted)] mt-1">حلقة صوتية</p>
+        </div>
+
+        {/* Custom control bar */}
+        <div className="w-full max-w-lg rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)]/90 backdrop-blur px-5 py-4 shadow-sm" data-testid="audio-controls">
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={togglePlay}
+              aria-label={playing ? 'إيقاف مؤقت' : 'تشغيل'}
+              className="w-12 h-12 rounded-full flex items-center justify-center text-white shrink-0 shadow-md transition-transform hover:scale-105 active:scale-95"
+              style={{ background: 'var(--grad-primary)' }}
+              data-testid="audio-play-button"
+            >
+              {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 -scale-x-100 ms-0.5" />}
+            </button>
+
+            <div className="flex-1 min-w-0">
+              <input
+                type="range"
+                min={0}
+                max={Math.max(duration, 0.1)}
+                step={0.1}
+                value={Math.min(currentSeconds, duration || 0)}
+                onChange={(event) => seekTo(Number(event.target.value))}
+                onPointerDown={() => setSeeking(true)}
+                onPointerUp={() => setSeeking(false)}
+                aria-label="شريط التقدم"
+                className="audio-seek w-full"
+                data-testid="audio-seek"
+              />
+              <div className="flex justify-between text-[11px] text-[var(--c-text-muted)] mt-1 tabular-nums" dir="ltr">
+                <span>{formatClock(currentSeconds)}</span>
+                <span>{formatClock(duration)}</span>
+              </div>
+            </div>
+
+            <div className="hidden sm:flex items-center gap-2 shrink-0" data-testid="audio-volume">
+              <Volume2 className="w-4 h-4 text-[var(--c-text-muted)]" />
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={volume}
+                onChange={(event) => {
+                  const next = Number(event.target.value);
+                  setVolume(next);
+                  if (audioRef.current) audioRef.current.volume = next;
+                }}
+                aria-label="مستوى الصوت"
+                className="audio-seek w-20"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Hidden native engine — keeps the lease-refresh machinery intact */}
+        <audio
+          ref={audioRef}
+          src={access.accessUrl}
+          preload="metadata"
+          controlsList="nodownload"
+          onLoadedMetadata={(event) => {
+            const media = event.currentTarget;
+            if (Number.isFinite(media.duration)) setDuration(media.duration);
+            onLoadedMetadata();
+          }}
+          onTimeUpdate={(event) => {
+            if (seeking) return;
+            setCurrentSeconds(event.currentTarget.currentTime);
+          }}
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onEnded={() => setPlaying(false)}
+          onError={onError}
+          data-testid="course-audio"
+          className="hidden"
+        >
+          متصفحك لا يدعم تشغيل الصوت.
+        </audio>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Anti-screen-recording watermark: a tiled name/phone layer that shifts
  * slightly every 30 seconds (see watermark.css — 4 positions × 30s = 120s).
+ * Subtle by design (~4% opacity) and pointer-events-none so it never
+ * intercepts the play controls.
  */
 function WatermarkLayer({ access, fallbackName, fallbackPhone }: {
   access: EpisodeAccess;
@@ -385,7 +565,7 @@ function WatermarkLayer({ access, fallbackName, fallbackPhone }: {
         {Array.from({ length: 4 }).map((_, row) => (
           <div key={row} className="flex items-center justify-around w-full gap-10">
             {Array.from({ length: 2 }).map((_, col) => (
-              <span key={col} className="text-white/10 font-bold text-lg whitespace-nowrap select-none">
+              <span key={col} className="text-white/[0.04] font-bold text-lg whitespace-nowrap select-none">
                 {line}
               </span>
             ))}
@@ -399,6 +579,13 @@ function WatermarkLayer({ access, fallbackName, fallbackPhone }: {
 function formatDuration(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatClock(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '0:00';
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.floor(totalSeconds % 60);
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
