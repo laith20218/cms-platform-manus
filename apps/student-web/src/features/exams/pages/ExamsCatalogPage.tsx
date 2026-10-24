@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom';
 import { ClipboardCheck, Clock, ChevronLeft, LoaderCircle } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
+import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
+import { LockedEmptyState } from '@/features/my-studies/components/LockedEmptyState';
 
 interface ExamListItem {
   id: string;
@@ -26,31 +28,30 @@ interface SubjectWithExams {
 export function ExamsCatalogPage() {
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
 
-  const { data: subjects, isLoading } = useQuery({
-    queryKey: ['exams-catalog'],
-    queryFn: async () => {
-      const config = await entitlementRequestConfig();
-      // Fetch student's subscribed subjects
-      const subjectsRes = await apiClient.get('/subjects/my-subjects', config);
-      const subjectsList = subjectsRes.data?.items ?? subjectsRes.data ?? [];
+  const mySubjects = useMySubjects();
+  const subjects = mySubjects.data ?? [];
 
-      // Fetch exams for each subject in parallel
-      const subjectsWithExams = await Promise.all(
-        subjectsList.map(async (subject: { id: string; nameAr?: string; name?: string }) => {
+  const { data: subjectsWithExams, isLoading } = useQuery({
+    queryKey: ['exams-catalog', subjects.map((s) => s.id).join(',')],
+    enabled: subjects.length > 0,
+    queryFn: async (): Promise<SubjectWithExams[]> => {
+      // Fetch exams for each entitled subject in parallel
+      const result = await Promise.all(
+        subjects.map(async (subject) => {
           try {
             const examsRes = await apiClient.get(`/exams/by-subject/${subject.id}`, await entitlementRequestConfig());
             const exams = Array.isArray(examsRes.data) ? examsRes.data : (examsRes.data?.items ?? []);
             return {
               subjectId: subject.id,
-              subjectName: subject.nameAr ?? subject.name ?? subject.id,
+              subjectName: subject.nameAr,
               exams: exams.filter((e: ExamListItem) => e.status === 'Published'),
             };
           } catch {
-            return { subjectId: subject.id, subjectName: subject.nameAr ?? subject.name ?? subject.id, exams: [] };
+            return { subjectId: subject.id, subjectName: subject.nameAr, exams: [] };
           }
         })
       );
-      return subjectsWithExams.filter((s: SubjectWithExams) => s.exams.length > 0);
+      return result.filter((s) => s.exams.length > 0);
     },
   });
 
@@ -62,31 +63,34 @@ export function ExamsCatalogPage() {
     return 'bg-sky-50 text-sky-700 border-sky-200';
   };
 
-  return (
-    <div className="max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: 'var(--c-primary-50)', color: 'var(--c-primary-700)' }}>
-          <ClipboardCheck className="w-6 h-6" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--c-text)]">الاختبارات</h1>
-          <p className="text-sm text-[var(--c-text-muted)]">جميع الاختبارات المتاحة لك عبر المواد</p>
-        </div>
+  if (mySubjects.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <LoaderCircle className="w-8 h-8 animate-spin text-[var(--c-text-muted)]" />
       </div>
+    );
+  }
 
+  // No active subscription code → locked state with the activation CTA.
+  if (subjects.length === 0) {
+    return <LockedEmptyState title="الاختبارات مُقفلة" hint="اختبارات موادك تُفتح بعد تفعيل كود الاشتراك — جرّب بنك الأسئلة والحلقات التفاعلية." />;
+  }
+
+  return (
+    <div>
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
           <LoaderCircle className="w-8 h-8 animate-spin text-[var(--c-text-muted)]" />
         </div>
-      ) : !subjects || subjects.length === 0 ? (
-        <div className="text-center py-16">
+      ) : !subjectsWithExams || subjectsWithExams.length === 0 ? (
+        <div className="text-center py-14 rounded-2xl border border-dashed border-[var(--c-border)]" data-testid="exams-empty">
           <ClipboardCheck className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" />
-          <p className="text-[var(--c-text-muted)]">لا توجد اختبارات متاحة حالياً</p>
+          <p className="text-[var(--c-text-muted)]">لا توجد اختبارات منشورة لموادك بعد</p>
+          <p className="text-xs text-[var(--c-text-faint)] mt-1">الاختبارات الجديدة تظهر هنا بمجرد نشرها</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {subjects.map((subject: SubjectWithExams) => (
+          {subjectsWithExams.map((subject: SubjectWithExams) => (
             <div key={subject.subjectId} className="rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] overflow-hidden">
               {/* Subject header */}
               <button

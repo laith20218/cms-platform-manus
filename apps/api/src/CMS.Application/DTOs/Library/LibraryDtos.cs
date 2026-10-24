@@ -33,7 +33,10 @@ public record LibraryFileListItemDto(
     int? PagesCount,
     string? ThumbnailUrl,
     int ViewsCount,
-    bool IsFavorite
+    bool IsFavorite,
+    // Curricular classification (Curriculum / Lecture / Summary / GoldenIdeas) — null = uncategorized.
+    string? Category = null,
+    DateTime CreatedAt = default
 );
 
 // ===== Access (Signed URL) =====

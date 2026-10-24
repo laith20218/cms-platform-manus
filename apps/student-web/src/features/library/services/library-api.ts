@@ -20,6 +20,9 @@ export interface LibraryFile {
   thumbnailUrl?: string;
   viewsCount: number;
   isFavorite: boolean;
+  /** Curricular category (Curriculum / Lecture / Summary / GoldenIdeas) — null = uncategorized. */
+  category?: string | null;
+  createdAt?: string | null;
 }
 
 export interface FileAccess {

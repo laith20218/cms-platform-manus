@@ -39,6 +39,8 @@ export interface SubjectSummary {
   totalFiles: number;
   lastContentUpdatedAt?: string | null;
   userProgress?: { completedPercentage: number } | null;
+  /** Content scopes the student holds (QuestionsExams / LecturesText / VideoAudio). */
+  contentScopes?: string[] | null;
 }
 
 export interface SubjectDetail extends SubjectSummary {
@@ -83,6 +85,11 @@ export const academicApi = {
   },
   getSubjectBySlug: async (slug: string) => {
     const res = await apiClient.get<SubjectDetail>(`/subjects/${slug}`, await entitlementRequestConfig());
+    return res.data;
+  },
+  /** Subject lookup by GUID — used when a route param carries an ID (e.g. library deep links). */
+  getSubjectById: async (id: string) => {
+    const res = await apiClient.get<SubjectDetail>(`/subjects/${id}`, await entitlementRequestConfig());
     return res.data;
   },
   getLectures: async (subjectId: string) => {

@@ -2,8 +2,8 @@ import { useSearchParams } from 'react-router-dom';
 import { BookOpenCheck, ClipboardCheck, FileText, GraduationCap } from 'lucide-react';
 import { cn } from '@/utils';
 import { ExamsCatalogPage } from '@/features/exams/pages/ExamsCatalogPage';
-import { LibraryCatalogPage } from '@/features/library/LibraryCatalogPage';
 import { CoursesCatalog } from '../components/CoursesCatalog';
+import { LibraryHub } from '../components/LibraryHub';
 
 /**
  * "My Studies" hub — one protected entry point that groups the three study
@@ -71,7 +71,7 @@ export default function MyStudiesPage() {
       <div role="tabpanel" data-testid={`panel-${tab}`}>
         {tab === 'courses' && <CoursesCatalog />}
         {tab === 'exams' && <ExamsCatalogPage />}
-        {tab === 'library' && <LibraryCatalogPage />}
+        {tab === 'library' && <LibraryHub />}
       </div>
     </div>
   );

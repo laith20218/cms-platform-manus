@@ -139,6 +139,7 @@ public class AcademicQueryHandlers :
                 null,
                 subject.DeletedAt != null,
                 0,
+                null,
                 null))
             .ToListAsync(ct);
 
@@ -297,7 +298,7 @@ public class AcademicQueryHandlers :
         _db.Questions.Count(question => question.SubjectId == subject.Id && question.Status == Domain.Enums.ContentStatus.Published),
         _db.Lectures.Count(lecture => lecture.SubjectId == subject.Id && lecture.DeletedAt == null && lecture.Status == "active"),
         _db.Exams.Count(exam => exam.SubjectId == subject.Id && exam.Status == Domain.Enums.ContentStatus.Published),
-        null, false);
+        null, false, 0, null, null);
 
     private async Task<SubjectDto> ApplyStudentContentScopeAsync(SubjectDto subject, Guid? studentId, CancellationToken ct)
     {
@@ -329,6 +330,11 @@ public class AcademicQueryHandlers :
         var latestFile = await accessibleFiles.OrderByDescending(file => file.UpdatedAt)
             .Select(file => (DateTime?)file.UpdatedAt).FirstOrDefaultAsync(ct);
         var lastContentUpdatedAt = new[] { latestQuestion, latestLecture, latestFile }.Where(value => value.HasValue).Select(value => value!.Value).DefaultIfEmpty().Max();
+        var scopes = new List<string>();
+        if (canAccessQuestions) scopes.Add(nameof(SubscriptionContentScope.QuestionsExams));
+        if (canAccessLectures) scopes.Add(nameof(SubscriptionContentScope.LecturesText));
+        if (canAccessVideoAudio) scopes.Add(nameof(SubscriptionContentScope.VideoAudio));
+
         var scoped = subject with
         {
             TotalQuestions = canAccessQuestions ? subject.TotalQuestions : 0,
@@ -336,7 +342,8 @@ public class AcademicQueryHandlers :
             TotalLectures = canAccessLectures ? subject.TotalLectures : 0,
             TotalFiles = totalFiles,
             LastContentUpdatedAt = lastContentUpdatedAt == default ? null : lastContentUpdatedAt,
-            UserProgress = null
+            UserProgress = null,
+            ContentScopes = scopes
         };
         return canAccessQuestions ? await AddProgressAsync(scoped, studentId, ct) : scoped;
     }

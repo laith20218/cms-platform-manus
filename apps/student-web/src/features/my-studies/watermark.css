@@ -21,3 +21,65 @@
     animation: none;
   }
 }
+
+/*
+ * Custom audio player (Push 5) — spinning disc + equalizer bars + seek slider.
+ */
+@keyframes audio-disc-rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.audio-disc-spin {
+  animation: audio-disc-rotate 6s linear infinite;
+}
+
+@keyframes audio-eq-bounce {
+  0%, 100% { height: 6px; }
+  50%      { height: 22px; }
+}
+
+.audio-eq-bar {
+  height: 10px;
+  animation: audio-eq-bounce 0.9s ease-in-out infinite;
+}
+
+/* Range inputs (seek + volume) styled to match the design tokens. */
+.audio-seek {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--c-bg-hover);
+  outline: none;
+  cursor: pointer;
+  accent-color: var(--c-primary-700);
+}
+
+.audio-seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--c-primary-700);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  cursor: pointer;
+}
+
+.audio-seek::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: var(--c-primary-700);
+  border: 2px solid #fff;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .audio-disc-spin,
+  .audio-eq-bar {
+    animation: none;
+  }
+}

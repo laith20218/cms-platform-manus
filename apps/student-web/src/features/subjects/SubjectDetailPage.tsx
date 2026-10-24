@@ -1,16 +1,31 @@
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { BookOpen, ChevronLeft, Clock, FileText, Loader2, BarChart3 } from 'lucide-react';
+import { isAxiosError } from 'axios';
+import {
+  BarChart3, BookOpen, ChevronLeft, Clock, FileText, GraduationCap,
+  Loader2, Lock, PackageOpen,
+} from 'lucide-react';
 import { academicApi } from './services/academic-api';
+import { LockedEmptyState } from '@/features/my-studies/components/LockedEmptyState';
 
+const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Subject detail (Push 5 fix): the route param can be a slug (تشريح-مرضي) or a
+ * GUID (library deep links carry subject IDs). Load errors are now
+ * status-aware — 403 means "no active subscription" (locked state + CTA),
+ * 404 means the subject genuinely doesn't exist.
+ */
 export default function SubjectDetailPage() {
   const { subjectSlug } = useParams<{ subjectSlug: string }>();
+  const isGuid = Boolean(subjectSlug && GUID_PATTERN.test(subjectSlug));
 
-  const { data: subject, isLoading: subjectLoading } = useQuery({
-    queryKey: ['subject', subjectSlug],
-    queryFn: () => academicApi.getSubjectBySlug(subjectSlug!),
+  const { data: subject, isLoading: subjectLoading, error: subjectError } = useQuery({
+    queryKey: ['subject', subjectSlug, isGuid ? 'id' : 'slug'],
+    queryFn: () => (isGuid ? academicApi.getSubjectById(subjectSlug!) : academicApi.getSubjectBySlug(subjectSlug!)),
     enabled: !!subjectSlug,
+    retry: false,
   });
 
   const { data: lectures, isLoading: lecturesLoading } = useQuery({
@@ -23,9 +38,43 @@ export default function SubjectDetailPage() {
     return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-[var(--c-primary-700)]" /></div>;
   }
 
-  if (!subject) {
-    return <div className="text-center py-20 text-[var(--c-text-muted)]">المادة غير موجودة</div>;
+  // Status-aware failure states (Push 5 Task 2):
+  // 403/401 → the student holds no active grant → locked + activation CTA.
+  const status = isAxiosError(subjectError) ? subjectError.response?.status : undefined;
+  if (!subject && (status === 403 || status === 401)) {
+    return (
+      <div className="max-w-xl mx-auto py-8">
+        <LockedEmptyState
+          title="هذه المادة تتطلب كود تفعيل"
+          hint="المادة موجودة لكنها تحتاج اشتراكاً نشطاً. فعّل كودك للوصول إلى المحاضرات والملفات والاختبارات."
+        />
+        <div className="text-center mt-4">
+          <Link to="/subjects" className="inline-flex items-center gap-1 text-sm font-medium text-[var(--c-primary-700)] hover:underline">
+            <ChevronLeft className="w-4 h-4" /> تصفّح المواد المتاحة
+          </Link>
+        </div>
+      </div>
+    );
   }
+
+  if (!subject) {
+    return (
+      <div className="text-center py-20" data-testid="subject-not-found">
+        <PackageOpen className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" />
+        <p className="text-[var(--c-text-muted)] mb-4">المادة غير موجودة</p>
+        <Link to="/subjects" className="inline-flex items-center gap-1 text-sm font-medium text-[var(--c-primary-700)] hover:underline">
+          <ChevronLeft className="w-4 h-4" /> العودة إلى المواد
+        </Link>
+      </div>
+    );
+  }
+
+  // Content scopes gate the tabs (Populated by the backend per active grants).
+  const scopes = subject.contentScopes ?? [];
+  const canQuestions = scopes.includes('QuestionsExams');
+  const canLectures = scopes.includes('LecturesText');
+  const canVideoAudio = scopes.includes('VideoAudio');
+  const hasLibrary = canLectures || canVideoAudio;
 
   return (
     <div className="space-y-6">
@@ -72,56 +121,78 @@ export default function SubjectDetailPage() {
         )}
       </motion.div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 border-b border-[var(--c-border)]">
-        <button className="px-4 py-2 text-sm font-semibold text-[var(--c-primary-700)] border-b-2 border-[var(--c-primary-700)]">المحاضرات</button>
-        <Link to={`/subjects/${subject.slug}/library`} className="px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]">المكتبة</Link>
-        <button className="px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]">الدورات</button>
+      {/* Tabs — only the surfaces the student's grants actually cover */}
+      <div className="flex gap-2 border-b border-[var(--c-border)] overflow-x-auto" role="tablist" aria-label="أقسام المادة">
+        <span className="px-4 py-2 text-sm font-semibold text-[var(--c-primary-700)] border-b-2 border-[var(--c-primary-700)] whitespace-nowrap" role="tab" aria-selected="true">المحاضرات</span>
+        {hasLibrary && (
+          <Link to={`/subjects/${subject.slug}/library`} role="tab" className="px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] whitespace-nowrap">المكتبة</Link>
+        )}
+        {canVideoAudio && (
+          <Link to="/my-studies?tab=courses" role="tab" className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] whitespace-nowrap">
+            <GraduationCap className="w-4 h-4" /> الكورسات
+          </Link>
+        )}
+        {canQuestions && (
+          <Link to="/my-studies?tab=exams" role="tab" className="px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] whitespace-nowrap">الاختبارات</Link>
+        )}
+        {!hasLibrary && !canQuestions && !canVideoAudio && (
+          <span className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-[var(--c-text-faint)] whitespace-nowrap" data-testid="subject-no-extras">
+            <Lock className="w-3.5 h-3.5" /> أقسام إضافية متاحة بعد توسيع اشتراكك
+          </span>
+        )}
       </div>
 
       {/* Lectures */}
-      {lecturesLoading ? (
-        <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-[var(--c-primary-700)]" /></div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {(lectures || []).map((lec, i) => (
-            <motion.div key={lec.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-              <Link to={`/subjects/${subject.slug}/lectures/${lec.id}`}
-                className="block p-5 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] hover:border-[var(--c-primary-200)] hover:shadow-md transition-all">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white" style={{ background: 'var(--grad-primary)' }} lang="en">
-                      {lec.lectureNumber}
-                    </div>
-                    <div>
-                      <div className="font-semibold text-[var(--c-text)]">{lec.titleAr}</div>
-                      <div className="text-xs text-[var(--c-text-muted)] flex items-center gap-2">
-                        <span lang="en">{lec.questionsCount} سؤال</span>
-                        {lec.durationMinutes && <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {lec.durationMinutes}د</span>}
+      {canLectures ? (
+        lecturesLoading ? (
+          <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-[var(--c-primary-700)]" /></div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {(lectures || []).map((lec, i) => (
+              <motion.div key={lec.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+                <Link to={`/subjects/${subject.slug}/lectures/${lec.id}`}
+                  className="block p-5 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] hover:border-[var(--c-primary-200)] hover:shadow-md transition-all">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white" style={{ background: 'var(--grad-primary)' }} lang="en">
+                        {lec.lectureNumber}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-[var(--c-text)]">{lec.titleAr}</div>
+                        <div className="text-xs text-[var(--c-text-muted)] flex items-center gap-2">
+                          <span lang="en">{lec.questionsCount} سؤال</span>
+                          {lec.durationMinutes && <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {lec.durationMinutes}د</span>}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-                {lec.isCompleted ? (
-                  <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--c-success-50)] px-2.5 py-1 text-xs font-bold text-[var(--c-success-700)]"><BookOpen className="h-3.5 w-3.5" />مكتملة</div>
-                ) : lec.userProgress !== undefined && lec.questionsCount > 0 && (
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-[var(--c-text-muted)]">تقدّمك</span>
-                      <span className="font-semibold text-[var(--c-primary-700)]" lang="en">{lec.userProgress.toFixed(0)}%</span>
+                  {lec.isCompleted ? (
+                    <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--c-success-50)] px-2.5 py-1 text-xs font-bold text-[var(--c-success-700)]"><BookOpen className="h-3.5 w-3.5" />مكتملة</div>
+                  ) : lec.userProgress !== undefined && lec.questionsCount > 0 && (
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-[var(--c-text-muted)]">تقدّمك</span>
+                        <span className="font-semibold text-[var(--c-primary-700)]" lang="en">{lec.userProgress.toFixed(0)}%</span>
+                      </div>
+                      <div className="h-1.5 bg-[var(--c-bg)] rounded-full overflow-hidden">
+                        <div className="h-full rounded-full" style={{ width: `${lec.userProgress}%`, background: 'var(--grad-primary)' }} />
+                      </div>
                     </div>
-                    <div className="h-1.5 bg-[var(--c-bg)] rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${lec.userProgress}%`, background: 'var(--grad-primary)' }} />
-                    </div>
-                  </div>
-                )}
-              </Link>
-            </motion.div>
-          ))}
+                  )}
+                </Link>
+              </motion.div>
+            ))}
+          </div>
+        )
+      ) : (
+        <div className="text-center py-12 rounded-2xl border border-dashed border-[var(--c-border)]" data-testid="subject-lectures-locked">
+          <Lock className="w-10 h-10 mx-auto mb-3 text-[var(--c-text-faint)]" />
+          <p className="text-sm text-[var(--c-text-muted)]">محاضرات هذه المادة متاحة ضمن اشتراك يشمل المحتوى التعليمي</p>
+          <Link to="/activate-code" className="inline-block mt-3 text-sm font-bold text-[var(--c-primary-700)] hover:underline">تفعيل كود</Link>
         </div>
       )}
 
-      {lectures && lectures.length === 0 && (
+      {canLectures && lectures && lectures.length === 0 && (
         <div className="text-center py-12 text-[var(--c-text-muted)]">
           <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-50" />
           <p>لا توجد محاضرات في هذه المادة بعد</p>
