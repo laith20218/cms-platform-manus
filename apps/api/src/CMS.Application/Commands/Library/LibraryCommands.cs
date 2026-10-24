@@ -44,7 +44,8 @@ public record RequestUploadUrlCommand(
 public record CompleteUploadCommand(
     Guid FileId, string FileKey, long ActualFileSize,
     int? PagesCount, int? DurationSeconds,
-    string? YoutubeVideoId, Guid CreatedBy
+    string? YoutubeVideoId, Guid CreatedBy,
+    Guid? SessionId = null
 ) : IRequest<LibraryFileDto>;
 
 // ===== Admin: Update/Delete =====

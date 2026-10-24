@@ -211,13 +211,16 @@ public class AdminManagementHandlers :
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPermissionService _permissions;
     private readonly ISecurityAuditWriter _audit;
+    // Push 2 / Track 2: activity-monitor writer (best-effort — never fails the business op).
+    private readonly IAdminActivityWriter _activity;
 
-    public AdminManagementHandlers(IApplicationDbContext db, IUnitOfWork unitOfWork, IPermissionService permissions, ISecurityAuditWriter audit)
+    public AdminManagementHandlers(IApplicationDbContext db, IUnitOfWork unitOfWork, IPermissionService permissions, ISecurityAuditWriter audit, IAdminActivityWriter activity)
     {
         _db = db;
         _unitOfWork = unitOfWork;
         _permissions = permissions;
         _audit = audit;
+        _activity = activity;
     }
 
     public async Task<PagedResult<StudentManagementDto>> Handle(GetStudentsQuery req, CancellationToken ct)
@@ -458,6 +461,11 @@ public class AdminManagementHandlers :
 
         await _db.SubscriptionCodes.AddRangeAsync(codeEntities, ct);
         await _unitOfWork.SaveChangesAsync(ct);
+
+        // Push 2 / Track 2: activity log (best-effort, after the business commit).
+        await _activity.LogAsync(req.CreatedBy, AdminActivityActionType.GenerateCode, batch.Id.ToString(),
+            new { batchId = batch.Id, quantity = req.Quantity, scopeType = normalizedScopeType, durationDays = req.DurationDays },
+            req.SessionId, ct);
 
         return new GenerateCodesResultDto(batch.Id, req.Quantity, codes);
     }

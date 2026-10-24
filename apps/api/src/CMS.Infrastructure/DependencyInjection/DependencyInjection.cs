@@ -83,6 +83,9 @@ public static class DependencyInjection
         services.AddScoped<SecurityService>();
         services.AddScoped<ISecurityAuditWriter>(sp => sp.GetRequiredService<SecurityService>());
         services.AddScoped<ISessionService, SessionService>();
+        // Push 2 / Track 2: activity monitor — best-effort writer + idle-session sweeper.
+        services.AddScoped<IAdminActivityWriter, AdminActivityWriter>();
+        services.AddHostedService<SessionSweeperService>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton<IPasswordPolicy, PasswordPolicy>();
 

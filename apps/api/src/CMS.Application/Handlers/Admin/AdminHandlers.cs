@@ -45,17 +45,20 @@ public class AdminLoginCommandHandler :
     }
 
     public Task<AuthResponse> Handle(AdminLoginCommand request, CancellationToken ct) =>
-        HandleLoginAsync(request.Email, request.Password, request.TwoFactorCode, request.InstallationId, ct);
+        HandleLoginAsync(request.Email, request.Password, request.TwoFactorCode, request.InstallationId,
+            request.IPAddress, request.UserAgent, ct);
 
     public Task<AuthResponse> Handle(AuthAdminLoginCommand request, CancellationToken ct) =>
-        HandleLoginAsync(request.Email, request.Password, request.TwoFactorCode, request.InstallationId, ct);
+        HandleLoginAsync(request.Email, request.Password, request.TwoFactorCode, request.InstallationId, null, null, ct);
 
     private async Task<AuthResponse> HandleLoginAsync(
         string email,
         string password,
         string? twoFactorCode,
         string? requestedInstallationId,
-        CancellationToken ct)
+        string? ipAddress = null,
+        string? userAgent = null,
+        CancellationToken ct = default)
     {
         var admin = await _db.Admins
             .Include(a => a.Role)
@@ -123,8 +126,10 @@ public class AdminLoginCommandHandler :
         var installationId = string.IsNullOrWhiteSpace(requestedInstallationId)
             ? $"admin-web-{Guid.NewGuid():N}"
             : requestedInstallationId;
+        // Push 2 / Track 2: request context flows onto the UserSession for the activity monitor.
         var tokens = await _sessionService.CreateAsync(
-            admin.Id, admin.Email, admin.Role.Name, installationId, "Admin Web", ct);
+            admin.Id, admin.Email, admin.Role.Name, installationId, "Admin Web", ct,
+            ipAddress, userAgent);
 
         return new AuthResponse(
             tokens.AccessToken,

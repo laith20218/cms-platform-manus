@@ -39,7 +39,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle, Archive, CheckCircle2, ChevronLeft, ChevronRight,
-  FileText, ListFilter, LoaderCircle, Pencil, Plus,
+  FileText, ListFilter, LoaderCircle, Pencil, Plus, PlusCircle,
   Search, Send, Trash2, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
@@ -59,7 +59,7 @@ type QuestionSummary = {
   createdAt: string; updatedAt?: string | null;
 };
 type QuestionDetail = QuestionSummary & {
-  reference?: string | null; year?: number | null;
+  reference?: string | null; year?: number | null; paragraphTag?: string | null;
   explanation: string; correctAnswer: string; options: QuestionOption[];
 };
 type QuestionType = 'Mcq' | 'TrueFalse' | 'MultipleSelect' | 'Essay';
@@ -76,6 +76,8 @@ type FormState = {
   explanation: string;
   correctAnswer: string;
   reference: string;
+  year: string;
+  paragraphTag: string;
   options: QuestionOption[];
 };
 
@@ -86,13 +88,66 @@ type ConfirmDialog =
 
 const emptyForm = (): FormState => ({
   text: '', type: 'Mcq', difficulty: 'Medium', lectureId: '', tags: '',
-  explanation: '', correctAnswer: '', reference: '',
+  explanation: '', correctAnswer: '', reference: '', year: '', paragraphTag: '',
   options: [
     { text: '', isCorrect: true },
     { text: '', isCorrect: false },
     { text: '', isCorrect: false },
     { text: '', isCorrect: false },
   ],
+});
+
+// ===== Push 2 / Track 1: sticky context (survives "Save & Add Another" + page reloads) =====
+const STICKY_KEY = 'cms-questionscenter-sticky-context';
+type StickyContext = {
+  universityId: string; collegeId: string; yearId: string; semesterId: string; subjectId: string;
+  lectureId: string; type: QuestionType; difficulty: Difficulty;
+  tags: string; year: string; paragraphTag: string;
+};
+
+const readSticky = (): StickyContext | null => {
+  try {
+    const raw = window.localStorage.getItem(STICKY_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StickyContext>;
+    if (!parsed.subjectId || !parsed.type || !parsed.difficulty) return null;
+    return {
+      universityId: parsed.universityId ?? '',
+      collegeId: parsed.collegeId ?? '',
+      yearId: parsed.yearId ?? '',
+      semesterId: parsed.semesterId ?? '',
+      subjectId: parsed.subjectId!,
+      lectureId: parsed.lectureId ?? '',
+      type: parsed.type!,
+      difficulty: parsed.difficulty!,
+      tags: parsed.tags ?? '',
+      year: parsed.year ?? '',
+      paragraphTag: parsed.paragraphTag ?? '',
+    };
+  } catch { return null; }
+};
+
+const writeSticky = (context: StickyContext | null) => {
+  try {
+    if (context) window.localStorage.setItem(STICKY_KEY, JSON.stringify(context));
+    else window.localStorage.removeItem(STICKY_KEY);
+  } catch { /* storage unavailable (private mode) — sticky context degrades to in-memory only */ }
+};
+
+const freshOptionsForType = (type: QuestionType) =>
+  type === 'TrueFalse'
+    ? [{ text: 'صح', isCorrect: true }, { text: 'خطأ', isCorrect: false }]
+    : emptyForm().options;
+
+const formFromSticky = (context: StickyContext): FormState => ({
+  ...emptyForm(),
+  type: context.type,
+  difficulty: context.difficulty,
+  lectureId: context.lectureId,
+  tags: context.tags,
+  year: context.year,
+  paragraphTag: context.paragraphTag,
+  options: context.type === 'Essay' ? [] : freshOptionsForType(context.type),
 });
 
 const label = (arabic: boolean, item: { nameAr?: string; nameEn?: string | null; titleAr?: string; titleEn?: string | null }) =>
@@ -187,6 +242,26 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     void request<PagedResult<University>>('/api/v1/universities?Page=1&PageSize=100')
       .then(data => setUniversities(data.items))
       .catch(error => onError(error instanceof Error ? error.message : 'تعذر تحميل الجامعات.'));
+    // Push 2 / Track 1: restore the sticky context (cascade + form context) after a reload.
+    void (async () => {
+      const sticky = readSticky();
+      if (!sticky?.subjectId) return;
+      try {
+        setUniversityId(sticky.universityId); setCollegeId(sticky.collegeId);
+        setYearId(sticky.yearId); setSemesterId(sticky.semesterId); setSubjectId(sticky.subjectId);
+        if (sticky.universityId) setColleges(await request<College[]>(`/api/v1/universities/${sticky.universityId}/colleges`));
+        if (sticky.collegeId) setYears(await request<AcademicYear[]>(`/api/v1/colleges/${sticky.collegeId}/years`));
+        if (sticky.yearId) setSemesters(await request<Semester[]>(`/api/v1/years/${sticky.yearId}/semesters`));
+        if (sticky.semesterId) setSubjects(await request<Subject[]>(`/api/v1/semesters/${sticky.semesterId}/subjects`));
+        if (sticky.subjectId) {
+          try { setLectures(await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${sticky.subjectId}/lectures`)); }
+          catch { /* lectures list is optional for the sticky restore */ }
+        }
+        setForm(formFromSticky(sticky));
+      } catch {
+        writeSticky(null); // stale context (deleted academic entity?) — discard silently
+      }
+    })();
     // Initial reference directory only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -305,6 +380,8 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
         explanation: detail.explanation,
         correctAnswer: detail.correctAnswer,
         reference: detail.reference ?? '',
+        year: detail.year != null ? String(detail.year) : '',
+        paragraphTag: detail.paragraphTag ?? '',
         options: detail.options.map(option => ({ ...option })),
       });
       setShowEditor(true);
@@ -313,8 +390,27 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     } finally { setBusy(false); }
   }
 
+  // Push 2 / Track 1: snapshot of the context that survives "Save & Add Another".
+  function currentStickyContext(): StickyContext {
+    return {
+      universityId, collegeId, yearId, semesterId, subjectId,
+      lectureId: form.lectureId, type: form.type, difficulty: form.difficulty,
+      tags: form.tags, year: form.year, paragraphTag: form.paragraphTag,
+    };
+  }
+
+  function resetContext() {
+    writeSticky(null);
+    setForm(emptyForm());
+    onNotice(isArabic ? 'تمت إعادة تعيين السياق المحفوظ.' : 'Saved context reset.');
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    await doSubmit(false);
+  }
+
+  async function doSubmit(addAnother: boolean) {
     if (!subjectId || !form.text.trim() || !form.explanation.trim()) return;
     if (isEssay && !form.correctAnswer.trim()) {
       onError(isArabic ? 'اكتب الإجابة النموذجية للسؤال التحريري.' : 'Provide the model answer for the essay question.');
@@ -343,16 +439,29 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
         correctAnswer: isEssay ? form.correctAnswer.trim() : null,
         explanation: form.explanation.trim(),
         reference: form.reference.trim() || null,
-        year: null,
+        year: form.year.trim() ? Number(form.year.trim()) : null,
+        paragraphTag: form.paragraphTag.trim() || null,
       };
       if (form.id) {
         await request(`/api/v1/questions/${form.id}`, { method: 'PUT', headers: requestHeaders, body: JSON.stringify(payload) });
         onNotice(isArabic ? 'تم تحديث السؤال.' : 'Question updated.');
+        setForm(emptyForm()); setShowEditor(false); await loadQuestions();
       } else {
         await request('/api/v1/questions', { method: 'POST', headers: requestHeaders, body: JSON.stringify(payload) });
-        onNotice(isArabic ? 'تم حفظ السؤال كمسودة.' : 'Question saved as a draft.');
+        if (addAnother) {
+          // Sticky context: keep cascade/type/difficulty/tags/year/paragraphTag/lecture;
+          // clear ONLY text, options, correct answer, explanation, reference.
+          const kept = currentStickyContext();
+          writeSticky(kept);
+          setForm(formFromSticky(kept));
+          onNotice(isArabic ? 'تم حفظ السؤال. أضف السؤال التالي — السياق محفوظ.' : 'Question saved. Add the next one — context kept.');
+        } else {
+          writeSticky(currentStickyContext());
+          onNotice(isArabic ? 'تم حفظ السؤال كمسودة.' : 'Question saved as a draft.');
+          setForm(emptyForm()); setShowEditor(false);
+        }
+        await loadQuestions();
       }
-      setForm(emptyForm()); setShowEditor(false); await loadQuestions();
     } catch (error) {
       onError(error instanceof Error ? error.message : 'تعذر حفظ السؤال.');
     } finally { setBusy(false); }
@@ -428,7 +537,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
         {subjectId && (
           <button
             type="button"
-            onClick={() => { setForm(emptyForm()); setShowEditor(true); }}
+            onClick={() => { setForm(readSticky() ? formFromSticky(readSticky()!) : emptyForm()); setShowEditor(true); }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors"
             style={{ background: 'var(--cms-teal-700)' }}
             onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-600)'; }}
@@ -823,18 +932,48 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                       </label>
                     </div>
 
-                    {/* Reference */}
-                    <label className="block">
-                      <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                        {isArabic ? 'المرجع (اختياري)' : 'Reference (optional)'}
-                      </span>
-                      <input
-                        value={form.reference}
-                        onChange={event => setForm(current => ({ ...current, reference: event.target.value }))}
-                        className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                        style={{ borderColor: 'var(--cms-line-strong)' }}
-                      />
-                    </label>
+                    {/* Reference + Exam year + Paragraph tag (Push 2 / Track 1) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="block">
+                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                          {isArabic ? 'المرجع (اختياري)' : 'Reference (optional)'}
+                        </span>
+                        <input
+                          value={form.reference}
+                          onChange={event => setForm(current => ({ ...current, reference: event.target.value }))}
+                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          style={{ borderColor: 'var(--cms-line-strong)' }}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                          {isArabic ? 'سنة الامتحان (اختياري)' : 'Exam year (optional)'}
+                        </span>
+                        <input
+                          type="number"
+                          min={1900}
+                          max={2100}
+                          inputMode="numeric"
+                          value={form.year}
+                          onChange={event => setForm(current => ({ ...current, year: event.target.value }))}
+                          placeholder={isArabic ? 'مثال: 2024' : 'e.g. 2024'}
+                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          style={{ borderColor: 'var(--cms-line-strong)' }}
+                        />
+                      </label>
+                      <label className="block sm:col-span-2">
+                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                          {isArabic ? 'وسم الفقرة (اختياري — موقع السؤال في المنهاج)' : 'Paragraph tag (optional — position in curriculum)'}
+                        </span>
+                        <input
+                          value={form.paragraphTag}
+                          onChange={event => setForm(current => ({ ...current, paragraphTag: event.target.value }))}
+                          placeholder={isArabic ? 'مثال: الفصل الأول' : 'e.g. Chapter 1'}
+                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          style={{ borderColor: 'var(--cms-line-strong)' }}
+                        />
+                      </label>
+                    </div>
 
                     {/* Options editor OR essay model answer */}
                     {isEssay ? (
@@ -994,6 +1133,31 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     >
                       {isArabic ? 'إغلاق' : 'Close'}
                     </button>
+                    {/* Push 2 / Track 1: reset the saved sticky context */}
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={resetContext}
+                      className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
+                      style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+                      title={isArabic ? 'مسح السياق المحفوظ (الشلال والنوع والوسوم والسنة ووسم الفقرة)' : 'Clear the saved context (cascade, type, tags, year, paragraph tag)'}
+                    >
+                      {isArabic ? 'إعادة تعيين السياق' : 'Reset context'}
+                    </button>
+                    {/* Push 2 / Track 1: save & keep the context for rapid question entry */}
+                    {!form.id && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => { void doSubmit(true); }}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50"
+                        style={{ borderColor: 'var(--cms-teal-700)', color: 'var(--cms-teal-700)' }}
+                        title={isArabic ? 'حفظ السؤال والبدء بالتالي مع الاحتفاظ بالسياق (الشلال، النوع، الصعوبة، الوسوم، السنة، وسم الفقرة)' : 'Save this question and start the next with the context kept (cascade, type, difficulty, tags, year, paragraph tag)'}
+                      >
+                        <PlusCircle className="w-4 h-4" />
+                        {isArabic ? 'حفظ وإضافة آخر' : 'Save & add another'}
+                      </button>
+                    )}
                     {form.id && (
                       <button
                         type="button"

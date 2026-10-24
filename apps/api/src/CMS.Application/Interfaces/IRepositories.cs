@@ -151,11 +151,26 @@ public record SessionTokenPair(string AccessToken, string RefreshToken, Guid Ses
 /// </summary>
 public interface ISessionService
 {
-    Task<SessionTokenPair> CreateAsync(Guid userId, string subject, string role, string installationId, string? displayName, CancellationToken ct = default);
+    Task<SessionTokenPair> CreateAsync(Guid userId, string subject, string role, string installationId, string? displayName, CancellationToken ct = default, string? ipAddress = null, string? userAgent = null);
     Task<SessionTokenPair?> RotateAsync(string refreshToken, string installationId, CancellationToken ct = default);
     Task RevokeAsync(Guid sessionId, string reason, CancellationToken ct = default);
     Task RevokeAllForUserAsync(Guid userId, string reason, CancellationToken ct = default);
     Task<bool> IsActiveAsync(Guid sessionId, int tokenVersion, string installationId, CancellationToken ct = default);
+    /// <summary>
+    /// Push 2 / Track 2: throttled activity heartbeat — refreshes LastActivityAt only when the
+    /// stored value is older than the throttle window (single conditional UPDATE, no tracking).
+    /// </summary>
+    Task TouchActivityAsync(Guid sessionId, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Push 2 / Track 2: writes one AdminActivityLog row per completed administrative action.
+/// Best-effort by design: a logging failure must never fail the business operation it records
+/// (same contract as the A1 best-effort blob cleanup) — failures are swallowed and logged.
+/// </summary>
+public interface IAdminActivityWriter
+{
+    Task LogAsync(Guid adminId, CMS.Domain.Enums.AdminActivityActionType actionType, string? resourceId = null, object? metadata = null, Guid? sessionId = null, CancellationToken ct = default);
 }
 
 /// <summary>Central server-side decision point for academic subscription access.</summary>

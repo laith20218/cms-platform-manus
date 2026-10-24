@@ -38,6 +38,7 @@ import {
 import { API_BASE_URL, apiRequest, ApiError, type AdminRecord, type AdminUser, type PagedResult, type RoleRecord, login, refreshAccessToken } from './lib/api';
 import { AcademicCenter } from './components/AcademicCenter';
 import { AdminsCenter, DialogLayer } from './components/AdminsCenter';
+import { ActivityMonitor } from './components/ActivityMonitor';
 import { AuditCenter } from './components/AuditCenter';
 import { CodesCenter } from './components/CodesCenter';
 import { ReportsCenter } from './components/ReportsCenter';
@@ -786,6 +787,8 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  // Push 2 / Track 2: super-admin activity monitor tab inside the overview.
+  const [overviewTab, setOverviewTab] = useState<'metrics' | 'activity'>('metrics');
 
   useEffect(() => {
     if (!token || !isSuperAdmin) return;
@@ -889,6 +892,33 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
         </div>
       </section>
 
+      {/* Push 2 / Track 2: tab switch between metrics and the activity monitor (super-admin only). */}
+      {isSuperAdmin && (
+        <div className="flex gap-2" role="tablist" aria-label={isArabic ? 'أقسام لوحة القيادة' : 'Overview sections'} dir={isArabic ? 'rtl' : 'ltr'}>
+          {(['metrics', 'activity'] as const).map(tab => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={overviewTab === tab}
+              onClick={() => setOverviewTab(tab)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${overviewTab === tab ? 'text-white' : ''}`}
+              style={overviewTab === tab
+                ? { background: 'var(--cms-teal-700)', borderColor: 'var(--cms-teal-700)' }
+                : { borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+            >
+              {tab === 'metrics' ? (isArabic ? 'المؤشرات' : 'Metrics') : (isArabic ? 'مراقبة النشاط' : 'Activity monitor')}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {isSuperAdmin && overviewTab === 'activity' && (
+        <ActivityMonitor token={token} isArabic={isArabic} onError={message => toast.error(message)} />
+      )}
+
+      {(!isSuperAdmin || overviewTab === 'metrics') && (
+        <>
       {failed && !stats && (
         <div className="error-banner" role="alert">
           <CircleAlert size={18} />
@@ -953,6 +983,8 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
       <p style={{ marginTop: 'var(--cms-space-4)', fontSize: 'var(--cms-text-2xs)', color: 'var(--cms-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
         {isArabic ? 'آخر تحديث' : 'Last updated'}: {updatedLabel}
       </p>
+        </>
+      )}
     </>
   );
 }

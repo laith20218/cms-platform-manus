@@ -34,6 +34,9 @@ public class LibraryController : ControllerBase
     private Guid? GetStudentId() => Guid.TryParse(User.FindFirst("sub")?.Value, out var id) ? id : null;
     private Guid GetAdminId() => Guid.Parse(User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
 
+    /// <summary>Push 2 / Track 2: acting session id from the access token — powers per-session counters.</summary>
+    private Guid? GetSessionId() => Guid.TryParse(User.FindFirst("sid")?.Value, out var id) ? id : null;
+
     /// <summary>
     /// Get library files for a subject (with type filter).
     /// </summary>
@@ -190,7 +193,7 @@ public class LibraryController : ControllerBase
         var result = await _mediator.Send(new CompleteUploadCommand(
             dto.FileId, dto.FileKey, dto.ActualFileSize,
             dto.PagesCount, dto.DurationSeconds,
-            dto.YoutubeVideoId, GetAdminId()
+            dto.YoutubeVideoId, GetAdminId(), GetSessionId()
         ), ct);
         return Ok(result);
     }

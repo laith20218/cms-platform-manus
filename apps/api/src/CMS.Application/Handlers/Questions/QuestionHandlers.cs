@@ -185,7 +185,7 @@ public class QuestionQueryHandlers :
 
     private static QuestionDto MapToDto(Question q, bool isFavorite) => new(
         q.Id, q.Text, q.TextHtml, q.Type.ToString(), q.Difficulty.ToString(),
-        q.Tags, q.Lecture?.NameAr, q.Year, q.Reference,
+        q.Tags, q.Lecture?.NameAr, q.Year, q.Reference, q.ParagraphTag,
         q.Options.OrderBy(o => o.SortOrder).Select(o => new QuestionOptionDto(o.Id, o.OptionLetter, o.Text, o.ImageUrl)).ToList(),
         q.Images.Select(img => new QuestionImageDto(img.Id, img.ImageUrl, img.AltText, img.Caption)).ToList(),
         null, isFavorite, new QuestionStatsDto(q.AttemptsCount, q.GetCorrectRate())
@@ -208,12 +208,15 @@ public class QuestionCommandHandlers :
     private readonly IApplicationDbContext _db;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IEntitlementService _entitlements;
+    // Push 2 / Track 2: activity-monitor writer (best-effort — never fails the business op).
+    private readonly IAdminActivityWriter _activity;
 
-    public QuestionCommandHandlers(IApplicationDbContext db, IUnitOfWork unitOfWork, IEntitlementService entitlements)
+    public QuestionCommandHandlers(IApplicationDbContext db, IUnitOfWork unitOfWork, IEntitlementService entitlements, IAdminActivityWriter activity)
     {
         _db = db;
         _unitOfWork = unitOfWork;
         _entitlements = entitlements;
+        _activity = activity;
     }
 
     public async Task<QuestionDto> Handle(CreateQuestionCommand req, CancellationToken ct)
@@ -224,6 +227,7 @@ public class QuestionCommandHandlers :
         var question = Question.Create(req.Text, type, req.SubjectId, req.LectureId, difficulty, req.Tags, req.CreatedBy);
         question.UpdateExplanation(req.Explanation);
         if (req.Reference != null) question.SetReference(req.Reference);
+        if (req.ParagraphTag != null) question.SetParagraphTag(req.ParagraphTag);
         if (req.Year.HasValue) typeof(Question).GetProperty("Year")?.SetValue(question, req.Year);
 
         if (type == QuestionType.Essay)
@@ -242,9 +246,13 @@ public class QuestionCommandHandlers :
         await _db.Questions.AddAsync(question, ct);
         await _unitOfWork.SaveChangesAsync(ct);
 
+        // Push 2 / Track 2: activity log (best-effort, after the business commit).
+        await _activity.LogAsync(req.CreatedBy, AdminActivityActionType.CreateQuestion, question.Id.ToString(),
+            new { questionId = question.Id, type = req.Type, subjectId = req.SubjectId }, req.SessionId, ct);
+
         return new QuestionDto(
             question.Id, question.Text, question.TextHtml, question.Type.ToString(),
-            question.Difficulty.ToString(), question.Tags, null, req.Year, req.Reference,
+            question.Difficulty.ToString(), question.Tags, null, req.Year, req.Reference, question.ParagraphTag,
             question.Options.OrderBy(o => o.SortOrder).Select(o => new QuestionOptionDto(o.Id, o.OptionLetter, o.Text, o.ImageUrl)).ToList(),
             new List<QuestionImageDto>(), null, false, new QuestionStatsDto(0, 0)
         );
@@ -263,6 +271,9 @@ public class QuestionCommandHandlers :
         question.UpdateExplanation(req.Explanation);
         if (req.Reference != null) question.SetReference(req.Reference);
         typeof(Question).GetProperty("Tags")?.SetValue(question, req.Tags);
+        // Push 2 / Track 1: year + paragraph tag are now editable after creation.
+        if (req.Year.HasValue) typeof(Question).GetProperty("Year")?.SetValue(question, req.Year);
+        if (req.ParagraphTag != null) question.SetParagraphTag(req.ParagraphTag);
 
         if (question.Type == QuestionType.Essay)
         {
@@ -283,7 +294,7 @@ public class QuestionCommandHandlers :
 
         return new QuestionDto(
             question.Id, question.Text, question.TextHtml, question.Type.ToString(),
-            question.Difficulty.ToString(), question.Tags, null, question.Year, question.Reference,
+            question.Difficulty.ToString(), question.Tags, null, question.Year, question.Reference, question.ParagraphTag,
             question.Options.OrderBy(o => o.SortOrder).Select(o => new QuestionOptionDto(o.Id, o.OptionLetter, o.Text, o.ImageUrl)).ToList(),
             new List<QuestionImageDto>(), null, false, new QuestionStatsDto(question.AttemptsCount, question.GetCorrectRate())
         );

@@ -11,6 +11,7 @@ public record QuestionDto(
     string? LectureTitle,
     int? Year,
     string? Reference,
+    string? ParagraphTag,
     List<QuestionOptionDto> Options,
     List<QuestionImageDto> Images,
     QuestionUserAnswerDto? UserAnswer,
@@ -69,7 +70,8 @@ public record CreateQuestionDto(
     string? CorrectAnswer,
     string Explanation,
     string? Reference,
-    int? Year
+    int? Year,
+    string? ParagraphTag = null
 );
 
 public record CreateOptionDto(
@@ -85,7 +87,9 @@ public record UpdateQuestionDto(
     string Explanation,
     string? Reference,
     List<UpdateOptionDto> Options,
-    string? CorrectAnswer
+    string? CorrectAnswer,
+    int? Year = null,
+    string? ParagraphTag = null
 );
 
 public record UpdateOptionDto(

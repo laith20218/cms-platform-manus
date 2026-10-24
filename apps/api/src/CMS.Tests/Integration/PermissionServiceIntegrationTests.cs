@@ -121,7 +121,7 @@ public sealed class PermissionServiceIntegrationTests
         await db.SaveChangesAsync();
 
         var unitOfWork = new Mock<IUnitOfWork>(MockBehavior.Strict);
-        var handler = new AdminManagementHandlers(db, unitOfWork.Object, new PermissionService(db, new NoCacheService()), new Mock<ISecurityAuditWriter>().Object);
+        var handler = new AdminManagementHandlers(db, unitOfWork.Object, new PermissionService(db, new NoCacheService()), new Mock<ISecurityAuditWriter>().Object, NoOp.ActivityWriter());
         var command = new GenerateCodesCommand("subject", other.Id, 30, 1, "T", DateTime.UtcNow.AddDays(1), "full_subject", false, admin.Id);
 
         var action = () => handler.Handle(command, CancellationToken.None);

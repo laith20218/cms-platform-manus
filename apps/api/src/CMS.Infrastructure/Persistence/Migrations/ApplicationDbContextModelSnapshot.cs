@@ -182,6 +182,59 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.ToTable("admins");
                 });
 
+            modelBuilder.Entity("CMS.Domain.Entities.AdminActivityLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("ActionType")
+                        .HasColumnType("integer")
+                        .HasColumnName("action_type");
+
+                    b.Property<Guid>("AdminId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("admin_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Metadata")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("metadata");
+
+                    b.Property<string>("ResourceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("resource_id");
+
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_admin_activity_logs");
+
+                    b.HasIndex("ActionType")
+                        .HasDatabaseName("ix_admin_activity_logs_action_type");
+
+                    b.HasIndex("SessionId")
+                        .HasDatabaseName("ix_admin_activity_logs_session_id");
+
+                    b.HasIndex("AdminId", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_admin_activity_logs_admin_created");
+
+                    b.ToTable("admin_activity_logs");
+                });
+
             modelBuilder.Entity("CMS.Domain.Entities.AdminPermission", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1727,6 +1780,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("lecture_id");
 
+                    b.Property<string>("ParagraphTag")
+                        .HasColumnType("text")
+                        .HasColumnName("paragraph_tag");
+
                     b.Property<string>("Reference")
                         .HasColumnType("text")
                         .HasColumnName("reference");
@@ -2612,9 +2669,17 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("closed_at");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<string>("DeviceDetails")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("device_details");
 
                     b.Property<Guid>("FamilyId")
                         .HasColumnType("uuid")
@@ -2624,6 +2689,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("installation_id");
+
+                    b.Property<string>("IpAddress")
+                        .HasColumnType("text")
+                        .HasColumnName("ip_address");
 
                     b.Property<DateTime>("LastActivityAt")
                         .HasColumnType("timestamp with time zone")
@@ -2667,6 +2736,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
+                    b.Property<string>("UserAgent")
+                        .HasColumnType("text")
+                        .HasColumnName("user_agent");
+
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")
                         .HasColumnName("user_id");
@@ -2680,6 +2753,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("FamilyId", "Status")
                         .HasDatabaseName("ix_user_sessions_family_id_status");
+
+                    b.HasIndex("Status", "LastActivityAt")
+                        .HasDatabaseName("ix_user_sessions_sweeper")
+                        .HasFilter("closed_at IS NULL AND status = 1");
 
                     b.HasIndex("UserId", "InstallationId", "Status")
                         .HasDatabaseName("ix_user_sessions_user_id_installation_id_status");
@@ -2709,6 +2786,18 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_admins_admin_roles_role_id");
 
                     b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.AdminActivityLog", b =>
+                {
+                    b.HasOne("CMS.Domain.Entities.Admin", "Admin")
+                        .WithMany()
+                        .HasForeignKey("AdminId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_admin_activity_logs_admins_admin_id");
+
+                    b.Navigation("Admin");
                 });
 
             modelBuilder.Entity("CMS.Domain.Entities.AdminPermission", b =>

@@ -275,6 +275,66 @@ public sealed class AdminEndpointsIntegrationTests : IClassFixture<AdminEndpoint
     }
 
     private sealed record SettingResponse(string id, string key, string value, string? description, string? category);
+
+    // ===== Push 2 / Fix-3: forwarded headers must re-key the admin-login rate limiter =====
+
+    /// <summary>
+    /// With UseForwardedHeaders (Fix-3) installed, X-Forwarded-For must become the rate-limit
+    /// key: six rapid login attempts carrying the SAME forwarded IP hit the per-IP window
+    /// (5/minute) and the 6th returns 429, while requests with DIFFERENT forwarded IPs each
+    /// get their own partition (no 429). The burst is aligned to the start of a fresh
+    /// clock-anchored window so a boundary crossing can never split the counter.
+    /// </summary>
+    [Fact]
+    public async Task AdminLogin_RateLimits_OnForwardedClientIp_NotProxyAddress()
+    {
+        // Align to a fresh fixed window (limiter windows anchor to whole minutes).
+        var now = DateTime.UtcNow;
+        var untilBoundary = TimeSpan.FromMilliseconds(60000 - now.Millisecond + 350);
+        await Task.Delay(untilBoundary);
+
+        // Fresh TEST-NET-2 IP — unique per run so other tests can never poison this partition.
+        var forwardedIp = $"198.51.100.{Random.Shared.Next(1, 254)}";
+        var statuses = new List<HttpStatusCode>();
+        for (var i = 0; i < 6; i++)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/admin/login")
+            {
+                Content = JsonContent.Create(new { email = $"xff-p2-{i}@example.invalid", password = "WrongPass123!" })
+            };
+            request.Headers.TryAddWithoutValidation("X-Forwarded-For", forwardedIp);
+            request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "https");
+            var response = await _factory.Client.SendAsync(request);
+            statuses.Add(response.StatusCode);
+        }
+
+        statuses.Should().Contain(HttpStatusCode.TooManyRequests,
+            "six attempts from one forwarded client IP must breach the 5/minute window: {0}",
+            string.Join(", ", statuses));
+        statuses.Count(s => s == HttpStatusCode.BadRequest).Should().Be(5);
+    }
+
+    [Fact]
+    public async Task AdminLogin_DistinctForwardedIps_EachGetTheirOwnPartition()
+    {
+        var now = DateTime.UtcNow;
+        var untilBoundary = TimeSpan.FromMilliseconds(60000 - now.Millisecond + 350);
+        await Task.Delay(untilBoundary);
+
+        for (var i = 0; i < 4; i++)
+        {
+            var forwardedIp = $"198.51.100.{Random.Shared.Next(1, 254)}";
+            var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/admin/login")
+            {
+                Content = JsonContent.Create(new { email = $"xff-uniq-{i}@example.invalid", password = "WrongPass123!" })
+            };
+            request.Headers.TryAddWithoutValidation("X-Forwarded-For", forwardedIp);
+            request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "https");
+            var response = await _factory.Client.SendAsync(request);
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
+                "each distinct forwarded IP is its own rate-limit partition (wrong credentials → 400, never 429)");
+        }
+    }
 }
 
 // ===== Test Factory =====

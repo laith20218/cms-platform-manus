@@ -35,6 +35,8 @@ public class LibraryHandlers :
     private readonly ISystemSettingsService _settings;
     private readonly IHtmlBlobSanitizer _htmlSanitizer;
     private readonly ILogger<LibraryHandlers> _logger;
+    // Push 2 / Track 2: activity-monitor writer (best-effort — never fails the business op).
+    private readonly IAdminActivityWriter _activity;
 
     public LibraryHandlers(
         IApplicationDbContext db,
@@ -44,7 +46,8 @@ public class LibraryHandlers :
         IEntitlementService entitlements,
         ISystemSettingsService settings,
         IHtmlBlobSanitizer htmlSanitizer,
-        ILogger<LibraryHandlers> logger)
+        ILogger<LibraryHandlers> logger,
+        IAdminActivityWriter activity)
     {
         _db = db;
         _unitOfWork = unitOfWork;
@@ -54,6 +57,7 @@ public class LibraryHandlers :
         _settings = settings;
         _htmlSanitizer = htmlSanitizer;
         _logger = logger;
+        _activity = activity;
     }
 
     // ===== Queries =====
@@ -366,6 +370,13 @@ public class LibraryHandlers :
         // Do not publish before an external scanner records a clean verdict.
         // The completion endpoint only confirms storage; publication remains a separate privileged action.
         await _unitOfWork.SaveChangesAsync(ct);
+
+        // Push 2 / Track 2: activity log at complete-upload (not upload-url) so abandoned
+        // uploads never produce ghost log rows. Best-effort, after the business commit.
+        await _activity.LogAsync(req.CreatedBy, AdminActivityActionType.UploadFile, file.Id.ToString(),
+            new { fileId = file.Id, fileSize = req.ActualFileSize, contentType = file.FileFormat, category = file.Category?.ToString() },
+            req.SessionId, ct);
+
         return MapToDto(file);
     }
 

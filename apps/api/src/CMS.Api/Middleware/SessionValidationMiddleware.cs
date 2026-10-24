@@ -38,6 +38,19 @@ public sealed class SessionValidationMiddleware
                 });
                 return;
             }
+
+            // Push 2 / Track 2: throttled activity heartbeat. TouchActivityAsync performs a
+            // single conditional UPDATE that only fires when LastActivityAt is older than 60
+            // seconds, so an active session can never be reaped by the idle-session sweeper.
+            // Failure is non-fatal: a missed heartbeat merely lags the monitor.
+            try
+            {
+                await sessions.TouchActivityAsync(sessionId, context.RequestAborted);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Swallow — heartbeat must never break the request it accompanies.
+            }
         }
 
         await _next(context);

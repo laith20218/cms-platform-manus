@@ -27,6 +27,11 @@ public class Question : AuditableEntity
     public Difficulty Difficulty { get; private set; }
     public int? Year { get; private set; }
     public string? Reference { get; private set; }
+    /// <summary>
+    /// Push 2 / Track 1: institutional paragraph tag (وسم الفقرة) — locates the question inside
+    /// the official curriculum document (e.g. "الفصل الأول"). Nullable: legacy rows stay valid.
+    /// </summary>
+    public string? ParagraphTag { get; private set; }
 
     // Denormalized stats
     public int ViewsCount { get; private set; }
@@ -101,7 +106,16 @@ public class Question : AuditableEntity
 
     public void SetReference(string? reference)
     {
-        Reference = reference;
+        if (string.IsNullOrWhiteSpace(reference)) { Reference = null; }
+        else { Reference = reference.Trim(); }
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Push 2 / Track 1: sets or clears the curriculum paragraph tag (max 200 chars).</summary>
+    public void SetParagraphTag(string? paragraphTag)
+    {
+        if (string.IsNullOrWhiteSpace(paragraphTag)) { ParagraphTag = null; }
+        else { ParagraphTag = paragraphTag.Trim().Length > 200 ? paragraphTag.Trim()[..200] : paragraphTag.Trim(); }
         UpdatedAt = DateTime.UtcNow;
     }
 

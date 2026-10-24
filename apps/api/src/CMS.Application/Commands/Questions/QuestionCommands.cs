@@ -26,13 +26,19 @@ public record CreateQuestionCommand(
     string Difficulty, List<string> Tags,
     List<CreateOptionDto> Options, string CorrectOptionId, string? CorrectAnswer,
     string Explanation, string? Reference, int? Year,
-    Guid CreatedBy
+    Guid CreatedBy,
+    // Push 2 / Track 1: curriculum paragraph tag; Track 2: acting session for the activity log.
+    string? ParagraphTag = null,
+    Guid? SessionId = null
 ) : IRequest<QuestionDto>;
 
 public record UpdateQuestionCommand(
     Guid Id, string Text, string Difficulty,
     List<string> Tags, string Explanation, string? Reference,
-    List<UpdateOptionDto> Options, string? CorrectAnswer
+    List<UpdateOptionDto> Options, string? CorrectAnswer,
+    // Push 2 / Track 1: year + paragraph tag become editable after creation.
+    int? Year = null,
+    string? ParagraphTag = null
 ) : IRequest<QuestionDto>;
 
 public record DeleteQuestionCommand(Guid Id, Guid DeletedBy) : IRequest<Unit>;

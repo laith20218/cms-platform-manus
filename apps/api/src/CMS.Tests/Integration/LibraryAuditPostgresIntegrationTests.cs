@@ -114,7 +114,10 @@ public sealed class LibraryAuditPostgresIntegrationTests
             .AddSingleton<IApplicationDbContext>(db).AddSingleton<IUnitOfWork>(new CMS.Infrastructure.Repositories.UnitOfWork(db))
             .AddSingleton<IFileStorageService>(storage.Object).AddSingleton<IFileScanner>(scanner.Object)
             .AddSingleton<ISystemSettingsService>(settings.Object).AddSingleton<IHtmlBlobSanitizer>(sanitizer.Object)
-            .AddSingleton<IEntitlementService>(new EntitlementService(db)).BuildServiceProvider();
+            .AddSingleton<IEntitlementService>(new EntitlementService(db))
+            // Push 2 / Track 2: LibraryHandlers now also takes IAdminActivityWriter.
+            .AddSingleton<IAdminActivityWriter>(new CMS.Infrastructure.Services.AdminActivityWriter(db, Microsoft.Extensions.Logging.Abstractions.NullLogger<CMS.Infrastructure.Services.AdminActivityWriter>.Instance))
+            .BuildServiceProvider();
         var entitlement = new SignedEntitlementService(db, configuration);
         var token = await entitlement.IssueAsync(student.Id, installation);
         var controller = new LibraryController(provider.GetRequiredService<ISender>(), entitlement, new Mock<IPermissionService>().Object, audit);

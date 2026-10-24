@@ -44,6 +44,9 @@ public class AdminDashboardController : ControllerBase
         return Guid.TryParse(value, out var adminId) ? adminId : throw new UnauthorizedAccessException();
     }
 
+    /// <summary>Push 2 / Track 2: acting session id from the access token — powers per-session counters.</summary>
+    private Guid? GetSessionId() => Guid.TryParse(User.FindFirst("sid")?.Value, out var id) ? id : null;
+
     private async Task<bool> IsInScopeAsync(string entityType, Guid entityId, CancellationToken ct) =>
         await _permissions.IsInScopeAsync(GetAdminId(), entityType, entityId, ct);
 
@@ -341,7 +344,7 @@ public class AdminDashboardController : ControllerBase
     {
         var result = await _mediator.Send(new GenerateCodesCommand(
             dto.ScopeType, dto.ScopeId, dto.DurationDays, dto.Quantity,
-            dto.Prefix, dto.CodeExpiresAt, dto.ContentScope, dto.IsPublic, GetAdminId()
+            dto.Prefix, dto.CodeExpiresAt, dto.ContentScope, dto.IsPublic, GetAdminId(), GetSessionId()
         ), ct);
         return Ok(result);
     }

@@ -85,7 +85,7 @@ public class AuthHandlerTests
         passwordHasher.Setup(p => p.VerifyPassword(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
         var sessionService = new Mock<ISessionService>();
         sessionService.Setup(s => s.CreateAsync(
-                It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(new SessionTokenPair("access_token", "refresh_token", Guid.NewGuid(), DateTime.UtcNow.AddDays(7)));
         using var uow = new UnitOfWork(db);
 
@@ -294,7 +294,7 @@ public class QuestionHandlerTests
         using var uow = new UnitOfWork(db);
         var correctOptionId = question.Options.First(o => o.IsCorrect).Id.ToString();
 
-        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements(), NoOp.ActivityWriter());
         var cmd = new AnswerQuestionCommand(question.Id, student.Id, correctOptionId, null, 30, false);
 
         // Act
@@ -319,7 +319,7 @@ public class QuestionHandlerTests
         using var uow = new UnitOfWork(db);
         var wrongOptionId = question.Options.First(o => !o.IsCorrect).Id.ToString();
 
-        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements(), NoOp.ActivityWriter());
         var cmd = new AnswerQuestionCommand(question.Id, student.Id, wrongOptionId, null, 20, false);
 
         // Act
@@ -341,7 +341,7 @@ public class QuestionHandlerTests
         using var uow = new UnitOfWork(db);
         var correctOptionId = question.Options.First(o => o.IsCorrect).Id.ToString();
 
-        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements(), NoOp.ActivityWriter());
 
         // First attempt
         await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, correctOptionId, null, 30, false), CancellationToken.None);
@@ -382,7 +382,7 @@ public class QuestionHandlerTests
         var student = db.Students.First();
         var (question, correct, _) = SeedMultipleSelectQuestion(db);
         using var uow = new UnitOfWork(db);
-        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements(), NoOp.ActivityWriter());
 
         // Exam-engine contract: JSON array of option ids. Order must not matter.
         var ordered = correct.OrderByDescending(o => o.Id).Select(o => o.Id).ToList();
@@ -401,7 +401,7 @@ public class QuestionHandlerTests
         var student = db.Students.First();
         var (question, correct, wrong) = SeedMultipleSelectQuestion(db);
         using var uow = new UnitOfWork(db);
-        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements(), NoOp.ActivityWriter());
 
         // Correct set + one extra wrong option → must fail.
         var oneOff = correct.Select(o => o.Id).Append(wrong.First().Id).ToList();
@@ -425,7 +425,7 @@ public class QuestionHandlerTests
         var student = db.Students.First();
         var (question, _, _) = SeedMultipleSelectQuestion(db);
         using var uow = new UnitOfWork(db);
-        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements(), NoOp.ActivityWriter());
 
         var result = await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, "[]", null, 15, false), CancellationToken.None);
 
@@ -439,7 +439,7 @@ public class QuestionHandlerTests
         var student = db.Students.First();
         var (question, correct, _) = SeedMultipleSelectQuestion(db);
         using var uow = new UnitOfWork(db);
-        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements(), NoOp.ActivityWriter());
 
         // Legacy fallback contract: comma-separated ids.
         var payload = string.Join(",", correct.Select(o => o.Id));
@@ -462,7 +462,7 @@ public class QuestionHandlerTests
         db.Questions.Add(question);
         await db.SaveChangesAsync();
         using var uow = new UnitOfWork(db);
-        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements(), NoOp.ActivityWriter());
 
         var result = await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, null, "تنتج الخلايا التائية وتدعم نضجها", 42, false), CancellationToken.None);
 
@@ -485,7 +485,7 @@ public class QuestionHandlerTests
         db.Questions.Add(question);
         await db.SaveChangesAsync();
         using var uow = new UnitOfWork(db);
-        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements());
+        var handler = new QuestionCommandHandlers(db, uow, AllowAllEntitlements(), NoOp.ActivityWriter());
         var correctOptionId = question.Options.Single(option => option.IsCorrect).Id.ToString();
 
         var result = await handler.Handle(new AnswerQuestionCommand(question.Id, student.Id, correctOptionId, null, 17, false), CancellationToken.None);

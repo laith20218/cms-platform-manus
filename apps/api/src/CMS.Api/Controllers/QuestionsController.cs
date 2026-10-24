@@ -31,6 +31,9 @@ public class QuestionsController : ControllerBase
     private Guid? GetStudentId() => Guid.TryParse(User.FindFirst("sub")?.Value, out var id) ? id : null;
     private Guid GetAdminId() => Guid.Parse(User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
 
+    /// <summary>Push 2 / Track 2: acting session id from the access token — powers per-session counters.</summary>
+    private Guid? GetSessionId() => Guid.TryParse(User.FindFirst("sid")?.Value, out var id) ? id : null;
+
     /// <summary>
     /// Get paginated list of questions with filters.
     /// </summary>
@@ -184,7 +187,8 @@ public class QuestionsController : ControllerBase
         var result = await _mediator.Send(new CreateQuestionCommand(
             dto.Text, dto.Type, dto.SubjectId, dto.LectureId,
             dto.Difficulty, dto.Tags, dto.Options, dto.CorrectOptionId, dto.CorrectAnswer,
-            dto.Explanation, dto.Reference, dto.Year, GetAdminId()
+            dto.Explanation, dto.Reference, dto.Year, GetAdminId(),
+            dto.ParagraphTag, GetSessionId()
         ), ct);
         return CreatedAtAction(nameof(GetQuestion), new { id = result.Id }, result);
     }
@@ -199,7 +203,8 @@ public class QuestionsController : ControllerBase
     {
         if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Forbid();
         var result = await _mediator.Send(new UpdateQuestionCommand(
-            id, dto.Text, dto.Difficulty, dto.Tags, dto.Explanation, dto.Reference, dto.Options, dto.CorrectAnswer
+            id, dto.Text, dto.Difficulty, dto.Tags, dto.Explanation, dto.Reference, dto.Options, dto.CorrectAnswer,
+            dto.Year, dto.ParagraphTag
         ), ct);
         return Ok(result);
     }

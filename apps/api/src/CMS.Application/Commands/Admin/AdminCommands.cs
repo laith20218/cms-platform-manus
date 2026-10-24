@@ -12,7 +12,11 @@ public record AdminLoginCommand(
     string Email,
     string Password,
     string? TwoFactorCode,
-    string? InstallationId = null
+    string? InstallationId = null,
+    // Push 2 / Track 2: request context captured by the controller (no IHttpContextAccessor
+    // in Infrastructure) — persisted onto the created UserSession for the activity monitor.
+    string? IPAddress = null,
+    string? UserAgent = null
 ) : IRequest<AuthResponse>;
 
 /// <summary>

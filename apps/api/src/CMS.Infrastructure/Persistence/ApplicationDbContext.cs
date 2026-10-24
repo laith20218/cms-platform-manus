@@ -55,6 +55,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<UserSession> UserSessions => Set<UserSession>();
     public DbSet<UserInstallation> UserInstallations => Set<UserInstallation>();
 
+    // Push 2 / Track 2: admin activity monitor
+    public DbSet<AdminActivityLog> AdminActivityLogs => Set<AdminActivityLog>();
+
     // Notifications and security audit
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();
@@ -76,6 +79,11 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasIndex(x => x.RefreshTokenHash).IsUnique();
             entity.HasIndex(x => new { x.FamilyId, x.Status });
             entity.HasIndex(x => new { x.UserId, x.InstallationId, x.Status });
+            entity.Property(x => x.DeviceDetails).HasColumnType("jsonb");
+            // Push 2 / Track 2: partial index serving the idle-session sweeper.
+            entity.HasIndex(x => new { x.Status, x.LastActivityAt })
+                .HasDatabaseName("ix_user_sessions_sweeper")
+                .HasFilter("closed_at IS NULL AND status = 1");
         });
         modelBuilder.Entity<UserInstallation>(entity =>
         {
@@ -114,6 +122,20 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasIndex(x => new { x.PackageId, x.OccurredAt });
             entity.HasIndex(x => new { x.StudentId, x.InstallationId, x.Action });
             entity.HasOne(x => x.Package).WithMany().HasForeignKey(x => x.PackageId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<AdminActivityLog>(entity =>
+        {
+            // Push 2 / Track 2: activity-monitor lookup indices. The composite is DESC on
+            // created_at because the monitor renders newest actions first.
+            entity.HasIndex(x => new { x.AdminId, x.CreatedAt })
+                .HasDatabaseName("ix_admin_activity_logs_admin_created")
+                .IsDescending(false, true);
+            entity.HasIndex(x => x.ActionType)
+                .HasDatabaseName("ix_admin_activity_logs_action_type");
+            entity.HasIndex(x => x.SessionId);
+            entity.Property(x => x.Metadata).HasColumnType("jsonb");
+            entity.Property(x => x.ResourceId).HasMaxLength(100);
+            entity.HasOne(x => x.Admin).WithMany().HasForeignKey(x => x.AdminId).OnDelete(DeleteBehavior.Restrict);
         });
         modelBuilder.Entity<AdminRole>(entity =>
         {

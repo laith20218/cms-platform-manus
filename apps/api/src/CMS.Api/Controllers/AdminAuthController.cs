@@ -49,8 +49,12 @@ public class AdminAuthController : ControllerBase
         }
 
         var result = await _mediator.Send(new AdminLoginCommand(
-            request.Email, request.Password, request.TwoFactorCode, request.InstallationId
-        ), ct);
+            request.Email, request.Password, request.TwoFactorCode, request.InstallationId,
+            // Push 2 / Track 2: captured here (not via IHttpContextAccessor) and persisted
+            // onto the created UserSession for the activity monitor. After Fix-3 this is the
+            // real client IP behind Render's proxy.
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            Request.Headers.UserAgent.ToString()), ct);
         return Ok(result);
     }
 

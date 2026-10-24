@@ -82,7 +82,8 @@ public record GenerateCodesCommand(
     DateTime? CodeExpiresAt,
     string ContentScope,
     bool IsPublic,
-    Guid CreatedBy
+    Guid CreatedBy,
+    Guid? SessionId = null
 ) : IRequest<GenerateCodesResultDto>;
 
 public record GenerateCodesResultDto(

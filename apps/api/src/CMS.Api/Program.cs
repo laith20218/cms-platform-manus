@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -188,6 +189,21 @@ try
     var app = builder.Build();
 
     // === Middleware Pipeline ===
+    // Fix-3 (Push 2): honor the reverse proxy's X-Forwarded-For / X-Forwarded-Proto headers so
+    // RemoteIpAddress is the REAL client IP behind Render's edge proxy. Must run FIRST — before
+    // HTTPS redirection, CORS, rate limiting, and the admin-login rate limiter (which keys on
+    // RemoteIpAddress). ForwardLimit=1 consumes only the rightmost (proxy-appended) entry, so a
+    // client cannot spoof the counter by prepending fake addresses. KnownNetworks/Proxies are
+    // cleared because Render's proxy is not on a loopback network.
+    var forwardedHeadersOptions = new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+        ForwardLimit = 1
+    };
+    forwardedHeadersOptions.KnownNetworks.Clear();
+    forwardedHeadersOptions.KnownProxies.Clear();
+    app.UseForwardedHeaders(forwardedHeadersOptions);
+
     if (app.Environment.IsDevelopment())
     {
         app.UseSwagger();

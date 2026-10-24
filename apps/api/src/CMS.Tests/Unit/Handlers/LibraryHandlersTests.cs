@@ -52,7 +52,7 @@ public sealed class LibraryHandlersTests
             entitlements.Object,
             settingsService.Object,
             sanitizer.Object,
-            NullLogger<LibraryHandlers>.Instance);
+            NullLogger<LibraryHandlers>.Instance, NoOp.ActivityWriter());
         return (handler, storage, sanitizer, scanner);
     }
 

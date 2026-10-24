@@ -27,6 +27,17 @@ public class UserSession : BaseEntity
     public int TokenVersion { get; set; } = 1;
     public SessionStatus Status { get; set; } = SessionStatus.Active;
 
+    // ===== Push 2 / Track 2: activity-monitor enrichment (all nullable — legacy rows stay valid) =====
+    /// <summary>Client IP captured at login (string, not inet — rendered directly in the monitor).
+    /// Named IpAddress (not IPAddress) so the snake_case mapper produces ip_address.</summary>
+    public string? IpAddress { get; set; }
+    /// <summary>Raw User-Agent header captured at login.</summary>
+    public string? UserAgent { get; set; }
+    /// <summary>Parsed device summary (browser / os / deviceType) stored as a JSON string (jsonb).</summary>
+    public string? DeviceDetails { get; set; }
+    /// <summary>Set by the SessionSweeperService when the session goes idle (> 15 minutes).</summary>
+    public DateTime? ClosedAt { get; set; }
+
     public bool IsActiveAt(DateTime utcNow) =>
         Status == SessionStatus.Active &&
         RevokedAt is null &&

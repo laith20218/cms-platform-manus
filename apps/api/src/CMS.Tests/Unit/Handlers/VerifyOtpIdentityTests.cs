@@ -40,7 +40,7 @@ public sealed class VerifyOtpIdentityTests
 
         var sessions = new Mock<ISessionService>();
         sessions.Setup(service => service.CreateAsync(
-                It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(new SessionTokenPair("access", "refresh", Guid.NewGuid(), DateTime.UtcNow.AddDays(7)));
         using var unitOfWork = new UnitOfWork(db);
         var handler = new VerifyOtpCommandHandler(new StudentRepository(db), cache.Object, sessions.Object, unitOfWork, OtpEnabledConfiguration());
@@ -51,7 +51,7 @@ public sealed class VerifyOtpIdentityTests
 
         response.AccessToken.Should().Be("access");
         sessions.Verify(service => service.CreateAsync(
-            student.Id, student.Phone, "student", installationId, null, It.IsAny<CancellationToken>()), Times.Once);
+            student.Id, student.Phone, "student", installationId, null, It.IsAny<CancellationToken>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
     }
 
     [Fact]
@@ -80,6 +80,6 @@ public sealed class VerifyOtpIdentityTests
 
         await act.Should().ThrowAsync<CMS.Domain.Exceptions.DomainException>();
         sessions.Verify(service => service.CreateAsync(
-            It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 }

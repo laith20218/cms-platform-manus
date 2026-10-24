@@ -44,6 +44,9 @@ public interface IApplicationDbContext
     DbSet<UserSession> UserSessions { get; }
     DbSet<UserInstallation> UserInstallations { get; }
 
+    // Push 2 / Track 2: admin activity monitor
+    DbSet<AdminActivityLog> AdminActivityLogs { get; }
+
     DbSet<Notification> Notifications { get; }
     DbSet<NotificationDelivery> NotificationDeliveries { get; }
     DbSet<SecurityLog> SecurityLogs { get; }

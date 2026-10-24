@@ -39,7 +39,9 @@ public sealed class SessionService : ISessionService
         string role,
         string installationId,
         string? displayName,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? ipAddress = null,
+        string? userAgent = null)
     {
         if (RequiresStudentDeviceBinding(role))
         {
@@ -61,7 +63,11 @@ public sealed class SessionService : ISessionService
             FamilyId = Guid.NewGuid(),
             RefreshTokenHash = HashToken(rawRefreshToken),
             RefreshTokenExpiresAt = DateTime.UtcNow.AddDays(_refreshLifetimeDays),
-            LastActivityAt = DateTime.UtcNow
+            LastActivityAt = DateTime.UtcNow,
+            // Push 2 / Track 2: activity-monitor enrichment (captured by the controller).
+            IpAddress = ipAddress,
+            UserAgent = userAgent is { Length: > 512 } ? userAgent[..512] : userAgent,
+            DeviceDetails = DeviceDetailsParser.Parse(userAgent)
         };
 
         _db.UserSessions.Add(session);
@@ -202,6 +208,20 @@ public sealed class SessionService : ISessionService
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Push 2 / Track 2: throttled activity heartbeat. A single conditional UPDATE refreshes
+    /// LastActivityAt only when the stored value is older than one minute — cheap enough to
+    /// run on every authenticated request without turning reads into writes.
+    /// </summary>
+    public async Task TouchActivityAsync(Guid sessionId, CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        var throttleCutoff = now.AddSeconds(-60);
+        await _db.UserSessions
+            .Where(s => s.Id == sessionId && s.LastActivityAt < throttleCutoff)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.LastActivityAt, now), ct);
     }
 
     private async Task LogSessionSecurityEventAsync(
