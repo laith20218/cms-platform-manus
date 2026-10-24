@@ -212,11 +212,14 @@ public class AcademicQueryHandlers :
                 0, 0, lecture.DeletedAt != null, false, null))
             .ToListAsync(ct);
 
-        foreach (var lecture in lectures)
+        // Index-based iteration: the loop below replaces list elements (record
+        // `with` updates), which a foreach enumerator forbids ("Collection was
+        // modified" — this threw 500s on /subjects/{id}/lectures in production).
+        for (var index = 0; index < lectures.Count; index++)
         {
-            var answered = await _db.AttemptLogs.CountAsync(attempt => attempt.StudentId == req.StudentId.Value && attempt.Question.LectureId == lecture.Id, ct);
-            var total = lecture.QuestionsCount;
-            lectures[lectures.IndexOf(lecture)] = lecture with { UserAnswered = answered, UserProgress = total > 0 ? answered * 100.0 / total : 0 };
+            var answered = await _db.AttemptLogs.CountAsync(attempt => attempt.StudentId == req.StudentId.Value && attempt.Question.LectureId == lectures[index].Id, ct);
+            var total = lectures[index].QuestionsCount;
+            lectures[index] = lectures[index] with { UserAnswered = answered, UserProgress = total > 0 ? answered * 100.0 / total : 0 };
         }
 
         var completedAtByLecture = await _db.LectureCompletions.AsNoTracking()

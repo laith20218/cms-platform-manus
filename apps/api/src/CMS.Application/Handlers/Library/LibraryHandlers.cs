@@ -75,14 +75,16 @@ public class LibraryHandlers :
         var files = await query
             .OrderByDescending(f => f.CreatedAt)
             .ToListAsync(ct);
-        files = (await Task.WhenAll(files.Select(async file => new
+        // Sequential per-file scope checks: the entitlement service queries the
+        // SAME scoped DbContext, so concurrent checks (Task.WhenAll) trip EF's
+        // concurrency detector and 500'd /library/subject/{id} in production.
+        var allowedFiles = new List<LibraryFile>();
+        foreach (var file in files)
         {
-            File = file,
-            Allowed = await _entitlements.CanAccessSubjectContentAsync(req.StudentId, file.SubjectId, RequiredContentScope(file.Type), ct)
-        })))
-            .Where(candidate => candidate.Allowed)
-            .Select(candidate => candidate.File)
-            .ToList();
+            if (await _entitlements.CanAccessSubjectContentAsync(req.StudentId, file.SubjectId, RequiredContentScope(file.Type), ct))
+                allowedFiles.Add(file);
+        }
+        files = allowedFiles;
         var total = files.Count;
         files = files.Skip((req.Page - 1) * req.PageSize).Take(req.PageSize).ToList();
         var visibleFileIds = files.Select(file => file.Id).ToList();
