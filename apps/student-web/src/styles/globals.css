@@ -7,6 +7,10 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
+/* Push 9: enable `dark:` utilities on the app's data-theme attribute
+   (Tailwind v4 defaults to prefers-color-scheme — the app toggles data-theme). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 /* ===== 1. --cms-* Color Tokens (Calm Blue + White) ===== */
 :root {
   /* Ink (deep blue — authority surfaces) */
@@ -52,6 +56,11 @@
   --cms-surface: #ffffff;
   --cms-surface-elevated: #ffffff;
   --cms-surface-glass: rgba(255, 255, 255, 0.90);
+  /* Nested surfaces (input fills, tinted rows — Push 9) */
+  --cms-surface-2: #f7faff;
+  --cms-surface-3: #eef4fc;
+  /* Soft primary tint (card headers, explanation panels — Push 9) */
+  --c-tint-primary: rgba(238, 246, 255, 0.55);
 
   /* ===== 2. Spacing Scale (4px base) ===== */
   --cms-space-0: 0;
@@ -290,45 +299,66 @@
 }
 
 /* ============================================
-   Dark Mode (Calm Blue + White dark variant)
+   Dark Mode (Push 9 — global-standard slate palette)
+   Backgrounds are deep navy, never #000; text is slate-100, never #fff;
+   borders/cards carry subtle slate elevation. All Radix primitives inherit
+   these tokens automatically. Contrast verified WCAG AA.
    ============================================ */
 [data-theme="dark"] {
-  --cms-ink-950: #020617;
+  /* Ink scale — the page background is ink-950 (#0b1120 deep navy) */
+  --cms-ink-950: #0b1120;
   --cms-ink-900: #0f172a;
   --cms-ink-800: #1e293b;
 
+  /* Page + tinted backgrounds (ivory maps inverted) */
   --cms-ivory-50: #0f172a;
-  --cms-ivory-100: #0a0f1c;
-  --cms-ivory-200: #1e293b;
-  --cms-ivory-300: #334155;
+  --cms-ivory-100: #0b1120;
+  --cms-ivory-200: #16213a;
+  --cms-ivory-300: #1e293b;
 
+  /* Lines — subtle slate elevation */
   --cms-line: #1e293b;
   --cms-line-strong: #334155;
 
-  --cms-text: #e2e8f0;
-  --cms-text-soft: #94a3b8;
-  --cms-text-muted: #64748b;
+  /* Text — slate-100 primary, never pure white */
+  --cms-text: #f1f5f9;
+  --cms-text-soft: #cbd5e1;
+  --cms-text-muted: #94a3b8;
+  --cms-text-inverse: #0b1120;
 
-  --cms-surface: #1e293b;
-  --cms-surface-elevated: #0f172a;
-  --cms-surface-glass: rgba(15, 23, 42, 0.90);
+  /* Surfaces — elevated slate cards on the navy page */
+  --cms-surface: #0f172a;
+  --cms-surface-elevated: #16213a;
+  --cms-surface-glass: rgba(15, 23, 42, 0.92);
+  --cms-surface-2: #131d33;
+  --cms-surface-3: #1e293b;
+  --c-tint-primary: rgba(45, 127, 240, 0.10);
 
+  /* Primary — deepened fills, brightened text tones (AA on #0f172a) */
   --cms-teal-100: #1e3a5f;
-  --cms-teal-50: #172554;
+  --cms-teal-50: #14233f;
 
+  /* Status — luminous dark variants (text-safe) */
+  --cms-success: #34d399;
   --cms-success-50: #052e1e;
+  --cms-warning: #fbbf24;
   --cms-warning-50: #2a1c08;
-  --cms-danger-50: #2a0a0a;
+  --cms-danger: #f87171;
+  --cms-danger-50: #2a0e0e;
+  --cms-info: #22d3ee;
   --cms-info-50: #082027;
 
-  --cms-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.30);
-  --cms-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.40);
-  --cms-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.50);
+  /* Shadows — deeper, no light bleed */
+  --cms-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --cms-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.40);
+  --cms-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --cms-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --cms-shadow-xl: 0 20px 56px rgba(0, 0, 0, 0.60);
 
   /* Update compat aliases for dark */
-  --c-bg: var(--cms-ink-900);
+  --c-bg: var(--cms-ivory-100);
   --c-bg-hover: var(--cms-ivory-300);
-  --c-medical-white: var(--cms-ink-800);
+  --c-medical-white: var(--cms-surface);
   --c-surface: var(--cms-surface);
   --c-glass: var(--cms-surface-glass);
   --c-glass-strong: var(--cms-surface-glass);
@@ -344,9 +374,14 @@
 
   --c-primary-700: var(--cms-teal-400);
   --c-primary-500: var(--cms-teal-500);
+  --c-primary-100: var(--cms-teal-100);
+  --c-primary-50: var(--cms-teal-50);
   --c-success-500: var(--cms-success);
   --c-danger-500: var(--cms-danger);
   --c-warning-500: var(--cms-warning);
+
+  /* Selection + focus adapt */
+  --cms-shadow-focus: 0 0 0 3px rgba(106, 165, 247, 0.30);
 }
 
 /* ============================================

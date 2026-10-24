@@ -6,6 +6,8 @@ import { CalendarDays, Camera, CheckCircle2, Clock3, GraduationCap, KeyRound, Lo
 import { useAuth } from '@/app/providers/useAuth';
 import { authApi } from '@/features/auth/services/auth-api';
 import { profileApi } from './services/profile-api';
+import { SessionsSection } from './SessionsSection';
+import { ProfileEditModal } from './ProfileEditModal';
 
 function dateLabel(value?: string | null) {
   return value ? new Date(value).toLocaleDateString('ar-SY', { year: 'numeric', month: 'long', day: 'numeric' }) : '—';
@@ -40,6 +42,8 @@ export default function ProfilePage() {
   const [emailEditing, setEmailEditing] = useState(false);
   const [emailValue, setEmailValue] = useState('');
   const [emailBusy, setEmailBusy] = useState(false);
+  // Profile edit modal (Push 9 Task 5): name + college + year
+  const [editOpen, setEditOpen] = useState(false);
 
   const submitPasswordChange = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -139,13 +143,13 @@ export default function ProfilePage() {
         <div className="mb-6 flex">
           <button
             type="button"
-            onClick={startEmailEdit}
-            disabled={emailEditing}
-            aria-label="تعديل البريد الإلكتروني"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--cms-line-strong)] bg-white px-3 py-1.5 text-sm font-medium text-[var(--cms-text-soft)] transition-all duration-200 hover:border-[var(--cms-teal-100)] hover:bg-[var(--cms-teal-50)] hover:text-[var(--cms-teal-700)] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => setEditOpen(true)}
+            aria-label="تعديل البيانات الشخصية"
+            data-testid="open-profile-edit"
+            className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--cms-line-strong)] bg-[var(--cms-surface-2)] px-4 py-1.5 text-sm font-semibold text-[var(--cms-text-soft)] transition-all duration-200 hover:border-[var(--cms-teal-100)] hover:bg-[var(--cms-teal-50)] hover:text-[var(--cms-teal-700)]"
           >
             <Pencil className="h-3.5 w-3.5" />
-            تعديل
+            تعديل البيانات
           </button>
         </div>
 
@@ -237,7 +241,7 @@ export default function ProfilePage() {
                     value={emailValue}
                     onChange={(e) => setEmailValue(e.target.value)}
                     placeholder="example@email.com"
-                    className="h-9 flex-1 rounded-lg border border-[var(--cms-line-strong)] bg-white px-3 text-sm outline-none transition-colors focus:border-[var(--cms-teal-500)]"
+                    className="h-9 flex-1 rounded-lg border border-[var(--cms-line-strong)] bg-[var(--cms-surface-2)] px-3 text-sm outline-none text-[var(--cms-text)] transition-colors focus:border-[var(--cms-teal-500)]"
                     disabled={emailBusy}
                   />
                   <button
@@ -253,7 +257,7 @@ export default function ProfilePage() {
                     type="button"
                     onClick={() => { setEmailEditing(false); setEmailValue(data.email || ''); }}
                     disabled={emailBusy}
-                    className="inline-flex h-9 items-center gap-1 rounded-lg border border-[var(--cms-line-strong)] bg-white px-3 text-xs font-medium text-[var(--cms-text-soft)] transition-colors hover:bg-[var(--cms-ivory-100)] disabled:opacity-50"
+                    className="inline-flex h-9 items-center gap-1 rounded-lg border border-[var(--cms-line-strong)] bg-[var(--cms-surface-2)] px-3 text-xs font-medium text-[var(--cms-text-soft)] transition-colors hover:bg-[var(--cms-ivory-100)] disabled:opacity-50"
                   >
                     <X className="h-3.5 w-3.5" />
                     إلغاء
@@ -286,13 +290,23 @@ export default function ProfilePage() {
 
         {/* Academic path */}
         <section className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6 shadow-sm md:p-8 lg:col-span-3">
-          <h2 className="flex items-center gap-2 text-lg font-bold text-[var(--cms-text)]">
-            <GraduationCap className="h-5 w-5 text-[var(--cms-teal-600)]" />
-            المسار الأكاديمي
-          </h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 text-lg font-bold text-[var(--cms-text)]">
+              <GraduationCap className="h-5 w-5 text-[var(--cms-teal-600)]" />
+              المسار الأكاديمي
+            </h2>
+            <button
+              type="button"
+              onClick={() => setEditOpen(true)}
+              className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-[var(--cms-teal-600)] transition-colors hover:bg-[var(--cms-teal-50)] hover:text-[var(--cms-teal-700)]"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              تعديل المسار
+            </button>
+          </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
             {[['الجامعة', data.universityName], ['الكلية', data.collegeName], ['السنة', data.academicYearName]].map(([label, value]) => (
-              <div key={label} className="rounded-xl border border-[var(--cms-line)] bg-[var(--cms-ivory-100)] p-4">
+              <div key={label} className="rounded-xl border border-[var(--cms-line)] bg-[var(--cms-surface-2)] p-4">
                 <p className="text-xs text-[var(--cms-text-muted)]">{label}</p>
                 <p className="mt-2 font-bold text-[var(--cms-text)]">{value || 'غير محدد'}</p>
               </div>
@@ -323,7 +337,7 @@ export default function ProfilePage() {
             <button
               type="button"
               onClick={() => { setShowPasswordForm((value) => !value); setPasswordStatus(null); }}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--cms-line-strong)] bg-white px-4 py-2 text-sm font-semibold text-[var(--cms-text-soft)] transition-all duration-200 hover:border-[var(--cms-teal-100)] hover:bg-[var(--cms-teal-50)] hover:text-[var(--cms-teal-700)]"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--cms-line-strong)] bg-[var(--cms-surface-2)] px-4 py-2 text-sm font-semibold text-[var(--cms-text-soft)] transition-all duration-200 hover:border-[var(--cms-teal-100)] hover:bg-[var(--cms-teal-50)] hover:text-[var(--cms-teal-700)]"
             >
               <KeyRound className="h-4 w-4" />
               {showPasswordForm ? 'إلغاء' : 'تغيير كلمة المرور'}
@@ -331,7 +345,7 @@ export default function ProfilePage() {
             <button
               type="button"
               onClick={() => void logout()}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--cms-danger-50)] bg-[var(--cms-danger-50)] px-4 py-2 text-sm font-bold text-[var(--cms-danger)] transition-colors hover:bg-red-100"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--cms-danger-50)] bg-[var(--cms-danger-50)] px-4 py-2 text-sm font-bold text-[var(--cms-danger)] transition-colors hover:bg-[var(--cms-danger-50)]"
             >
               <LogOut className="h-4 w-4" />
               تسجيل الخروج
@@ -352,7 +366,7 @@ export default function ProfilePage() {
                 type="password"
                 value={currentPassword}
                 onChange={(event) => setCurrentPassword(event.target.value)}
-                className="h-11 rounded-lg border border-[var(--cms-line-strong)] bg-white px-3 outline-none transition-colors focus:border-[var(--cms-teal-500)]"
+                className="h-11 rounded-lg border border-[var(--cms-line-strong)] bg-[var(--cms-surface-2)] px-3 outline-none text-[var(--cms-text)] transition-colors focus:border-[var(--cms-teal-500)]"
               />
             </label>
             <label className="grid gap-2 text-sm font-semibold text-[var(--cms-text-soft)]">
@@ -364,7 +378,7 @@ export default function ProfilePage() {
                 type="password"
                 value={newPassword}
                 onChange={(event) => setNewPassword(event.target.value)}
-                className="h-11 rounded-lg border border-[var(--cms-line-strong)] bg-white px-3 outline-none transition-colors focus:border-[var(--cms-teal-500)]"
+                className="h-11 rounded-lg border border-[var(--cms-line-strong)] bg-[var(--cms-surface-2)] px-3 outline-none text-[var(--cms-text)] transition-colors focus:border-[var(--cms-teal-500)]"
               />
             </label>
             <label className="grid gap-2 text-sm font-semibold text-[var(--cms-text-soft)]">
@@ -376,7 +390,7 @@ export default function ProfilePage() {
                 type="password"
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}
-                className="h-11 rounded-lg border border-[var(--cms-line-strong)] bg-white px-3 outline-none transition-colors focus:border-[var(--cms-teal-500)]"
+                className="h-11 rounded-lg border border-[var(--cms-line-strong)] bg-[var(--cms-surface-2)] px-3 outline-none text-[var(--cms-text)] transition-colors focus:border-[var(--cms-teal-500)]"
               />
             </label>
             {passwordStatus && (
@@ -404,10 +418,10 @@ export default function ProfilePage() {
           </form>
         )}
 
-        <p className="mt-5 rounded-xl border border-dashed border-[var(--cms-line-strong)] bg-[var(--cms-ivory-100)] p-4 text-sm text-[var(--cms-text-muted)]">
-          إدارة الجلسات والأجهزة ستضاف بعد توفير مسار آمن يعرض جلسات الطالب ويتيح إبطالها؛ لا تُعرض هذه العملية كزر شكلي قبل وجود دعم خادمي صريح.
-        </p>
       </section>
+
+      {/* ===== Sessions & devices (Push 9 Task 3 — replaces the "coming soon" placeholder) ===== */}
+      <SessionsSection />
 
       {/* ===== Subscriptions & activated codes ===== */}
       <section className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6 shadow-sm md:p-8">
@@ -432,7 +446,7 @@ export default function ProfilePage() {
               return (
                 <article
                   key={subscription.id}
-                  className="flex flex-col gap-4 rounded-xl border border-[var(--cms-line)] bg-white p-4 transition-colors hover:border-[var(--cms-line-strong)] sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-4 rounded-xl border border-[var(--cms-line)] bg-[var(--cms-surface-2)] p-4 transition-colors hover:border-[var(--cms-line-strong)] sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
                     <p className="font-mono text-sm font-bold tracking-wider text-[var(--cms-text)]">
@@ -468,6 +482,9 @@ export default function ProfilePage() {
         <Clock3 className="h-3.5 w-3.5" />
         تُحدّث حالة الاشتراكات تلقائيًا وفق تاريخ الانتهاء وإدارة المنصة.
       </p>
+
+      {/* Profile edit modal (Push 9 Task 5) */}
+      <ProfileEditModal open={editOpen} onClose={() => setEditOpen(false)} profile={data} />
     </motion.main>
   );
 }

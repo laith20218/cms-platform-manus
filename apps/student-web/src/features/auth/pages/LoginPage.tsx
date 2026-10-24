@@ -82,7 +82,7 @@ export default function LoginPage() {
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="0999999999"
-                  className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] font-medium outline-none transition-all bg-[rgba(255,255,255,0.80)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-white"
+                  className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] font-medium outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-[var(--cms-surface)]"
                   required
                 />
                 <Phone className="absolute end-4 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-[var(--c-text-faint)] pointer-events-none" />
@@ -99,7 +99,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] font-medium outline-none transition-all bg-[rgba(255,255,255,0.80)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-white"
+                  className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] font-medium outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-[var(--cms-surface)]"
                   style={{ letterSpacing: '0.1em' }}
                   required
                 />
@@ -117,7 +117,7 @@ export default function LoginPage() {
             <div className="flex justify-between items-center">
               <label className="flex items-center gap-2 cursor-pointer text-[13px] text-[var(--c-text-soft)] font-medium">
                 <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="hidden" />
-                <span className={`w-[18px] h-[18px] rounded-[5px] border-[1.5px] flex items-center justify-center transition-all ${remember ? 'bg-[var(--c-primary-700)] border-[var(--c-primary-700)]' : 'border-[var(--c-border-strong)] bg-white'}`}>
+                <span className={`w-[18px] h-[18px] rounded-[5px] border-[1.5px] flex items-center justify-center transition-all ${remember ? 'bg-[var(--c-primary-700)] border-[var(--c-primary-700)]' : 'border-[var(--c-border-strong)] bg-[var(--cms-surface-2)]'}`}>
                   {remember && <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="w-3 h-3"><polyline points="20 6 9 17 4 12" /></svg>}
                 </span>
                 تذكّرني

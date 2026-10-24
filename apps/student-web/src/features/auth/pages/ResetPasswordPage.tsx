@@ -76,7 +76,7 @@ export default function ResetPasswordPage() {
               <label className="text-[13px] font-semibold text-[var(--c-text-soft)] mb-1.5 block">رمز التحقق</label>
               <div className="flex justify-center gap-3" dir="ltr">
                 {otp.map((digit, index) => (
-                  <input key={index} ref={(el) => { inputsRef.current[index] = el; }} type="text" inputMode="numeric" maxLength={1} value={digit} onChange={(e) => handleOtpChange(index, e.target.value)} className="w-14 h-14 text-center text-xl font-bold rounded-xl border-[2px] outline-none transition-all bg-white text-[var(--c-text)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)]" />
+                  <input key={index} ref={(el) => { inputsRef.current[index] = el; }} type="text" inputMode="numeric" maxLength={1} value={digit} onChange={(e) => handleOtpChange(index, e.target.value)} className="w-14 h-14 text-center text-xl font-bold rounded-xl border-[2px] outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)]" />
                 ))}
               </div>
             </div>
@@ -85,7 +85,7 @@ export default function ResetPasswordPage() {
             <div>
               <label className="text-[13px] font-semibold text-[var(--c-text-soft)] mb-1.5 block">كلمة المرور الجديدة</label>
               <div className="relative">
-                <input type={showPassword ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="••••••••" className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] outline-none transition-all bg-[rgba(255,255,255,0.80)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-white" required />
+                <input type={showPassword ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="••••••••" className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-[var(--cms-surface)]" required />
                 <Lock className="absolute end-4 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-[var(--c-text-faint)] pointer-events-none" />
                 <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute start-2 top-1/2 -translate-y-1/2 p-2 text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] rounded-lg transition-all">
                   {showPassword ? 'إخفاء' : 'إظهار'}

@@ -146,7 +146,7 @@ export default function VerifyOtpPage() {
                 onChange={(e) => handleOtpChange(index, e.target.value)}
                 onKeyDown={(e) => handleKeyDown(index, e)}
                 onPaste={handlePaste}
-                className="w-14 h-16 text-center text-2xl font-bold rounded-xl border-[2px] outline-none transition-all bg-white text-[var(--c-text)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)]"
+                className="w-14 h-16 text-center text-2xl font-bold rounded-xl border-[2px] outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)]"
               />
             ))}
           </div>
