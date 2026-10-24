@@ -23,6 +23,12 @@ import '../watermark.css';
  */
 const DEFAULT_REFRESH_MS = 8 * 60 * 1000;
 
+/** MediaError codes as LOCAL numeric consts (Push 7). The MediaError GLOBAL does
+ *  not exist in jsdom — referencing it inside the handler threw a ReferenceError
+ *  that killed error handling in tests — so we never touch the global here. */
+const MEDIA_ERR_DECODE = 3;
+const MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
+
 function isYouTubeEpisode(episode: CourseEpisode): boolean {
   return episode.sourceType === 'YouTube' || Boolean(episode.youtubeVideoId);
 }
@@ -130,6 +136,10 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
   const [access, setAccess] = useState<EpisodeAccess | null>(null);
   const [accessLoading, setAccessLoading] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
+  // Push 7: an episode whose declared type is video but whose bytes carry no
+  // video track (the mislabeled-MP3 case) flips this to true and re-renders in
+  // the audio stage — gracefully, without erroring out on the student.
+  const [forceAudioStage, setForceAudioStage] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -147,8 +157,8 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
   const isYouTube = selected ? isYouTubeEpisode(selected) : false;
   const isAudioOnly = useMemo(() => {
     if (!selected || isYouTube) return false;
-    return (selected.contentType ?? '').startsWith('audio/');
-  }, [selected, isYouTube]);
+    return forceAudioStage || (selected.contentType ?? '').startsWith('audio/');
+  }, [selected, isYouTube, forceAudioStage]);
 
   // DEV/test-only refresh-cycle override (?refreshMs=). Production keeps the
   // 8-minute default — the param is ignored outside development builds.
@@ -182,6 +192,7 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
     if (!activeEpisodeId) return;
     pendingTimeRef.current = null;
     wasPlayingRef.current = false;
+    setForceAudioStage(false); // Push 7: the fallback decision is per-episode.
     setAccess(null);
     void fetchAccess(activeEpisodeId, { preserveTime: false });
   }, [activeEpisodeId, fetchAccess]);
@@ -217,6 +228,20 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
   const handleMediaError = useCallback(() => {
     if (activeEpisodeId && !isYouTube) void fetchAccess(activeEpisodeId, { preserveTime: true });
   }, [activeEpisodeId, isYouTube, fetchAccess]);
+
+  // Push 7: the <video> element proves there is no video track (metadata loaded
+  // with videoWidth === 0 — e.g. an MP3 stored under a video/* content type) or
+  // fails with a decode/src-not-supported error. Capture where playback was,
+  // then swap to the custom audio stage; the shared handleLoadedMetadata restores
+  // the timestamp + play state on the audio element, and the watermark stays.
+  const handleNoVideoTrack = useCallback(() => {
+    const media = videoRef.current;
+    if (media) {
+      pendingTimeRef.current = media.currentTime;
+      wasPlayingRef.current = !media.paused;
+    }
+    setForceAudioStage(true);
+  }, []);
 
   if (!selected) return null;
 
@@ -273,6 +298,7 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
               videoRef={videoRef}
               onLoadedMetadata={handleLoadedMetadata}
               onError={handleMediaError}
+              onNoVideoTrack={handleNoVideoTrack}
               fallbackName={fallbackName}
               fallbackPhone={fallbackPhone}
             />
@@ -346,16 +372,31 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
  * Native <video> in a premium frame: rounded, dynamically proportioned to the
  * actual media (portrait videos keep their aspect ratio), subtle elevation,
  * download disabled. The lease-refresh watermark rides on top at ~4% opacity.
+ *
+ * Push 7: this stage also DETECTS audio-only bytes served under a video/*
+ * content type — metadata with videoWidth === 0, or decode / src-not-supported
+ * errors, hand control back to the parent (onNoVideoTrack) which swaps in the
+ * custom audio stage. Codes 1–2 (aborted / network) keep the lease-refetch path.
  */
-function VideoStage({ access, videoRef, onLoadedMetadata, onError, fallbackName, fallbackPhone }: {
+function VideoStage({ access, videoRef, onLoadedMetadata, onError, onNoVideoTrack, fallbackName, fallbackPhone }: {
   access: EpisodeAccess;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onLoadedMetadata: () => void;
   onError: () => void;
+  onNoVideoTrack: () => void;
   fallbackName: string;
   fallbackPhone: string;
 }) {
   const [aspect, setAspect] = useState<number | null>(null);
+
+  const handleError = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+    const code = event.currentTarget.error?.code;
+    if (code === MEDIA_ERR_DECODE || code === MEDIA_ERR_SRC_NOT_SUPPORTED) {
+      onNoVideoTrack();
+      return;
+    }
+    onError(); // aborted / network — likely an expired lease: refetch access
+  };
 
   return (
     <div className="relative" data-testid="video-stage">
@@ -373,12 +414,16 @@ function VideoStage({ access, videoRef, onLoadedMetadata, onError, fallbackName,
           controlsList="nodownload"
           onLoadedMetadata={(event) => {
             const media = event.currentTarget;
-            if (media.videoWidth > 0 && media.videoHeight > 0) {
-              setAspect(media.videoWidth / media.videoHeight);
+            if (media.videoWidth === 0) {
+              // Audio-only bytes in a video tag: the browser decodes the sound
+              // track but shows nothing — swap to the designed audio stage.
+              onNoVideoTrack();
+              return;
             }
+            if (media.videoHeight > 0) setAspect(media.videoWidth / media.videoHeight);
             onLoadedMetadata();
           }}
-          onError={onError}
+          onError={handleError}
           playsInline
           data-testid="course-video"
         >

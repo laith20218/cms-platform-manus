@@ -30,6 +30,7 @@ import {
   apiRequest, type PagedResult, type AdminCourseListItem, type CourseDetail,
   type CourseEpisode, type InitiateUploadResponse, type MultipartStatus,
 } from '../lib/api';
+import { sniffEpisodeMediaType } from '../lib/mediaType';
 import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type Props = {
@@ -687,10 +688,15 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
       onError(isArabic ? 'اختر ملف الفيديو وأدخل عنوان الحلقة ورقمها.' : 'Choose a video file, episode title and number.');
       return;
     }
-    if (file.type && !VIDEO_MIME_ALLOWLIST.includes(file.type)) {
+    // Push 7: honest typing — never invent a content type. The old
+    // `file.type || 'video/mp4'` fallback mislabeled an MP3 named `mp3.رقيق`
+    // (unrecognized extension → empty file.type) as video/mp4; the student
+    // <video> then could not decode the MP3 bytes and the episode never played.
+    const contentType = sniffEpisodeMediaType(file, VIDEO_MIME_ALLOWLIST);
+    if (!contentType) {
       onError(isArabic
-        ? `نوع الملف غير مسموح (${file.type || 'غير معروف'}) — الفيديو/الصوت فقط.`
-        : `Unsupported file type (${file.type || 'unknown'}) — video/audio only.`);
+        ? `لا يمكن التعرّف على نوع الملف «${file.name}» — الصيغ المدعومة: MP4, WebM, MOV, MP3, M4A, WAV.`
+        : `Unrecognized media type "${file.name}" — supported formats: MP4, WebM, MOV, MP3, M4A, WAV.`);
       return;
     }
     setState('initiating');
@@ -701,7 +707,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fileName: file.name,
-          contentType: file.type || 'video/mp4',
+          contentType,
           fileSize: file.size,
           title: title.trim(),
           episodeNumber: Number(episodeNumber),
