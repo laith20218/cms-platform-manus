@@ -18,9 +18,10 @@ const QuestionPage = lazy(() => import('@/features/questions/QuestionPage'));
 const FavoritesPage = lazy(() => import('@/features/questions/FavoritesPage'));
 const ExamPage = lazy(() => import('@/features/exams/pages/ExamPage'));
 const ExamReviewPage = lazy(() => import('@/features/exams/pages/ExamReviewPage'));
-const ExamsCatalogPage = lazy(() => import('@/features/exams/pages/ExamsCatalogPage'));
 const LibraryPage = lazy(() => import('@/features/library/LibraryPage'));
-const LibraryCatalogPage = lazy(() => import('@/features/library/LibraryCatalogPage'));
+// Push 4 Phase 5 — My Studies hub + course player
+const MyStudiesPage = lazy(() => import('@/features/my-studies/pages/MyStudiesPage'));
+const CoursePlayerPage = lazy(() => import('@/features/my-studies/pages/CoursePlayerPage'));
 const SearchPage = lazy(() => import('@/features/search/SearchPage'));
 const ProfilePage = lazy(() => import('@/features/profile/ProfilePage'));
 const NotificationsPage = lazy(() => import('@/features/notifications/pages/NotificationsPage'));
@@ -59,10 +60,15 @@ export function AppRoutes() {
           <Route path="/subjects/:subjectSlug/lectures/:lectureId/questions" element={<QuestionPage />} />
           <Route path="/subjects/:subjectSlug/questions/:questionId" element={<QuestionPage />} />
           <Route path="/favorites" element={<FavoritesPage />} />
-          <Route path="/exams" element={<ExamsCatalogPage />} />
+          {/* My Studies hub — courses / exams / library tabs (Push 4 Phase 5) */}
+          <Route path="/my-studies" element={<MyStudiesPage />} />
+          <Route path="/my-studies/courses/:courseId" element={<CoursePlayerPage />} />
+          {/* Backward compatibility: legacy entry points redirect into the hub.
+              Deep links (/exams/:id, /subjects/:slug/library) keep working below. */}
+          <Route path="/exams" element={<Navigate to="/my-studies?tab=exams" replace />} />
           <Route path="/exams/:examId" element={<ExamPage />} />
           <Route path="/exams/:sessionId/review" element={<ExamReviewPage />} />
-          <Route path="/library" element={<LibraryCatalogPage />} />
+          <Route path="/library" element={<Navigate to="/my-studies?tab=library" replace />} />
           <Route path="/subjects/:subjectSlug/library" element={<LibraryPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/profile" element={<ProfilePage />} />

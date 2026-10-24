@@ -1,6 +1,6 @@
 // CMS student sidebar — clean white surface, calm-blue active accent, generous breathing room.
 import { NavLink } from 'react-router-dom';
-import { Bell, BarChart3, LayoutGrid, GraduationCap, Star, Search, Trophy, ClipboardCheck, FileText, Ticket, Settings, UserRound } from 'lucide-react';
+import { Bell, BarChart3, LayoutGrid, GraduationCap, BookOpenCheck, Star, Search, Trophy, Ticket, Settings, UserRound } from 'lucide-react';
 import { cn } from '@/utils';
 
 const navGroups = [
@@ -9,8 +9,7 @@ const navGroups = [
     items: [
       { to: '/dashboard', icon: LayoutGrid, label: 'لوحة التحكم' },
       { to: '/subjects', icon: GraduationCap, label: 'المواد' },
-      { to: '/exams', icon: ClipboardCheck, label: 'الاختبارات' },
-      { to: '/library', icon: FileText, label: 'المكتبة' },
+      { to: '/my-studies', icon: BookOpenCheck, label: 'دراستي' },
     ],
   },
   {
