@@ -252,6 +252,27 @@ describe('SubjectsPage — card click flow (modal vs redirect)', () => {
     expect(await screen.findByText(/تم التفعيل/)).toBeInTheDocument();
   });
 
+  it('accepts prefixed admin codes (22 significant chars) without truncation', async () => {
+    // Regression: normalizeCode used to slice(0, 16), silently truncating every
+    // admin code generated with a prefix (PREFIX + XXXX-XXXX-XXXX-XXXX = 22+).
+    postMock.mockResolvedValue({ data: { ok: true } });
+    renderApp('/subjects');
+    await walkCascade();
+
+    const cards = await screen.findAllByTestId('subject-card-open');
+    fireEvent.click(cards[1]);
+
+    const input = await screen.findByTestId('activation-code-input');
+    fireEvent.change(input, { target: { value: 'P6DPLYRKXA-QUF5-LYH3-VL63' } });
+    expect((input as HTMLInputElement).value).toBe('P6DP-LYRK-XAQU-F5LY-H3VL-63');
+
+    fireEvent.click(screen.getByTestId('activation-modal-submit'));
+
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith('/subscriptions/redeem', { code: 'P6DP-LYRK-XAQU-F5LY-H3VL-63' });
+    });
+  });
+
   it('shows a redeem failure inline inside the modal', async () => {
     postMock.mockRejectedValue({
       response: { status: 400, data: { detail: 'الكود مستخدم مسبقاً' } },

@@ -6,9 +6,14 @@ import { AlertCircle, BookOpen, CheckCircle2, KeyRound, Loader2, Lock, X } from 
 import { apiClient } from '@/services/api-client';
 import { clearEntitlementToken } from '@/features/entitlements/services/entitlement-api';
 
-/** Normalizes free-typed codes into XXXX-XXXX-XXXX-XXXX (16 significant chars). */
+/**
+ * Normalizes free-typed codes into 4-char dash groups. Accepts the standard
+ * 16-char codes (XXXX-XXXX-XXXX-XXXX) AND prefixed admin codes (e.g.
+ * PREFIX-XXXX-… = 22+ significant chars) — the backend redeem endpoint strips
+ * dashes and matches any length, so the UI must not truncate.
+ */
 function normalizeCode(raw: string): string {
-  const cleaned = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+  const cleaned = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 32);
   return (cleaned.match(/.{1,4}/g) ?? []).join('-');
 }
 
@@ -58,7 +63,8 @@ export function ActivationCodeModal({
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (code.replace(/-/g, '').length < 16 || redeemMutation.isPending) return;
+    // 12 = legacy no-dash codes, 16 = standard codes, 22+ = prefixed admin codes.
+    if (code.replace(/-/g, '').length < 12 || redeemMutation.isPending) return;
     redeemMutation.mutate(code);
   };
 
@@ -124,7 +130,7 @@ export function ActivationCodeModal({
                 data-testid="activation-code-input"
               />
             </div>
-            <p className="text-xs text-center mt-2 text-[var(--c-text-faint)]">الصيغة: XXXX-XXXX-XXXX-XXXX</p>
+            <p className="text-xs text-center mt-2 text-[var(--c-text-faint)]">الصيغة: XXXX-XXXX-XXXX-XXXX — وقد تتضمن الكودات بادئة إضافية</p>
           </div>
 
           {redeemMutation.isError && (
@@ -139,7 +145,7 @@ export function ActivationCodeModal({
 
           <button
             type="submit"
-            disabled={code.replace(/-/g, '').length < 16 || redeemMutation.isPending || redeemMutation.isSuccess}
+            disabled={code.replace(/-/g, '').length < 12 || redeemMutation.isPending || redeemMutation.isSuccess}
             className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-white shadow-md transition-transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:hover:scale-100"
             style={{ background: 'var(--grad-primary)' }}
             data-testid="activation-modal-submit"
