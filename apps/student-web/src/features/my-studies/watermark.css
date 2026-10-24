@@ -1,0 +1,23 @@
+/*
+ * Course player watermark (Push 4 Phase 5).
+ * Anti-screen-recording: the tiled watermark layer shifts slightly every
+ * 30 seconds — 4 positions over a 120s linear cycle, with a short 0.1%
+ * (≈120ms) glide between them so movement stays subtle.
+ */
+@keyframes course-watermark-shift {
+  0%, 24.9%   { transform: translate(0, 0); }
+  25%, 49.9%  { transform: translate(3.5%, 2.5%); }
+  50%, 74.9%  { transform: translate(-2.5%, 4%); }
+  75%, 100%   { transform: translate(2%, -3%); }
+}
+
+.course-watermark-layer {
+  animation: course-watermark-shift 120s linear infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .course-watermark-layer {
+    animation: none;
+  }
+}
