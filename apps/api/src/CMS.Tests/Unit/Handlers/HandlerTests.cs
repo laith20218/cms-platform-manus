@@ -212,6 +212,49 @@ public class AcademicHandlerTests
         result[0].TotalQuestions.Should().Be(2); // We seeded 2 questions
     }
 
+    /// <summary>
+    /// Push 6 catalog contract: the student-scoped semester listing is a course
+    /// catalog — unentitled subjects stay listed with contentScopes [] (locked
+    /// marker for in-place code activation), entitled ones keep their scopes.
+    /// </summary>
+    [Fact]
+    public async Task GetSubjectsBySemesterQuery_StudentCatalog_ShouldListLockedSubjectsWithEmptyScopes()
+    {
+        // Arrange: a second, unentitled subject joins the seeded semester.
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var sem = db.Semesters.First();
+        var entitledSubject = db.Subjects.First();
+        var lockedSubject = Subject.Create(sem.Id, "الجراحة", "surgery", "Surgery");
+        db.Subjects.Add(lockedSubject);
+        db.SaveChanges();
+        var student = db.Students.First();
+
+        var entitlements = new Mock<IEntitlementService>();
+        entitlements.Setup(service => service.CanAccessSubjectAsync(
+                student.Id, entitledSubject.Id, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        entitlements.Setup(service => service.CanAccessSubjectAsync(
+                student.Id, lockedSubject.Id, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        entitlements.Setup(service => service.CanAccessSubjectContentAsync(
+                student.Id, entitledSubject.Id, It.IsAny<SubscriptionContentScope>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var handler = new AcademicQueryHandlers(db, entitlements.Object, new Mock<ICacheService>().Object);
+
+        // Act
+        var result = await handler.Handle(new GetSubjectsBySemesterQuery(sem.Id, student.Id), CancellationToken.None);
+
+        // Assert: BOTH subjects are listed — the locked one is a catalog entry.
+        result.Should().HaveCount(2);
+        var entitled = result.Single(s => s.Id == entitledSubject.Id);
+        var locked = result.Single(s => s.Id == lockedSubject.Id);
+        entitled.ContentScopes.Should().NotBeNullOrEmpty();
+        locked.ContentScopes.Should().NotBeNull().And.BeEmpty();
+        locked.NameAr.Should().Be("الجراحة");
+        locked.TotalQuestions.Should().Be(0); // no seeded questions on the locked subject
+    }
+
     private static IEntitlementService AllowEntitlements()
     {
         var entitlements = new Mock<IEntitlementService>();

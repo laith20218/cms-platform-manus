@@ -145,13 +145,19 @@ public class AcademicQueryHandlers :
 
         if (!req.StudentId.HasValue) return subjects;
 
-        var visibleSubjects = new List<SubjectDto>();
+        // Push 6 catalog contract (mirrors SubjectDto.ContentScopes docs): the semester
+        // listing doubles as the student's course catalog — every active subject is
+        // listed, with contentScopes [] marking locked subjects so the UI can offer
+        // in-place activation-code redemption. Entitled subjects keep their scoped
+        // projection (counts gated by grant, progress included).
+        var catalog = new List<SubjectDto>(subjects.Count);
         foreach (var subject in subjects)
         {
-            if (!await _entitlements.CanAccessSubjectAsync(req.StudentId.Value, subject.Id, "read", ct)) continue;
-            visibleSubjects.Add(await ApplyStudentContentScopeAsync(subject, req.StudentId, ct));
+            catalog.Add(await _entitlements.CanAccessSubjectAsync(req.StudentId.Value, subject.Id, "read", ct)
+                ? await ApplyStudentContentScopeAsync(subject, req.StudentId, ct)
+                : subject with { ContentScopes = new List<string>(), UserProgress = null });
         }
-        return visibleSubjects;
+        return catalog;
     }
 
     /// <summary>
