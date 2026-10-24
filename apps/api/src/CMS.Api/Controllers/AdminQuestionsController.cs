@@ -84,7 +84,9 @@ public sealed class AdminQuestionsController : ControllerBase
             question.AttemptsCount,
             question.GetCorrectRate(),
             question.CreatedAt,
-            question.UpdatedAt)).ToList();
+            question.UpdatedAt,
+            question.Year,
+            question.ParagraphTag)).ToList();
 
         return Ok(new PagedResult<AdminQuestionListItemDto>(
             items,
@@ -140,5 +142,6 @@ public sealed class AdminQuestionsController : ControllerBase
         question.Options.OrderBy(option => option.SortOrder)
             .Select(option => new QuestionOptionDto(option.Id, option.OptionLetter, option.Text, option.ImageUrl)).ToList(),
         question.CreatedAt,
-        question.UpdatedAt);
+        question.UpdatedAt,
+        question.ParagraphTag);
 }

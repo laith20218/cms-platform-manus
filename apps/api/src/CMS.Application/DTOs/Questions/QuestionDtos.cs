@@ -205,7 +205,9 @@ public record AdminQuestionListItemDto(
     int AttemptsCount,
     double CorrectRate,
     DateTime CreatedAt,
-    DateTime? UpdatedAt
+    DateTime? UpdatedAt,
+    int? Year = null,
+    string? ParagraphTag = null
 );
 
 public record AdminQuestionDetailDto(
@@ -223,5 +225,6 @@ public record AdminQuestionDetailDto(
     string CorrectAnswer,
     List<QuestionOptionDto> Options,
     DateTime CreatedAt,
-    DateTime? UpdatedAt
+    DateTime? UpdatedAt,
+    string? ParagraphTag = null
 );
