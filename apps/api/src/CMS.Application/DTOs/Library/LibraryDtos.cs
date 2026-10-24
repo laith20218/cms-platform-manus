@@ -1,11 +1,14 @@
 namespace CMS.Application.DTOs.Library;
 
+using CMS.Domain.Enums;
+
 // ===== Library File DTOs =====
 public record LibraryFileDto(
     Guid Id,
     Guid SubjectId,
     Guid? LectureId,
     string Type,        // pdf, html, image, video, summary, comprehensive, paragraph
+    string? Category,   // institutional category: Curriculum | Lecture | Summary | GoldenIdeas (null on legacy rows)
     string Title,
     string? Description,
     long FileSize,
@@ -63,7 +66,8 @@ public record RequestUploadUrlDto(
     Guid? LectureId,
     string Type,
     string Title,
-    string? Description
+    string? Description,
+    LibraryFileCategory? Category = null
 );
 
 public record UploadUrlDto(

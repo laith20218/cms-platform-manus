@@ -103,11 +103,17 @@ public sealed class LibraryAuditPostgresIntegrationTests
         var cache = new Mock<ICacheService>();
         var audit = new SecurityService(db, cache.Object, batch, correlation, configuration);
         var storage = new Mock<IFileStorageService>();
-        storage.Setup(service => service.GetSignedUrlAsync("private/access.pdf", It.IsAny<TimeSpan>())).ReturnsAsync("https://storage.test/access");
+        storage.Setup(service => service.GetSignedUrlAsync("private/access.pdf", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>())).ReturnsAsync("https://storage.test/access");
         var scanner = new Mock<IFileScanner>();
+        // A2: LibraryHandlers now takes ISystemSettingsService (upload limits) and
+        // IHtmlBlobSanitizer (HTML upload sanitization) — provide test doubles.
+        var settings = new Mock<ISystemSettingsService>();
+        settings.Setup(service => service.GetAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        var sanitizer = new Mock<IHtmlBlobSanitizer>();
         using var provider = new ServiceCollection().AddLogging().AddApplicationServices()
             .AddSingleton<IApplicationDbContext>(db).AddSingleton<IUnitOfWork>(new CMS.Infrastructure.Repositories.UnitOfWork(db))
             .AddSingleton<IFileStorageService>(storage.Object).AddSingleton<IFileScanner>(scanner.Object)
+            .AddSingleton<ISystemSettingsService>(settings.Object).AddSingleton<IHtmlBlobSanitizer>(sanitizer.Object)
             .AddSingleton<IEntitlementService>(new EntitlementService(db)).BuildServiceProvider();
         var entitlement = new SignedEntitlementService(db, configuration);
         var token = await entitlement.IssueAsync(student.Id, installation);

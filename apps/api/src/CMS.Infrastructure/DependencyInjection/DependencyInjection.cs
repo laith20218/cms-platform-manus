@@ -28,6 +28,8 @@ public static class DependencyInjection
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
         services.AddScoped<ICorrelationContext, CorrelationContext>();
         services.AddScoped<ISecurityAuditRetentionService, SecurityAuditRetentionService>();
+        // System settings (read-only access for upload limits and other runtime knobs).
+        services.AddScoped<ISystemSettingsService, SystemSettingsService>();
 
         // Upstash Redis REST cache
         services.AddHttpClient("UpstashRedis", client =>
@@ -61,6 +63,9 @@ public static class DependencyInjection
         // Storage: prefer Upstash Blob when configured; fall back to S3StorageService otherwise.
         if (!string.IsNullOrWhiteSpace(configuration["Upstash:Blob:Token"]))
         {
+            // S3-credential client factory — /v1/presign cannot sign DELETE, so blob
+            // deletion goes through the S3-compatible API (AWS SigV4, short-lived creds).
+            services.AddSingleton<IUpstashS3ClientFactory, UpstashS3ClientFactory>();
             services.AddSingleton<IFileStorageService, UpstashBlobStorageService>();
         }
         else
@@ -68,6 +73,8 @@ public static class DependencyInjection
             services.AddSingleton<IFileStorageService, S3StorageService>();
         }
         services.AddSingleton<IFileScanner, TrustedFileScanner>();
+        // Server-side HTML sanitization for uploaded library documents (Ganss.XSS).
+        services.AddSingleton<IHtmlBlobSanitizer, HtmlSanitizerService>();
         services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddSingleton<SecurityEventBatchService>();
         services.AddSingleton<ISecurityEventBatch>(sp => sp.GetRequiredService<SecurityEventBatchService>());

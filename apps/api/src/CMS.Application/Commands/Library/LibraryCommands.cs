@@ -1,5 +1,6 @@
 using MediatR;
 using CMS.Application.DTOs.Library;
+using CMS.Domain.Enums;
 
 namespace CMS.Application.Commands.Library;
 
@@ -36,7 +37,8 @@ public record RecordFileViewCommand(
 public record RequestUploadUrlCommand(
     string FileName, string ContentType, long FileSize,
     Guid SubjectId, Guid? LectureId, string Type,
-    string Title, string? Description, Guid CreatedBy
+    string Title, string? Description, Guid CreatedBy,
+    LibraryFileCategory? Category = null
 ) : IRequest<UploadUrlDto>;
 
 public record CompleteUploadCommand(

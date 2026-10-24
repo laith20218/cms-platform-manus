@@ -73,6 +73,8 @@ public class LibraryFile : AuditableEntity
     public Guid SubjectId { get; set; }
     public Guid? LectureId { get; set; }
     public LibraryFileType Type { get; set; }
+    /// <summary>Institutional content category (منهاج/محاضرة/تلخيص/أفكار ذهبية). NULL on legacy rows.</summary>
+    public LibraryFileCategory? Category { get; set; }
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
     public string FileUrl { get; set; } = string.Empty;

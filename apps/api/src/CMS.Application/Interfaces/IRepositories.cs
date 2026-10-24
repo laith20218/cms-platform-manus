@@ -92,12 +92,37 @@ public interface ICacheService
 public interface IFileStorageService
 {
     Task<string> UploadAsync(Stream fileStream, string fileName, string contentType, CancellationToken ct = default);
-    /// <summary>Issues a short-lived pre-signed URL for direct browser upload (PUT verb). The object key MUST be server-generated and never derived from user input.</summary>
-    Task<string> GetSignedUploadUrlAsync(string key, string contentType, TimeSpan expiry);
+    /// <summary>Issues a short-lived pre-signed URL for direct browser upload (PUT verb). The object key MUST be server-generated and never derived from user input. When <paramref name="contentLength"/> is provided the provider binds it into the signature so storage rejects any body whose actual size differs.</summary>
+    Task<string> GetSignedUploadUrlAsync(string key, string contentType, TimeSpan expiry, long? contentLength = null, CancellationToken ct = default);
     /// <summary>Issues a short-lived pre-signed URL for read access (GET verb). Never use this for uploads.</summary>
-    Task<string> GetSignedUrlAsync(string key, TimeSpan expiry);
+    Task<string> GetSignedUrlAsync(string key, TimeSpan expiry, CancellationToken ct = default);
     Task DeleteAsync(string key, CancellationToken ct = default);
     Task<bool> ExistsAsync(string key, CancellationToken ct = default);
+    /// <summary>Downloads an object's content. The caller owns the returned stream and must dispose it.</summary>
+    Task<Stream> DownloadAsync(string key, CancellationToken ct = default);
+    /// <summary>Overwrites an existing object at the given key (server-side upload with explicit key, used by in-place transforms such as HTML sanitization).</summary>
+    Task PutAsync(string key, Stream content, string contentType, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Read-only access to admin-editable system settings (key/value store). Values are raw strings;
+/// callers parse them and fall back to safe hardcoded defaults when a key is missing or malformed.
+/// </summary>
+public interface ISystemSettingsService
+{
+    /// <summary>Returns the raw value stored for a setting key, or null when the key does not exist.</summary>
+    Task<string?> GetAsync(string key, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Server-side sanitizer for uploaded HTML blobs. Downloads the object from storage, strips
+/// dangerous markup (scripts, event handlers, dangerous URLs) and overwrites the object in place.
+/// Throws on any failure — callers must treat a failed sanitization as a rejected upload.
+/// </summary>
+public interface IHtmlBlobSanitizer
+{
+    /// <summary>Sanitizes the HTML object at <paramref name="objectKey"/> in place. <paramref name="declaredSizeBytes"/> is the enforcement ceiling: larger bodies are rejected before being buffered.</summary>
+    Task SanitizeAsync(string objectKey, long declaredSizeBytes, CancellationToken ct = default);
 }
 
 /// <summary>Fail-closed scanner abstraction for stored content before publication or signed access.</summary>

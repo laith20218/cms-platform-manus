@@ -1,7 +1,10 @@
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Amazon.S3;
+using Amazon.S3.Model;
 using Microsoft.Extensions.Configuration;
 using CMS.Application.Interfaces;
 
@@ -197,7 +200,7 @@ public class S3StorageService : IFileStorageService
         return key;
     }
 
-    public async Task<string> GetSignedUrlAsync(string key, TimeSpan expiry)
+    public async Task<string> GetSignedUrlAsync(string key, TimeSpan expiry, CancellationToken ct = default)
     {
         var request = new Amazon.S3.Model.GetPreSignedUrlRequest
         {
@@ -214,9 +217,10 @@ public class S3StorageService : IFileStorageService
     /// Issues a short-lived pre-signed URL for direct browser upload using the PUT verb.
     /// The object key is always server-generated (Guid-based) and must never be derived
     /// from raw user input to prevent path traversal. ContentType is bound so the client
-    /// cannot upload an arbitrary MIME type under the same key.
+    /// cannot upload an arbitrary MIME type under the same key. When contentLength is
+    /// provided it is signed as well, so storage rejects a body of a different size.
     /// </summary>
-    public async Task<string> GetSignedUploadUrlAsync(string key, string contentType, TimeSpan expiry)
+    public async Task<string> GetSignedUploadUrlAsync(string key, string contentType, TimeSpan expiry, long? contentLength = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(key))
             throw new ArgumentException("Object key must be provided by the server.", nameof(key));
@@ -229,8 +233,30 @@ public class S3StorageService : IFileStorageService
             Verb = Amazon.S3.HttpVerb.PUT,
             ContentType = contentType
         };
+        if (contentLength is > 0)
+            request.Headers.ContentLength = contentLength.Value;
 
         return await Task.FromResult(_client.GetPreSignedURL(request));
+    }
+
+    /// <summary>Downloads an object's content stream (S3 GetObject). Caller disposes the stream.</summary>
+    public async Task<Stream> DownloadAsync(string key, CancellationToken ct = default)
+    {
+        var response = await _client.GetObjectAsync(_bucketName, key, ct);
+        return response.ResponseStream;
+    }
+
+    /// <summary>Overwrites an object at the given key with a server-side PUT.</summary>
+    public async Task PutAsync(string key, Stream content, string contentType, CancellationToken ct = default)
+    {
+        var request = new Amazon.S3.Model.PutObjectRequest
+        {
+            BucketName = _bucketName,
+            Key = key,
+            InputStream = content,
+            ContentType = contentType
+        };
+        await _client.PutObjectAsync(request, ct);
     }
 
     public async Task DeleteAsync(string key, CancellationToken ct = default)
@@ -273,14 +299,19 @@ public class UpstashBlobStorageService : IFileStorageService
     private const string HttpClientName = "UpstashBlob";
     private readonly HttpClient _httpClient;
     private readonly string _token;
+    private readonly IUpstashS3ClientFactory _s3ClientFactory;
 
-    public UpstashBlobStorageService(IHttpClientFactory httpClientFactory, IConfiguration configuration)
+    public UpstashBlobStorageService(
+        IHttpClientFactory httpClientFactory,
+        IConfiguration configuration,
+        IUpstashS3ClientFactory s3ClientFactory)
     {
         var token = configuration["Upstash:Blob:Token"];
         if (string.IsNullOrWhiteSpace(token))
             throw new InvalidOperationException("Upstash:Blob:Token must be configured at runtime");
         _token = token!;
         _httpClient = httpClientFactory.CreateClient(HttpClientName);
+        _s3ClientFactory = s3ClientFactory;
         // Do NOT set DefaultRequestHeaders.Authorization — it would be sent to presigned R2 URLs
         // (which reject extra Authorization headers with 403). Set it per-request in PresignAsync only.
     }
@@ -301,48 +332,94 @@ public class UpstashBlobStorageService : IFileStorageService
         return key;
     }
 
-    /// <summary>Issues a short-lived pre-signed PUT URL for direct browser upload.</summary>
-    public async Task<string> GetSignedUploadUrlAsync(string key, string contentType, TimeSpan expiry)
+    /// <summary>Issues a short-lived pre-signed PUT URL for direct browser upload.
+    /// When contentLength is provided it is included in the signed headers, so the object
+    /// store rejects any PUT whose actual body size differs from the declared size.</summary>
+    public async Task<string> GetSignedUploadUrlAsync(string key, string contentType, TimeSpan expiry, long? contentLength = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(key))
             throw new ArgumentException("Object key must be provided by the server.", nameof(key));
 
-        var presigned = await PresignAsync(method: "PUT", key: key, expiresIn: ClampExpiry(expiry), contentType: contentType);
+        var presigned = await PresignAsync(
+            method: "PUT", key: key, expiresIn: ClampExpiry(expiry),
+            contentType: contentType, contentLength: contentLength, ct: ct);
         return presigned.Url;
+    }
+
+    /// <summary>Downloads an object's content through a short-lived presigned GET. Caller disposes the stream.</summary>
+    public async Task<Stream> DownloadAsync(string key, CancellationToken ct = default)
+    {
+        var presigned = await PresignAsync(method: "GET", key: key, expiresIn: 120, ct: ct);
+        var stream = await _httpClient.GetStreamAsync(presigned.Url, ct);
+        return stream;
+    }
+
+    /// <summary>
+    /// Overwrites an object at the given key via a presigned PUT. The body is buffered so the
+    /// request carries an explicit Content-Length — S3-compatible stores (R2) reject chunked
+    /// PUTs on presigned URLs. Callers must keep bodies bounded (HTML sanitizer caps at the
+    /// configured HTML size limit).
+    /// </summary>
+    public async Task PutAsync(string key, Stream content, string contentType, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            throw new ArgumentException("Object key must be provided by the server.", nameof(key));
+
+        using var buffered = new MemoryStream();
+        await content.CopyToAsync(buffered, ct);
+        var presignedPut = await PresignAsync(
+            method: "PUT", key: key, expiresIn: 120,
+            contentType: contentType, contentLength: buffered.Length, ct: ct);
+
+        using var uploadResponse = await _httpClient.PutAsync(
+            presignedPut.Url,
+            new ByteArrayContent(buffered.ToArray())
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue(contentType) }
+            },
+            ct);
+        if (!uploadResponse.IsSuccessStatusCode)
+        {
+            var errorBody = await uploadResponse.Content.ReadAsStringAsync(ct);
+            throw new InvalidOperationException(
+                $"Upstash Blob overwrite failed with HTTP {(int)uploadResponse.StatusCode}: {Truncate(errorBody, 200)}");
+        }
     }
 
     /// <summary>Issues a short-lived pre-signed GET URL for read access.</summary>
-    public async Task<string> GetSignedUrlAsync(string key, TimeSpan expiry)
+    public async Task<string> GetSignedUrlAsync(string key, TimeSpan expiry, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(key))
             throw new ArgumentException("Object key must be provided by the server.", nameof(key));
 
-        var presigned = await PresignAsync(method: "GET", key: key, expiresIn: ClampExpiry(expiry));
+        var presigned = await PresignAsync(method: "GET", key: key, expiresIn: ClampExpiry(expiry), ct: ct);
         return presigned.Url;
     }
 
-    /// <summary>Deletes an object. Idempotent: a 404 (object already gone) is treated as success.</summary>
+    /// <summary>
+    /// Deletes an object through the S3-compatible API using short-lived credentials.
+    /// Upstash's /v1/presign endpoint only signs GET, HEAD and PUT — it rejects DELETE
+    /// with HTTP 400 — so deletions exchange the blob token for S3 credentials (AWS
+    /// SigV4) and call DeleteObjectAsync directly (verified live against R2).
+    /// S3 DELETE semantics are idempotent: deleting a key that does not exist still
+    /// succeeds, so repeated deletes never throw. A 404 from the store is likewise
+    /// swallowed for safety.
+    /// </summary>
     public async Task DeleteAsync(string key, CancellationToken ct = default)
     {
-        // Upstash Blob's /v1/presign does not currently sign DELETE operations through
-        // this path (the official SDK signs DELETE inline via SigV4). To avoid pulling
-        // in the AWS SDK SigV4 path here, we perform the DELETE via the presigned-URL
-        // path. If the object is already gone, presign itself may return 404 — treat
-        // both presign-404 and delete-404 as success (idempotent delete).
+        if (string.IsNullOrWhiteSpace(key))
+            return; // nothing to delete — idempotent contract
+
+        var lease = await _s3ClientFactory.CreateAsync(ct);
         try
         {
-            var presigned = await PresignAsync(method: "DELETE", key: key, expiresIn: 60, ct: ct);
-            using var response = await _httpClient.DeleteAsync(presigned.Url, ct);
-            if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NotFound)
-                response.EnsureSuccessStatusCode();
+            await lease.Client.DeleteObjectAsync(
+                new DeleteObjectRequest { BucketName = lease.Bucket, Key = key },
+                ct);
         }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("HTTP 404"))
+        catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
-            // presign returned 404 — the object is already gone; treat as success.
-        }
-        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            // already deleted — treat as success
+            // already gone — treat as success (idempotent delete)
         }
     }
 
@@ -358,13 +435,23 @@ public class UpstashBlobStorageService : IFileStorageService
         string key,
         int expiresIn,
         string? contentType = null,
+        long? contentLength = null,
         CancellationToken ct = default)
     {
+        var headers = new Dictionary<string, string>();
+        if (contentType is not null)
+            headers["content-type"] = contentType;
+        if (contentLength is > 0)
+            headers["content-length"] = contentLength.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        // The headers field must ALWAYS be a JSON object — Upstash's /v1/presign rejects
+        // a null value with HTTP 400 {"error":"headers must be an object"} (verified live).
+        // An empty dictionary serializes as {} which presign accepts for header-less verbs (GET).
         var body = new PresignRequest(
             Method: method,
             Key: key,
             ExpiresIn: expiresIn,
-            Headers: contentType is null ? null : new Dictionary<string, string> { ["content-type"] = contentType });
+            Headers: headers);
 
         // Upstash Blob's /v1/presign expects camelCase JSON field names (method, key, expiresIn, headers).
         // PostAsJsonAsync defaults to PascalCase — pass camelCase options explicitly.
@@ -402,7 +489,7 @@ public class UpstashBlobStorageService : IFileStorageService
         string Method,
         string Key,
         int ExpiresIn,
-        Dictionary<string, string>? Headers);
+        Dictionary<string, string> Headers);
 
     private sealed record PresignResult(string Url, long ExpiresAt);
 }

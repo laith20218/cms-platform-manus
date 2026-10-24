@@ -7,6 +7,8 @@ using Serilog;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using CMS.Api.Authorization;
@@ -27,6 +29,21 @@ try
     Log.Information("Starting CMS API...");
 
     builder.Host.UseSerilog();
+
+    // === Request body limits (A2-4) ===
+    // API-proxied bodies are capped at 16 MB. Library document uploads never traverse the API
+    // (browsers PUT directly to object storage via presigned URLs, size-bound by the per-type
+    // upload limits), and the largest legitimate proxied body today is the 3 MB avatar upload.
+    // Per-endpoint overrides ([RequestSizeLimit]/[RequestFormLimits], e.g. avatars at 3 MB)
+    // take precedence over these global limits and continue to apply.
+    builder.WebHost.ConfigureKestrel(options =>
+    {
+        options.Limits.MaxRequestBodySize = 16 * 1024 * 1024; // 16 MB
+    });
+    builder.Services.Configure<FormOptions>(options =>
+    {
+        options.MultipartBodyLengthLimit = 16 * 1024 * 1024; // 16 MB
+    });
 
     // === Application Services ===
     builder.Services.AddApplicationServices();

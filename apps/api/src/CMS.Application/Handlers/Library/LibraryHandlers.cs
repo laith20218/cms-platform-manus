@@ -32,6 +32,8 @@ public class LibraryHandlers :
     private readonly IFileStorageService _storage;
     private readonly IFileScanner _scanner;
     private readonly IEntitlementService _entitlements;
+    private readonly ISystemSettingsService _settings;
+    private readonly IHtmlBlobSanitizer _htmlSanitizer;
     private readonly ILogger<LibraryHandlers> _logger;
 
     public LibraryHandlers(
@@ -40,6 +42,8 @@ public class LibraryHandlers :
         IFileStorageService storage,
         IFileScanner scanner,
         IEntitlementService entitlements,
+        ISystemSettingsService settings,
+        IHtmlBlobSanitizer htmlSanitizer,
         ILogger<LibraryHandlers> logger)
     {
         _db = db;
@@ -47,6 +51,8 @@ public class LibraryHandlers :
         _storage = storage;
         _scanner = scanner;
         _entitlements = entitlements;
+        _settings = settings;
+        _htmlSanitizer = htmlSanitizer;
         _logger = logger;
     }
 
@@ -219,6 +225,37 @@ public class LibraryHandlers :
         "application/msword"
     };
 
+    // ===== Per-type upload ceilings (A2-3) =====
+    // Each allow-listed content type maps to a system-settings key (upload.limit.*_mb) with a
+    // hardcoded fallback used only when the setting row is missing or unparseable. Editors with
+    // Settings.Edit permission can retune the limits at runtime without a redeploy.
+    private const int DefaultPdfLimitMb = 200;
+    private const int DefaultHtmlLimitMb = 10;
+    private const int DefaultImageLimitMb = 20;
+
+    private static readonly Dictionary<string, (string SettingKey, int DefaultMb)> ContentTypeUploadLimits =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["application/pdf"] = ("upload.limit.pdf_mb", DefaultPdfLimitMb),
+            ["application/msword"] = ("upload.limit.pdf_mb", DefaultPdfLimitMb),
+            ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"] = ("upload.limit.pdf_mb", DefaultPdfLimitMb),
+            ["text/html"] = ("upload.limit.html_mb", DefaultHtmlLimitMb),
+            ["image/png"] = ("upload.limit.image_mb", DefaultImageLimitMb),
+            ["image/jpeg"] = ("upload.limit.image_mb", DefaultImageLimitMb),
+            ["image/webp"] = ("upload.limit.image_mb", DefaultImageLimitMb),
+        };
+
+    /// <summary>Resolves the per-type upload ceiling in bytes: system setting first, hardcoded fallback when absent/unparseable.</summary>
+    private async Task<long> GetUploadLimitBytesAsync(string contentType, CancellationToken ct)
+    {
+        if (!ContentTypeUploadLimits.TryGetValue(contentType.Trim(), out var policy))
+            return DefaultPdfLimitMb * 1024L * 1024L; // unreachable for allow-listed callers; conservative default
+
+        var raw = await _settings.GetAsync(policy.SettingKey, ct);
+        var limitMb = int.TryParse(raw, out var parsed) && parsed > 0 ? parsed : policy.DefaultMb;
+        return limitMb * 1024L * 1024L;
+    }
+
     public async Task<UploadUrlDto> Handle(RequestUploadUrlCommand req, CancellationToken ct)
     {
         // Validate declared content type against the strict library allow-list.
@@ -229,17 +266,21 @@ public class LibraryHandlers :
         if (!Enum.TryParse<LibraryFileType>(req.Type, true, out var fileType))
             throw new DomainException("نوع الملف غير صالح", "INVALID_FILE_TYPE");
 
-        // Validate file size (100MB max)
-        if (req.FileSize > 100 * 1024 * 1024)
-            throw new DomainException("حجم الملف يتجاوز 100 ميجابايت", "FILE_TOO_LARGE");
+        // Per-type size ceiling (A2-3): editable at runtime via system settings with hardcoded fallbacks.
+        var maxBytes = await GetUploadLimitBytesAsync(req.ContentType, ct);
+        if (req.FileSize > maxBytes)
+            throw new DomainException(
+                $"حجم الملف يتجاوز الحد المسموح لهذا النوع ({maxBytes / (1024 * 1024)} ميجابايت)",
+                "FILE_TOO_LARGE");
 
         // Server-generated object key: Guid-based to prevent path traversal.
         // The user-supplied FileName is stored as metadata only, never used as the key path.
         var fileKey = $"library/{Guid.NewGuid():N}/{Guid.NewGuid():N}";
 
         // Issue a short-lived pre-signed PUT URL for direct browser upload to S3-compatible storage.
-        // The PUT verb and ContentType are bound server-side so the client cannot mutate them.
-        var uploadUrl = await _storage.GetSignedUploadUrlAsync(fileKey, req.ContentType, TimeSpan.FromMinutes(30));
+        // The PUT verb, ContentType and (A2-1) the declared ContentLength are all bound server-side
+        // into the signature, so the client can neither mutate the type nor push a differently-sized body.
+        var uploadUrl = await _storage.GetSignedUploadUrlAsync(fileKey, req.ContentType, TimeSpan.FromMinutes(30), req.FileSize, ct);
 
         // Create library file record (pending upload)
         var file = new LibraryFile
@@ -247,6 +288,7 @@ public class LibraryHandlers :
             SubjectId = req.SubjectId,
             LectureId = req.LectureId,
             Type = fileType,
+            Category = req.Category,
             Title = req.Title,
             Description = req.Description,
             FileUrl = fileKey,
@@ -274,6 +316,40 @@ public class LibraryHandlers :
         var exists = await _storage.ExistsAsync(req.FileKey, ct);
         if (!exists)
             throw new DomainException("لم يتم العثور على الملف في التخزين", "FILE_NOT_UPLOADED");
+
+        // A2-5: HTML documents are sanitized in place (Ganss.XSS) before the upload is accepted.
+        // A failed sanitization rejects the upload: the blob is deleted and the row is parked in
+        // scan status Error so it can never be published.
+        if (string.Equals(file.FileFormat, "text/html", StringComparison.OrdinalIgnoreCase))
+        {
+            var htmlLimitBytes = await GetUploadLimitBytesAsync("text/html", ct);
+            if (req.ActualFileSize > htmlLimitBytes)
+                throw new DomainException("حجم ملف HTML يتجاوز الحد المسموح", "FILE_TOO_LARGE");
+
+            try
+            {
+                await _htmlSanitizer.SanitizeAsync(req.FileKey, req.ActualFileSize, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex,
+                    "HTML sanitization failed; rejecting upload. FileId={FileId} FileKey={FileKey}",
+                    file.Id, req.FileKey);
+                file.VirusScanStatus = VirusScanStatus.Error;
+                await _unitOfWork.SaveChangesAsync(ct);
+                try
+                {
+                    await _storage.DeleteAsync(req.FileKey, ct);
+                }
+                catch (Exception cleanupEx)
+                {
+                    _logger.LogWarning(cleanupEx,
+                        "Blob cleanup after failed sanitization also failed; an orphaned blob remains. FileKey={FileKey}",
+                        req.FileKey);
+                }
+                throw new DomainException("فشل تعقيم ملف HTML وتم رفض الرفع", "HTML_SANITIZATION_FAILED");
+            }
+        }
 
         var scan = await _scanner.ScanAsync(req.FileKey, file.FileFormat, ct);
         file.VirusScanStatus = scan.IsClean
@@ -375,7 +451,7 @@ public class LibraryHandlers :
         : SubscriptionContentScope.LecturesText;
 
     private static LibraryFileDto MapToDto(LibraryFile f) => new(
-        f.Id, f.SubjectId, f.LectureId, f.Type.ToString(),
+        f.Id, f.SubjectId, f.LectureId, f.Type.ToString(), f.Category?.ToString(),
         f.Title, f.Description, f.FileSize, f.FileFormat,
         f.DurationSeconds, f.PagesCount, f.ThumbnailUrl,
         f.YoutubeVideoId, f.Tags, f.ViewsCount, f.FavoritesCount,

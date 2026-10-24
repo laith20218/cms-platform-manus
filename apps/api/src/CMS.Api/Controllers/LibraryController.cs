@@ -174,7 +174,7 @@ public class LibraryController : ControllerBase
         var result = await _mediator.Send(new RequestUploadUrlCommand(
             dto.FileName, dto.ContentType, dto.FileSize,
             dto.SubjectId, dto.LectureId, dto.Type,
-            dto.Title, dto.Description, GetAdminId()
+            dto.Title, dto.Description, GetAdminId(), dto.Category
         ), ct);
         return Ok(result);
     }
