@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   BookMarked, CalendarDays, ChevronLeft, Eye, FileCode, FileSpreadsheet,
-  FileText, Image as ImageIcon, LoaderCircle, Music, Video,
+  FileText, Image as ImageIcon, LoaderCircle, Music, Target, Video,
 } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
@@ -61,12 +61,14 @@ interface HubLibraryFile {
  * student's entitled subjects, groups it behind elegant category tabs
  * (الكل | المنهاج | المحاضرات | الملخصات | الأفكار الذهبية) and renders a card
  * grid with type icon, subject, category badge and upload date.
+ * `subjectId` (Push 6) narrows the hub to a single subject.
  */
-export function LibraryHub() {
+export function LibraryHub({ subjectId }: { subjectId?: string | null }) {
   const [category, setCategory] = useState<CategoryKey>('all');
 
   const mySubjects = useMySubjects();
-  const subjects = mySubjects.data ?? [];
+  const allSubjects = mySubjects.data ?? [];
+  const subjects = subjectId ? allSubjects.filter((s) => s.id === subjectId) : allSubjects;
 
   const { data: files, isLoading } = useQuery({
     queryKey: ['library-hub', subjects.map((s) => s.id).join(',')],
@@ -121,8 +123,19 @@ export function LibraryHub() {
   }
 
   // No active code → locked state with the activation CTA.
-  if (subjects.length === 0) {
+  if (allSubjects.length === 0) {
     return <LockedEmptyState title="المكتبة مُقفلة" hint="ملفات المحاضرات والمناهج والملخصات تُفتح بعد تفعيل كود الاشتراك لموادك." />;
+  }
+
+  // Deep-linked subject the student holds no grant for (stale link).
+  if (subjectId && subjects.length === 0) {
+    return (
+      <div className="text-center py-14 rounded-2xl border border-dashed border-[var(--c-border)]" data-testid="library-subject-locked">
+        <Target className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" />
+        <p className="text-[var(--c-text-muted)]">لا يمكنك الوصول إلى مكتبة هذه المادة بعد</p>
+        <p className="text-xs text-[var(--c-text-faint)] mt-1">فعّل كوداً يشمل هذه المادة لفتح ملفاتها</p>
+      </div>
+    );
   }
 
   return (

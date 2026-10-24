@@ -312,12 +312,18 @@ public sealed class UpstashS3ClientFactoryTests
         public string ResponseBody { get; set; } = "{}";
         public HttpStatusCode ResponseStatus { get; set; } = HttpStatusCode.OK;
 
+        /// <summary>Scripted per-request responses (Push 6 retry tests). When set, takes precedence over the fixed status/body.</summary>
+        public Queue<(HttpStatusCode status, string body)> ScriptedResponses { get; } = new();
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             RequestCount++;
-            return Task.FromResult(new HttpResponseMessage(ResponseStatus)
+            var (status, body) = ScriptedResponses.Count > 0
+                ? ScriptedResponses.Dequeue()
+                : (ResponseStatus, ResponseBody);
+            return Task.FromResult(new HttpResponseMessage(status)
             {
-                Content = new StringContent(ResponseBody, System.Text.Encoding.UTF8, "application/json")
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json")
             });
         }
     }
@@ -407,7 +413,49 @@ public sealed class UpstashS3ClientFactoryTests
         handler.ResponseBody = "{\"error\":\"unauthorized\"}";
 
         var act = async () => await factory.CreateAsync();
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("Upstash Blob S3 credential exchange failed with HTTP 401*");
+        await act.Should().ThrowAsync<UpstashS3ClientFactory.UpstashExchangeException>()
+            .WithMessage("Upstash Blob S3 credential exchange failed with HTTP 401*")
+            .Where(ex => ex.StatusCode == HttpStatusCode.Unauthorized);
+        handler.RequestCount.Should().Be(1, "401 is an authentication failure — a retry cannot fix it");
+    }
+
+    // ===== Push 6: single retry on transient exchange failures =====
+
+    [Fact]
+    public async Task CreateAsync_RetriesOnce_WhenExchangeAnswers503_AndSucceeds()
+    {
+        var (factory, handler) = BuildFactory();
+        handler.ScriptedResponses.Enqueue((HttpStatusCode.ServiceUnavailable, "{\"error\":\"upstream busy\"}"));
+        handler.ScriptedResponses.Enqueue((HttpStatusCode.OK, CredentialsJson(4_102_444_800)));
+
+        var lease = await factory.CreateAsync();
+
+        lease.Bucket.Should().Be("test-bucket-1");
+        handler.RequestCount.Should().Be(2, "a transient 503 must be retried exactly once");
+    }
+
+    [Fact]
+    public async Task CreateAsync_RetriesOnce_WhenExchangeAnswers429_AndSucceeds()
+    {
+        var (factory, handler) = BuildFactory();
+        handler.ScriptedResponses.Enqueue((HttpStatusCode.TooManyRequests, "{\"error\":\"rate limited\"}"));
+        handler.ScriptedResponses.Enqueue((HttpStatusCode.OK, CredentialsJson(4_102_444_800)));
+
+        var lease = await factory.CreateAsync();
+
+        lease.Bucket.Should().Be("test-bucket-1");
+        handler.RequestCount.Should().Be(2, "a transient 429 must be retried exactly once");
+    }
+
+    [Fact]
+    public async Task CreateAsync_ThrowsAfterSingleRetry_WhenExchangeKeepsFailingWith503()
+    {
+        var (factory, handler) = BuildFactory();
+        handler.ScriptedResponses.Enqueue((HttpStatusCode.BadGateway, "{\"error\":\"bad gateway\"}"));
+        handler.ScriptedResponses.Enqueue((HttpStatusCode.ServiceUnavailable, "{\"error\":\"still busy\"}"));
+
+        var act = async () => await factory.CreateAsync();
+        await act.Should().ThrowAsync<UpstashS3ClientFactory.UpstashExchangeException>();
+        handler.RequestCount.Should().Be(2, "the retry budget is exactly one — no endless retries");
     }
 }

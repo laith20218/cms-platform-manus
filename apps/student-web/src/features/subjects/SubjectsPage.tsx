@@ -1,28 +1,34 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import {
-  BookOpen, BookOpenCheck, ChevronLeft, ClipboardCheck, Clock3,
+  ArrowLeft, BookOpen, BookOpenCheck, ChevronLeft, ClipboardCheck, Clock3,
   GraduationCap, Layers, LibraryBig, Loader2, Sparkles,
 } from 'lucide-react';
 import { academicApi, type SubjectSummary } from './services/academic-api';
 import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
+import { ActivationCodeModal } from './ActivationCodeModal';
 import { cn } from '@/utils';
 
 /**
- * Subjects browser (Push 5 overhaul): the academic cascade reworked into a
- * compact stepper — universities → colleges → YEAR horizontal tabs → semester
- * chips → subject cards carrying entitlement-aware quick actions
- * (المحتوى / الاختبارات / المكتبة / الكورسات), surfaced from the student's
- * active content scopes. An "my subjects" strip on top gives one-tap access
- * to everything the student is entitled to.
+ * Subjects browser (Push 5 overhaul, Push 6 click flow): the academic cascade
+ * reworked into a compact stepper — universities → colleges → YEAR horizontal
+ * tabs → semester chips → subject cards. An "my subjects" strip on top gives
+ * one-tap access to everything the student is entitled to.
+ *
+ * Push 6: clicking a subject card no longer navigates to a separate "locked"
+ * page — entitled subjects route straight into the filtered My Studies hub
+ * (/my-studies?subjectId=…&tab=…), unentitled ones open the activation-code
+ * modal right here over the page.
  */
 export default function SubjectsPage() {
   const [selectedUni, setSelectedUni] = useState<string | null>(null);
   const [selectedCollege, setSelectedCollege] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState<string | null>(null);
   const [selectedSemester, setSelectedSemester] = useState<string | null>(null);
+  /** Push 6: the unentitled subject awaiting an activation code in the modal. */
+  const [lockedSubject, setLockedSubject] = useState<{ id: string; nameAr: string } | null>(null);
 
   const mySubjects = useMySubjects();
 
@@ -64,6 +70,7 @@ export default function SubjectsPage() {
   }
 
   const mySubjectsList = mySubjects.data ?? [];
+  const entitledIds = new Set(mySubjectsList.map((s) => s.id));
 
   return (
     <div className="space-y-6">
@@ -244,7 +251,13 @@ export default function SubjectsPage() {
           ) : subjects && subjects.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {subjects.map((s, i) => (
-                <SubjectCard key={s.id} subject={s} index={i} />
+                <SubjectCard
+                  key={s.id}
+                  subject={s}
+                  index={i}
+                  entitled={entitledIds.has(s.id)}
+                  onLocked={(subject) => setLockedSubject(subject)}
+                />
               ))}
             </div>
           ) : (
@@ -270,6 +283,11 @@ export default function SubjectsPage() {
           )}
         </section>
       )}
+
+      {/* Push 6: activation-code modal for unentitled subject cards */}
+      {lockedSubject && (
+        <ActivationCodeModal subject={lockedSubject} onClose={() => setLockedSubject(null)} />
+      )}
     </div>
   );
 }
@@ -292,28 +310,57 @@ function StepLabel({ step, label, active }: { step: number; label: string; activ
   );
 }
 
-/** A subject card with entitlement-aware quick actions (Push 5 Task 4). */
-function SubjectCard({ subject, index }: { subject: SubjectSummary; index: number }) {
+/**
+ * A subject card (Push 5 quick actions + Push 6 click flow): entitled cards
+ * route into the subject-filtered My Studies hub; unentitled cards open the
+ * activation-code modal in place — never a dead "locked" page.
+ */
+function SubjectCard({ subject, index, entitled, onLocked }: {
+  subject: SubjectSummary;
+  index: number;
+  entitled: boolean;
+  onLocked: (subject: { id: string; nameAr: string }) => void;
+}) {
+  const navigate = useNavigate();
   const scopes = subject.contentScopes ?? [];
   const canQuestions = scopes.includes('QuestionsExams');
   const canLectures = scopes.includes('LecturesText');
   const canVideoAudio = scopes.includes('VideoAudio');
   const hasLibrary = canLectures || canVideoAudio;
 
+  // Entitled cards land on the tab their grant actually covers.
+  const preferredTab = canQuestions ? 'exams' : canVideoAudio ? 'courses' : 'exams';
+
+  const openSubject = () => {
+    if (entitled) {
+      navigate(`/my-studies?subjectId=${subject.id}&tab=${preferredTab}`);
+    } else {
+      onLocked({ id: subject.id, nameAr: subject.nameAr });
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.05, 0.4) }}>
       <div className="h-full p-5 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] hover:border-[var(--c-primary-200)] hover:shadow-lg hover:-translate-y-0.5 transition-all flex flex-col" data-testid="subject-card">
-        <Link to={`/subjects/${subject.slug}`} className="block group">
+        <button type="button" onClick={openSubject} className="block w-full text-right group" data-testid="subject-card-open" aria-label={`فتح مادة ${subject.nameAr}`}>
           <div className="flex items-center gap-3 mb-3">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: subject.color || 'var(--grad-primary)' }}>
               <BookOpen className="w-5 h-5 text-white" />
             </div>
-            <div className="min-w-0">
-              <div className="font-bold text-[var(--c-text)] truncate group-hover:text-[var(--c-primary-700)] transition-colors">{subject.nameAr}</div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-[var(--c-text)] truncate group-hover:text-[var(--c-primary-700)] transition-colors">{subject.nameAr}</span>
+                {!entitled && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--c-bg-hover)] text-[var(--c-text-faint)] font-semibold shrink-0" data-testid="subject-card-locked-badge">
+                    مقفلة
+                  </span>
+                )}
+              </div>
               <div className="text-xs text-[var(--c-text-muted)]" lang="en">{subject.totalQuestions} سؤال • {subject.totalLectures} محاضرة</div>
             </div>
+            <ArrowLeft className="w-4 h-4 text-[var(--c-text-faint)] group-hover:text-[var(--c-primary-700)] group-hover:-translate-x-0.5 transition-all shrink-0" />
           </div>
-        </Link>
+        </button>
 
         {subject.userProgress && (
           <div className="mb-3">
@@ -336,24 +383,27 @@ function SubjectCard({ subject, index }: { subject: SubjectSummary; index: numbe
           </Link>
           {canQuestions && (
             <Link
-              to="/my-studies?tab=exams"
+              to={`/my-studies?subjectId=${subject.id}&tab=exams`}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-[var(--c-bg-hover)] text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] transition-colors"
+              data-testid="quick-action-exams"
             >
               <ClipboardCheck className="w-3.5 h-3.5" /> الاختبارات
             </Link>
           )}
           {hasLibrary && (
             <Link
-              to={`/subjects/${subject.slug}/library`}
+              to={`/my-studies?subjectId=${subject.id}&tab=library`}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-[var(--c-bg-hover)] text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] transition-colors"
+              data-testid="quick-action-library"
             >
               <LibraryBig className="w-3.5 h-3.5" /> المكتبة
             </Link>
           )}
           {canVideoAudio && (
             <Link
-              to="/my-studies?tab=courses"
+              to={`/my-studies?subjectId=${subject.id}&tab=courses`}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-[var(--c-bg-hover)] text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] transition-colors"
+              data-testid="quick-action-courses"
             >
               <GraduationCap className="w-3.5 h-3.5" /> الكورسات
             </Link>

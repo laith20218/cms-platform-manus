@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
@@ -49,6 +50,9 @@ public sealed class UpstashS3ClientFactory : IUpstashS3ClientFactory
     /// <summary>Credentials are refreshed this long before their stated expiry.</summary>
     private static readonly TimeSpan ExpirySafetyMargin = TimeSpan.FromMinutes(5);
 
+    /// <summary>Back-off before the single retry of a transient exchange failure.</summary>
+    private static readonly TimeSpan ExchangeRetryDelay = TimeSpan.FromMilliseconds(750);
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly string _token;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
@@ -76,7 +80,11 @@ public sealed class UpstashS3ClientFactory : IUpstashS3ClientFactory
             if (cached is not null && !IsExpiring(cached))
                 return cached;
 
-            var lease = await ExchangeCredentialsAsync(ct);
+            // Push 6: the Upstash credential agent occasionally answers with a
+            // transient 429/5xx (observed in production as a one-off 500 on the
+            // episode initiate-upload path). Retry once, after a short back-off,
+            // before surfacing the failure to the caller.
+            var lease = await ExchangeWithRetryAsync(ct);
             _cached = lease;
             return lease;
         }
@@ -85,6 +93,30 @@ public sealed class UpstashS3ClientFactory : IUpstashS3ClientFactory
             _refreshLock.Release();
         }
     }
+
+    private async Task<UpstashS3Lease> ExchangeWithRetryAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await ExchangeCredentialsAsync(ct);
+        }
+        catch (Exception ex) when (IsTransientExchangeFailure(ex))
+        {
+            await Task.Delay(ExchangeRetryDelay, ct);
+            return await ExchangeCredentialsAsync(ct);
+        }
+    }
+
+    /// <summary>
+    /// Transient upstream failures worth one retry: network/timeout errors talking to
+    /// the Upstash agent, or exchange responses carrying HTTP 429 / 5xx. Authentication
+    /// (401/403) and payload errors are NOT retried — retrying cannot fix them.
+    /// </summary>
+    private static bool IsTransientExchangeFailure(Exception ex) =>
+        ex is HttpRequestException
+        || ex is TaskCanceledException
+        || (ex is UpstashExchangeException upstream
+            && (upstream.StatusCode == HttpStatusCode.TooManyRequests || (int)upstream.StatusCode >= 500));
 
     private static bool IsExpiring(UpstashS3Lease lease) =>
         DateTimeOffset.UtcNow >= lease.ExpiresAt - ExpirySafetyMargin;
@@ -103,8 +135,9 @@ public sealed class UpstashS3ClientFactory : IUpstashS3ClientFactory
         if (!response.IsSuccessStatusCode)
         {
             var errorBody = await response.Content.ReadAsStringAsync(ct);
-            throw new InvalidOperationException(
-                $"Upstash Blob S3 credential exchange failed with HTTP {(int)response.StatusCode}: {Truncate(errorBody, 200)}");
+            throw new UpstashExchangeException(
+                $"Upstash Blob S3 credential exchange failed with HTTP {(int)response.StatusCode}: {Truncate(errorBody, 200)}",
+                response.StatusCode);
         }
 
         var credentials = await response.Content.ReadFromJsonAsync<S3CredentialsResponse>(cancellationToken: ct)
@@ -138,6 +171,22 @@ public sealed class UpstashS3ClientFactory : IUpstashS3ClientFactory
 
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max] + "…";
+
+    /// <summary>
+    /// The Upstash credential exchange answered with a non-success HTTP status.
+    /// Carries the status so transient (429/5xx) failures can be retried once
+    /// while authentication/payload errors surface immediately.
+    /// </summary>
+    public sealed class UpstashExchangeException : Exception
+    {
+        public HttpStatusCode StatusCode { get; }
+
+        public UpstashExchangeException(string message, HttpStatusCode statusCode)
+            : base(message)
+        {
+            StatusCode = statusCode;
+        }
+    }
 
     private sealed class S3CredentialsResponse
     {
