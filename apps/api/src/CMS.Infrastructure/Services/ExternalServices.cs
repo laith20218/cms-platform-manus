@@ -276,6 +276,94 @@ public class S3StorageService : IFileStorageService
             return false;
         }
     }
+
+    // ===== Push 4 / Track 4: S3 multipart on the permanent client =====
+    // The generic S3 provider (Storage:S3:*) holds long-lived credentials, so part URL
+    // and playback TTLs are not session-bound here; they still clamp to sane bounds.
+
+    public async Task<string> InitiateMultipartUploadAsync(string key, string contentType, CancellationToken ct = default)
+    {
+        var response = await _client.InitiateMultipartUploadAsync(new Amazon.S3.Model.InitiateMultipartUploadRequest
+        {
+            BucketName = _bucketName,
+            Key = key,
+            ContentType = contentType,
+        }, ct);
+        return response.UploadId;
+    }
+
+    public Task<string> PresignUploadPartAsync(string key, string uploadId, int partNumber, TimeSpan expiry, CancellationToken ct = default)
+    {
+        var seconds = (int)Math.Clamp(expiry.TotalSeconds, 60, 3600);
+        return Task.FromResult(_client.GetPreSignedURL(new Amazon.S3.Model.GetPreSignedUrlRequest
+        {
+            BucketName = _bucketName,
+            Key = key,
+            Verb = Amazon.S3.HttpVerb.PUT,
+            Expires = DateTime.UtcNow.AddSeconds(seconds),
+            PartNumber = partNumber,
+            UploadId = uploadId,
+        }));
+    }
+
+    public async Task<List<CMS.Application.Interfaces.UploadedPartInfo>> ListMultipartPartsAsync(string key, string uploadId, CancellationToken ct = default)
+    {
+        var listing = await _client.ListPartsAsync(new Amazon.S3.Model.ListPartsRequest
+        {
+            BucketName = _bucketName,
+            Key = key,
+            UploadId = uploadId,
+        }, ct);
+        return listing.Parts
+            .Select(part => new CMS.Application.Interfaces.UploadedPartInfo(part.PartNumber, part.Size, part.ETag))
+            .ToList();
+    }
+
+    public async Task CompleteMultipartUploadAsync(string key, string uploadId, IReadOnlyList<CMS.Application.Interfaces.CompletedPart> parts, CancellationToken ct = default)
+    {
+        await _client.CompleteMultipartUploadAsync(new Amazon.S3.Model.CompleteMultipartUploadRequest
+        {
+            BucketName = _bucketName,
+            Key = key,
+            UploadId = uploadId,
+            PartETags = parts.Select(part => new Amazon.S3.Model.PartETag(part.PartNumber, part.ETag)).ToList(),
+        }, ct);
+    }
+
+    public async Task AbortMultipartUploadAsync(string key, string uploadId, CancellationToken ct = default)
+    {
+        try
+        {
+            await _client.AbortMultipartUploadAsync(new Amazon.S3.Model.AbortMultipartUploadRequest
+            {
+                BucketName = _bucketName,
+                Key = key,
+                UploadId = uploadId,
+            }, ct);
+        }
+        catch (Amazon.S3.AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // idempotent abort
+        }
+    }
+
+    public async Task<long> GetObjectSizeAsync(string key, CancellationToken ct = default)
+    {
+        var metadata = await _client.GetObjectMetadataAsync(_bucketName, key, ct);
+        return metadata.ContentLength;
+    }
+
+    public Task<string> GetSignedUrlViaCredentialsAsync(string key, TimeSpan desiredExpiry, CancellationToken ct = default)
+    {
+        var seconds = (int)Math.Clamp(desiredExpiry.TotalSeconds, 60, 3600);
+        return Task.FromResult(_client.GetPreSignedURL(new Amazon.S3.Model.GetPreSignedUrlRequest
+        {
+            BucketName = _bucketName,
+            Key = key,
+            Verb = Amazon.S3.HttpVerb.GET,
+            Expires = DateTime.UtcNow.AddSeconds(seconds),
+        }));
+    }
 }
 
 /// <summary>
@@ -429,6 +517,134 @@ public class UpstashBlobStorageService : IFileStorageService
     /// presigned URLs is fragile across S3-compatible providers and adds latency.
     /// </summary>
     public Task<bool> ExistsAsync(string key, CancellationToken ct = default) => Task.FromResult(true);
+
+    // ===== Push 4 / Track 4: S3 multipart via the short-lived credential lease =====
+    // Verified live against Cloudflare R2 (Phase 2 gate): InitiateMultipartUpload,
+    // presigned UploadPart PUTs (partNumber + uploadId query params via the standard
+    // GetPreSignedURL surface), ListParts, Complete, Abort and HEAD size verification
+    // all work with the session credentials issued by the Upstash credential exchange.
+
+    public async Task<string> InitiateMultipartUploadAsync(string key, string contentType, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            throw new ArgumentException("Object key must be provided by the server.", nameof(key));
+
+        var lease = await _s3ClientFactory.CreateAsync(ct);
+        var response = await lease.Client.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+        {
+            BucketName = lease.Bucket,
+            Key = key,
+            ContentType = contentType,
+        }, ct);
+        return response.UploadId;
+    }
+
+    public async Task<string> PresignUploadPartAsync(string key, string uploadId, int partNumber, TimeSpan expiry, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            throw new ArgumentException("Object key must be provided by the server.", nameof(key));
+
+        var lease = await _s3ClientFactory.CreateAsync(ct);
+        // GetPreSignedUrlRequest natively carries PartNumber + UploadId (verified against R2).
+        // Expiry is clamped under the ~10-minute session-credential lease lifetime; clients
+        // re-request URLs for remaining parts on resume, which re-signs with a fresh lease.
+        var seconds = (int)Math.Min(540, Math.Max(60, expiry.TotalSeconds));
+        return lease.Client.GetPreSignedURL(new GetPreSignedUrlRequest
+        {
+            BucketName = lease.Bucket,
+            Key = key,
+            Verb = HttpVerb.PUT,
+            Expires = DateTime.UtcNow.AddSeconds(seconds),
+            PartNumber = partNumber,
+            UploadId = uploadId,
+        });
+    }
+
+    public async Task<List<CMS.Application.Interfaces.UploadedPartInfo>> ListMultipartPartsAsync(string key, string uploadId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            throw new ArgumentException("Object key must be provided by the server.", nameof(key));
+
+        var lease = await _s3ClientFactory.CreateAsync(ct);
+        var listing = await lease.Client.ListPartsAsync(new ListPartsRequest
+        {
+            BucketName = lease.Bucket,
+            Key = key,
+            UploadId = uploadId,
+        }, ct);
+        return listing.Parts
+            .Select(part => new CMS.Application.Interfaces.UploadedPartInfo(part.PartNumber, part.Size, part.ETag))
+            .ToList();
+    }
+
+    public async Task CompleteMultipartUploadAsync(string key, string uploadId, IReadOnlyList<CMS.Application.Interfaces.CompletedPart> parts, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            throw new ArgumentException("Object key must be provided by the server.", nameof(key));
+
+        var lease = await _s3ClientFactory.CreateAsync(ct);
+        await lease.Client.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+        {
+            BucketName = lease.Bucket,
+            Key = key,
+            UploadId = uploadId,
+            PartETags = parts.Select(part => new PartETag(part.PartNumber, part.ETag)).ToList(),
+        }, ct);
+    }
+
+    public async Task AbortMultipartUploadAsync(string key, string uploadId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            return; // nothing to abort — idempotent contract
+
+        var lease = await _s3ClientFactory.CreateAsync(ct);
+        try
+        {
+            await lease.Client.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
+            {
+                BucketName = lease.Bucket,
+                Key = key,
+                UploadId = uploadId,
+            }, ct);
+        }
+        catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            // upload already gone — treat as success (idempotent abort)
+        }
+    }
+
+    public async Task<long> GetObjectSizeAsync(string key, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            throw new ArgumentException("Object key must be provided by the server.", nameof(key));
+
+        var lease = await _s3ClientFactory.CreateAsync(ct);
+        var metadata = await lease.Client.GetObjectMetadataAsync(new GetObjectMetadataRequest
+        {
+            BucketName = lease.Bucket,
+            Key = key,
+        }, ct);
+        return metadata.ContentLength;
+    }
+
+    public async Task<string> GetSignedUrlViaCredentialsAsync(string key, TimeSpan desiredExpiry, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            throw new ArgumentException("Object key must be provided by the server.", nameof(key));
+
+        var lease = await _s3ClientFactory.CreateAsync(ct);
+        // Clamp under the lease lifetime: a presigned URL signed with session credentials
+        // cannot outlive them, so an over-long requested TTL would silently break playback.
+        var remaining = lease.ExpiresAt - DateTimeOffset.UtcNow;
+        var seconds = (int)Math.Clamp(desiredExpiry.TotalSeconds, 60, Math.Max(60, remaining.TotalSeconds - 30));
+        return lease.Client.GetPreSignedURL(new GetPreSignedUrlRequest
+        {
+            BucketName = lease.Bucket,
+            Key = key,
+            Verb = HttpVerb.GET,
+            Expires = DateTime.UtcNow.AddSeconds(seconds),
+        });
+    }
 
     private async Task<PresignResult> PresignAsync(
         string method,

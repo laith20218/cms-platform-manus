@@ -38,6 +38,10 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<LibraryView> LibraryViews => Set<LibraryView>();
     public DbSet<LectureCompletion> LectureCompletions => Set<LectureCompletion>();
 
+    // Push 4 / Track 4: courses and episodes
+    public DbSet<Course> Courses => Set<Course>();
+    public DbSet<CourseEpisode> CourseEpisodes => Set<CourseEpisode>();
+
     // Users
     public DbSet<Student> Students => Set<Student>();
     public DbSet<Admin> Admins => Set<Admin>();
@@ -195,6 +199,21 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasOne(x => x.ExamSessionQuestion).WithMany().HasForeignKey(x => x.ExamSessionQuestionId).OnDelete(DeleteBehavior.Restrict);
         });
 
+        // Push 4 / Track 4: courses and episodes. Episodes cascade with their course;
+        // courses are Restrict against subject hard-deletes (subjects are soft-deleted in
+        // practice — a hard delete must never silently destroy course content).
+        modelBuilder.Entity<Course>(entity =>
+        {
+            entity.HasIndex(x => x.SubjectId);
+            entity.HasOne(x => x.Subject).WithMany(x => x.Courses).HasForeignKey(x => x.SubjectId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<CourseEpisode>(entity =>
+        {
+            entity.HasIndex(x => x.CourseId);
+            entity.HasIndex(x => new { x.CourseId, x.EpisodeNumber }).IsUnique();
+            entity.HasOne(x => x.Course).WithMany(x => x.Episodes).HasForeignKey(x => x.CourseId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         // Auto snake_case naming
         foreach (var entity in modelBuilder.Model.GetEntityTypes())
         {
@@ -223,6 +242,11 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
 
         // Table-scoped constraints must be configured after the legacy naming loop above,
         // which otherwise replaces the table mapping and drops relational annotations.
+        modelBuilder.Entity<CourseEpisode>(entity =>
+        {
+            entity.ToTable(table => table.HasCheckConstraint("ck_course_episodes_source",
+                "(source_type = 1) OR (file_key IS NOT NULL)"));
+        });
         modelBuilder.Entity<Favorite>(entity =>
         {
             entity.ToTable(table => table.HasCheckConstraint("ck_favorites_exactly_one_target",

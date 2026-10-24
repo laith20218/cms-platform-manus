@@ -146,6 +146,18 @@ public enum LibraryFileType
 }
 
 /// <summary>
+/// Source of a course episode's media.
+/// </summary>
+public enum CourseEpisodeSource
+{
+    /// <summary>Uploaded directly to object storage via S3 multipart (64 MB parts).</summary>
+    Upload = 0,
+
+    /// <summary>Embedded YouTube video (no stored blob).</summary>
+    YouTube = 1
+}
+
+/// <summary>
 /// File virus scan status.
 /// </summary>
 public enum VirusScanStatus

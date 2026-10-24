@@ -145,6 +145,7 @@ export type AdminLibraryFileListItem = {
   subjectNameAr: string;
   title: string;
   type: string;
+  category?: string | null; // Curriculum | Lecture | Summary | GoldenIdeas (null = legacy)
   fileSize: number;
   durationSeconds?: number | null;
   status: string;
@@ -220,3 +221,61 @@ export async function clearRoleUiPermissions(token: string, roleId: string): Pro
   await apiRequest<void>(`/api/v1/admin/roles/${roleId}/ui-permissions`, token, { method: 'DELETE' });
 }
 
+
+// ===== Push 4 / Track 4: courses & multipart episodes =====
+
+export type AdminCourseListItem = {
+  id: string;
+  subjectId: string;
+  subjectName: string;
+  title: string;
+  status: string; // Draft | Published | Archived
+  episodesCount: number;
+  viewsCount: number;
+  createdAt: string;
+};
+
+export type CourseEpisode = {
+  id: string;
+  courseId: string;
+  title: string;
+  episodeNumber: number;
+  durationSeconds?: number | null;
+  sourceType: 'Upload' | 'YouTube';
+  fileSize?: number | null;
+  contentType?: string | null;
+  youtubeVideoId?: string | null;
+  uploadCompleted: boolean;
+  viewsCount: number;
+};
+
+export type CourseDetail = {
+  id: string;
+  subjectId: string;
+  title: string;
+  description?: string | null;
+  coverImageUrl?: string | null;
+  status: string;
+  episodesCount: number;
+  createdAt: string;
+  episodes: CourseEpisode[];
+};
+
+export type InitiateUploadResponse = {
+  episodeId: string;
+  uploadId: string;
+  fileKey: string;
+  partSizeBytes: number;
+  partCount: number;
+  partUrls: string[];
+};
+
+export type MultipartStatus = {
+  episodeId: string;
+  uploadId: string;
+  fileKey: string;
+  partSizeBytes: number;
+  partCount: number;
+  uploadedParts: Array<{ partNumber: number; size: number; etag: string }>;
+  pendingPartUrls: string[];
+};

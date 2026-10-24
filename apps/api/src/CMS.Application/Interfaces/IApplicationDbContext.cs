@@ -30,6 +30,10 @@ public interface IApplicationDbContext
     DbSet<LibraryView> LibraryViews { get; }
     DbSet<LectureCompletion> LectureCompletions { get; }
 
+    // Push 4 / Track 4: courses and episodes
+    DbSet<Course> Courses { get; }
+    DbSet<CourseEpisode> CourseEpisodes { get; }
+
     DbSet<Student> Students { get; }
     DbSet<Admin> Admins { get; }
     DbSet<AdminRole> AdminRoles { get; }

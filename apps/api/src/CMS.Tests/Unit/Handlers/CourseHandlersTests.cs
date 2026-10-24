@@ -1,0 +1,478 @@
+using CMS.Application.Commands.Courses;
+using CMS.Application.DTOs.Courses;
+using CMS.Application.Handlers.Courses;
+using CMS.Application.Interfaces;
+using CMS.Domain.Entities;
+using CMS.Domain.Enums;
+using CMS.Domain.Exceptions;
+using CMS.Infrastructure.Persistence;
+using CMS.Infrastructure.Repositories;
+using CMS.Tests.Helpers;
+using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
+
+namespace CMS.Tests.Unit.Handlers;
+
+/// <summary>
+/// Push 4 / Track 4 — course + episode business rules:
+///   • course CRUD with ContentStatus lifecycle (د2) and course-level publishing (د3)
+///     that requires at least one completed episode;
+///   • multipart orchestration: MIME allow-list, per-type ceiling (settings-driven with
+///     hardcoded fallback), 64 MB part math (د4), resume via ListParts, defense-in-depth
+///     actual-size verification at complete-upload, abort + row cleanup;
+///   • student access: VideoAudio content scope, upload-incomplete refusal, watermark
+///     envelope, YouTube embed passthrough, best-effort view counting (د5).
+/// </summary>
+public sealed class CourseHandlersTests
+{
+    private const long PartSize = 64L * 1024 * 1024;
+
+    private static (CourseHandlers Handler, Mock<IFileStorageService> Storage, Mock<IEntitlementService> Entitlements, Mock<ISystemSettingsService> Settings, RecordingActivityWriter Activity) Create(
+        ApplicationDbContext db, Mock<ISystemSettingsService>? settings = null)
+    {
+        var storage = new Mock<IFileStorageService>(MockBehavior.Strict);
+        var entitlements = new Mock<IEntitlementService>();
+        var settingsService = settings ?? new Mock<ISystemSettingsService>();
+        if (settings is null)
+            settingsService.Setup(service => service.GetAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((string?)null); // missing keys exercise the hardcoded 2560 MB fallback
+        var activity = new RecordingActivityWriter();
+        var handler = new CourseHandlers(
+            db,
+            new UnitOfWork(db),
+            storage.Object,
+            entitlements.Object,
+            settingsService.Object,
+            activity,
+            NullLogger<CourseHandlers>.Instance);
+        return (handler, storage, entitlements, settingsService, activity);
+    }
+
+    private static async Task<Course> SeedCourseAsync(ApplicationDbContext db, ContentStatus status = ContentStatus.Draft)
+    {
+        var subject = db.Subjects.First();
+        var course = new Course { SubjectId = subject.Id, Title = "كورس الباطنة الشامل", Status = status };
+        db.Courses.Add(course);
+        await db.SaveChangesAsync();
+        return course;
+    }
+
+    private static async Task<CourseEpisode> SeedUploadEpisodeAsync(ApplicationDbContext db, Course course, string fileKey,
+        string? uploadId = null, long fileSize = 1024)
+    {
+        var episode = new CourseEpisode
+        {
+            CourseId = course.Id,
+            Title = "الحلقة الأولى",
+            EpisodeNumber = 1,
+            SourceType = CourseEpisodeSource.Upload,
+            FileKey = fileKey,
+            FileSize = fileSize,
+            ContentType = "video/mp4",
+            UploadId = uploadId,
+        };
+        db.CourseEpisodes.Add(episode);
+        await db.SaveChangesAsync();
+        return episode;
+    }
+
+    // ===== Course CRUD =====
+
+    [Fact]
+    public async Task CreateCourse_UnknownSubject_NotFound()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var (handler, _, _, _, _) = Create(db);
+
+        var act = () => handler.Handle(new CreateCourseCommand(Guid.NewGuid(), "عنوان", null, null, Guid.NewGuid()), CancellationToken.None);
+
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task CreateCourse_CreatesDraft_AndLogsActivity()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var subject = db.Subjects.First();
+        var admin = db.Admins.First();
+        var (handler, _, _, _, activity) = Create(db);
+
+        var course = await handler.Handle(new CreateCourseCommand(subject.Id, "كورس تشريح", "وصف", "https://cover", admin.Id), CancellationToken.None);
+
+        course.Status.Should().Be("Draft");
+        course.Episodes.Should().BeEmpty();
+        activity.Actions.Should().ContainSingle(entry => entry.Action == AdminActivityActionType.CreateCourse);
+        db.Courses.AsNoTracking().Single(stored => stored.Id == course.Id).Status.Should().Be(ContentStatus.Draft);
+    }
+
+    [Fact]
+    public async Task PublishCourse_EmptyCourse_RejectedWithCOURSE_EMPTY()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var (handler, _, _, _, _) = Create(db);
+
+        var act = () => handler.Handle(new PublishCourseCommand(course.Id), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("COURSE_EMPTY");
+    }
+
+    [Fact]
+    public async Task PublishCourse_WithCompletedEpisode_Succeeds()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: null);
+        var (handler, _, _, _, _) = Create(db);
+
+        var published = await handler.Handle(new PublishCourseCommand(course.Id), CancellationToken.None);
+
+        published.Status.Should().Be("Published");
+    }
+
+    [Fact]
+    public async Task PublishCourse_OnlyIncompleteEpisodes_Rejected()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: "mpu-inflight");
+        var (handler, _, _, _, _) = Create(db);
+
+        var act = () => handler.Handle(new PublishCourseCommand(course.Id), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("COURSE_EMPTY",
+            "an episode whose multipart upload never completed cannot satisfy the publish requirement");
+    }
+
+    [Fact]
+    public async Task DeleteCourse_SoftDeletes_AbortsInFlightUploads_AndCleansBlobs()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var inFlight = await SeedUploadEpisodeAsync(db, course, "courses/a/inflight", uploadId: "mpu-1");
+        var ready = await SeedUploadEpisodeAsync(db, course, "courses/b/ready", uploadId: null);
+        var youtube = new CourseEpisode { CourseId = course.Id, Title = "يوتيوب", EpisodeNumber = 3, SourceType = CourseEpisodeSource.YouTube, YoutubeVideoId = "abc123" };
+        db.CourseEpisodes.Add(youtube);
+        await db.SaveChangesAsync();
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.AbortMultipartUploadAsync("courses/a/inflight", "mpu-1", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        storage.Setup(s => s.DeleteAsync("courses/a/inflight", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        storage.Setup(s => s.DeleteAsync("courses/b/ready", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        await handler.Handle(new DeleteCourseCommand(course.Id, Guid.NewGuid()), CancellationToken.None);
+
+        db.Courses.AsNoTracking().Single(stored => stored.Id == course.Id).DeletedAt.Should().NotBeNull();
+        storage.Verify(s => s.AbortMultipartUploadAsync("courses/a/inflight", "mpu-1", It.IsAny<CancellationToken>()), Times.Once);
+        storage.Verify(s => s.DeleteAsync("courses/b/ready", It.IsAny<CancellationToken>()), Times.Once,
+            "completed blobs are removed best-effort");
+        storage.Verify(s => s.DeleteAsync("courses/a/inflight", It.IsAny<CancellationToken>()), Times.Once,
+            "the in-flight key's object is also cleaned");
+        storage.VerifyNoOtherCalls();
+        _ = inFlight; _ = ready;
+    }
+
+    // ===== Episode CRUD =====
+
+    [Fact]
+    public async Task AddYouTubeEpisode_DuplicateNumber_Rejected()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var (handler, _, _, _, _) = Create(db);
+        await handler.Handle(new AddYouTubeEpisodeCommand(course.Id, "حلقة يوتيوب", 1, 600, "vid1", Guid.NewGuid()), CancellationToken.None);
+
+        var act = () => handler.Handle(new AddYouTubeEpisodeCommand(course.Id, "حلقة أخرى", 1, 300, "vid2", Guid.NewGuid()), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("EPISODE_NUMBER_TAKEN");
+    }
+
+    [Fact]
+    public async Task AddYouTubeEpisode_YouTubeEpisodeNeedsNoFileKey()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var (handler, _, _, _, _) = Create(db);
+
+        var episode = await handler.Handle(new AddYouTubeEpisodeCommand(course.Id, "حلقة يوتيوب", 1, 600, "dQw4w9WgXcQ", Guid.NewGuid()), CancellationToken.None);
+
+        episode.SourceType.Should().Be("YouTube");
+        episode.UploadCompleted.Should().BeTrue("YouTube episodes are immediately playable");
+        episode.YoutubeVideoId.Should().Be("dQw4w9WgXcQ");
+    }
+
+    // ===== Multipart orchestration =====
+
+    [Fact]
+    public async Task InitiateUpload_RejectsDocumentMime()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var (handler, _, _, _, _) = Create(db);
+
+        var act = () => handler.Handle(new InitiateEpisodeUploadCommand(
+            course.Id, "notes.pdf", "application/pdf", 1024, "ملف", 1, Guid.NewGuid()), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("INVALID_FILE_TYPE",
+            "documents belong to the library, not course episodes");
+    }
+
+    [Fact]
+    public async Task InitiateUpload_RejectsOversize_WithSettingsDrivenCeiling()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var settings = new Mock<ISystemSettingsService>();
+        settings.Setup(s => s.GetAsync("upload.limit.video_mb", It.IsAny<CancellationToken>())).ReturnsAsync("512");
+        var (handler, _, _, _, _) = Create(db, settings);
+
+        var act = () => handler.Handle(new InitiateEpisodeUploadCommand(
+            course.Id, "huge.mp4", "video/mp4", 513L * 1024 * 1024, "فيديو ضخم", 1, Guid.NewGuid()), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("FILE_TOO_LARGE");
+    }
+
+    [Fact]
+    public async Task InitiateUpload_PresignsParts_With64MbMath()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.InitiateMultipartUploadAsync(It.IsAny<string>(), "video/mp4", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("mpu-42");
+        storage.Setup(s => s.PresignUploadPartAsync(It.IsAny<string>(), "mpu-42", It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string key, string uploadId, int partNumber, TimeSpan ttl, CancellationToken _) => $"https://r2/part{partNumber}");
+
+        // 130 MB → ceil(130/64) = 3 parts
+        var initiate = await handler.Handle(new InitiateEpisodeUploadCommand(
+            course.Id, "lesson.mp4", "video/mp4", 130L * 1024 * 1024, "الدرس الأول", 1, Guid.NewGuid()), CancellationToken.None);
+
+        initiate.PartSizeBytes.Should().Be((int)PartSize);
+        initiate.PartCount.Should().Be(3);
+        initiate.PartUrls.Should().HaveCount(3).And.ContainInOrder("https://r2/part1", "https://r2/part2", "https://r2/part3");
+        initiate.UploadId.Should().Be("mpu-42");
+        var episode = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == initiate.EpisodeId);
+        episode.FileSize.Should().Be(130L * 1024 * 1024, "declared size is stored until complete-upload verifies the actual size");
+        episode.UploadId.Should().Be("mpu-42");
+        episode.FileKey.Should().StartWith($"courses/{course.Id}/", "keys are server-generated and course-scoped");
+    }
+
+    [Fact]
+    public async Task MultipartStatus_ReturnsStoredParts_AndPresignsOnlyPending()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: "mpu-7", fileSize: 130L * 1024 * 1024);
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.ListMultipartPartsAsync("courses/x/y", "mpu-7", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<UploadedPartInfo> { new(1, PartSize, "etag-1") });
+        storage.Setup(s => s.PresignUploadPartAsync("courses/x/y", "mpu-7", It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string key, string uploadId, int partNumber, TimeSpan ttl, CancellationToken _) => $"https://r2/resume{partNumber}");
+
+        var status = await handler.Handle(new GetMultipartStatusQuery(episode.Id), CancellationToken.None);
+
+        status.UploadedParts.Should().ContainSingle().Which.PartNumber.Should().Be(1);
+        status.PendingPartUrls.Should().HaveCount(2).And.ContainInOrder("https://r2/resume2", "https://r2/resume3");
+    }
+
+    [Fact]
+    public async Task CompleteUpload_VerifiesActualSize_OverLimit_AbortsDeletesRowAndFails()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: "mpu-9", fileSize: 100);
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.CompleteMultipartUploadAsync("courses/x/y", "mpu-9", It.IsAny<IReadOnlyList<CompletedPart>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        storage.Setup(s => s.GetObjectSizeAsync("courses/x/y", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(3000L * 1024 * 1024); // actual object is ~3 GB — exceeds the 2560 MB default ceiling
+        storage.Setup(s => s.DeleteAsync("courses/x/y", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        storage.Setup(s => s.AbortMultipartUploadAsync("courses/x/y", "mpu-9", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var act = () => handler.Handle(new CompleteEpisodeUploadCommand(episode.Id,
+            new List<CompletedPartDto> { new(1, "etag-1") }), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("FILE_TOO_LARGE",
+            "the actual assembled object is verified against the ceiling — a lying declared size cannot smuggle an oversized video");
+        db.CourseEpisodes.AsNoTracking().Any(e => e.Id == episode.Id).Should().BeFalse("the offending row is removed");
+        storage.Verify(s => s.DeleteAsync("courses/x/y", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CompleteUpload_MarksReady_AndLogsActivity()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: "mpu-10", fileSize: 100);
+        var (handler, storage, _, _, activity) = Create(db);
+        storage.Setup(s => s.CompleteMultipartUploadAsync("courses/x/y", "mpu-10", It.IsAny<IReadOnlyList<CompletedPart>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        storage.Setup(s => s.GetObjectSizeAsync("courses/x/y", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(2048L);
+
+        var completed = await handler.Handle(new CompleteEpisodeUploadCommand(episode.Id,
+            new List<CompletedPartDto> { new(1, "etag-1"), new(2, "etag-2") }), CancellationToken.None);
+
+        completed.UploadCompleted.Should().BeTrue();
+        completed.FileSize.Should().Be(2048L, "the verified actual size replaces the declared size");
+        var stored = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == episode.Id);
+        stored.UploadId.Should().BeNull("upload completion clears the in-flight marker");
+        activity.Actions.Should().ContainSingle(entry => entry.Action == AdminActivityActionType.UploadEpisode);
+    }
+
+    [Fact]
+    public async Task AbortUpload_AbortsStorage_AndDeletesRow()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: "mpu-11");
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.AbortMultipartUploadAsync("courses/x/y", "mpu-11", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        await handler.Handle(new AbortEpisodeUploadCommand(episode.Id, Guid.NewGuid()), CancellationToken.None);
+
+        db.CourseEpisodes.AsNoTracking().Any(e => e.Id == episode.Id).Should().BeFalse("aborted uploads free their episode number");
+    }
+
+    // ===== Student access =====
+
+    [Fact]
+    public async Task GetEpisodeAccess_IncompleteUpload_Rejected()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db, ContentStatus.Published);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: "mpu-pending");
+        var (handler, _, _, _, _) = Create(db);
+
+        var act = () => handler.Handle(new GetEpisodeAccessCommand(episode.Id, Guid.NewGuid()), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("EPISODE_UPLOAD_INCOMPLETE");
+    }
+
+    [Fact]
+    public async Task GetEpisodeAccess_NoVideoAudioScope_Forbidden()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db, ContentStatus.Published);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y");
+        var student = db.Students.First();
+        var (handler, _, entitlements, _, _) = Create(db);
+        entitlements.Setup(e => e.CanAccessSubjectContentAsync(student.Id, course.SubjectId, SubscriptionContentScope.VideoAudio, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var act = () => handler.Handle(new GetEpisodeAccessCommand(episode.Id, student.Id), CancellationToken.None);
+
+        await act.Should().ThrowAsync<ForbiddenException>();
+    }
+
+    [Fact]
+    public async Task GetEpisodeAccess_UploadEpisode_PresignsViaCredentials_ReturnsWatermark_AndCountsView()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db, ContentStatus.Published);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y");
+        var student = db.Students.First();
+        var (handler, storage, entitlements, _, _) = Create(db);
+        entitlements.Setup(e => e.CanAccessSubjectContentAsync(student.Id, course.SubjectId, SubscriptionContentScope.VideoAudio, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        storage.Setup(s => s.GetSignedUrlViaCredentialsAsync("courses/x/y", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://r2/signed-playback");
+
+        var access = await handler.Handle(new GetEpisodeAccessCommand(episode.Id, student.Id), CancellationToken.None);
+
+        access.AccessUrl.Should().Be("https://r2/signed-playback");
+        access.Watermark.StudentName.Should().Be(student.FullName);
+        access.Watermark.StudentPhone.Should().Be(student.Phone);
+        db.CourseEpisodes.AsNoTracking().Single(e => e.Id == episode.Id).ViewsCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GetEpisodeAccess_YouTubeEpisode_ReturnsEmbedUrl_WithoutPresigning()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db, ContentStatus.Published);
+        var episode = new CourseEpisode { CourseId = course.Id, Title = "يوتيوب", EpisodeNumber = 1, SourceType = CourseEpisodeSource.YouTube, YoutubeVideoId = "abc123" };
+        db.CourseEpisodes.Add(episode);
+        await db.SaveChangesAsync();
+        var student = db.Students.First();
+        var (handler, storage, entitlements, _, _) = Create(db);
+        entitlements.Setup(e => e.CanAccessSubjectContentAsync(student.Id, course.SubjectId, SubscriptionContentScope.VideoAudio, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var access = await handler.Handle(new GetEpisodeAccessCommand(episode.Id, student.Id), CancellationToken.None);
+
+        access.AccessUrl.Should().StartWith("https://www.youtube.com/embed/abc123");
+        storage.VerifyNoOtherCalls();
+    }
+
+    // ===== Student catalog =====
+
+    [Fact]
+    public async Task GetSubjectCourses_NoSubjectAccess_Forbidden()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var subject = db.Subjects.First();
+        var student = db.Students.First();
+        var (handler, _, entitlements, _, _) = Create(db);
+        entitlements.Setup(e => e.CanAccessSubjectAsync(student.Id, subject.Id, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var act = () => handler.Handle(new GetSubjectCoursesQuery(student.Id, subject.Id), CancellationToken.None);
+
+        await act.Should().ThrowAsync<ForbiddenException>();
+    }
+
+    [Fact]
+    public async Task GetSubjectCourses_WithoutVideoAudioScope_ReturnsEmptyList()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var subject = db.Subjects.First();
+        var student = db.Students.First();
+        var course = await SeedCourseAsync(db, ContentStatus.Published);
+        var (handler, _, entitlements, _, _) = Create(db);
+        entitlements.Setup(e => e.CanAccessSubjectAsync(student.Id, subject.Id, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        entitlements.Setup(e => e.CanAccessSubjectContentAsync(student.Id, subject.Id, SubscriptionContentScope.VideoAudio, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var courses = await handler.Handle(new GetSubjectCoursesQuery(student.Id, subject.Id), CancellationToken.None);
+
+        courses.Should().BeEmpty("a LecturesText-only subscription must not see the course catalog");
+        _ = course;
+    }
+
+    [Fact]
+    public async Task GetSubjectCourses_WithScope_ReturnsPublishedCoursesWithCounts()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var subject = db.Subjects.First();
+        var student = db.Students.First();
+        var course = await SeedCourseAsync(db, ContentStatus.Published);
+        await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: null, fileSize: 100);
+        var draft = await SeedCourseAsync(db, ContentStatus.Draft);
+        var (handler, _, entitlements, _, _) = Create(db);
+        entitlements.Setup(e => e.CanAccessSubjectAsync(student.Id, subject.Id, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        entitlements.Setup(e => e.CanAccessSubjectContentAsync(student.Id, subject.Id, SubscriptionContentScope.VideoAudio, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var courses = await handler.Handle(new GetSubjectCoursesQuery(student.Id, subject.Id), CancellationToken.None);
+
+        courses.Should().ContainSingle().Which.Id.Should().Be(course.Id, "draft courses are invisible to students");
+        courses[0].EpisodesCount.Should().Be(1);
+        _ = draft;
+    }
+
+    /// <summary>Activity writer that records entries in memory for assertions.</summary>
+    private sealed class RecordingActivityWriter : IAdminActivityWriter
+    {
+        public List<(AdminActivityActionType Action, string? ResourceId)> Actions { get; } = new();
+
+        public Task LogAsync(Guid adminId, AdminActivityActionType actionType, string? resourceId = null, object? metadata = null, Guid? sessionId = null, CancellationToken ct = default)
+        {
+            Actions.Add((actionType, resourceId));
+            return Task.CompletedTask;
+        }
+    }
+}

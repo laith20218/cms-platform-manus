@@ -72,7 +72,7 @@ public sealed class UiPermissionsPostgresIntegrationTests
             var before = await GetMyEnvelopeAsync(factory, factory.CustomAdminId, super: false);
             before.Mode.Should().Be("unconfigured");
             before.AllowedKeys.Should().Equal(before.AllKeys);
-            before.AllKeys.Should().HaveCount(62);
+            before.AllKeys.Should().HaveCount(70);
 
             // PUT (scrambled + duplicated) → stored registry-ordered.
             var put = factory.AdminRequest(HttpMethod.Put, factory.SuperAdminId, super: true, $"/api/v1/admin/roles/{factory.CustomRoleId}/ui-permissions");
@@ -133,7 +133,7 @@ public sealed class UiPermissionsPostgresIntegrationTests
     /// <summary>
     /// Default Behavior Preserved (Push 3 regression gate): three custom roles with
     /// ui_permissions = NULL and one admin per role — every /me/ui-permissions call
-    /// must return allowedKeys == allKeys (all 62 keys) with mode == "unconfigured".
+    /// must return allowedKeys == allKeys (all 70 keys) with mode == "unconfigured".
     /// Proves zero behavioral change for existing roles.
     /// </summary>
     [Fact]
@@ -151,7 +151,7 @@ public sealed class UiPermissionsPostgresIntegrationTests
             {
                 var envelope = await GetMyEnvelopeAsync(factory, adminId, super: false);
                 envelope.Mode.Should().Be("unconfigured", "no Push 3 gate may fire for a role that was never configured");
-                envelope.AllKeys.Should().HaveCount(62);
+                envelope.AllKeys.Should().HaveCount(70);
                 envelope.AllowedKeys.Should().Equal(envelope.AllKeys, "allowedKeys == allKeys is the definition of full access");
                 envelope.IsSuperAdmin.Should().BeFalse();
             }
