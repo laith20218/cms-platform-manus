@@ -36,6 +36,8 @@ import {
   X,
 } from 'lucide-react';
 import { API_BASE_URL, apiRequest, ApiError, type AdminRecord, type AdminUser, type PagedResult, type RoleRecord, login, refreshAccessToken } from './lib/api';
+import { UiPermissionsProvider, useUiPermissions, useUiPermissionsBundle } from './hooks/useUiPermissions';
+import { createCanFunction } from './lib/uiPermissions';
 import { AcademicCenter } from './components/AcademicCenter';
 import { AdminsCenter, DialogLayer } from './components/AdminsCenter';
 import { ActivityMonitor } from './components/ActivityMonitor';
@@ -119,6 +121,13 @@ function App() {
 
   const isSuperAdmin = user?.role === 'super_admin';
   const isArabic = locale === 'ar';
+
+  // Push 3 / Track 3: the advanced UI permissions state. The hook is called
+  // unconditionally (top of App) — can() fails open while loading/on error because
+  // the cosmetic layer must never lock an administrator out (backend RBAC is the
+  // real gate; see lib/uiPermissions.ts).
+  const uiPermissionsState = useUiPermissionsBundle(token, isSuperAdmin);
+  const can = createCanFunction(uiPermissionsState.phase === 'ready' ? uiPermissionsState.bundle : null);
 
   const copy = isArabic
     ? {
@@ -517,7 +526,6 @@ function App() {
     },
   ];
 
-  const isManagementView = view === 'admins' || view === 'roles' || view === 'audit' || view === 'reports' || view === 'settings';
   const viewTitle = view === 'admins' ? copy.adminList
     : view === 'roles' ? copy.rolesTitle
     : view === 'audit' ? (isArabic ? 'السجل الأمني' : 'Security Audit')
@@ -536,6 +544,7 @@ function App() {
   const SepIcon = isArabic ? ChevronRight : ChevronLeft;
 
   return (
+    <UiPermissionsProvider value={uiPermissionsState}>
     <main className="admin-shell" dir={isArabic ? 'rtl' : 'ltr'}>
       <aside className={`sidebar ${mobileNavOpen ? 'open' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="side-brand">
@@ -547,7 +556,9 @@ function App() {
         </div>
         <nav>
           {navGroups.map((group) => {
-            const visible = group.items.filter((item) => !item.superOnly || isSuperAdmin);
+            // Push 3: view keys AND with superOnly — custom roles never see super-only
+            // views regardless of keys; everyone else needs their view key.
+            const visible = group.items.filter((item) => (!item.superOnly || isSuperAdmin) && can(`view:${item.key}`));
             if (visible.length === 0) return null;
             return (
               <div key={group.label} className="nav-group">
@@ -626,10 +637,13 @@ function App() {
             <button className="icon-btn" aria-label={copy.toggleTheme} onClick={toggleTheme}>
               {theme === 'light' ? <Moon size={19} /> : <Sun size={19} />}
             </button>
-            <button className="icon-btn" aria-label={isArabic ? 'التنبيهات' : 'Notifications'} onClick={() => setNotificationComposeOpen(true)} title={isArabic ? 'إنشاء إشعار' : 'Compose notification'}>
-              <Bell size={19} />
-              {unreadCount > 0 && <span className="dot">{unreadCount > 99 ? '99+' : unreadCount}</span>}
-            </button>
+            {/* Push 3: compose bell gated by btn:overview.compose-notification. */}
+            {can('btn:overview.compose-notification') && (
+              <button className="icon-btn" aria-label={isArabic ? 'التنبيهات' : 'Notifications'} onClick={() => setNotificationComposeOpen(true)} title={isArabic ? 'إنشاء إشعار' : 'Compose notification'}>
+                <Bell size={19} />
+                {unreadCount > 0 && <span className="dot">{unreadCount > 99 ? '99+' : unreadCount}</span>}
+              </button>
+            )}
           </div>
         </header>
         <div className="content">
@@ -641,67 +655,79 @@ function App() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.2 }}
             >
-              {view === 'overview' && <Overview copy={copy} isArabic={isArabic} isSuperAdmin={isSuperAdmin} token={token} onNavigate={setView} />}
-              {view === 'students' && <StudentsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />}
-              {view === 'academic' && <AcademicCenter token={token} isSuperAdmin={isSuperAdmin} isArabic={isArabic} onError={reportError} onNotice={notify} />}
-              {view === 'questions' && <QuestionsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />}
-              {view === 'exams' && <ExamsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />}
-              {view === 'library' && <LibraryCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />}
-              {view === 'codes' && <CodesCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />}
-              {view === 'admins' && isSuperAdmin && (
-                <AdminsCenter
-                  copy={copy}
-                  isArabic={isArabic}
-                  admins={admins}
-                  roles={roles}
-                  total={totalAdmins}
-                  query={query}
-                  roleFilter={roleFilter}
-                  statusFilter={statusFilter}
-                  busy={busy}
-                  loading={loadingData}
-                  scopeText={scopeText}
-                  setQuery={setQuery}
-                  setRoleFilter={setRoleFilter}
-                  setStatusFilter={setStatusFilter}
-                  clearFilters={() => { setQuery(''); setRoleFilter(''); setStatusFilter('all'); }}
-                  onCreate={openCreateAdmin}
-                  onEdit={openEditAdmin}
-                  onReset={(admin) => setDialog({ kind: 'reset-password', admin })}
-                  onDelete={(admin) => setDialog({ kind: 'delete-admin', admin })}
-                  onStatus={setAccountStatus}
-                />
-              )}
-              {view === 'roles' && isSuperAdmin && (
-                <RolesCenter
-                  copy={copy}
-                  isArabic={isArabic}
-                  token={token}
-                  roles={roles}
-                  busy={busy}
-                  loading={loadingData}
-                  onCreate={() => setDialog({ kind: 'create-role' })}
-                  onStatus={setRoleStatus}
-                  onDelete={deleteRole}
-                  onError={reportError}
-                  onNotice={notify}
-                />
-              )}
-              {view === 'audit' && isSuperAdmin && (
-                <AuditCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
-              )}
-              {view === 'reports' && isSuperAdmin && (
-                <ReportsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
-              )}
-              {view === 'settings' && isSuperAdmin && (
-                <SettingsCenter token={token} isArabic={isArabic} isSuperAdmin={isSuperAdmin} onError={reportError} onNotice={notify} />
-              )}
-              {isManagementView && !isSuperAdmin && (
-                <section className="notice" role="status">
-                  <ShieldOff size={20} />
-                  <span>{copy.limited}</span>
-                </section>
-              )}
+              {view === 'overview' && (can('view:overview')
+                ? <Overview copy={copy} isArabic={isArabic} isSuperAdmin={isSuperAdmin} token={token} onNavigate={setView} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {view === 'students' && (can('view:students')
+                ? <StudentsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {view === 'academic' && (can('view:academic')
+                ? <AcademicCenter token={token} isSuperAdmin={isSuperAdmin} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {view === 'questions' && (can('view:questions')
+                ? <QuestionsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {view === 'exams' && (can('view:exams')
+                ? <ExamsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {view === 'library' && (can('view:library')
+                ? <LibraryCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {view === 'codes' && (can('view:codes')
+                ? <CodesCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {view === 'admins' && isSuperAdmin && (can('view:admins')
+                ? (
+                  <AdminsCenter
+                    copy={copy}
+                    isArabic={isArabic}
+                    admins={admins}
+                    roles={roles}
+                    total={totalAdmins}
+                    query={query}
+                    roleFilter={roleFilter}
+                    statusFilter={statusFilter}
+                    busy={busy}
+                    loading={loadingData}
+                    scopeText={scopeText}
+                    setQuery={setQuery}
+                    setRoleFilter={setRoleFilter}
+                    setStatusFilter={setStatusFilter}
+                    clearFilters={() => { setQuery(''); setRoleFilter(''); setStatusFilter('all'); }}
+                    onCreate={openCreateAdmin}
+                    onEdit={openEditAdmin}
+                    onReset={(admin) => setDialog({ kind: 'reset-password', admin })}
+                    onDelete={(admin) => setDialog({ kind: 'delete-admin', admin })}
+                    onStatus={setAccountStatus}
+                  />
+                )
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {view === 'roles' && isSuperAdmin && (can('view:roles')
+                ? (
+                  <RolesCenter
+                    copy={copy}
+                    isArabic={isArabic}
+                    token={token}
+                    roles={roles}
+                    busy={busy}
+                    loading={loadingData}
+                    onCreate={() => setDialog({ kind: 'create-role' })}
+                    onStatus={setRoleStatus}
+                    onDelete={deleteRole}
+                    onError={reportError}
+                    onNotice={notify}
+                  />
+                )
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {view === 'audit' && isSuperAdmin && (can('view:audit')
+                ? <AuditCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {view === 'reports' && isSuperAdmin && (can('view:reports')
+                ? <ReportsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {view === 'settings' && isSuperAdmin && (can('view:settings')
+                ? <SettingsCenter token={token} isArabic={isArabic} isSuperAdmin={isSuperAdmin} onError={reportError} onNotice={notify} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -753,7 +779,7 @@ function App() {
             <kbd style={{ fontSize: '10px', color: 'var(--cms-text-muted)', border: '1px solid var(--cms-line)', borderRadius: '4px', padding: '2px 6px' }}>ESC</kbd>
           </div>
           <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '4px' }}>
-            {navGroups.flatMap((group) => group.items.filter((item) => !item.superOnly || isSuperAdmin))
+            {navGroups.flatMap((group) => group.items.filter((item) => (!item.superOnly || isSuperAdmin) && can(`view:${item.key}`)))
               .filter((item) => {
                 if (!commandQuery) return true;
                 const q = commandQuery.toLowerCase();
@@ -777,10 +803,21 @@ function App() {
       )}
       <Toaster richColors position="top-center" />
     </main>
+    </UiPermissionsProvider>
   );
 }
 
 type OverviewProps = { copy: Record<string, string>; isArabic: boolean; isSuperAdmin: boolean; token: string; onNavigate: (view: View) => void };
+
+/** Push 3: fallback shown when the active view's key is not granted to this admin. */
+function LimitedNotice({ copy, isArabic }: { copy: Record<string, string>; isArabic: boolean }) {
+  return (
+    <section className="notice" role="status" dir={isArabic ? 'rtl' : 'ltr'}>
+      <ShieldOff size={20} />
+      <span>{copy.limited}</span>
+    </section>
+  );
+}
 
 function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewProps) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -789,6 +826,8 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   // Push 2 / Track 2: super-admin activity monitor tab inside the overview.
   const [overviewTab, setOverviewTab] = useState<'metrics' | 'activity'>('metrics');
+  // Push 3: the cosmetic layer for the overview tabs (activity stays super-only AND).
+  const { can } = useUiPermissions();
 
   useEffect(() => {
     if (!token || !isSuperAdmin) return;
@@ -892,24 +931,38 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
         </div>
       </section>
 
-      {/* Push 2 / Track 2: tab switch between metrics and the activity monitor (super-admin only). */}
-      {isSuperAdmin && (
+      {/* Push 2 / Track 2: tab switch between metrics and the activity monitor (super-admin only).
+          Push 3: each tab additionally gated by its tab key (activity stays super-only AND). */}
+      {isSuperAdmin && (can('tab:overview.metrics') || can('tab:overview.activity')) && (
         <div className="flex gap-2" role="tablist" aria-label={isArabic ? 'أقسام لوحة القيادة' : 'Overview sections'} dir={isArabic ? 'rtl' : 'ltr'}>
-          {(['metrics', 'activity'] as const).map(tab => (
+          {can('tab:overview.metrics') && (
             <button
-              key={tab}
               type="button"
               role="tab"
-              aria-selected={overviewTab === tab}
-              onClick={() => setOverviewTab(tab)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${overviewTab === tab ? 'text-white' : ''}`}
-              style={overviewTab === tab
+              aria-selected={overviewTab === 'metrics'}
+              onClick={() => setOverviewTab('metrics')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${overviewTab === 'metrics' ? 'text-white' : ''}`}
+              style={overviewTab === 'metrics'
                 ? { background: 'var(--cms-teal-700)', borderColor: 'var(--cms-teal-700)' }
                 : { borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
             >
-              {tab === 'metrics' ? (isArabic ? 'المؤشرات' : 'Metrics') : (isArabic ? 'مراقبة النشاط' : 'Activity monitor')}
+              {isArabic ? 'المؤشرات' : 'Metrics'}
             </button>
-          ))}
+          )}
+          {can('tab:overview.activity') && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={overviewTab === 'activity'}
+              onClick={() => setOverviewTab('activity')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${overviewTab === 'activity' ? 'text-white' : ''}`}
+              style={overviewTab === 'activity'
+                ? { background: 'var(--cms-teal-700)', borderColor: 'var(--cms-teal-700)' }
+                : { borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+            >
+              {isArabic ? 'مراقبة النشاط' : 'Activity monitor'}
+            </button>
+          )}
         </div>
       )}
 

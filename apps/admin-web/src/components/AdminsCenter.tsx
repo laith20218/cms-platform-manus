@@ -20,6 +20,7 @@ import {
   Plus, Search, ShieldCheck, ShieldOff, Trash2, UsersRound, X,
 } from 'lucide-react';
 import type { AdminRecord, RoleRecord } from '../lib/api';
+import { useUiPermissions } from '../hooks/useUiPermissions';
 import { ScopePicker } from './ScopePicker';
 
 type Copy = Record<string, string>;
@@ -96,6 +97,9 @@ const dateLabel = (value: string | null | undefined, isArabic: boolean) => {
 };
 
 export function AdminsCenter(props: AdminsCenterProps) {
+  // Push 3: cosmetic gating — create/edit/reset-password/status/delete (5 keys).
+  // The Eye view button stays ungated (viewing opens the edit dialog read-first).
+  const { can } = useUiPermissions();
   const {
     copy, isArabic, admins, roles, total, query, roleFilter, statusFilter,
     busy, loading, scopeText, setQuery, setRoleFilter, setStatusFilter,
@@ -136,15 +140,17 @@ export function AdminsCenter(props: AdminsCenterProps) {
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onCreate}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors hover:opacity-90"
-          style={{ background: 'var(--cms-teal-700)' }}
-        >
-          <Plus className="w-4 h-4" />
-          {copy.addAdmin}
+        {can('btn:admins.create') && (
+          <button
+            type="button"
+            onClick={onCreate}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors hover:opacity-90"
+            style={{ background: 'var(--cms-teal-700)' }}
+          >
+            <Plus className="w-4 h-4" />
+            {copy.addAdmin}
         </button>
+        )}
       </header>
 
       {/* ===== Filter bar ===== */}
@@ -331,41 +337,49 @@ export function AdminsCenter(props: AdminsCenterProps) {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        <button
-                          type="button"
-                          title={copy.edit}
-                          onClick={() => onEdit(admin)}
-                          className="p-1.5 rounded-md transition-colors hover:bg-teal-50"
-                          style={{ color: 'var(--cms-text-muted)' }}
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          title={copy.reset}
-                          onClick={() => onReset(admin)}
-                          className="p-1.5 rounded-md transition-colors hover:bg-teal-50"
-                          style={{ color: 'var(--cms-text-muted)' }}
-                        >
-                          <KeyRound className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          title={active ? copy.deactivate : copy.activate}
-                          disabled={busy}
-                          onClick={() => onStatus(admin, !active)}
-                          className={`p-1.5 rounded-md transition-colors disabled:opacity-50 ${active ? 'text-amber-600 hover:bg-amber-50' : 'text-emerald-600 hover:bg-emerald-50'}`}
-                        >
-                          {active ? <ShieldOff className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
-                        </button>
-                        <button
-                          type="button"
-                          title={copy.delete}
-                          onClick={() => onDelete(admin)}
-                          className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {can('btn:admins.edit') && (
+                          <button
+                            type="button"
+                            title={copy.edit}
+                            onClick={() => onEdit(admin)}
+                            className="p-1.5 rounded-md transition-colors hover:bg-teal-50"
+                            style={{ color: 'var(--cms-text-muted)' }}
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {can('btn:admins.reset-password') && (
+                          <button
+                            type="button"
+                            title={copy.reset}
+                            onClick={() => onReset(admin)}
+                            className="p-1.5 rounded-md transition-colors hover:bg-teal-50"
+                            style={{ color: 'var(--cms-text-muted)' }}
+                          >
+                            <KeyRound className="w-4 h-4" />
+                          </button>
+                        )}
+                        {can('btn:admins.status') && (
+                          <button
+                            type="button"
+                            title={active ? copy.deactivate : copy.activate}
+                            disabled={busy}
+                            onClick={() => onStatus(admin, !active)}
+                            className={`p-1.5 rounded-md transition-colors disabled:opacity-50 ${active ? 'text-amber-600 hover:bg-amber-50' : 'text-emerald-600 hover:bg-emerald-50'}`}
+                          >
+                            {active ? <ShieldOff className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                          </button>
+                        )}
+                        {can('btn:admins.delete') && (
+                          <button
+                            type="button"
+                            title={copy.delete}
+                            onClick={() => onDelete(admin)}
+                            className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

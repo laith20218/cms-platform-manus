@@ -6,6 +6,7 @@ using CMS.Application.Commands.Dashboard;
 using CMS.Application.Commands.Admin;
 using CMS.Application.Commands.Subscriptions;
 using CMS.Application.DTOs.Dashboard;
+using CMS.Application.Handlers.Admin;
 using CMS.Api.Authorization;
 using CMS.Application.Interfaces;
 using CMS.Infrastructure.Persistence;
@@ -298,6 +299,40 @@ public class AdminDashboardController : ControllerBase
         return NoContent();
     }
 
+    // ===== Push 3 / Track 3: advanced UI permissions per role =====
+
+    /// <summary>
+    /// Reads the UI-permission configuration of one role (system or custom).
+    /// Serves the Advanced Permissions editor in RolesCenter.
+    /// </summary>
+    [HttpGet("roles/{id:guid}/ui-permissions")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<ActionResult<RoleUiPermissionsDto>> GetRoleUiPermissions(Guid id, CancellationToken ct)
+        => Ok(await _mediator.Send(new GetRoleUiPermissionsQuery(GetAdminId(), id), ct));
+
+    /// <summary>
+    /// Replaces the UI-permission key set of a custom role. Keys are validated against
+    /// the 62-key registry; system roles (incl. super_admin) answer 400 SYSTEM_ROLE_READONLY.
+    /// </summary>
+    [HttpPut("roles/{id:guid}/ui-permissions")]
+    [Authorize(Policy = Policies.RoleEdit)]
+    public async Task<IActionResult> ReplaceRoleUiPermissions(Guid id, [FromBody] ReplaceRoleUiPermissionsRequestDto dto, CancellationToken ct)
+    {
+        await _mediator.Send(new ReplaceRoleUiPermissionsCommand(GetAdminId(), id, dto.AllowedKeys), ct);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Resets a custom role to unconfigured (NULL = full admin-web access).
+    /// </summary>
+    [HttpDelete("roles/{id:guid}/ui-permissions")]
+    [Authorize(Policy = Policies.RoleEdit)]
+    public async Task<IActionResult> ClearRoleUiPermissions(Guid id, CancellationToken ct)
+    {
+        await _mediator.Send(new ClearRoleUiPermissionsCommand(GetAdminId(), id), ct);
+        return NoContent();
+    }
+
     /// <summary>
     /// Revoke an active student subscription within the acting administrator's authorized scope.
     /// </summary>
@@ -463,3 +498,4 @@ public record SetActiveRequestDto(bool IsActive);
 public record ResetAdminPasswordRequestDto(string NewPassword);
 public record DeleteAdminRequestDto(string CurrentSuperAdminPassword);
 public record CreateRoleRequestDto(string Name, string NameAr, string? Description);
+public record ReplaceRoleUiPermissionsRequestDto(IReadOnlyList<string>? AllowedKeys);

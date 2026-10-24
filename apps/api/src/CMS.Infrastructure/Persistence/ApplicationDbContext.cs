@@ -140,6 +140,11 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<AdminRole>(entity =>
         {
             entity.Property(x => x.IsActive).HasDefaultValue(true);
+            // Push 3 / Track 3: UI permission keys (view:/tab:/btn:) as a JSON array.
+            // NULL = unconfigured = full access (zero behavior change for existing roles).
+            // A GIN index may be added later if cross-role key queries are ever needed —
+            // deliberately NOT added now (Q1 decision: column approach, no index yet).
+            entity.Property(x => x.UiPermissions).HasColumnType("jsonb");
         });
         // P1-10: Map Notification.Sender navigation to SentBy FK (not auto-generated sender_id)
         modelBuilder.Entity<Notification>(entity =>

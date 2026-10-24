@@ -20,6 +20,7 @@ import {
   School, Send, Stethoscope, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
+import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type University = { id: string; nameAr: string; nameEn?: string | null; slug: string; collegesCount: number; isArchived: boolean };
 type College = { id: string; universityId: string; nameAr: string; nameEn?: string | null; slug: string; yearsCount: number; isArchived: boolean };
@@ -62,6 +63,9 @@ const emptyLectureForm = (): LectureForm => ({
 });
 
 export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotice }: Props) {
+  // Push 3: cosmetic gating — 5 stage adds + lecture add + archive (7 keys).
+  // lecture publish stays ungated (out-of-census control); backend policy is the gate.
+  const { can } = useUiPermissions();
   const [universities, setUniversities] = useState<University[]>([]);
   const [colleges, setColleges] = useState<College[]>([]);
   const [years, setYears] = useState<AcademicYear[]>([]);
@@ -367,7 +371,8 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                     {stage.items.length}
                   </span>
                 </div>
-                {stage.canAdd && (
+                {/* Push 3: per-stage add button gated by its own key (add-university … add-subject). */}
+                {stage.canAdd && can(`btn:academic.add-${stage.key}`) && (
                   <button
                     type="button"
                     title={isArabic ? 'إضافة' : 'Add'}
@@ -427,21 +432,23 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                             </em>
                           )}
                         </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          title={item.isArchived ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')}
-                          onClick={() => setConfirmArchive({
-                            kind: stage.key,
-                            id: item.id,
-                            restore: item.isArchived,
-                            name: label(isArabic, item),
-                          })}
-                          className="w-8 my-1 ml-1 flex items-center justify-center rounded-md transition-colors disabled:opacity-50"
-                          style={{ color: 'var(--cms-text-muted)' }}
-                        >
-                          {item.isArchived ? <RotateCcw className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
-                        </button>
+                        {can('btn:academic.archive') && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            title={item.isArchived ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')}
+                            onClick={() => setConfirmArchive({
+                              kind: stage.key,
+                              id: item.id,
+                              restore: item.isArchived,
+                              name: label(isArabic, item),
+                            })}
+                            className="w-8 my-1 ml-1 flex items-center justify-center rounded-md transition-colors disabled:opacity-50"
+                            style={{ color: 'var(--cms-text-muted)' }}
+                          >
+                            {item.isArchived ? <RotateCcw className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
                       </div>
                     );
                   })
@@ -534,7 +541,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
               </h3>
             </div>
           </div>
-          {subjectId && isSuperAdmin && (
+          {subjectId && isSuperAdmin && can('btn:academic.add-lecture') && (
             <button
               type="button"
               onClick={() => {
@@ -633,21 +640,23 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                         <Send className="w-3.5 h-3.5" />
                       </button>
                     )}
-                    <button
-                      type="button"
-                      disabled={busy}
-                      title={lecture.isArchived ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')}
-                      onClick={() => setConfirmArchive({
-                        kind: 'lecture',
-                        id: lecture.id,
-                        restore: lecture.isArchived,
-                        name: label(isArabic, lecture),
-                      })}
-                      className="p-1.5 rounded-md transition-colors disabled:opacity-50"
-                      style={{ color: 'var(--cms-text-muted)' }}
-                    >
-                      {lecture.isArchived ? <RotateCcw className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
-                    </button>
+                    {can('btn:academic.archive') && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        title={lecture.isArchived ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')}
+                        onClick={() => setConfirmArchive({
+                          kind: 'lecture',
+                          id: lecture.id,
+                          restore: lecture.isArchived,
+                          name: label(isArabic, lecture),
+                        })}
+                        className="p-1.5 rounded-md transition-colors disabled:opacity-50"
+                        style={{ color: 'var(--cms-text-muted)' }}
+                      >
+                        {lecture.isArchived ? <RotateCcw className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
                   </div>
                 </article>
               ))}

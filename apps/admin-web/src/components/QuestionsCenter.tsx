@@ -43,6 +43,7 @@ import {
   Search, Send, Trash2, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
+import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
 type College = { id: string; nameAr: string; nameEn?: string | null };
@@ -209,6 +210,8 @@ const statusLabel = (status: string, isArabic: boolean) => {
 };
 
 export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
+  // Push 3: cosmetic gating — the API policies remain the real boundary.
+  const { can } = useUiPermissions();
   // === Academic hierarchy state ===
   const [universities, setUniversities] = useState<University[]>([]);
   const [colleges, setColleges] = useState<College[]>([]);
@@ -534,7 +537,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
             </p>
           </div>
         </div>
-        {subjectId && (
+        {subjectId && can('btn:questions.create') && (
           <button
             type="button"
             onClick={() => { setForm(readSticky() ? formFromSticky(readSticky()!) : emptyForm()); setShowEditor(true); }}
@@ -752,19 +755,21 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            title={isArabic ? 'تعديل' : 'Edit'}
-                            disabled={busy}
-                            onClick={() => void editQuestion(question.id)}
-                            className="p-1.5 rounded-md transition-colors"
-                            style={{ color: 'var(--cms-text-muted)' }}
-                            onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
-                            onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          {question.status !== 'Published' && question.status !== 'Archived' && (
+                          {can('btn:questions.edit') && (
+                            <button
+                              type="button"
+                              title={isArabic ? 'تعديل' : 'Edit'}
+                              disabled={busy}
+                              onClick={() => void editQuestion(question.id)}
+                              className="p-1.5 rounded-md transition-colors"
+                              style={{ color: 'var(--cms-text-muted)' }}
+                              onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
+                              onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
+                          {can('btn:questions.publish') && question.status !== 'Published' && question.status !== 'Archived' && (
                             <button
                               type="button"
                               title={isArabic ? 'نشر' : 'Publish'}
@@ -775,7 +780,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               <Send className="w-4 h-4" />
                             </button>
                           )}
-                          {question.status !== 'Archived' ? (
+                          {can('btn:questions.archive') && (question.status !== 'Archived' ? (
                             <button
                               type="button"
                               title={isArabic ? 'أرشفة' : 'Archive'}
@@ -785,16 +790,18 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                             >
                               <Archive className="w-4 h-4" />
                             </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            title={isArabic ? 'حذف' : 'Delete'}
-                            disabled={busy}
-                            onClick={() => setConfirm({ id: question.id, action: 'delete', text: question.text })}
-                            className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          ) : null)}
+                          {can('btn:questions.delete') && (
+                            <button
+                              type="button"
+                              title={isArabic ? 'حذف' : 'Delete'}
+                              disabled={busy}
+                              onClick={() => setConfirm({ id: question.id, action: 'delete', text: question.text })}
+                              className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1144,8 +1151,9 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     >
                       {isArabic ? 'إعادة تعيين السياق' : 'Reset context'}
                     </button>
-                    {/* Push 2 / Track 1: save & keep the context for rapid question entry */}
-                    {!form.id && (
+                    {/* Push 2 / Track 1: save & keep the context for rapid question entry.
+                        Push 3: covered by btn:questions.create (Q4) — same family as New question. */}
+                    {!form.id && can('btn:questions.create') && (
                       <button
                         type="button"
                         disabled={busy}
@@ -1158,7 +1166,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         {isArabic ? 'حفظ وإضافة آخر' : 'Save & add another'}
                       </button>
                     )}
-                    {form.id && (
+                    {form.id && can('btn:questions.archive') && (
                       <button
                         type="button"
                         disabled={busy}
@@ -1170,7 +1178,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         {isArabic ? 'أرشفة' : 'Archive'}
                       </button>
                     )}
-                    {form.id && (
+                    {form.id && can('btn:questions.publish') && (
                       <button
                         type="button"
                         disabled={busy}

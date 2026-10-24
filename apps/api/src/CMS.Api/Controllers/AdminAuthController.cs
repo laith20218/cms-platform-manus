@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using CMS.Application.Commands.Admin;
 using CMS.Application.DTOs.Auth;
+using CMS.Application.Handlers.Admin;
 using CMS.Application.Interfaces;
 using CMS.Api.Security;
 
@@ -59,7 +60,7 @@ public class AdminAuthController : ControllerBase
     }
 
     /// <summary>
-    /// Get current admin's permissions.
+    /// Get current admin's classic permission grants.
     /// </summary>
     [HttpGet("me/permissions")]
     [Authorize(Roles = "admin,super_admin")]
@@ -70,6 +71,25 @@ public class AdminAuthController : ControllerBase
         if (string.IsNullOrEmpty(adminId)) return Unauthorized();
 
         var result = await _mediator.Send(new GetMyPermissionsQuery(Guid.Parse(adminId)), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Push 3 / Track 3: current admin's UI-permission envelope (mode / isSuperAdmin /
+    /// registryVersion / allKeys / allowedKeys). allKeys always carries the full registry
+    /// so admin-web can detect drift between its mirror and the backend registry.
+    /// 503 UI_PERMISSIONS_UNAVAILABLE when both the cache and the database are unavailable.
+    /// </summary>
+    [HttpGet("me/ui-permissions")]
+    [Authorize(Roles = "admin,super_admin")]
+    [ProducesResponseType(typeof(MyUiPermissionsDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<MyUiPermissionsDto>> GetMyUiPermissions(CancellationToken ct)
+    {
+        var adminId = User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(adminId)) return Unauthorized();
+
+        var result = await _mediator.Send(new GetMyUiPermissionsQuery(Guid.Parse(adminId)), ct);
         return Ok(result);
     }
 

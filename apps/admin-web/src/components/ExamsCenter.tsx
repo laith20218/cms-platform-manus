@@ -42,6 +42,7 @@ import {
   Pencil, Plus, Search, Send, Trash2, X,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
+import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
 type College = { id: string; nameAr: string; nameEn?: string | null };
@@ -133,6 +134,8 @@ const statusLabel = (status: string, isArabic: boolean) => {
 };
 
 export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
+  // Push 3: cosmetic gating — the API policies remain the real boundary.
+  const { can } = useUiPermissions();
   // === Academic hierarchy state ===
   const [universities, setUniversities] = useState<University[]>([]);
   const [colleges, setColleges] = useState<College[]>([]);
@@ -407,7 +410,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
             </p>
           </div>
         </div>
-        {subjectId && (
+        {subjectId && can('btn:exams.create') && (
           <button
             type="button"
             onClick={openCreate}
@@ -620,6 +623,8 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
                           >
                             <BarChart3 className="w-4 h-4" />
                           </button>
+                          {/* Push 3 census: exams edit pencil stays ungated (out-of-census
+                              control, like lecture-publish/copy-code) — backend policy is the gate. */}
                           <button
                             type="button"
                             title={isArabic ? 'تعديل' : 'Edit'}
@@ -632,7 +637,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
-                          {exam.status !== 'Published' && exam.status !== 'Archived' && (
+                          {exam.status !== 'Published' && exam.status !== 'Archived' && can('btn:exams.publish') && (
                             <button
                               type="button"
                               title={isArabic ? 'نشر' : 'Publish'}
@@ -643,7 +648,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
                               <Send className="w-4 h-4" />
                             </button>
                           )}
-                          {exam.status !== 'Archived' && (
+                          {exam.status !== 'Archived' && can('btn:exams.archive') && (
                             <button
                               type="button"
                               title={isArabic ? 'أرشفة' : 'Archive'}
@@ -654,15 +659,17 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
                               <Archive className="w-4 h-4" />
                             </button>
                           )}
-                          <button
-                            type="button"
-                            title={isArabic ? 'حذف' : 'Delete'}
-                            onClick={() => setConfirm({ exam, action: 'delete' })}
-                            disabled={busy}
-                            className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {can('btn:exams.delete') && (
+                            <button
+                              type="button"
+                              title={isArabic ? 'حذف' : 'Delete'}
+                              onClick={() => setConfirm({ exam, action: 'delete' })}
+                              disabled={busy}
+                              className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

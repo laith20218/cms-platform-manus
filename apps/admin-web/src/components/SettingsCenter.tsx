@@ -22,6 +22,7 @@ import {
   Settings as SettingsIcon, LoaderCircle, Search, X, Check, Pencil, RotateCcw, ShieldCheck,
 } from 'lucide-react';
 import { ApiError, apiRequest } from '../lib/api';
+import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type Props = {
   token: string;
@@ -66,6 +67,8 @@ function categoryLabel(cat: string | null | undefined, isArabic: boolean) {
 }
 
 export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotice }: Props) {
+  // Push 3: cosmetic gating — save (incl. the edit pencil that starts a save) + reset.
+  const { can } = useUiPermissions();
   const [settings, setSettings] = useState<SystemSetting[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('');
@@ -302,15 +305,17 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
                       <div className="flex flex-col gap-1.5 flex-shrink-0">
                         {isEditing ? (
                           <>
-                            <button
-                              onClick={() => saveEdit(s.key)}
-                              disabled={busy}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-white disabled:opacity-50"
-                              style={{ background: 'var(--cms-teal-700)' }}
-                            >
-                              {busy ? <LoaderCircle size={12} className="animate-spin" /> : <Check size={12} />}
-                              {t.save}
-                            </button>
+                            {can('btn:settings.save') && (
+                              <button
+                                onClick={() => saveEdit(s.key)}
+                                disabled={busy}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-white disabled:opacity-50"
+                                style={{ background: 'var(--cms-teal-700)' }}
+                              >
+                                {busy ? <LoaderCircle size={12} className="animate-spin" /> : <Check size={12} />}
+                                {t.save}
+                              </button>
+                            )}
                             <button
                               onClick={cancelEdit}
                               disabled={busy}
@@ -323,17 +328,19 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
                           </>
                         ) : (
                           <>
-                            <button
-                              onClick={() => startEdit(s)}
-                              disabled={isLocked || busy}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border disabled:opacity-40 disabled:cursor-not-allowed"
-                              style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}
-                              title={isLocked ? t.locked : t.edit}
-                            >
-                              <Pencil size={12} />
-                              {t.edit}
-                            </button>
-                            {s.description && s.description.includes(':') && (
+                            {can('btn:settings.save') && (
+                              <button
+                                onClick={() => startEdit(s)}
+                                disabled={isLocked || busy}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border disabled:opacity-40 disabled:cursor-not-allowed"
+                                style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}
+                                title={isLocked ? t.locked : t.edit}
+                              >
+                                <Pencil size={12} />
+                                {t.edit}
+                              </button>
+                            )}
+                            {s.description && s.description.includes(':') && can('btn:settings.reset') && (
                               <button
                                 onClick={() => resetSetting(s)}
                                 disabled={isLocked || busy}

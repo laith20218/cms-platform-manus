@@ -177,3 +177,46 @@ export type LibraryFileDetail = {
   createdAt: string;
 };
 
+// ===== Push 3 / Track 3: advanced UI permissions =====
+
+/** Wire shape of GET /api/v1/auth/admin/me/ui-permissions (drift-detection envelope). */
+export type MyUiPermissions = {
+  mode: 'super_admin' | 'unconfigured' | 'custom';
+  isSuperAdmin: boolean;
+  registryVersion: string;
+  allKeys: string[];
+  allowedKeys: string[];
+};
+
+/** Wire shape of GET /api/v1/admin/roles/{id}/ui-permissions. */
+export type RoleUiPermissions = {
+  configured: boolean;
+  allowedKeys: string[] | null;
+  registryVersion: string;
+  allKeys: string[];
+};
+
+/** Resolves the current admin's UI-permission envelope. */
+export async function fetchMyUiPermissions(token: string): Promise<MyUiPermissions> {
+  return apiRequest<MyUiPermissions>('/api/v1/auth/admin/me/ui-permissions', token);
+}
+
+/** Reads the UI-permission configuration of one role (system or custom). */
+export async function fetchRoleUiPermissions(token: string, roleId: string): Promise<RoleUiPermissions> {
+  return apiRequest<RoleUiPermissions>(`/api/v1/admin/roles/${roleId}/ui-permissions`, token);
+}
+
+/** Replaces the UI-permission key set of a custom role (registry-validated server-side). */
+export async function replaceRoleUiPermissions(token: string, roleId: string, allowedKeys: string[]): Promise<void> {
+  await apiRequest<void>(
+    `/api/v1/admin/roles/${roleId}/ui-permissions`,
+    token,
+    { method: 'PUT', body: JSON.stringify({ allowedKeys }) },
+  );
+}
+
+/** Resets a custom role to unconfigured (NULL = full admin-web access). */
+export async function clearRoleUiPermissions(token: string, roleId: string): Promise<void> {
+  await apiRequest<void>(`/api/v1/admin/roles/${roleId}/ui-permissions`, token, { method: 'DELETE' });
+}
+

@@ -23,6 +23,7 @@ import {
   FileText, KeyRound, ShieldCheck, AlertTriangle, TrendingUp, FileSpreadsheet, Archive, Eye, BarChart3,
 } from 'lucide-react';
 import { apiRequest, ApiError } from '../lib/api';
+import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type Props = { token: string; isArabic: boolean; onError: (msg: string) => void };
 
@@ -148,6 +149,8 @@ function OverviewTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
 
 // ===== Tab 2: Students =====
 function StudentsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: string; dateFrom: string; dateTo: string; isArabic: boolean; onError: (msg: string) => void }) {
+  // Push 3: this tab owns the report export button (btn:reports.export).
+  const { can } = useUiPermissions();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
@@ -179,10 +182,12 @@ function StudentsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'التسجيلات اليومية' : 'Daily Registrations'}</h3>
-            <button onClick={() => exportCsv('student-registrations.csv', ['Date', 'Registrations'], data.dailyBreakdown.map((d: any) => [d.date, d.registrations]))}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-muted)' }}>
-              <FileSpreadsheet size={10} /> CSV
-            </button>
+            {can('btn:reports.export') && (
+              <button onClick={() => exportCsv('student-registrations.csv', ['Date', 'Registrations'], data.dailyBreakdown.map((d: any) => [d.date, d.registrations]))}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-muted)' }}>
+                <FileSpreadsheet size={10} /> CSV
+              </button>
+            )}
           </div>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={data.dailyBreakdown}>
@@ -517,6 +522,8 @@ const TABS = [
 ];
 
 export function ReportsTabs({ token, isArabic, onError }: Props) {
+  // Push 3: cosmetic gating — 8 tab keys + the export button (owned by StudentsTab).
+  const { can } = useUiPermissions();
   const [activeTab, setActiveTab] = useState('overview');
   const [datePreset, setDatePreset] = useState('30d');
   const [dateFrom, setDateFrom] = useState('');
@@ -542,6 +549,14 @@ export function ReportsTabs({ token, isArabic, onError }: Props) {
 
   const renderTab = () => {
     const props = { token, dateFrom, dateTo, isArabic, onError };
+    // Push 3: a denied tab never renders its content, even if stale state points at it.
+    if (!can(`tab:reports.${activeTab}`)) {
+      return (
+        <div className="rounded-xl border p-8 text-center" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text-muted)' }}>
+          {isArabic ? 'لا تملك مفتاح هذا التبويب.' : 'You do not have the key for this tab.'}
+        </div>
+      );
+    }
     switch (activeTab) {
       case 'overview': return <OverviewTab {...props} />;
       case 'students': return <StudentsTab {...props} />;
@@ -584,9 +599,9 @@ export function ReportsTabs({ token, isArabic, onError }: Props) {
         </div>
       )}
 
-      {/* Tab bar */}
+      {/* Tab bar — Push 3: each tab gated by its own key (tab:reports.*). */}
       <div className="flex gap-1 overflow-x-auto border-b" style={{ borderColor: 'var(--cms-line)' }}>
-        {TABS.map(tab => {
+        {TABS.filter(tab => can(`tab:reports.${tab.key}`)).map(tab => {
           const active = activeTab === tab.key;
           return (
             <button key={tab.key} onClick={() => { setActiveTab(tab.key); setLastUpdated(new Date()); }}

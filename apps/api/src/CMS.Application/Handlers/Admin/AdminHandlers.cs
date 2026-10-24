@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
 using System.Text;
 using CMS.Application.Commands.Admin;
@@ -901,4 +902,313 @@ public sealed class AdministratorManagementHandlers :
         adminCount,
         permissionCount,
         role.CreatedAt);
+}
+
+/// <summary>
+/// Push 3 / Track 3: advanced UI permissions (62 view/tab/button keys) for custom roles.
+/// Serves GET/PUT/DELETE admin/roles/{id}/ui-permissions and the per-admin envelope
+/// GET auth/admin/me/ui-permissions used for drift detection in admin-web.
+///
+/// Cache contract (directive 2.2 — approved by the user, do not change):
+///   • Cache-first per admin key uiperm:admin:{id}, TTL 5 minutes.
+///   • Cache read failure → log warning + fall back to the database.
+///   • Database failure too → 503 UI_PERMISSIONS_UNAVAILABLE.
+///   • Never return empty-as-denied on failure, never return full-access on failure,
+///     never cache errors.
+///   • PUT/DELETE invalidate the per-assigned-admin cache entries best-effort:
+///     a cache problem is logged and never fails the write (entries also expire via TTL).
+/// </summary>
+public sealed class UiPermissionHandlers :
+    IRequestHandler<GetRoleUiPermissionsQuery, RoleUiPermissionsDto>,
+    IRequestHandler<ReplaceRoleUiPermissionsCommand, Unit>,
+    IRequestHandler<ClearRoleUiPermissionsCommand, Unit>,
+    IRequestHandler<GetMyUiPermissionsQuery, MyUiPermissionsDto>
+{
+    private const string CacheKeyPrefix = "uiperm:admin:";
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
+
+    private readonly IApplicationDbContext _db;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly ICacheService _cache;
+    private readonly ISecurityAuditWriter _audit;
+    private readonly ILogger<UiPermissionHandlers> _logger;
+
+    public UiPermissionHandlers(
+        IApplicationDbContext db,
+        IUnitOfWork unitOfWork,
+        ICacheService cache,
+        ISecurityAuditWriter audit,
+        ILogger<UiPermissionHandlers> logger)
+    {
+        _db = db;
+        _unitOfWork = unitOfWork;
+        _cache = cache;
+        _audit = audit;
+        _logger = logger;
+    }
+
+    // ===== Role configuration (super administrator only) =====
+
+    public async Task<RoleUiPermissionsDto> Handle(GetRoleUiPermissionsQuery request, CancellationToken ct)
+    {
+        var actor = await ReadActorAsync(request.ActorAdminId, ct);
+        RequireSuperAdmin(actor);
+        var role = await ReadRoleAsync(request.RoleId, ct);
+
+        var allowed = UiPermissionRegistry.ParseStoredKeys(role.UiPermissions);
+        return new RoleUiPermissionsDto(
+            Configured: allowed is not null,
+            AllowedKeys: allowed,
+            RegistryVersion: UiPermissionRegistry.RegistryVersion,
+            AllKeys: UiPermissionRegistry.AllKeys);
+    }
+
+    public async Task<Unit> Handle(ReplaceRoleUiPermissionsCommand request, CancellationToken ct)
+    {
+        var actor = await ReadActorAsync(request.ActorAdminId, ct);
+        RequireSuperAdmin(actor);
+        var role = await ReadRoleAsync(request.RoleId, ct);
+        if (role.IsSystem)
+            throw new DomainException("لا يمكن تهيئة صلاحيات الواجهة لدور نظامي — دور المدير العام مشمول بالحماية", "SYSTEM_ROLE_READONLY");
+
+        var requested = (request.AllowedKeys ?? [])
+            .Select(static key => key?.Trim())
+            .Where(static key => !string.IsNullOrEmpty(key))
+            .Select(static key => key!)
+            .Distinct()
+            .ToList();
+
+        var invalid = UiPermissionRegistry.FindInvalidKeys(requested);
+        if (invalid.Count > 0)
+            throw new DomainException($"مفاتيح صلاحيات واجهة غير صالحة: {string.Join(", ", invalid)}", "UI_PERMISSION_INVALID_KEYS");
+
+        // Registry-ordered, deduplicated storage.
+        role.SetUiPermissions(UiPermissionRegistry.SerializeKeys(requested));
+        await _unitOfWork.SaveChangesAsync(ct);
+
+        await InvalidateAssignedAdminsAsync(role.Id, ct);
+        await _audit.LogSecurityEventAsync(
+            null, actor.Id, SecurityEventType.PermissionChange, SecuritySeverity.Warning,
+            $"action=replace_ui_permissions; target_role_id={role.Id}; ui_keys={requested.Count}", ct: ct);
+        return Unit.Value;
+    }
+
+    public async Task<Unit> Handle(ClearRoleUiPermissionsCommand request, CancellationToken ct)
+    {
+        var actor = await ReadActorAsync(request.ActorAdminId, ct);
+        RequireSuperAdmin(actor);
+        var role = await ReadRoleAsync(request.RoleId, ct);
+        if (role.IsSystem)
+            throw new DomainException("لا يمكن تهيئة صلاحيات الواجهة لدور نظامي — دور المدير العام مشمول بالحماية", "SYSTEM_ROLE_READONLY");
+
+        role.ClearUiPermissions();
+        await _unitOfWork.SaveChangesAsync(ct);
+
+        await InvalidateAssignedAdminsAsync(role.Id, ct);
+        await _audit.LogSecurityEventAsync(
+            null, actor.Id, SecurityEventType.PermissionChange, SecuritySeverity.Warning,
+            $"action=reset_ui_permissions; target_role_id={role.Id}", ct: ct);
+        return Unit.Value;
+    }
+
+    // ===== Per-admin envelope (the directive 2.2 subject) =====
+
+    public async Task<MyUiPermissionsDto> Handle(GetMyUiPermissionsQuery request, CancellationToken ct)
+    {
+        var cacheKey = $"{CacheKeyPrefix}{request.AdminId}";
+
+        CachedUiPermissions? cached = null;
+        try
+        {
+            cached = await _cache.GetAsync<CachedUiPermissions?>(cacheKey, ct);
+        }
+        catch (Exception cacheError)
+        {
+            // 2.2: a cache outage is an infrastructure event, never a permission decision.
+            // Log + fall back to the database below.
+            _logger.LogWarning(cacheError, "UI permission cache GET failed for admin {AdminId}; falling back to database", request.AdminId);
+        }
+
+        if (cached is not null)
+            return cached.ToEnvelope();
+
+        // Database read failure → 503. NotFound for a missing admin passes through as 404.
+        var admin = await ReadActorAsync(request.AdminId, ct);
+
+        MyUiPermissionsDto envelope;
+        if (admin.IsSuperAdmin())
+        {
+            envelope = new MyUiPermissionsDto(
+                "super_admin", true,
+                UiPermissionRegistry.RegistryVersion, UiPermissionRegistry.AllKeys, UiPermissionRegistry.AllKeys);
+        }
+        else if (admin.Role.UiPermissions is null)
+        {
+            // Unconfigured = full access. This is a DATA state, not a failure state.
+            envelope = new MyUiPermissionsDto(
+                "unconfigured", false,
+                UiPermissionRegistry.RegistryVersion, UiPermissionRegistry.AllKeys, UiPermissionRegistry.AllKeys);
+        }
+        else
+        {
+            // Corrupt or unknown keys are dropped — never widened to full access.
+            var allowed = UiPermissionRegistry.ParseStoredKeys(admin.Role.UiPermissions) ?? [];
+            envelope = new MyUiPermissionsDto(
+                "custom", false,
+                UiPermissionRegistry.RegistryVersion, UiPermissionRegistry.AllKeys, allowed);
+        }
+
+        try
+        {
+            await _cache.SetAsync(cacheKey, CachedUiPermissions.From(envelope), CacheTtl, ct);
+        }
+        catch (Exception cacheError)
+        {
+            // 2.2: never cache errors — and a failed SET must not fail the read.
+            _logger.LogWarning(cacheError, "UI permission cache SET failed for admin {AdminId}; serving without caching", request.AdminId);
+        }
+
+        return envelope;
+    }
+
+    // ===== Shared helpers =====
+
+    private async Task<AdminEntity> ReadActorAsync(Guid adminId, CancellationToken ct)
+    {
+        AdminEntity? actor;
+        try
+        {
+            actor = await _db.Admins.AsNoTracking().Include(admin => admin.Role)
+                .FirstOrDefaultAsync(admin => admin.Id == adminId, ct);
+        }
+        catch (Exception dbError) when (dbError is not DomainException)
+        {
+            throw new UiPermissionsUnavailableException(dbError);
+        }
+        return actor ?? throw new NotFoundException("Admin", adminId);
+    }
+
+    private async Task<AdminRole> ReadRoleAsync(Guid roleId, CancellationToken ct)
+    {
+        AdminRole? role;
+        try
+        {
+            // Tracked: the PUT/DELETE paths mutate this instance before SaveChanges.
+            role = await _db.AdminRoles
+                .FirstOrDefaultAsync(candidate => candidate.Id == roleId, ct);
+        }
+        catch (Exception dbError) when (dbError is not DomainException)
+        {
+            throw new UiPermissionsUnavailableException(dbError);
+        }
+        return role ?? throw new NotFoundException("AdminRole", roleId);
+    }
+
+    private static void RequireSuperAdmin(AdminEntity actor)
+    {
+        if (actor.Status != AdminStatus.Active || actor.Role is null || !actor.Role.IsActive || actor.Role.Name != Roles.SuperAdmin)
+            throw new ForbiddenException("لا تملك صلاحية المدير العام المطلوبة");
+    }
+
+    private async Task InvalidateAssignedAdminsAsync(Guid roleId, CancellationToken ct)
+    {
+        List<Guid> adminIds;
+        try
+        {
+            adminIds = await _db.Admins.Where(admin => admin.RoleId == roleId)
+                .Select(admin => admin.Id).ToListAsync(ct);
+        }
+        catch (Exception dbError)
+        {
+            // Best-effort: the write is already committed, stale entries expire via TTL.
+            _logger.LogWarning(dbError, "UI permission cache invalidation could not enumerate admins of role {RoleId}", roleId);
+            return;
+        }
+
+        foreach (var adminId in adminIds)
+        {
+            try
+            {
+                await _cache.RemoveAsync($"{CacheKeyPrefix}{adminId}", ct);
+            }
+            catch (Exception cacheError)
+            {
+                _logger.LogWarning(cacheError, "UI permission cache invalidation failed for admin {AdminId}; entry expires within {Ttl} minutes", adminId, (int)CacheTtl.TotalMinutes);
+            }
+        }
+    }
+}
+
+// ===== Push 3 / Track 3: command/query records + response envelopes + 503 exception.
+// Co-located with their handlers (same file) to keep the Push 3 change surface tight. =====
+
+/// <summary>Reads the UI-permission configuration of one role (system or custom).</summary>
+public record GetRoleUiPermissionsQuery(
+    Guid ActorAdminId,
+    Guid RoleId
+) : IRequest<RoleUiPermissionsDto>;
+
+/// <summary>Role UI-permission state. AllowedKeys is null when the role is unconfigured.</summary>
+public record RoleUiPermissionsDto(
+    bool Configured,
+    IReadOnlyList<string>? AllowedKeys,
+    string RegistryVersion,
+    IReadOnlyList<string> AllKeys
+);
+
+/// <summary>Replaces the UI-permission key set of a custom role. Keys are registry-validated.</summary>
+public record ReplaceRoleUiPermissionsCommand(
+    Guid ActorAdminId,
+    Guid RoleId,
+    IReadOnlyList<string>? AllowedKeys
+) : IRequest<Unit>;
+
+/// <summary>Resets a custom role to unconfigured (NULL = full UI access).</summary>
+public record ClearRoleUiPermissionsCommand(
+    Guid ActorAdminId,
+    Guid RoleId
+) : IRequest<Unit>;
+
+/// <summary>Resolves the effective UI permissions of the current admin.</summary>
+public record GetMyUiPermissionsQuery(
+    Guid AdminId
+) : IRequest<MyUiPermissionsDto>;
+
+/// <summary>
+/// Per-admin envelope. allKeys always carries the full registry so admin-web can detect
+/// drift between its mirror and the backend registry (allowedKeys == allKeys for
+/// super_admin and for unconfigured roles — zero behavior change until first save).
+/// Mode: "super_admin" | "unconfigured" | "custom".
+/// </summary>
+public record MyUiPermissionsDto(
+    string Mode,
+    bool IsSuperAdmin,
+    string RegistryVersion,
+    IReadOnlyList<string> AllKeys,
+    IReadOnlyList<string> AllowedKeys
+);
+
+/// <summary>Compact cache payload for uiperm:admin:{id} entries.</summary>
+public sealed record CachedUiPermissions(
+    string Mode,
+    bool IsSuperAdmin,
+    IReadOnlyList<string> AllowedKeys
+)
+{
+    public static CachedUiPermissions From(MyUiPermissionsDto envelope) =>
+        new(envelope.Mode, envelope.IsSuperAdmin, envelope.AllowedKeys);
+
+    public MyUiPermissionsDto ToEnvelope() =>
+        new(Mode, IsSuperAdmin, UiPermissionRegistry.RegistryVersion, UiPermissionRegistry.AllKeys, AllowedKeys);
+}
+
+/// <summary>
+/// Raised when the UI-permission read path cannot be served: cache failed AND the
+/// database failed. Mapped to 503 UI_PERMISSIONS_UNAVAILABLE — never empty-as-denied,
+/// never full-access (directive 2.2).
+/// </summary>
+public sealed class UiPermissionsUnavailableException : DomainException
+{
+    public UiPermissionsUnavailableException(Exception inner)
+        : base("تعذّر قراءة صلاحيات الواجهة حالياً. أعد المحاولة لاحقاً.", inner, "UI_PERMISSIONS_UNAVAILABLE") { }
 }

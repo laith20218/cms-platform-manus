@@ -23,6 +23,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { ApiError, apiRequest, type PagedResult } from '../lib/api';
+import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type StudentRecord = {
   id: string;
@@ -131,6 +132,9 @@ const eventLabelClass = (severity: string) => {
 };
 
 export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
+  // Push 3: cosmetic gating — the API policies remain the real boundary.
+  // unbind-device and the drawer tabs stay ungated (deferred / out-of-census).
+  const { can } = useUiPermissions();
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [universities, setUniversities] = useState<University[]>([]);
   const [total, setTotal] = useState(0);
@@ -712,17 +716,19 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--cms-text-soft)' }}>{dateLabel(student.lastLogin, isArabic)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        {/* P1-01: Edit profile button */}
-                        <button
-                          title={isArabic ? 'تعديل الملف' : 'Edit profile'}
-                          onClick={() => { setEditStudent(student); setEditForm({ fullName: student.fullName, gender: student.gender ?? '' }); }}
-                          className="p-1.5 rounded-md transition-colors"
-                          style={{ color: 'var(--cms-text-muted)' }}
-                          onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
-                          onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
+                        {/* P1-01: Edit profile button. Push 3: gated by btn:students.edit. */}
+                        {can('btn:students.edit') && (
+                          <button
+                            title={isArabic ? 'تعديل الملف' : 'Edit profile'}
+                            onClick={() => { setEditStudent(student); setEditForm({ fullName: student.fullName, gender: student.gender ?? '' }); }}
+                            className="p-1.5 rounded-md transition-colors"
+                            style={{ color: 'var(--cms-text-muted)' }}
+                            onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
+                            onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           title={isArabic ? 'عرض الملف والسجل الأمني' : 'View profile and security log'}
                           onClick={() => void openStudent(student)}
@@ -734,23 +740,27 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                           <Eye className="w-4 h-4" />
                         </button>
                         {active ? (
-                          <button
-                            className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors"
-                            title={isArabic ? 'حظر الحساب' : 'Ban account'}
-                            disabled={busy}
-                            onClick={() => openDialog({ kind: 'ban', student })}
-                          >
-                            <Ban className="w-4 h-4" />
-                          </button>
+                          can('btn:students.ban') ? (
+                            <button
+                              className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors"
+                              title={isArabic ? 'حظر الحساب' : 'Ban account'}
+                              disabled={busy}
+                              onClick={() => openDialog({ kind: 'ban', student })}
+                            >
+                              <Ban className="w-4 h-4" />
+                            </button>
+                          ) : null
                         ) : (
-                          <button
-                            className="p-1.5 rounded-md text-emerald-600 hover:bg-emerald-50 transition-colors"
-                            title={isArabic ? 'إعادة التفعيل' : 'Reactivate'}
-                            disabled={busy}
-                            onClick={() => setConfirmUnban(student)}
-                          >
-                            <RotateCcw className="w-4 h-4" />
-                          </button>
+                          can('btn:students.ban') ? (
+                            <button
+                              className="p-1.5 rounded-md text-emerald-600 hover:bg-emerald-50 transition-colors"
+                              title={isArabic ? 'إعادة التفعيل' : 'Reactivate'}
+                              disabled={busy}
+                              onClick={() => setConfirmUnban(student)}
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                            </button>
+                          ) : null
                         )}
                       </div>
                     </td>
@@ -930,14 +940,16 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       <p className="text-xs flex-1" style={{ color: 'var(--cms-text-soft)' }}>
                         {isArabic ? 'إنهاء آمن لجميع الجلسات الحالية.' : 'Securely revoke every current session.'}
                       </p>
-                      <button
-                        className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50"
-                        style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)', background: 'var(--cms-surface)' }}
-                        disabled={busy}
-                        onClick={() => openDialog({ kind: 'revoke-sessions', student: selected })}
-                      >
-                        {isArabic ? 'إنهاء الجلسات' : 'Revoke sessions'}
-                      </button>
+                      {can('btn:students.revoke-session') && (
+                        <button
+                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50"
+                          style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)', background: 'var(--cms-surface)' }}
+                          disabled={busy}
+                          onClick={() => openDialog({ kind: 'revoke-sessions', student: selected })}
+                        >
+                          {isArabic ? 'إنهاء الجلسات' : 'Revoke sessions'}
+                        </button>
+                      )}
                     </article>
 
                     <article className="flex flex-col gap-3 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
@@ -969,25 +981,29 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                           : (isArabic ? 'يمكن إعادة تفعيل الحساب فوراً.' : 'The account can be reactivated immediately.')}
                       </p>
                       {selected.status.toLowerCase() === 'active' ? (
-                        <button
-                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
-                          style={{ background: 'var(--cms-danger)' }}
-                          disabled={busy}
-                          onClick={() => openDialog({ kind: 'ban', student: selected })}
-                        >
-                          <Ban className="w-4 h-4" />
-                          {isArabic ? 'حظر الحساب' : 'Ban account'}
-                        </button>
+                        can('btn:students.ban') ? (
+                          <button
+                            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
+                            style={{ background: 'var(--cms-danger)' }}
+                            disabled={busy}
+                            onClick={() => openDialog({ kind: 'ban', student: selected })}
+                          >
+                            <Ban className="w-4 h-4" />
+                            {isArabic ? 'حظر الحساب' : 'Ban account'}
+                          </button>
+                        ) : null
                       ) : (
-                        <button
-                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
-                          style={{ background: 'var(--cms-teal-700)' }}
-                          disabled={busy}
-                          onClick={() => setConfirmUnban(selected)}
-                        >
-                          <RotateCcw className="w-4 h-4" />
-                          {isArabic ? 'إعادة التفعيل' : 'Reactivate'}
-                        </button>
+                        can('btn:students.ban') ? (
+                          <button
+                            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
+                            style={{ background: 'var(--cms-teal-700)' }}
+                            disabled={busy}
+                            onClick={() => setConfirmUnban(selected)}
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                            {isArabic ? 'إعادة التفعيل' : 'Reactivate'}
+                          </button>
+                        ) : null
                       )}
                     </article>
                   </div>
@@ -1129,15 +1145,17 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                         ? 'ينهي هذا الإجراء جميع الجلسات النشطة على مختلف الأجهزة فوراً. سيُطلب من الطالب تسجيل الدخول مجدداً.'
                         : 'This terminates every active session across devices immediately. The student must sign in again.'}
                     </p>
-                    <button
-                      className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50 self-start"
-                      style={{ background: 'var(--cms-teal-700)' }}
-                      disabled={busy}
-                      onClick={() => openDialog({ kind: 'revoke-sessions', student: selected })}
-                    >
-                      <CalendarClock className="w-4 h-4" />
-                      {isArabic ? 'إنهاء الجلسات' : 'Revoke sessions'}
-                    </button>
+                    {can('btn:students.revoke-session') && (
+                      <button
+                        className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50 self-start"
+                        style={{ background: 'var(--cms-teal-700)' }}
+                        disabled={busy}
+                        onClick={() => openDialog({ kind: 'revoke-sessions', student: selected })}
+                      >
+                        <CalendarClock className="w-4 h-4" />
+                        {isArabic ? 'إنهاء الجلسات' : 'Revoke sessions'}
+                      </button>
+                    )}
                   </article>
 
                   <article className="flex flex-col gap-3 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
@@ -1194,7 +1212,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                                   {s.revokedAt && <span style={{ color: 'var(--cms-danger)' }}>{isArabic ? 'أُنهيت' : 'Revoked'}: {dateLabel(s.revokedAt, isArabic)}</span>}
                                 </div>
                               </div>
-                              {isActive && (
+                              {isActive && can('btn:students.revoke-session') && (
                                 <button
                                   onClick={() => void revokeSession(s.id)}
                                   disabled={revokingSession === s.id}

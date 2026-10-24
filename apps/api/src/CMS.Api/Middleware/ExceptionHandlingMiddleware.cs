@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using CMS.Application.Handlers.Admin;
 using CMS.Domain.Exceptions;
 using FluentValidation;
 
@@ -38,6 +39,13 @@ public class ExceptionHandlingMiddleware
         catch (ForbiddenException ex)
         {
             await HandleDomainException(context, ex, HttpStatusCode.Forbidden);
+        }
+        catch (UiPermissionsUnavailableException ex)
+        {
+            // Push 3 / directive 2.2: cache AND database both unavailable. Answer 503 —
+            // never empty-as-denied, never full-access. Must stay before catch (DomainException)
+            // because UiPermissionsUnavailableException derives from it.
+            await HandleDomainException(context, ex, HttpStatusCode.ServiceUnavailable);
         }
         catch (ConflictException ex)
         {

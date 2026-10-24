@@ -14,10 +14,12 @@
  * Design tokens (--cms-*) are applied via inline style; structural styling is pure Tailwind.
  */
 import {
-  KeyRound, LoaderCircle, Plus, ShieldCheck, ShieldOff, Trash2, UsersRound, Lock,
+  KeyRound, LoaderCircle, Plus, ShieldCheck, ShieldOff, Trash2, UsersRound, Lock, SlidersHorizontal,
 } from 'lucide-react';
 import type { RoleRecord } from '../lib/api';
 import { PermissionMatrixEditor } from './PermissionMatrixEditor';
+import { UiPermissionsEditor } from './UiPermissionsEditor';
+import { useUiPermissions } from '../hooks/useUiPermissions';
 import { useState } from 'react';
 
 type Copy = Record<string, string>;
@@ -38,6 +40,10 @@ type RolesCenterProps = {
 
 export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCreate, onStatus, onDelete, onError, onNotice }: RolesCenterProps) {
   const [editingRole, setEditingRole] = useState<RoleRecord | null>(null);
+  // Push 3: advanced UI-permission editor (62 keys) — gated by btn:roles.matrix,
+  // the same family as the classic matrix button.
+  const { can } = useUiPermissions();
+  const [uiEditingRole, setUiEditingRole] = useState<RoleRecord | null>(null);
   return (
     <section className="space-y-6" dir={isArabic ? 'rtl' : 'ltr'}>
       {/* ===== Page header ===== */}
@@ -205,33 +211,50 @@ export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCre
 
                 {/* Actions */}
                 <div className="flex gap-2 mt-4 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => setEditingRole(role)}
-                    disabled={busy}
-                    className="inline-flex items-center justify-center gap-1.5 flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50"
-                    style={{ borderColor: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)', background: 'var(--cms-teal-50)' }}
-                    title={isArabic ? 'تعديل مصفوفة الصلاحيات' : 'Edit permission matrix'}
-                  >
-                    <Lock className="w-3.5 h-3.5" />
-                    {isArabic ? 'الصلاحيات' : 'Permissions'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onStatus(role, !role.isActive)}
-                    disabled={toggleDisabled}
-                    title={isSuperAdmin ? (isArabic ? 'لا يمكن تعطيل دور المدير العام' : 'Super-admin role cannot be disabled') : undefined}
-                    className={`inline-flex items-center justify-center gap-1.5 flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                      role.isActive
-                        ? 'text-amber-700 border-amber-200 hover:bg-amber-50'
-                        : 'text-emerald-700 border-emerald-200 hover:bg-emerald-50'
-                    }`}
-                  >
-                    {busy && <LoaderCircle className="w-3.5 h-3.5 animate-spin" />}
-                    {!busy && (role.isActive ? <ShieldOff className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />)}
-                    {role.isActive ? copy.deactivate : copy.activate}
-                  </button>
-                  {!role.isSystem && (
+                  {can('btn:roles.matrix') && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setEditingRole(role)}
+                        disabled={busy}
+                        className="inline-flex items-center justify-center gap-1.5 flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50"
+                        style={{ borderColor: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)', background: 'var(--cms-teal-50)' }}
+                        title={isArabic ? 'تعديل مصفوفة الصلاحيات' : 'Edit permission matrix'}
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        {isArabic ? 'الصلاحيات' : 'Permissions'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUiEditingRole(role)}
+                        disabled={busy}
+                        className="inline-flex items-center justify-center gap-1.5 flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50"
+                        style={{ borderColor: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)', background: 'var(--cms-surface)' }}
+                        title={isArabic ? 'صلاحيات الواجهة المتقدمة (62 مفتاحاً)' : 'Advanced UI permissions (62 keys)'}
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                        {isArabic ? 'الواجهة' : 'UI keys'}
+                      </button>
+                    </>
+                  )}
+                  {can('btn:roles.status') && (
+                    <button
+                      type="button"
+                      onClick={() => onStatus(role, !role.isActive)}
+                      disabled={toggleDisabled}
+                      title={isSuperAdmin ? (isArabic ? 'لا يمكن تعطيل دور المدير العام' : 'Super-admin role cannot be disabled') : undefined}
+                      className={`inline-flex items-center justify-center gap-1.5 flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                        role.isActive
+                          ? 'text-amber-700 border-amber-200 hover:bg-amber-50'
+                          : 'text-emerald-700 border-emerald-200 hover:bg-emerald-50'
+                      }`}
+                    >
+                      {busy && <LoaderCircle className="w-3.5 h-3.5 animate-spin" />}
+                      {!busy && (role.isActive ? <ShieldOff className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />)}
+                      {role.isActive ? copy.deactivate : copy.activate}
+                    </button>
+                  )}
+                  {!role.isSystem && can('btn:roles.delete') && (
                     <button
                       type="button"
                       onClick={() => onDelete(role)}
@@ -258,6 +281,20 @@ export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCre
           roleName={isArabic ? editingRole.nameAr : editingRole.name}
           isSystemRole={editingRole.isSystem}
           onClose={() => setEditingRole(null)}
+          onError={onError}
+          onNotice={onNotice}
+        />
+      )}
+
+      {/* Push 3: advanced UI-permission editor modal — gated by btn:roles.matrix. */}
+      {uiEditingRole && can('btn:roles.matrix') && (
+        <UiPermissionsEditor
+          token={token}
+          isArabic={isArabic}
+          roleId={uiEditingRole.id}
+          roleName={isArabic ? uiEditingRole.nameAr : uiEditingRole.name}
+          isSystemRole={uiEditingRole.isSystem}
+          onClose={() => setUiEditingRole(null)}
           onError={onError}
           onNotice={onNotice}
         />

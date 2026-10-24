@@ -313,6 +313,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("name_ar");
 
+                    b.Property<string>("UiPermissions")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("ui_permissions");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");

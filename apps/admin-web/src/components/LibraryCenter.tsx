@@ -47,6 +47,7 @@ import {
   Trash2, Upload, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult, type AdminLibraryFileListItem, type UploadUrlResponse } from '../lib/api';
+import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
 type College = { id: string; nameAr: string; nameEn?: string | null };
@@ -168,6 +169,8 @@ const contentTypeMap: Record<string, { type: UploadForm['type']; ct: string }> =
 };
 
 export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
+  // Push 3: cosmetic gating — the API policies remain the real boundary.
+  const { can } = useUiPermissions();
   const [universities, setUniversities] = useState<University[]>([]);
   const [colleges, setColleges] = useState<College[]>([]);
   const [years, setYears] = useState<AcademicYear[]>([]);
@@ -473,9 +476,10 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => { if (!showUpload) { setForm(emptyForm()); setSelectedFile(null); setUploadProgress(0); } setShowUpload(v => !v); }}
+        {can('btn:library.upload') && (
+          <button
+            type="button"
+            onClick={() => { if (!showUpload) { setForm(emptyForm()); setSelectedFile(null); setUploadProgress(0); } setShowUpload(v => !v); }}
           disabled={busy}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
           style={{ background: 'var(--cms-teal-700)' }}
@@ -484,6 +488,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         >
           <Plus className="w-4 h-4" /> {copy.addFile}
         </button>
+        )}
       </header>
 
       {/* ===== Academic hierarchy filter bar ===== */}
@@ -656,7 +661,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        {file.status === 'Draft' && file.virusScanStatus === 'Clean' && (
+                        {file.status === 'Draft' && file.virusScanStatus === 'Clean' && can('btn:library.publish') && (
                           <button
                             type="button"
                             onClick={() => void handlePublish(file)}
@@ -667,7 +672,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                             <CheckCircle2 className="w-4 h-4" />
                           </button>
                         )}
-                        {file.status === 'Published' && (
+                        {file.status === 'Published' && can('btn:library.archive') && (
                           <button
                             type="button"
                             onClick={() => void handleArchive(file)}
@@ -678,15 +683,17 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                             <Archive className="w-4 h-4" />
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDelete(file)}
-                          disabled={busy}
-                          title={copy.delete}
-                          className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {can('btn:library.delete') && (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDelete(file)}
+                            disabled={busy}
+                            title={copy.delete}
+                            className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

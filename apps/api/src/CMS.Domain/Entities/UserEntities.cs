@@ -359,6 +359,14 @@ public class AdminRole : BaseEntity
     public bool IsSystem { get; private set; }
     public bool IsActive { get; private set; } = true;
 
+    /// <summary>
+    /// Push 3 / Track 3: admin-web UI permission keys as a JSON array string (jsonb column).
+    /// NULL = unconfigured = full UI access (zero behavior change for existing roles — Q1).
+    /// super_admin is never configurable; system roles are read-only (SYSTEM_ROLE_READONLY).
+    /// These keys gate UI elements only — see the two-layers note in UiPermissionRegistry.cs.
+    /// </summary>
+    public string? UiPermissions { get; private set; }
+
     public ICollection<Admin> Admins { get; private set; } = new List<Admin>();
     public ICollection<AdminPermission> Permissions { get; private set; } = new List<AdminPermission>();
 
@@ -371,6 +379,22 @@ public class AdminRole : BaseEntity
             Description = description,
             IsSystem = isSystem
         };
+    }
+
+    /// <summary>Stores a validated, registry-ordered JSON array of UI keys. Caller validates via UiPermissionRegistry.</summary>
+    public void SetUiPermissions(string serializedKeys)
+    {
+        if (string.IsNullOrWhiteSpace(serializedKeys))
+            throw new DomainException("قائمة مفاتيح صلاحيات الواجهة غير صالحة", "UI_PERMISSION_INVALID_KEYS");
+        UiPermissions = serializedKeys;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Resets the role to unconfigured (NULL = full UI access).</summary>
+    public void ClearUiPermissions()
+    {
+        UiPermissions = null;
+        UpdatedAt = DateTime.UtcNow;
     }
 
     public void ReplacePermissions(IEnumerable<AdminPermission> permissions)

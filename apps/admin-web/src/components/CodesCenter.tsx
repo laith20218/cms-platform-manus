@@ -2,6 +2,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { AlertCircle, BadgeCheck, Ban, Copy, Check, Download, KeyRound, LoaderCircle, Plus, RefreshCw, Search, UsersRound, Ticket, UserPlus } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
+import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
 type College = { id: string; nameAr: string; nameEn?: string | null };
@@ -31,6 +32,9 @@ const statusChipClass = (status: string) => {
 };
 
 export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
+  // Push 3: cosmetic gating — the API policies remain the real boundary.
+  // activate-for-student stays ungated (out-of-census control); backend policy is the gate.
+  const { can } = useUiPermissions();
   const [codes, setCodes] = useState<CodeItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -311,9 +315,11 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
             <span className="text-xs">{isArabic ? `${scopeChoices.find((s) => s.value === form.contentScope)?.ar ?? ''}: ${form.isPublic ? 'متاح لكل طالب مسجل مرة واحدة.' : 'يملكه أول طالب مسجل يسترده.'}` : `${scopeChoices.find((s) => s.value === form.contentScope)?.en ?? ''}: ${form.isPublic ? 'available once to every registered student.' : 'owned by the first registered student to redeem it.'}`}</span>
           </div>
 
+        {can('btn:codes.generate') && (
           <button className="inline-flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-colors disabled:opacity-50" disabled={busy} type="submit">
             {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}{isArabic ? 'إنشاء الرموز' : 'Generate codes'}
           </button>
+        )}
         </form>
 
         {/* Code ledger */}
@@ -324,10 +330,12 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
               <h3 className="text-base font-bold text-slate-900">{isArabic ? 'الأكواد المنشأة' : 'Generated codes'}</h3>
             </div>
             <div className="flex items-center gap-2">
-              <button type="button" onClick={exportCsv} disabled={codes.length === 0} title={isArabic ? 'تصدير CSV' : 'Export CSV'} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 transition-colors disabled:opacity-50">
-                <Download className="w-3.5 h-3.5" />CSV
-              </button>
-              {selectedIds.size > 0 && (
+              {can('btn:codes.export') && (
+                <button type="button" onClick={exportCsv} disabled={codes.length === 0} title={isArabic ? 'تصدير CSV' : 'Export CSV'} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 transition-colors disabled:opacity-50">
+                  <Download className="w-3.5 h-3.5" />CSV
+                </button>
+              )}
+              {selectedIds.size > 0 && can('btn:codes.revoke-bulk') && (
                 <button type="button" onClick={() => void bulkRevoke()} disabled={busy} title={isArabic ? 'إبطال المحدد' : 'Revoke selected'} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-600 bg-white hover:bg-red-50 transition-colors disabled:opacity-50">
                   {busy ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}{selectedIds.size}
                 </button>
@@ -416,7 +424,7 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
                             <UserPlus className="w-3.5 h-3.5" />{isArabic ? 'تفعيل' : 'Activate'}
                           </button>
                         )}
-                        {code.status.toLowerCase() === 'active' && (
+                        {code.status.toLowerCase() === 'active' && can('btn:codes.revoke') && (
                           <button type="button" disabled={busy} title={isArabic ? 'إبطال شامل' : 'Revoke all'} onClick={() => { setRevokeTarget(code); setRevokeReason(''); }} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-600 bg-white hover:bg-red-50 transition-colors disabled:opacity-50">
                             <Ban className="w-3.5 h-3.5" />{isArabic ? 'إبطال' : 'Revoke'}
                           </button>
