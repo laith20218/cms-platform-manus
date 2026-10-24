@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react';
 import { AppShell } from '@/components/layouts/AppShell';
 import { LoadingScreen } from '@/components/ui/LoadingScreen';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 
 // Lazy-loaded pages
 const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'));
@@ -38,7 +39,7 @@ const otpEnabled = import.meta.env.VITE_OTP_ENABLED === 'true';
 
 export function AppRoutes() {
   return (
-    <Suspense fallback={<LoadingScreen />}>
+    <RouteBoundary>
       <Routes>
         {/* Public Routes */}
         <Route path="/login" element={<LoginPage />} />
@@ -84,6 +85,17 @@ export function AppRoutes() {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
-    </Suspense>
+    </RouteBoundary>
+  );
+}
+
+/** Suspense boundary that also catches lazy-chunk crashes (e.g. a failed
+ *  chunk download mid-deploy) — the ErrorBoundary shows a Retry card instead
+ *  of a white screen (Push 8). */
+function RouteBoundary({ children }: { children: React.ReactNode }) {
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<LoadingScreen />}>{children}</Suspense>
+    </ErrorBoundary>
   );
 }
