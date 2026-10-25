@@ -1,3 +1,13 @@
+# WIP STATUS — Push 10.0b REBUILD (Range & CORS Verification — read-only + docs)
+
+Branch: `wip/10.0b` (from wip/10.0 rebuild @ 8c61ee1)
+Scope: VERIFICATION ONLY. No production code changes beyond the 10.0 rebuild already on this branch. New files: docs/ops/media-cors.md, docs/ops/verify-range.sh (+WIP_STATUS.md).
+
+## In progress
+- 10.0b rebuild complete: media-cors.md (6 sections — Range verdict UNVERIFIED pending operator live test, CORS state table, Path A/B presign anatomy with the credential-lease security warning, R2 migration matrix, operator checklist) + verify-range.sh (Range + control + informational Origin-bearing GET; PASS/FAIL/ERROR verdict; functionally validated against local mock servers).
+
+---
+
 # WIP STATUS — Push 10.0 REBUILD (Backend Foundation: Streaming + Bookmarks + Progress)
 
 Branch: `wip/10.0` (from main @ 93367ae)
