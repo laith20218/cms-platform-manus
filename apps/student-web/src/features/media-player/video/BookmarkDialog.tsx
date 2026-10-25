@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Bookmark, LoaderCircle, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -37,18 +37,27 @@ export function BookmarkDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Re-seed the defaults each time the dialog opens at a new position.
+  // Latest values via refs: the dialog must snapshot the CURRENT position the
+  // moment it opens — depending on the props directly would re-seed the form
+  // on every timeupdate (~4×/s while playing) and wipe what the user typed.
+  const timeRef = useRef(currentTime);
+  timeRef.current = currentTime;
+  const maxEndRef = useRef(maxEnd);
+  maxEndRef.current = maxEnd;
+
+  // Re-seed the defaults exactly once per open.
   useEffect(() => {
     if (!open) return;
-    const s = Math.max(0, Math.floor(currentTime));
+    const s = Math.max(0, Math.floor(timeRef.current));
     let e = s + CLIP_SECONDS;
-    if (maxEnd !== null) e = Math.min(e, maxEnd);
+    if (maxEndRef.current !== null) e = Math.min(e, maxEndRef.current);
     setStart(s);
     setEnd(Math.max(s + 1, e));
     setLabel('');
     setNote('');
     setError(null);
-  }, [open, currentTime, maxEnd]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const startValid = Number.isFinite(start) && start >= 0;
   const endValid = Number.isFinite(end) && end > start && (maxEnd === null || end <= maxEnd);

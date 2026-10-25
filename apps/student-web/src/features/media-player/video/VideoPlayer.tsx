@@ -199,6 +199,37 @@ export default function VideoPlayer({
     void fetchUrl({ preserveTime: true, reason: 'error' });
   }, [fetchUrl]);
 
+  /* ============ volume / mute wiring (state → element) ============ */
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) video.volume = volume;
+  }, [volume]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) video.muted = muted;
+  }, [muted]);
+
+  /* ============ buffered ranges ============ */
+
+  const updateBuffered = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    const buffered = video.buffered;
+    let end = 0;
+    // Range containing the playhead wins; otherwise the newest range
+    // trailing behind it (just-seeked case) still shows honest progress.
+    for (let i = 0; i < buffered.length; i++) {
+      if (buffered.start(i) <= video.currentTime && video.currentTime <= buffered.end(i)) {
+        end = buffered.end(i);
+        break;
+      }
+      if (buffered.end(i) <= video.currentTime && buffered.end(i) > end) end = buffered.end(i);
+    }
+    setBufferedSeconds(Math.min(end, video.duration));
+  }, []);
+
   /* ============ helpers ============ */
 
   function safePlay(video: HTMLVideoElement) {
@@ -276,6 +307,8 @@ export default function VideoPlayer({
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) return;
+    // Radix slider thumbs own their arrow-key semantics (seek/volume steps).
+    if (target.closest('[role="slider"]')) return;
     switch (event.key) {
       case ' ':
       case 'k':
@@ -383,6 +416,7 @@ export default function VideoPlayer({
           const video = e.currentTarget;
           setCurrentTime(video.currentTime);
           lastPositionRef.current = video.currentTime;
+          updateBuffered();
         }}
         onDurationChange={(e) => {
           if (Number.isFinite(e.currentTarget.duration)) {
@@ -390,16 +424,8 @@ export default function VideoPlayer({
             lastDurationRef.current = e.currentTarget.duration;
           }
         }}
-        onProgress={(e) => {
-          const video = e.currentTarget;
-          const buffered = video.buffered;
-          for (let i = 0; i < buffered.length; i++) {
-            if (buffered.start(i) <= video.currentTime && video.currentTime <= buffered.end(i)) {
-              setBufferedSeconds(buffered.end(i));
-              return;
-            }
-          }
-        }}
+        onProgress={updateBuffered}
+        onSeeked={updateBuffered}
         onWaiting={() => setBuffering(true)}
         onPlaying={() => setBuffering(false)}
         onCanPlay={() => setBuffering(false)}

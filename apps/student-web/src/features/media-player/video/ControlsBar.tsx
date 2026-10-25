@@ -69,13 +69,16 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
       data-testid="video-controls-bar"
       data-visible={controlsVisible ? 'true' : 'false'}
       className={cn(
-        'absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-3 pb-2 pt-10 transition-opacity duration-300 sm:px-4 sm:pb-3',
-        controlsVisible ? 'opacity-100' : 'pointer-events-none opacity-0',
+        'pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-3 pb-2 pt-10 transition-opacity duration-300 sm:px-4 sm:pb-3',
+        controlsVisible ? 'opacity-100' : 'opacity-0',
       )}
     >
-      {/* Seek slider — Radix (keyboard: arrows) + buffer indicator underneath. */}
+      {/* Seek slider — Radix (keyboard: arrows) + buffer indicator underneath.
+          The bar is pointer-transparent; ONLY the interactive rows opt back in
+          (otherwise the gradient area swallows taps meant for the center play
+          button / double-tap zones on short mobile players). */}
       <SliderPrimitive.Root
-        className="group relative flex h-7 w-full touch-none select-none items-center outline-none"
+        className={cn('group relative flex h-7 w-full touch-none select-none items-center outline-none', controlsVisible && 'pointer-events-auto')}
         value={sliderValue}
         max={durationKnown ? duration : 100}
         step={1}
@@ -99,7 +102,7 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
         />
       </SliderPrimitive.Root>
 
-      <div className="mt-1 flex items-center gap-1 sm:gap-1.5">
+      <div className={cn('mt-1 flex items-center gap-1 sm:gap-1.5', controlsVisible && 'pointer-events-auto')}>
         {/* Play / Pause — bottom-left (physical) */}
         <button
           type="button"

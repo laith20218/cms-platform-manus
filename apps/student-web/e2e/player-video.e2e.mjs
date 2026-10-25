@@ -1,0 +1,356 @@
+/**
+ * Push 10.2 — VideoPlayer E2E (real video, real API mocks).
+ *
+ * RAM contract: ONE Chromium instance, --headless=new --disable-gpu
+ * --disable-dev-shm-usage (+ --autoplay-policy=no-user-gesture-required so
+ * the silent-refresh auto-resume path is deterministic), scenarios in
+ * browser.newContext()s, browser closed immediately. Ceiling 1.6GB.
+ *
+ * The media API is mocked at the network layer; the playback URL points at
+ * a REAL locally-served MP4 (vite public/, generated with ffmpeg) — so
+ * play/seek/buffer/double-tap/lease-swap all run against genuine media
+ * playback, not stubs.
+ *
+ * Regenerate the test asset (git-ignored, ~880KB / 90s / h264+aac):
+ *   ffmpeg -f lavfi -i testsrc=duration=90:size=640x360:rate=15 \
+ *          -f lavfi -i sine=frequency=440:duration=90 -pix_fmt yuv420p \
+ *          -movflags +faststart -c:v libx264 -preset veryfast -crf 30 \
+ *          -c:a aac -b:a 48k -shortest public/e2e-test-video.mp4
+ *
+ * Run (dev server on 127.0.0.1:5173):  node e2e/player-video.e2e.mjs
+ */
+import { chromium } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const BASE_URL = process.env.E2E_WEB_URL ?? 'http://127.0.0.1:5173';
+const EXECUTABLE =
+  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ??
+  '/home/z/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome';
+const SHOT_DIR = fileURLToPath(new URL('./screenshots/', import.meta.url));
+
+const EPISODE_ID = '11111111-2222-3333-4444-555555555555';
+const VIDEO_URL = `${BASE_URL}/e2e-test-video.mp4`; // real 90s MP4 via vite public/
+const TTL_SECONDS = 8; // production is 540; short TTL → clamp → refresh at ~3s
+
+const E2E_USER = {
+  id: 'e2e-u-002', phone: '+962790000000', fullName: 'طالب الاختبار',
+  role: 'student', avatarUrl: null,
+  university: { id: 'u-1', nameAr: 'جامعة الاختبار' }, college: { id: 'c-1', nameAr: 'كلية الطب' },
+};
+
+/** JWT-shaped token their parser accepts (segment 0 = base64url JSON payload). */
+const ENTITLEMENT_TOKEN = [
+  Buffer.from(JSON.stringify({ expiresAt: new Date(Date.now() + 3600_000).toISOString() })).toString('base64url'),
+  'e2e', 'sig',
+].join('.');
+
+const results = [];
+function check(name, ok, extra = '') {
+  results.push({ name, ok, extra });
+  console.log(`${ok ? '  PASS' : '! FAIL'}  ${name}${extra ? ` — ${extra}` : ''}`);
+}
+
+const consoleErrors = [];
+
+async function newStudentContext(browser, viewport) {
+  // hasTouch: the double-tap zones are exercised with touchscreen.tap on
+  // both form factors (touch pointer events drive the ±10s logic).
+  const context = await browser.newContext({ viewport, locale: 'ar', hasTouch: true });
+  await context.addInitScript(() => {
+    sessionStorage.setItem('cms-access-token', 'e2e-dummy-access');
+    sessionStorage.setItem('cms-refresh-token', 'e2e-dummy-refresh');
+  });
+
+  const counters = { playbackUrl: 0, progressPosts: [], bookmarkPosts: [] };
+
+  // Catch-all FIRST (lowest priority): any unmocked /api/v1 call aborts cleanly.
+  await context.route('**/api/v1/**', (route) => route.abort());
+  // Specific mocks LAST (highest priority).
+  await context.route('**/api/v1/auth/me', (route) => route.fulfill({ json: E2E_USER }));
+  await context.route('**/api/v1/entitlements/issue', (route) =>
+    route.fulfill({ json: { token: ENTITLEMENT_TOKEN } }));
+
+  await context.route(`**/api/v1/media/course-episode/${EPISODE_ID}/playback-url`, async (route) => {
+    counters.playbackUrl += 1;
+    await route.fulfill({
+      json: {
+        url: `${VIDEO_URL}?lease=${counters.playbackUrl}`,
+        ttlSeconds: TTL_SECONDS,
+        expiresAt: new Date(Date.now() + TTL_SECONDS * 1000).toISOString(),
+        contentType: 'video/mp4',
+        supportsRange: true,
+      },
+    });
+  });
+
+  await context.route(`**/api/v1/media/course-episode/${EPISODE_ID}/progress`, async (route) => {
+    if (route.request().method() === 'GET') {
+      // Resume from 12s — proves the resume path.
+      await route.fulfill({
+        json: {
+          assetType: 'CourseEpisode', assetId: EPISODE_ID,
+          lastPositionSeconds: 12, durationSeconds: 90,
+          completionPercent: 13.33, updatedAt: new Date().toISOString(),
+        },
+      });
+    } else {
+      counters.progressPosts.push(route.request().postDataJSON());
+      await route.fulfill({
+        json: {
+          assetType: 'CourseEpisode', assetId: EPISODE_ID,
+          lastPositionSeconds: 20, durationSeconds: 90,
+          completionPercent: 22.22, updatedAt: new Date().toISOString(),
+        },
+      });
+    }
+  });
+
+  await context.route(`**/api/v1/media/course-episode/${EPISODE_ID}/bookmarks`, async (route) => {
+    counters.bookmarkPosts.push(route.request().postDataJSON());
+    await route.fulfill({
+      json: {
+        id: 'bm-e2e-001', assetType: 'CourseEpisode', assetId: EPISODE_ID,
+        startSeconds: 20, endSeconds: 50, label: 'مقطع الاختبار', note: null,
+        createdAt: new Date().toISOString(),
+      },
+    });
+  });
+
+  context.__counters = counters;
+  return context;
+}
+
+async function openPlayer(page) {
+  await page.goto(`${BASE_URL}/my-studies/player-test`);
+  await page.getByTestId('open-player-test').click();
+  await page.getByTestId('player-shell').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByTestId('sandbox-video-player').waitFor({ state: 'visible', timeout: 20_000 });
+  await page.getByTestId('video-element').waitFor({ state: 'attached', timeout: 20_000 });
+}
+
+const browser = await chromium.launch({
+  executablePath: EXECUTABLE,
+  headless: true,
+  args: [
+    '--headless=new', '--disable-gpu', '--disable-dev-shm-usage', '--no-sandbox',
+    '--autoplay-policy=no-user-gesture-required', '--disable-extensions',
+    '--mute-audio', '--hide-scrollbars',
+  ],
+});
+
+try {
+  /* ================= Desktop (1280×800) — full player flow ================= */
+  const context = await newStudentContext(browser, { width: 1280, height: 800 });
+  const page = await context.newPage();
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') consoleErrors.push(msg.text().slice(0, 200));
+  });
+
+  await openPlayer(page);
+
+  // 1 — Playback URL fetched, real video element attached with our src.
+  await page.waitForFunction(
+    () => { const v = document.querySelector('[data-testid="video-element"]'); return v && v.src.includes('e2e-test-video.mp4'); },
+    null, { timeout: 15_000 },
+  );
+  check('playback-url fetched → real <video> src attached', true);
+
+  // 2 — Resume: GET progress (12s) → seek applied once metadata loads.
+  await page.waitForFunction(
+    () => { const v = document.querySelector('[data-testid="video-element"]'); return v && Math.abs(v.currentTime - 12) < 1.5; },
+    null, { timeout: 15_000 },
+  );
+  check('progress resume: seeked to lastPositionSeconds=12', true);
+
+  // 3 — Center play → actually plays (real media).
+  await page.getByTestId('video-center-play').click();
+  await page.waitForFunction(
+    () => { const v = document.querySelector('[data-testid="video-element"]'); return v && !v.paused && v.currentTime > 12.5; },
+    null, { timeout: 15_000 },
+  );
+  check('center play button starts real playback', true);
+
+  const beforeTime = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+
+  // 4 — SILENT REFRESH: ttl=8s → clamp → refresh at ~3s; the new URL keeps
+  //     playing at the same timestamp (seamless swap). Short TTLs cascade a
+  //     swap every ~3s — assert "at least the 2nd lease, still playing, time
+  //     never regressed", not an exact lease number.
+  {
+    let swaps = 0;
+    for (let i = 0; i < 50; i++) {
+      await page.waitForTimeout(500);
+      swaps = context.__counters.playbackUrl;
+      if (swaps >= 2) break;
+    }
+    const after = await page.evaluate(() => {
+      const v = document.querySelector('[data-testid="video-element"]');
+      return { time: v.currentTime, paused: v.paused, lease: Number((v.src.match(/lease=(\d+)/) || [0, 0])[1]) };
+    });
+    const seamless = swaps >= 2 && !after.paused && after.time >= beforeTime - 0.2 && after.lease >= 2;
+    check(
+      'silent refresh at ttl-60 (clamped): seamless swap',
+      seamless,
+      `requests=${swaps} time ${beforeTime.toFixed(1)}→${after.time.toFixed(1)} paused=${after.paused} lease=${after.lease}`,
+    );
+  }
+
+  // Show the controls in the screenshot: wake the auto-hide.
+  await page.mouse.move(640, 400);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'video-player-01-playing.png') });
+
+  // 5 — Custom controls: pause/play via bottom bar.
+  await page.getByTestId('video-play-pause').click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="video-element"]').paused, null, { timeout: 5_000 });
+  check('bottom-bar play/pause toggles pause', true);
+  await page.getByTestId('video-play-pause').click();
+  await page.waitForFunction(() => !document.querySelector('[data-testid="video-element"]').paused, null, { timeout: 5_000 });
+
+  // 6 — Keyboard seek on the player region (Space/K/J/L/M/F + arrows).
+  const tBefore = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+  await page.getByTestId('sandbox-video-player').focus();
+  await page.keyboard.press('ArrowRight');
+  const tAfter = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+  check('keyboard: ArrowRight on the player region seeks +5s', tAfter - tBefore >= 4 && tAfter - tBefore <= 6.5,
+    `${tBefore.toFixed(1)}→${tAfter.toFixed(1)}`);
+
+  // 7 — Buffer indicator present and non-zero (real buffered ranges — the
+  //     local file buffers instantly after the seek above).
+  await page.waitForTimeout(700);
+  const bufferWidth = await page.getByTestId('video-buffer-fill').evaluate((el) => parseFloat(el.style.width));
+  check('buffer indicator reflects real buffered data', bufferWidth > 0, `width=${bufferWidth}%`);
+
+  // 8 — Volume: mute/unmute.
+  await page.getByTestId('video-mute').click();
+  let muted = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').muted);
+  await page.getByTestId('video-mute').click();
+  const unmuted = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').muted);
+  check('mute/unmute toggles video.muted', muted === true && unmuted === false);
+
+  // 9 — Speed selector: open Radix Select, pick 1.5×.
+  await page.getByTestId('video-rate-trigger').click();
+  await page.getByTestId('video-rate-option-1-5').click();
+  const rate = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').playbackRate);
+  check('speed selector sets playbackRate=1.5', rate === 1.5, `rate=${rate}`);
+
+  // 10 — DOUBLE TAP: left zone −10s with ripple badge.
+  {
+    const t0 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    const zone = page.getByTestId('video-tap-zone-left');
+    const box = await zone.boundingBox();
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(120);
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    const rippleVisible = await page.getByTestId('video-ripple-left').isVisible().catch(() => false);
+    await page.waitForTimeout(400); // let the seek settle
+    const t1 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    check('double-tap LEFT: −10s + ripple badge', rippleVisible && t0 - t1 >= 8.5 && t0 - t1 <= 11.5,
+      `${t0.toFixed(1)}→${t1.toFixed(1)} ripple=${rippleVisible}`);
+  }
+
+  // 11 — DOUBLE TAP: right zone +10s.
+  {
+    const t0 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    const zone = page.getByTestId('video-tap-zone-right');
+    const box = await zone.boundingBox();
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(120);
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    const rippleVisible = await page.getByTestId('video-ripple-right').isVisible().catch(() => false);
+    await page.waitForTimeout(400);
+    const t1 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    check('double-tap RIGHT: +10s + ripple badge', rippleVisible && t1 - t0 >= 8.5 && t1 - t0 <= 11.5,
+      `${t0.toFixed(1)}→${t1.toFixed(1)} ripple=${rippleVisible}`);
+  }
+
+  // 12 — Bookmark dialog: defaults seeded from currentTime; submit → POST + toast.
+  {
+    const tNow = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    await page.getByTestId('video-bookmark-button').click();
+    await page.getByTestId('bookmark-dialog').waitFor({ state: 'visible', timeout: 5_000 });
+    const startVal = await page.getByTestId('bookmark-start').inputValue();
+    const endVal = await page.getByTestId('bookmark-end').inputValue();
+    const defaultsOk = Math.abs(Number(startVal) - tNow) < 2 && Math.abs(Number(endVal) - (Number(startVal) + 30)) <= 31;
+    await page.getByTestId('bookmark-label').fill('مقطع مهم جداً');
+    await page.getByTestId('bookmark-submit').click();
+    await page.getByTestId('bookmark-dialog').waitFor({ state: 'hidden', timeout: 5_000 });
+    const post = context.__counters.bookmarkPosts.at(-1);
+    const toastShown = await page.locator('[data-sonner-toast]').first().isVisible().catch(() => false);
+    check(
+      'bookmark: defaults from currentTime + POST + success toast',
+      defaultsOk && !!post && post.label === 'مقطع مهم جداً' && toastShown,
+      `start=${startVal} end=${endVal} posted=${JSON.stringify(post?.label)}`,
+    );
+  }
+
+  // 13 — Progress autosave: 10s cadence while playing (we've been playing a
+  //      while — at least one interval or pause-triggered POST must exist).
+  {
+    const before = context.__counters.progressPosts.length;
+    await page.waitForTimeout(11_000);
+    const after = context.__counters.progressPosts.length;
+    const bodiesOk = context.__counters.progressPosts.every((p) =>
+      Number.isFinite(p?.positionSeconds) && Number.isFinite(p?.durationSeconds));
+    check('progress POST every 10s during playback', after > before && bodiesOk,
+      `posts ${before}→${after}`);
+  }
+
+  // 14 — Close (X): unmount fires the keepalive final save.
+  {
+    const before = context.__counters.progressPosts.length;
+    await page.getByTestId('player-close').click();
+    await page.getByTestId('player-shell').waitFor({ state: 'detached', timeout: 10_000 });
+    await page.waitForTimeout(800);
+    const after = context.__counters.progressPosts.length;
+    check('close/unmount → final progress save (keepalive)', after > before, `posts ${before}→${after}`);
+  }
+
+  await context.close();
+
+  /* ================= Mobile (375×667) — layout + tap zones ================= */
+  const mobile = await newStudentContext(browser, { width: 375, height: 667 });
+  const mPage = await mobile.newPage();
+  await openPlayer(mPage);
+  await mPage.getByTestId('video-center-play').click();
+  await mPage.waitForFunction(() => !document.querySelector('[data-testid="video-element"]').paused, null, { timeout: 10_000 });
+
+  const noHScroll = await mPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const controlsBox = await mPage.getByTestId('video-controls-bar').boundingBox();
+  check(
+    'mobile 375px: player + controls fit, no horizontal overflow',
+    noHScroll && controlsBox.width <= 376,
+    `controlsW=${controlsBox.width.toFixed(0)} noHScroll=${noHScroll}`,
+  );
+
+  // Double-tap works with touch on mobile too.
+  {
+    const t0 = await mPage.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    const box = await mPage.getByTestId('video-tap-zone-right').boundingBox();
+    await mPage.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await mPage.waitForTimeout(120);
+    await mPage.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await mPage.waitForTimeout(400);
+    const t1 = await mPage.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    check('mobile double-tap RIGHT: +10s', t1 - t0 >= 8.5 && t1 - t0 <= 11.5, `${t0.toFixed(1)}→${t1.toFixed(1)}`);
+  }
+
+  await mPage.screenshot({ path: path.join(SHOT_DIR, 'video-player-02-mobile-375.png') });
+  await mobile.close();
+} finally {
+  await browser.close(); // RAM contract: close immediately.
+}
+
+const failed = results.filter((r) => !r.ok);
+console.log('--------------------------------------------------');
+console.log(`RESULTS: ${results.length - failed.length}/${results.length} passed`);
+if (consoleErrors.length) {
+  console.log(`CONSOLE ERRORS (${consoleErrors.length}):`);
+  consoleErrors.slice(0, 10).forEach((e) => console.log(`  • ${e}`));
+} else {
+  console.log('CONSOLE ERRORS: none');
+}
+const mem = process.memoryUsage();
+console.log(`NODE RSS: ${(mem.rss / 1024 / 1024).toFixed(0)} MB | heapUsed: ${(mem.heapUsed / 1024 / 1024).toFixed(0)} MB`);
+process.exit(failed.length ? 1 : 0);
