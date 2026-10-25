@@ -469,6 +469,7 @@ public sealed class ExamSessionHandlers :
 
         var questions = await _db.Questions
             .Include(question => question.Lecture)
+            .Include(question => question.Options)
             .Where(question => req.QuestionIds.Contains(question.Id))
             .ToListAsync(ct);
         if (questions.Count != req.QuestionIds.Count)
