@@ -1,3 +1,28 @@
+# WIP STATUS — Push 10.2 (Video Player Integration — frontend)
+
+Branch: `wip/10.2` (from wip/10.1 @ 2530f2c; **pushed to remote** @ 4554e5f)
+Scope: FRONTEND ONLY (`apps/student-web`). Zero backend/admin files. **NO new packages** — the presigned URLs are direct MP4 objects on R2 (Range-capable per 10.0b live test), NOT HLS → native `<video>` suffices; hls.js not needed. pnpm-lock.yaml byte-identical.
+
+## Done (10.2)
+- [x] 1.E API layer `src/features/media-player/services/media-api.ts`: playback-url POST, progress GET (204→null) / POST (int-rounded, camelCase bodies), bookmarks POST with X-Duration-Warning surfacing, keepalive final-save (fetch+keepalive with manually mirrored auth headers). X-Entitlement via existing `entitlementRequestConfig()`; X-Installation-Id rides the global axios interceptor.
+- [x] 1.A Silent refresh `hooks/useMediaLease.ts`: timer at **ttl − 60s** (min-3s clamp keeps short-TTL e2e testable; production 540→480s); 15s retry backoff ×3; preserve-time + play-state captured BEFORE the fetch, restored by the host in `onLoadedMetadata`; media-error path refreshes immediately; generation counter for side-effects. Playback state (time/rate/volume/mute) survives every swap — verified e2e.
+- [x] 1.B Custom controls `video/ControlsBar.tsx` (native controls removed): center play/pause (tap/click), bottom bar — play/pause, Radix-Slider seek with **buffer indicator** (trailing-range fallback) + keyboard arrows + aria-valuetext, time current/total, volume mute + hover-reveal slider (Radix), speed Radix-Select 0.25–2× (portal z-[100]), bookmark button, fullscreen (routes through the shell). Physical LTR timeline (YouTube-Arabic convention — task-book example honored) with RTL text; 44px targets; auto-hide 2.6s while playing.
+- [x] 1.B Double-tap zones: physical left = −10s / right = +10s; 280ms window cancels the single-tap action (touch: toggle controls; mouse: play/pause); framer-motion ripple badge (±10s) at tap position.
+- [x] 1.C Progress: GET on mount → seek to lastPositionSeconds at metadata; POST every 10s while playing + on pause/ended + checkpoint before each lease swap + **keepalive final save on unmount/beforeunload/visibilitychange**.
+- [x] 1.D Bookmarks `video/BookmarkDialog.tsx`: dark dialog — start defaults to current position, end +30s (clamped to duration), label required, note optional; success toast with the window summary + X-Duration-Warning note.
+- [x] Keyboard on the player region: Space/K play-pause, ←/→ ±5s, J/L ±10s, M mute, F fullscreen (Radix-slider arrows preserved via role="slider"] guard).
+- [x] Fullscreen: PlayerShell exposes `toggleFullscreen(): Promise<boolean>` via new `shell-context.ts`; the player's FS button drives the SHELL stage (controls stay visible); iPhone fallback → video.webkitEnterFullscreen.
+- [x] PlayerTestPage now hosts the REAL VideoPlayer via LazyPlayerMount (generic TProps typed); DummyVideoPlayer removed.
+- [x] **3 production bugs caught by the e2e suite** (commit 4554e5f): ① volume/mute state never reached the element (UI-only state) — dedicated effects added; ② BookmarkDialog re-seeded defaults on every timeupdate (~4×/s) wiping the label mid-typing — now snapshots once per open; ③ controls-bar gradient swallowed taps over the center play button on short mobile players — bar pointer-transparent, only interactive rows opt in.
+- [x] e2e `e2e/player-video.e2e.mjs`: **16/16 PASS, zero console errors** against a REAL ffmpeg-generated MP4 served locally (git-ignored; regen command in the header). Covers: playback-url fetch, resume-seek, real playback, seamless lease swap (requests=2, time preserved, still playing), play/pause, keyboard seek, buffer width, mute, rate 1.5×, double-tap ±10s + ripples (desktop+mobile), bookmark defaults+POST+toast, 10s progress cadence, close→keepalive save, 375px fit. Peak Chromium RSS **1.01GB** (<1.6GB), node runner 163MB, wall 24s.
+- [x] Gates: tsc clean; vitest **117/117**; eslint 0 new warnings (2 pre-existing on base).
+
+## Commit log (10.2)
+- `1e45933` — feat: real VideoPlayer (API integration + custom controls)
+- `4554e5f` — fix+test: three e2e-caught bugs + real-media Playwright suite
+
+---
+
 # WIP STATUS — Push 10.1 (Player Shell & Fullscreen Modal — frontend)
 
 Branch: `wip/10.1` (from wip/10.0 @ f79140b; **pushed to remote** — survives sandbox resets)
