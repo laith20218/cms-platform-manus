@@ -1,3 +1,37 @@
+# WIP STATUS — Push 10.5 (API Integration & Metadata Exposure — backend)
+
+Branch: `wip/10.5` (from wip/10.4 @ 4e6d062; **local commit `7a64b57` — push blocked: no PAT in this session** (verified: no credential helper, no ~/.git-credentials, env clean — same state as 10.4's session; re-supply the PAT and `git push origin wip/10.5` completes it))
+Scope: **`apps/api` ONLY** — zero frontend files, zero lockfile changes, `main` untouched @ 93367ae. **No migration generated, no migration applied** (entities untouched — verified zero model drift).
+
+## Done (10.5)
+
+- [x] **1.A DTOs**: `CourseEpisodeDto` + `LibraryFileDto` gain additive optional keys — `Description`, `Difficulty` (enum → "Easy"|"Medium"|"Hard" via the global JsonStringEnumConverter), `ProcessingStatus` (enum → "Pending"…"Ready"/"Failed", null = pipeline never applied: audio/YouTube/pre-10.3), `ProcessingError` (string, only while Failed), `HlsKey`. Existing positional constructions stay source-compatible (optional params with defaults). `CourseDto` embeds `CourseEpisodeDto` — the list flows automatically.
+- [x] **1.B Read endpoints**: `MapToEpisodeDto` (CourseHandlers — covers student `GetCourseByIdQuery` + admin `GetAdminCourseByIdQuery`) and `MapToDto` (LibraryHandlers — `GetLibraryFileByIdQuery`, update/publish/archive returns) now map the full metadata + lifecycle surface. `ProcessingError` is the honest synthesized English technical string from `MediaProcessingFailure` (10.3 persisted only the terminal status enum; FFmpeg diagnostics live in server logs — documented, no schema change).
+- [x] **1.C playback-url (MediaHandlers)**: `ResolveHlsKeyForPlayback(status, hlsKey)` runs AFTER the entitlement gate on both asset branches — **Ready + HlsKey** → presigns the HLS master playlist with `application/vnd.apple.mpegurl` (student player's `.m3u8` URL sniff engages hls.js automatically); **Pending/Transcoding_\*** → `ConflictException` → **409** with the dual-language still-processing sentence; **Failed** → `MediaProcessingException` → **422** ProblemDetails carrying Arabic `humanMessage` + English `technicalDetails` (10.3's middleware mapping reused as-is); **null status / Ready-without-key** → legacy source-object path (honest degradation; the MP4 keeps playing).
+- [x] **1.D Write endpoints**: `CompleteEpisodeUploadCommand` + `CompleteUploadCommand` accept PATCH-optional `Title/Description/Difficulty` riding the completion body (the 10.4 admin upload panel already sends `{parts, title, description, difficulty}`; the library UI doesn't yet — null keys keep prior values). `UpdateEpisodeCommand` + `UpdateLibraryFileCommand` accept PATCH-optional metadata (the 10.4 edit modal already sends it). Controller request DTOs (`CompleteUploadRequestDto`, `UpdateEpisodeDto`, `CompleteUploadDto`, `UpdateLibraryFileDto`) updated to bind the additive keys. Title was already mapped at initiate-upload (verified).
+- [x] **1.E Migration verification (NOT applied)**: `20261025211326_AddMediaMetadata` files + Designer intact; `dotnet ef migrations has-pending-model-changes` → **"No changes have been made to the model since the last migration"** (zero drift — entities untouched); `dotnet ef migrations script` generated the valid PostgreSQL DDL (7 columns + 2 partial indexes) to a temp file, inspected, deleted — no database touched.
+- [x] **Tests (20 new cases, all passing)**: MediaHandlersTests — HLS master presign for BOTH asset types (Times.Once on the m3u8 key, Times.Never on the source object), 409 theory across all 4 active statuses (dual-language message asserted), 422 Failed for BOTH asset types (HumanMessage + TechnicalDetails asserted), Ready-without-HlsKey source fallback. CourseHandlersTests — complete-upload metadata persistence (title trim/description/difficulty + still Pending), absent-keys keep initiate-time values, update PATCH semantics (both directions), `GetAdminCourseById` lifecycle exposure (Ready episode exposes metadata/hlsKey & null error; Failed episode exposes the technical error string). LibraryHandlersTests — complete-upload metadata override, absent-keys keep upload-url-time values, update difficulty PATCH both directions.
+- [x] Build green: `dotnet build CMS.sln` → 0 errors (17 warnings — all pre-existing in test projects, unrelated).
+
+## Verification (10.5)
+- Full suite `dotnet test CMS.sln` → **400 passed / 27 failed**; the 27 are the Postgres-gated integration suite failing at the `CMS_PHASE34_TEST_POSTGRES` environment guard (no real PostgreSQL in the sandbox — thrown in `PrepareAsync` before any business code; pre-existing by design, NOT a regression).
+- Focused: `--filter MediaHandlersTests|CourseHandlersTests|LibraryHandlersTests` → **110/110** (includes the 20 new cases).
+
+## Commit log (10.5)
+- `7a64b57` — feat(api): Push 10.5 — expose media metadata + HLS playback-url + write-endpoint wiring
+
+## Reconciliations (spec vs. shipped frontend — deliberate, documented)
+- Task book described DTO-level `ProcessingError` as an object `{humanMessage, technicalDetails}`; the SHIPPED 10.4 frontend reads `processingError` as a **string** (admin `CourseEpisode` type; feeds the error modal's collapsible section while polling). Implemented as the string to match the live contract; the OBJECT shape lives exactly where the task's 422 wording puts it — on the Failed playback response (ProblemDetails `humanMessage`/`technicalDetails` extensions via `MediaProcessingException`). Both surfaces work with zero frontend changes.
+- No `ProcessingError` column exists (10.3 stored only the status) → the string is synthesized honestly (`MediaProcessingFailure.TechnicalDetails`), explaining the failure + pointing at server logs; no migration was authorized for this push.
+
+## Open items (for 10.6+ / supervisor)
+- **Push 10.5 → remote**: needs the PAT re-supplied (same protocol as 10.4's backup push: inject → push → scrub immediately).
+- Migration `AddMediaMetadata` apply remains a supervisor action (from 10.3; still NOT applied).
+- Retry/requeue endpoint (real pipeline re-enqueue) still future backend work — the admin Retry button re-polls today.
+- Audio player (Push 10.6 per the 10.4 stop-gate numbering) NOT started — awaiting explicit supervisor approval.
+
+---
+
 # WIP STATUS — Push 10.4 (Admin Upload UI & Student HLS Player — frontend)
 
 Branch: `wip/10.4` (from wip/10.3 @ f3364e0; **local commits only — push deferred: the supervisor PAT was scrubbed per protocol after 10.3 and is not present in this session**; re-supply it and `git push origin wip/10.4` is one command away)
