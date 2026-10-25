@@ -23,6 +23,8 @@ const LibraryPage = lazy(() => import('@/features/library/LibraryPage'));
 // Push 4 Phase 5 — My Studies hub + course player
 const MyStudiesPage = lazy(() => import('@/features/my-studies/pages/MyStudiesPage'));
 const CoursePlayerPage = lazy(() => import('@/features/my-studies/pages/CoursePlayerPage'));
+// Push 10.1 — TEMPORARY player-shell sandbox (remove before production release).
+const PlayerTestPage = lazy(() => import('@/features/my-studies/pages/PlayerTestPage'));
 const SearchPage = lazy(() => import('@/features/search/SearchPage'));
 const ProfilePage = lazy(() => import('@/features/profile/ProfilePage'));
 const NotificationsPage = lazy(() => import('@/features/notifications/pages/NotificationsPage'));
@@ -64,6 +66,8 @@ export function AppRoutes() {
           {/* My Studies hub — courses / exams / library tabs (Push 4 Phase 5) */}
           <Route path="/my-studies" element={<MyStudiesPage />} />
           <Route path="/my-studies/courses/:courseId" element={<CoursePlayerPage />} />
+          {/* Push 10.1 — temporary player-shell sandbox; see PlayerTestPage.tsx */}
+          <Route path="/my-studies/player-test" element={<PlayerTestPage />} />
           {/* Backward compatibility: legacy entry points redirect into the hub.
               Deep links (/exams/:id, /subjects/:slug/library) keep working below. */}
           <Route path="/exams" element={<Navigate to="/my-studies?tab=exams" replace />} />
