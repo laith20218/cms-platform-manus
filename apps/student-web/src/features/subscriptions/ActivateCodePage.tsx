@@ -80,7 +80,7 @@ export default function ActivateCodePage() {
                 type="text"
                 value={part}
                 onChange={(e) => handleCodeChange(e.target.value, i)}
-                className="w-16 h-16 text-center text-xl font-bold rounded-xl border-2 bg-white focus:outline-none transition-colors"
+                className="w-16 h-16 text-center text-xl font-bold rounded-xl border-2 bg-[var(--cms-surface-2)] text-[var(--c-text)] border-[var(--c-border-strong)] focus:outline-none transition-colors"
                 style={{ borderColor: inputBorder(part.length === 4), color: 'var(--cms-text)' }}
                 placeholder="●●●●"
                 maxLength={4}

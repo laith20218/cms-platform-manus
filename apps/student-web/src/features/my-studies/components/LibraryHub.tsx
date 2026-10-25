@@ -36,9 +36,9 @@ const TYPE_META: Record<string, { icon: typeof FileText; label: string; color: s
 
 const CATEGORY_BADGES: Record<string, { label: string; classes: string }> = {
   Curriculum: { label: 'منهاج', classes: 'bg-[var(--c-primary-50)] text-[var(--c-primary-700)]' },
-  Lecture: { label: 'محاضرة', classes: 'bg-amber-50 text-amber-700' },
+  Lecture: { label: 'محاضرة', classes: 'bg-[var(--c-warning-50)] text-[var(--c-warning-500)]' },
   Summary: { label: 'تلخيص', classes: 'bg-[var(--c-success-50)] text-[var(--c-success-700)]' },
-  GoldenIdeas: { label: 'أفكار ذهبية', classes: 'bg-amber-100 text-amber-800' },
+  GoldenIdeas: { label: 'أفكار ذهبية', classes: 'bg-[var(--c-warning-50)] text-[var(--c-warning-500)]' },
 };
 
 interface HubLibraryFile {

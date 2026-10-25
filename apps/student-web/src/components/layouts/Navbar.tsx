@@ -26,7 +26,7 @@ export function Navbar() {
       </Link>
 
       <div className="hidden md:block flex-1 max-w-[480px] mx-auto relative">
-        <input value={query} onChange={(event) => setQuery(event.target.value)} type="search" placeholder="ابحث في الأسئلة، الملفات، المحاضرات..." className="w-full h-10 pe-10 ps-4 rounded-xl border-[1.5px] text-sm outline-none transition-all bg-[rgba(255,255,255,0.80)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-400)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-white" onKeyDown={(event) => event.key === 'Enter' && submitSearch()} />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} type="search" placeholder="ابحث في الأسئلة، الملفات، المحاضرات..." className="w-full h-10 pe-10 ps-4 rounded-xl border-[1.5px] text-sm outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-400)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-[var(--cms-surface)]" onKeyDown={(event) => event.key === 'Enter' && submitSearch()} />
         <button type="button" onClick={submitSearch} aria-label="تنفيذ البحث" className="absolute end-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-[var(--c-text-faint)] hover:text-[var(--c-primary-700)]"><Search className="w-[18px] h-[18px]" /></button>
       </div>
 

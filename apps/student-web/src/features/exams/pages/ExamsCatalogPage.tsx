@@ -64,7 +64,7 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
   const examTypeBadge = (type: string) => {
     const t = (type || '').toLowerCase();
     if (t === 'final') return 'bg-red-50 text-red-700 border-red-200';
-    if (t === 'midterm') return 'bg-amber-50 text-amber-700 border-amber-200';
+    if (t === 'midterm') return 'bg-[var(--c-warning-50)] text-[var(--c-warning-500)] border-[var(--c-warning-50)]';
     if (t === 'quiz') return 'bg-teal-50 text-teal-700 border-teal-200';
     return 'bg-sky-50 text-sky-700 border-sky-200';
   };

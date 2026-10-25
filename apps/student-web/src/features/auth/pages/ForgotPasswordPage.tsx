@@ -90,7 +90,7 @@ export default function ForgotPasswordPage() {
             <div>
               <label className="text-[13px] font-semibold text-[var(--c-text-soft)] mb-1.5 block">رقم الهاتف</label>
               <div className="relative">
-                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0991234567" className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] outline-none transition-all bg-[rgba(255,255,255,0.80)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-white" required />
+                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0991234567" className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-[var(--cms-surface)]" required />
                 <Phone className="absolute end-4 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-[var(--c-text-faint)] pointer-events-none" />
               </div>
             </div>

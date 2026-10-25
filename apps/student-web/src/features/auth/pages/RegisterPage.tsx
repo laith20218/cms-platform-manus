@@ -152,7 +152,7 @@ export default function RegisterPage() {
             <div>
               <label className="text-[13px] font-semibold text-[var(--c-text-soft)] mb-1.5 block">الاسم الكامل <span className="text-[var(--c-danger-500)]">*</span></label>
               <div className="relative">
-                <input type="text" value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} placeholder="أحمد العبد الله" className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] outline-none transition-all bg-[rgba(255,255,255,0.80)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-white" required />
+                <input type="text" value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} placeholder="أحمد العبد الله" className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-[var(--cms-surface)]" required />
                 <User className="absolute end-4 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-[var(--c-text-faint)] pointer-events-none" />
               </div>
             </div>
@@ -161,7 +161,7 @@ export default function RegisterPage() {
             <div>
               <label className="text-[13px] font-semibold text-[var(--c-text-soft)] mb-1.5 block">رقم الهاتف (واتساب) <span className="text-[var(--c-danger-500)]">*</span></label>
               <div className="relative">
-                <input type="tel" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} placeholder="0991234567" className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] outline-none transition-all bg-[rgba(255,255,255,0.80)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-white" required />
+                <input type="tel" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} placeholder="0991234567" className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-[var(--cms-surface)]" required />
                 <Phone className="absolute end-4 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-[var(--c-text-faint)] pointer-events-none" />
               </div>
             </div>
@@ -170,7 +170,7 @@ export default function RegisterPage() {
             <div>
               <label className="text-[13px] font-semibold text-[var(--c-text-soft)] mb-1.5 block">كلمة المرور <span className="text-[var(--c-danger-500)]">*</span></label>
               <div className="relative">
-                <input type={showPassword ? 'text' : 'password'} value={formData.password} onChange={(e) => handlePasswordChange(e.target.value)} placeholder="••••••••" className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] outline-none transition-all bg-[rgba(255,255,255,0.80)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-white" required />
+                <input type={showPassword ? 'text' : 'password'} value={formData.password} onChange={(e) => handlePasswordChange(e.target.value)} placeholder="••••••••" className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-[var(--cms-surface)]" required />
                 <Lock className="absolute end-4 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-[var(--c-text-faint)] pointer-events-none" />
                 <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute start-2 top-1/2 -translate-y-1/2 p-2 text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] rounded-lg hover:bg-[var(--c-primary-50)] transition-all">
                   {showPassword ? <EyeOff className="w-[18px] h-[18px]" /> : <Eye className="w-[18px] h-[18px]" />}
@@ -191,19 +191,19 @@ export default function RegisterPage() {
             {/* Academic identity */}
             <div className="grid gap-4 md:grid-cols-3">
               <label className="text-[13px] font-semibold text-[var(--c-text-soft)]">الجامعة
-                <select value={formData.universityId} onChange={(event) => void selectUniversity(event.target.value)} className="mt-1.5 w-full h-12 rounded-xl border-[1.5px] bg-white px-3 text-[14px] border-[var(--c-border-strong)]" required>
+                <select value={formData.universityId} onChange={(event) => void selectUniversity(event.target.value)} className="mt-1.5 w-full h-12 rounded-xl border-[1.5px] bg-[var(--cms-surface-2)] px-3 text-[14px] text-[var(--c-text)] border-[var(--c-border-strong)]" required>
                   <option value="">اختر الجامعة</option>
                   {universities.map((university) => <option key={university.id} value={university.id}>{university.nameAr}</option>)}
                 </select>
               </label>
               <label className="text-[13px] font-semibold text-[var(--c-text-soft)]">الكلية
-                <select value={formData.collegeId} onChange={(event) => void selectCollege(event.target.value)} disabled={!formData.universityId} className="mt-1.5 w-full h-12 rounded-xl border-[1.5px] bg-white px-3 text-[14px] border-[var(--c-border-strong)] disabled:opacity-50" required>
+                <select value={formData.collegeId} onChange={(event) => void selectCollege(event.target.value)} disabled={!formData.universityId} className="mt-1.5 w-full h-12 rounded-xl border-[1.5px] bg-[var(--cms-surface-2)] px-3 text-[14px] text-[var(--c-text)] border-[var(--c-border-strong)] disabled:opacity-50" required>
                   <option value="">اختر الكلية</option>
                   {colleges.map((college) => <option key={college.id} value={college.id}>{college.nameAr}</option>)}
                 </select>
               </label>
               <label className="text-[13px] font-semibold text-[var(--c-text-soft)]">السنة
-                <select value={formData.academicYearId} onChange={(event) => setFormData((current) => ({ ...current, academicYearId: event.target.value }))} disabled={!formData.collegeId} className="mt-1.5 w-full h-12 rounded-xl border-[1.5px] bg-white px-3 text-[14px] border-[var(--c-border-strong)] disabled:opacity-50" required>
+                <select value={formData.academicYearId} onChange={(event) => setFormData((current) => ({ ...current, academicYearId: event.target.value }))} disabled={!formData.collegeId} className="mt-1.5 w-full h-12 rounded-xl border-[1.5px] bg-[var(--cms-surface-2)] px-3 text-[14px] text-[var(--c-text)] border-[var(--c-border-strong)] disabled:opacity-50" required>
                   <option value="">اختر السنة</option>
                   {years.map((year) => <option key={year.id} value={year.id}>{year.nameAr}</option>)}
                 </select>
@@ -214,7 +214,7 @@ export default function RegisterPage() {
             <div>
               <label className="text-[13px] font-semibold text-[var(--c-text-soft)] mb-1.5 block">تأكيد كلمة المرور <span className="text-[var(--c-danger-500)]">*</span></label>
               <div className="relative">
-                <input type={showPassword ? 'text' : 'password'} value={formData.confirmPassword} onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })} placeholder="••••••••" className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] outline-none transition-all bg-[rgba(255,255,255,0.80)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-white" required />
+                <input type={showPassword ? 'text' : 'password'} value={formData.confirmPassword} onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })} placeholder="••••••••" className="w-full h-12 ps-4 pe-12 rounded-xl border-[1.5px] text-[15px] outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)] focus:bg-[var(--cms-surface)]" required />
                 <Lock className="absolute end-4 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-[var(--c-text-faint)] pointer-events-none" />
               </div>
             </div>
@@ -222,7 +222,7 @@ export default function RegisterPage() {
             {/* Terms */}
             <label className="flex items-center gap-2 cursor-pointer text-[13px] text-[var(--c-text-soft)] font-medium">
               <input type="checkbox" checked={formData.acceptTerms} onChange={(e) => setFormData({ ...formData, acceptTerms: e.target.checked })} className="hidden" />
-              <span className={`w-[18px] h-[18px] rounded-[5px] border-[1.5px] flex items-center justify-center transition-all ${formData.acceptTerms ? 'bg-[var(--c-primary-700)] border-[var(--c-primary-700)]' : 'border-[var(--c-border-strong)] bg-white'}`}>
+              <span className={`w-[18px] h-[18px] rounded-[5px] border-[1.5px] flex items-center justify-center transition-all ${formData.acceptTerms ? 'bg-[var(--c-primary-700)] border-[var(--c-primary-700)]' : 'border-[var(--c-border-strong)] bg-[var(--cms-surface-2)]'}`}>
                 {formData.acceptTerms && <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="w-3 h-3"><polyline points="20 6 9 17 4 12" /></svg>}
               </span>
               أوافق على <a href="/terms" className="text-[var(--c-primary-700)] font-semibold hover:underline">الشروط</a> و<a href="/privacy" className="text-[var(--c-primary-700)] font-semibold hover:underline">سياسة الخصوصية</a>
