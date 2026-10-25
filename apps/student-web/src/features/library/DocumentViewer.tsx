@@ -39,12 +39,45 @@ const VIEWER_TYPE_META: Record<string, { icon: typeof FileText; label: string; c
 
 const ZOOM_STEPS = [1, 1.25, 1.5, 2, 2.5, 3];
 
-/** Extracts a sensible download extension from the declared type. */
-function downloadExtension(file: LibraryFile): string {
-  const map: Record<string, string> = {
-    pdf: '.pdf', txt: '.txt', html: '.html', image: '.jpg', video: '.mp4', audio: '.mp3',
+/** Rendering kinds the viewer knows how to present. */
+export type ViewerKind = 'pdf' | 'txt' | 'html' | 'image' | 'video' | 'audio' | 'other';
+
+const DIRECT_KINDS = new Set(['pdf', 'txt', 'html', 'image', 'video', 'audio']);
+
+/** Arabic labels for the summary-family classes when the physical format is unknown. */
+const CLASS_LABELS: Record<string, string> = {
+  summary: 'ملخص', comprehensive: 'شامل', paragraph: 'فقرة',
+};
+
+/**
+ * Resolves the rendering kind.
+ *
+ * The API reports the library file CLASS as a PascalCase enum name
+ * ("Pdf"/"Html"/"Image"/"Video"/"Audio"/"Summary"/"Comprehensive"/"Paragraph").
+ * Direct classes map 1:1 after lowercasing. The summary family can be
+ * physically anything (a PDF, an HTML page, a DOCX…), so its kind must come
+ * from the file detail's real MIME (fileFormat); without it we show the calm
+ * download card rather than risk rendering binary bytes as prose.
+ */
+function resolveViewerKind(rawType: string | undefined, fileFormat: string | null | undefined): ViewerKind {
+  const t = (rawType ?? '').trim().toLowerCase();
+  if (DIRECT_KINDS.has(t)) return t as ViewerKind;
+  const mime = (fileFormat ?? '').trim().toLowerCase();
+  if (mime === 'application/pdf') return 'pdf';
+  if (mime === 'text/html' || mime === 'application/xhtml+xml') return 'html';
+  if (mime === 'text/plain' || mime === 'text/markdown') return 'txt';
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+  return 'other';
+}
+
+/** Extracts a sensible download extension from the resolved kind. */
+function downloadExtension(kind: ViewerKind): string {
+  const map: Record<ViewerKind, string> = {
+    pdf: '.pdf', txt: '.txt', html: '.html', image: '.jpg', video: '.mp4', audio: '.mp3', other: '.bin',
   };
-  return map[file.type] ?? '.bin';
+  return map[kind];
 }
 
 export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: () => void }) {
@@ -55,37 +88,52 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
   const [downloading, setDownloading] = useState(false);
   const [textBody, setTextBody] = useState<string | null>(null);
   const [textFailed, setTextFailed] = useState(false);
+  const [detail, setDetail] = useState<{ fileFormat: string | null } | null>(null);
   const [viewStartMs] = useState(Date.now());
   const recordedRef = useRef(false);
 
-  const meta = VIEWER_TYPE_META[file.type] ?? { icon: FileQuestion, label: file.type?.toUpperCase() || 'ملف', color: 'var(--c-text-muted)', bg: 'var(--c-bg-hover)' };
+  // Rendering kind: direct classes resolve instantly; the summary family waits
+  // for the file detail (real MIME) so a Summary-PDF embeds as a PDF, etc.
+  const rawType = (file.type ?? '').trim().toLowerCase();
+  const kindPending = !DIRECT_KINDS.has(rawType) && detail === null;
+  const kind = resolveViewerKind(file.type, detail?.fileFormat);
+
+  const meta = VIEWER_TYPE_META[kind] ?? {
+    icon: FileQuestion,
+    label: CLASS_LABELS[rawType] ?? (file.type?.toUpperCase() || 'ملف'),
+    color: 'var(--c-text-muted)', bg: 'var(--c-bg-hover)',
+  };
   const zoom = ZOOM_STEPS[zoomIndex] ?? 1;
 
-  // Resolve the signed access URL.
+  // Resolve the signed access URL + the file detail (physical MIME) in parallel.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setLoadFailed(false);
     setTextBody(null);
     setTextFailed(false);
+    setDetail(null);
     setZoomIndex(0);
     libraryApi.getAccess(file.id)
       .then((data) => { if (!cancelled) setAccess(data); })
       .catch(() => { if (!cancelled) { setLoadFailed(true); toast.error('تعذّر الوصول للملف'); } })
       .finally(() => { if (!cancelled) setLoading(false); });
+    libraryApi.getFile(file.id)
+      .then((data) => { if (!cancelled) setDetail({ fileFormat: data?.fileFormat ?? null }); })
+      .catch(() => { if (!cancelled) setDetail({ fileFormat: null }); });
     return () => { cancelled = true; };
   }, [file.id]);
 
   // TXT: fetch the body once the access URL exists.
   useEffect(() => {
-    if (!access || file.type !== 'txt') return;
+    if (!access || kind !== 'txt') return;
     let cancelled = false;
     fetch(access.accessUrl)
       .then((res) => { if (!res.ok) throw new Error(String(res.status)); return res.text(); })
       .then((body) => { if (!cancelled) setTextBody(body); })
       .catch(() => { if (!cancelled) setTextFailed(true); });
     return () => { cancelled = true; };
-  }, [access, file.type]);
+  }, [access, kind]);
 
   // Record the reading session when the viewer closes (or unmounts).
   useEffect(() => {
@@ -108,7 +156,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `${file.title}${downloadExtension(file)}`;
+      anchor.download = `${file.title}${downloadExtension(kind)}`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -120,7 +168,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
     } finally {
       setDownloading(false);
     }
-  }, [access, file]);
+  }, [access, file, kind]);
 
   const clampZoom = (next: number) => setZoomIndex(Math.max(0, Math.min(ZOOM_STEPS.length - 1, next)));
 
@@ -187,7 +235,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
 
           {/* ===== Body ===== */}
           <div className="relative flex-1 overflow-hidden">
-            {loading ? (
+            {loading || kindPending ? (
               <div className="flex h-full items-center justify-center" data-testid="viewer-loading">
                 <div className="flex flex-col items-center gap-3">
                   <Loader2 className="h-8 w-8 animate-spin text-[var(--c-primary-700)]" />
@@ -214,13 +262,13 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
                   </div>
                 </div>
 
-                {file.type === 'pdf' && (
+                {kind === 'pdf' && (
                   <PdfFrame url={access.accessUrl} zoom={zoom} onZoom={clampZoom} zoomIndex={zoomIndex} title={file.title} />
                 )}
-                {file.type === 'txt' && (
+                {kind === 'txt' && (
                   <TextReader body={textBody} failed={textFailed} url={access.accessUrl} />
                 )}
-                {file.type === 'html' && (
+                {kind === 'html' && (
                   <iframe
                     src={access.accessUrl}
                     className="h-full w-full"
@@ -229,22 +277,22 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
                     sandbox="allow-scripts"
                   />
                 )}
-                {file.type === 'image' && (
+                {kind === 'image' && (
                   <ImageFrame url={access.accessUrl} title={file.title} zoom={zoom} onZoom={clampZoom} zoomIndex={zoomIndex} />
                 )}
-                {file.type === 'video' && (
+                {kind === 'video' && (
                   <div className="mx-auto flex h-full max-w-4xl items-center p-3 sm:p-6">
                     {access.accessUrl.includes('youtube.com/embed')
                       ? <iframe src={access.accessUrl} className="aspect-video w-full rounded-2xl" style={{ border: 'none' }} title={file.title} allowFullScreen />
                       : <video src={access.accessUrl} className="max-h-full w-full rounded-2xl" controls controlsList="nodownload" />}
                   </div>
                 )}
-                {file.type === 'audio' && (
+                {kind === 'audio' && (
                   <div className="mx-auto flex h-full max-w-3xl items-center justify-center p-6">
                     <audio src={access.accessUrl} className="w-full" controls controlsList="nodownload" />
                   </div>
                 )}
-                {!['pdf', 'txt', 'html', 'image', 'video', 'audio'].includes(file.type) && (
+                {kind === 'other' && (
                   <UnsupportedFrame title={file.title} onDownload={handleDownload} onOpen={() => window.open(access.accessUrl, '_blank', 'noopener,noreferrer')} downloading={downloading} />
                 )}
               </>

@@ -11,16 +11,16 @@ import { libraryApi, type LibraryFile } from './services/library-api';
 import { DocumentViewer } from './DocumentViewer';
 import { academicApi } from '@/features/subjects/services/academic-api';
 
+// Keys mirror the API's PascalCase enum names (Pdf/Html/…/Paragraph).
 const typeConfig = {
-  pdf: { icon: FileText, label: 'PDF', color: 'var(--c-danger-500)', bg: 'var(--c-danger-50)' },
-  html: { icon: FileCode, label: 'HTML', color: 'var(--c-primary-700)', bg: 'var(--c-primary-50)' },
-  txt: { icon: FileText, label: 'نص', color: 'var(--c-text-soft)', bg: 'var(--c-bg-hover)' },
-  image: { icon: ImageIcon, label: 'صورة', color: 'var(--c-info-500)', bg: 'var(--c-info-50)' },
-  video: { icon: Video, label: 'فيديو', color: 'var(--c-warning-500)', bg: 'var(--c-warning-50)' },
-  audio: { icon: AudioLines, label: 'صوت', color: 'var(--c-info-500)', bg: 'var(--c-info-50)' },
-  summary: { icon: BookOpen, label: 'ملخص', color: 'var(--c-success-500)', bg: 'var(--c-success-50)' },
-  comprehensive: { icon: BookOpen, label: 'شامل', color: 'var(--c-primary-700)', bg: 'var(--c-primary-50)' },
-  paragraph: { icon: FileText, label: 'فقرة', color: 'var(--c-text-muted)', bg: 'var(--c-bg-hover)' },
+  Pdf: { icon: FileText, label: 'PDF', color: 'var(--c-danger-500)', bg: 'var(--c-danger-50)' },
+  Html: { icon: FileCode, label: 'HTML', color: 'var(--c-primary-700)', bg: 'var(--c-primary-50)' },
+  Image: { icon: ImageIcon, label: 'صورة', color: 'var(--c-info-500)', bg: 'var(--c-info-50)' },
+  Video: { icon: Video, label: 'فيديو', color: 'var(--c-warning-500)', bg: 'var(--c-warning-50)' },
+  Audio: { icon: AudioLines, label: 'صوت', color: 'var(--c-info-500)', bg: 'var(--c-info-50)' },
+  Summary: { icon: BookOpen, label: 'ملخص', color: 'var(--c-success-500)', bg: 'var(--c-success-50)' },
+  Comprehensive: { icon: BookOpen, label: 'شامل', color: 'var(--c-primary-700)', bg: 'var(--c-primary-50)' },
+  Paragraph: { icon: FileText, label: 'فقرة', color: 'var(--c-text-muted)', bg: 'var(--c-bg-hover)' },
 };
 
 export default function LibraryPage() {
@@ -97,7 +97,7 @@ export default function LibraryPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {files.map((file, i) => {
-            const config = typeConfig[file.type as keyof typeof typeConfig] || typeConfig.paragraph;
+            const config = typeConfig[file.type as keyof typeof typeConfig] || typeConfig.Paragraph;
             const Icon = config.icon;
             return (
               <motion.div

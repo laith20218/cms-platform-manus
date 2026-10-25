@@ -11,7 +11,8 @@ interface PagedLibraryFiles {
 
 export interface LibraryFile {
   id: string;
-  type: string; // pdf, html, image, video, summary, comprehensive, paragraph
+  /** API class enum name, PascalCase: Pdf | Html | Image | Video | Audio | Summary | Comprehensive | Paragraph. */
+  type: string;
   title: string;
   description?: string;
   fileSize: number;
@@ -23,6 +24,17 @@ export interface LibraryFile {
   /** Curricular category (Curriculum / Lecture / Summary / GoldenIdeas) — null = uncategorized. */
   category?: string | null;
   createdAt?: string | null;
+}
+
+/** Full file detail (GET /library/{id}) — carries the physical MIME (fileFormat). */
+export interface LibraryFileDetail extends LibraryFile {
+  subjectId: string;
+  lectureId?: string | null;
+  /** The stored content type, e.g. "application/pdf" — null on legacy rows. */
+  fileFormat?: string | null;
+  youtubeVideoId?: string | null;
+  tags?: string[];
+  favoritesCount?: number;
 }
 
 export interface FileAccess {
@@ -48,7 +60,7 @@ export const libraryApi = {
     return res.data;
   },
 
-  getFile: async (id: string) => {
+  getFile: async (id: string): Promise<LibraryFileDetail> => {
     const res = await apiClient.get(`/library/${id}`, await entitlementRequestConfig());
     return res.data;
   },
