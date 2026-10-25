@@ -18,9 +18,12 @@ Scope: backend-only. No frontend files touched. Migration generated but NOT appl
 - [x] API layer: `Controllers/MediaController.cs` (playback-url, bookmarks CRUD, progress upsert/get; /access-style entitlement gate: student role + X-Entitlement + X-Installation-Id + handler-side VideoAudio scope; X-Duration-Warning: unknown; 204-on-empty progress)
 - [x] TTL refactor at the 3 listed sites (LibraryHandlers /access → 300s, CourseHandlers PlaybackUrlTtl → 540s, ExternalServices ClampExpiry → cap via MediaPolicy)
 - [x] Build green: `dotnet build CMS.sln` → 0 errors (17 warnings, all pre-existing in test project)
+- [x] Tests: `dotnet test --filter "FullyQualifiedName~Media"` → **44/44 passed** (playback-url gating + TTL + content-type fallbacks, bookmarks CRUD + validation + ownership, progress upsert + completion 0/50/94.92/95→100/100 + clamping + duration stickiness + null-on-empty)
+- [x] Regression: `dotnet test --filter "FullyQualifiedName~CMS.Tests.Unit"` → **293/293 passed** (Postgres integration suite excluded — known CI debt, requires real DB; original run was 308 with a 59-test media suite)
+- [x] docs/ops/r2-cors.md written (exact JSON policy + operator placeholder for admin-web origin, marked one-time operator setup)
 
 ## In progress
-- Migration DONE (NOT applied): `20261025194934_AddMediaBookmarksAndPlaybackProgress` + idempotent script verified (SQL matches spec: both tables, ck_media_bookmarks_range, unique indexes, cascade FKs to students; dummy localhost connection string used, no Neon access). Next: InMemory tests, then docs/ops/r2-cors.md.
+- (none — 10.0 rebuild complete; 10.0b rebuild next)
 
 ## Blockers / notes
 - Remote push requires credentials (PAT-free clone); commits stay local until a PAT is re-issued.
@@ -29,4 +32,5 @@ Scope: backend-only. No frontend files touched. Migration generated but NOT appl
 
 ## Commit log
 - `e73f217` — wip(10.0): backend foundation rebuild — MediaPolicy + entities + handlers + controller + TTL refactor, build green
-- (pending) — wip(10.0): migration AddMediaBookmarksAndPlaybackProgress (regenerated 20261025194934, NOT applied)
+- `82d438f` — wip(10.0): migration AddMediaBookmarksAndPlaybackProgress (regenerated 20261025194934, NOT applied)
+- (see below) — wip(10.0): InMemory tests (44/44 media, 293/293 unit regression) + docs/ops/r2-cors.md
