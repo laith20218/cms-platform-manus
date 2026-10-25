@@ -1582,6 +1582,68 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.ToTable("library_views");
                 });
 
+            modelBuilder.Entity("CMS.Domain.Entities.MediaBookmark", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<int>("AssetType")
+                        .HasColumnType("integer")
+                        .HasColumnName("asset_type");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("EndSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("end_seconds");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("note");
+
+                    b.Property<int>("StartSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("start_seconds");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("student_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_media_bookmarks");
+
+                    b.HasIndex("StudentId", "CreatedAt")
+                        .HasDatabaseName("ix_media_bookmarks_student_id_created_at");
+
+                    b.HasIndex("StudentId", "AssetType", "AssetId", "StartSeconds", "EndSeconds")
+                        .IsUnique()
+                        .HasDatabaseName("ix_media_bookmarks_student_id_asset_type_asset_id_start_second~");
+
+                    b.ToTable("media_bookmarks", t =>
+                        {
+                            t.HasCheckConstraint("ck_media_bookmarks_range", "(end_seconds > start_seconds AND start_seconds >= 0)");
+                        });
+                });
+
             modelBuilder.Entity("CMS.Domain.Entities.Notification", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1870,6 +1932,56 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_offline_package_records_student_id_installation_id_status");
 
                     b.ToTable("offline_package_records");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.PlaybackProgress", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<int>("AssetType")
+                        .HasColumnType("integer")
+                        .HasColumnName("asset_type");
+
+                    b.Property<decimal?>("CompletionPercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("completion_percent");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int?>("DurationSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_seconds");
+
+                    b.Property<int>("LastPositionSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("last_position_seconds");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("student_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_playback_progress");
+
+                    b.HasIndex("StudentId", "AssetType", "AssetId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_playback_progress_student_id_asset_type_asset_id");
+
+                    b.ToTable("playback_progress");
                 });
 
             modelBuilder.Entity("CMS.Domain.Entities.Question", b =>
@@ -3261,6 +3373,18 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Navigation("Student");
                 });
 
+            modelBuilder.Entity("CMS.Domain.Entities.MediaBookmark", b =>
+                {
+                    b.HasOne("CMS.Domain.Entities.Student", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_media_bookmarks_students_student_id");
+
+                    b.Navigation("Student");
+                });
+
             modelBuilder.Entity("CMS.Domain.Entities.Notification", b =>
                 {
                     b.HasOne("CMS.Domain.Entities.Admin", "Sender")
@@ -3323,6 +3447,18 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_offline_package_records_students_student_id");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.PlaybackProgress", b =>
+                {
+                    b.HasOne("CMS.Domain.Entities.Student", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_playback_progress_students_student_id");
 
                     b.Navigation("Student");
                 });

@@ -20,7 +20,7 @@ Scope: backend-only. No frontend files touched. Migration generated but NOT appl
 - [x] Build green: `dotnet build CMS.sln` → 0 errors (17 warnings, all pre-existing in test project)
 
 ## In progress
-- Migration generation (next), then InMemory tests, then docs/ops/r2-cors.md.
+- Migration DONE (NOT applied): `20261025194934_AddMediaBookmarksAndPlaybackProgress` + idempotent script verified (SQL matches spec: both tables, ck_media_bookmarks_range, unique indexes, cascade FKs to students; dummy localhost connection string used, no Neon access). Next: InMemory tests, then docs/ops/r2-cors.md.
 
 ## Blockers / notes
 - Remote push requires credentials (PAT-free clone); commits stay local until a PAT is re-issued.
@@ -28,4 +28,5 @@ Scope: backend-only. No frontend files touched. Migration generated but NOT appl
 - REBUILD deltas vs original (unrecoverable details, spec-faithful choices): migration timestamp differs (regenerated); test count may differ from original 59; UpsertProgress duration fallback chain = client → stored → asset metadata.
 
 ## Commit log
-- (pending) — wip(10.0): backend foundation rebuild — MediaPolicy + entities + handlers + controller + TTL refactor, build green
+- `e73f217` — wip(10.0): backend foundation rebuild — MediaPolicy + entities + handlers + controller + TTL refactor, build green
+- (pending) — wip(10.0): migration AddMediaBookmarksAndPlaybackProgress (regenerated 20261025194934, NOT applied)
