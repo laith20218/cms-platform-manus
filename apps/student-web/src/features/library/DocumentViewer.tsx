@@ -80,6 +80,21 @@ function downloadExtension(kind: ViewerKind): string {
   return map[kind];
 }
 
+/**
+ * Guarantees a UTF-8 charset declaration on an HTML document.
+ *
+ * Stored library HTML is sanitized server-side, which strips the <head>
+ * (including any <meta charset>); the object is then served as text/html
+ * WITHOUT a charset, so browsers fall back to a legacy encoding and Arabic
+ * turns into mojibake. We fetch the bytes as text (UTF-8 per the Fetch spec)
+ * and re-inject the declaration before rendering via srcDoc.
+ */
+function forceUtf8Html(raw: string): string {
+  if (/<meta[^>]+charset/i.test(raw)) return raw;
+  if (/<head[^>]*>/i.test(raw)) return raw.replace(/<head[^>]*>/i, (m) => `${m}<meta charset="utf-8">`);
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${raw}</body></html>`;
+}
+
 export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: () => void }) {
   const [access, setAccess] = useState<FileAccess | null>(null);
   const [loading, setLoading] = useState(true);
@@ -88,6 +103,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
   const [downloading, setDownloading] = useState(false);
   const [textBody, setTextBody] = useState<string | null>(null);
   const [textFailed, setTextFailed] = useState(false);
+  const [htmlBody, setHtmlBody] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ fileFormat: string | null } | null>(null);
   const [viewStartMs] = useState(Date.now());
   const recordedRef = useRef(false);
@@ -112,6 +128,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
     setLoadFailed(false);
     setTextBody(null);
     setTextFailed(false);
+    setHtmlBody(null);
     setDetail(null);
     setZoomIndex(0);
     libraryApi.getAccess(file.id)
@@ -132,6 +149,18 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
       .then((res) => { if (!res.ok) throw new Error(String(res.status)); return res.text(); })
       .then((body) => { if (!cancelled) setTextBody(body); })
       .catch(() => { if (!cancelled) setTextFailed(true); });
+    return () => { cancelled = true; };
+  }, [access, kind]);
+
+  // HTML: fetch as UTF-8 text and render via sandboxed srcDoc (charset-safe —
+  // the stored object is served without a charset declaration).
+  useEffect(() => {
+    if (!access || kind !== 'html') return;
+    let cancelled = false;
+    fetch(access.accessUrl)
+      .then((res) => { if (!res.ok) throw new Error(String(res.status)); return res.text(); })
+      .then((body) => { if (!cancelled) setHtmlBody(forceUtf8Html(body)); })
+      .catch(() => { if (!cancelled) setHtmlBody(null); });
     return () => { cancelled = true; };
   }, [access, kind]);
 
@@ -268,7 +297,16 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
                 {kind === 'txt' && (
                   <TextReader body={textBody} failed={textFailed} url={access.accessUrl} />
                 )}
-                {kind === 'html' && (
+                {kind === 'html' && (htmlBody !== null ? (
+                  <iframe
+                    srcDoc={htmlBody}
+                    className="h-full w-full"
+                    style={{ border: 'none', background: '#ffffff' }}
+                    title={file.title}
+                    sandbox="allow-scripts"
+                  />
+                ) : (
+                  /* Charset-unsafe fallback: only when the body fetch failed. */
                   <iframe
                     src={access.accessUrl}
                     className="h-full w-full"
@@ -276,7 +314,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
                     title={file.title}
                     sandbox="allow-scripts"
                   />
-                )}
+                ))}
                 {kind === 'image' && (
                   <ImageFrame url={access.accessUrl} title={file.title} zoom={zoom} onZoom={clampZoom} zoomIndex={zoomIndex} />
                 )}
