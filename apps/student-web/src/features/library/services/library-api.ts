@@ -70,6 +70,31 @@ export const libraryApi = {
     return res.data;
   },
 
+  /**
+   * Streams the file body through the API (Push 9): same-origin for the app,
+   * so it works even though the storage bucket's presigned URLs carry no CORS
+   * headers (direct fetch() of those is blocked by the browser). The API also
+   * re-declares the charset for text documents — storage serves text/* without
+   * one, which mangles Arabic.
+   */
+  getContentText: async (id: string): Promise<string> => {
+    const res = await apiClient.get<string>(`/library/${id}/content`, {
+      ...(await entitlementRequestConfig()),
+      responseType: 'text',
+      transformResponse: [(data: string) => data],
+    });
+    return res.data;
+  },
+
+  /** Blob variant of the content stream — powers real in-app downloads. */
+  getContentBlob: async (id: string): Promise<Blob> => {
+    const res = await apiClient.get<Blob>(`/library/${id}/content`, {
+      ...(await entitlementRequestConfig()),
+      responseType: 'blob',
+    });
+    return res.data;
+  },
+
   recordView: async (id: string, durationSeconds: number, pagesViewed?: number, completionPercentage?: number) => {
     await apiClient.post(`/library/${id}/view`, { durationSeconds, pagesViewed, completionPercentage }, await entitlementRequestConfig());
   },

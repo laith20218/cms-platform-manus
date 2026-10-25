@@ -108,6 +108,51 @@ public class LibraryController : ControllerBase
     }
 
     /// <summary>
+    /// Streams a library file's bytes through the API (Push 9 — same-origin reader support).
+    ///
+    /// The storage bucket's presigned URLs carry no CORS headers, so the browser
+    /// cannot fetch() them — which blocks the in-app TXT/HTML readers and blob
+    /// downloads. This route re-uses the exact entitlement gate as /access
+    /// (including the FileAccess audit on the access call that precedes it) and
+    /// serves the object with a charset-corrected Content-Type: the HTML
+    /// sanitizer strips the meta charset and storage serves text/* without one,
+    /// so Arabic documents would otherwise render as mojibake.
+    /// </summary>
+    [HttpGet("{id:guid}/content")]
+    [Authorize]
+    public async Task<IActionResult> GetContent(Guid id, CancellationToken ct)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+        var rejection = await EntitlementRejectionAsync(studentId.Value, await SubjectIdForFileAsync(id, ct), ct);
+        if (rejection is not null)
+        {
+            await _audit.LogSecurityEventAsync(studentId.Value, null, SecurityEventType.FileAccessDenied, SecuritySeverity.Warning, "Library file content denied", ct: ct);
+            return rejection;
+        }
+
+        var db = HttpContext.RequestServices.GetRequiredService<IApplicationDbContext>();
+        var file = await db.LibraryFiles.AsNoTracking()
+            .Where(f => f.Id == id && f.DeletedAt == null
+                && f.Status == ContentStatus.Published
+                && f.VirusScanStatus == VirusScanStatus.Clean)
+            .Select(f => new { f.FileUrl, f.FileFormat })
+            .FirstOrDefaultAsync(ct);
+        if (file is null) return NotFound();
+
+        var storage = HttpContext.RequestServices.GetRequiredService<IFileStorageService>();
+        var stream = await storage.DownloadAsync(file.FileUrl, ct);
+
+        var contentType = string.IsNullOrWhiteSpace(file.FileFormat) ? "application/octet-stream" : file.FileFormat;
+        if (contentType.Equals("text/html", StringComparison.OrdinalIgnoreCase)
+            || contentType.Equals("text/plain", StringComparison.OrdinalIgnoreCase))
+            contentType += "; charset=utf-8";
+
+        Response.Headers.CacheControl = "private, max-age=120";
+        return File(stream, contentType);
+    }
+
+    /// <summary>
     /// Record a file view (duration, pages, completion).
     /// </summary>
     [HttpPost("{id:guid}/view")]

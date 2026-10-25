@@ -141,28 +141,36 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
     return () => { cancelled = true; };
   }, [file.id]);
 
-  // TXT: fetch the body once the access URL exists.
+  // TXT: fetch the body once the access URL exists. Prefers the same-origin
+  // content stream (the presigned URL is not CORS-fetchable) with a graceful
+  // fallback to the direct URL.
   useEffect(() => {
     if (!access || kind !== 'txt') return;
     let cancelled = false;
-    fetch(access.accessUrl)
-      .then((res) => { if (!res.ok) throw new Error(String(res.status)); return res.text(); })
-      .then((body) => { if (!cancelled) setTextBody(body); })
+    libraryApi.getContentText(file.id)
+      .catch(() => fetch(access.accessUrl).then((res) => {
+        if (!res.ok) throw new Error(String(res.status));
+        return res.text();
+      }))
+      .then((body) => { if (!cancelled && body) setTextBody(body); })
       .catch(() => { if (!cancelled) setTextFailed(true); });
     return () => { cancelled = true; };
-  }, [access, kind]);
+  }, [access, kind, file.id]);
 
   // HTML: fetch as UTF-8 text and render via sandboxed srcDoc (charset-safe —
   // the stored object is served without a charset declaration).
   useEffect(() => {
     if (!access || kind !== 'html') return;
     let cancelled = false;
-    fetch(access.accessUrl)
-      .then((res) => { if (!res.ok) throw new Error(String(res.status)); return res.text(); })
-      .then((body) => { if (!cancelled) setHtmlBody(forceUtf8Html(body)); })
+    libraryApi.getContentText(file.id)
+      .catch(() => fetch(access.accessUrl).then((res) => {
+        if (!res.ok) throw new Error(String(res.status));
+        return res.text();
+      }))
+      .then((body) => { if (!cancelled && body) setHtmlBody(forceUtf8Html(body)); })
       .catch(() => { if (!cancelled) setHtmlBody(null); });
     return () => { cancelled = true; };
-  }, [access, kind]);
+  }, [access, kind, file.id]);
 
   // Record the reading session when the viewer closes (or unmounts).
   useEffect(() => {
@@ -179,9 +187,16 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
     if (!access) return;
     setDownloading(true);
     try {
-      const response = await fetch(access.accessUrl);
-      if (!response.ok) throw new Error(String(response.status));
-      const blob = await response.blob();
+      // Same-origin content stream first (the presigned URL is not
+      // CORS-fetchable from the app origin); presigned fetch as fallback.
+      let blob: Blob;
+      try {
+        blob = await libraryApi.getContentBlob(file.id);
+      } catch {
+        const response = await fetch(access.accessUrl);
+        if (!response.ok) throw new Error(String(response.status));
+        blob = await response.blob();
+      }
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -192,7 +207,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
       URL.revokeObjectURL(url);
       toast.success('تم تنزيل الملف');
     } catch {
-      // Presigned hosts without CORS headers — fall back to a new tab.
+      // Last resort — open the presigned URL in a new tab.
       window.open(access.accessUrl, '_blank', 'noopener,noreferrer');
     } finally {
       setDownloading(false);
