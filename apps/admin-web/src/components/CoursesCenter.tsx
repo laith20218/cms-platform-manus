@@ -21,17 +21,25 @@
  * Bilingual (ar/en) with dir on the section root. The API remains the security gate —
  * every button here is cosmetic gating only.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle, Archive, CheckCircle2, ChevronDown, ChevronUp, Film, GraduationCap,
   AlertTriangle, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, Upload, X, Youtube, Pause, Play,
 } from 'lucide-react';
 import {
-  apiRequest, type PagedResult, type AdminCourseListItem, type CourseDetail,
+  apiRequest, type ApiError, type PagedResult, type AdminCourseListItem, type CourseDetail,
   type CourseEpisode, type InitiateUploadResponse, type MultipartStatus,
 } from '../lib/api';
+import {
+  difficultyBadgeClass, difficultyLabel, isProcessingActive, normalizeDifficulty,
+  processingChipLabel, type ProcessingStatus,
+} from '../lib/mediaProcessing';
 import { sniffEpisodeMediaType } from '../lib/mediaType';
 import { useUiPermissions } from '../hooks/useUiPermissions';
+import { EpisodeEditModal } from './EpisodeEditModal';
+import { EpisodeMetadataFields, type EpisodeMetadataValues } from './EpisodeMetadataFields';
+import { ProcessingErrorModal } from './ProcessingErrorModal';
+import { ProcessingTimeline, type UploadStats } from './ProcessingTimeline';
 
 type Props = {
   token: string;
@@ -362,6 +370,10 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
 }
 
 // ===== Episodes manager (per course) =====
+
+/** Push 10.4 — ProcessingStatus poll cadence (task book: "every 3 seconds"). */
+const PROCESSING_POLL_INTERVAL_MS = 3000;
+
 function buildCopy(isArabic: boolean) {
   return isArabic ? {
     addEpisode: 'إضافة حلقة', youtubeId: 'معرّف فيديو يوتيوب', episodeTitle: 'عنوان الحلقة',
@@ -369,12 +381,14 @@ function buildCopy(isArabic: boolean) {
     uploading: 'جارٍ الرفع…', pause: 'إيقاف مؤقت', resume: 'استئناف', abort: 'إلغاء الرفع',
     incomplete: 'لم يكتمل الرفع', ready: 'جاهز', close: 'إغلاق', selectFile: 'اختر ملف الفيديو أو الصوت',
     deleteEpisode: 'حذف الحلقة', episodes: 'الحلقات', retrying: 'إعادة المحاولة…',
+    editEpisode: 'تعديل بيانات الحلقة', processingChip: 'المعالجة',
   } : {
     addEpisode: 'Add episode', youtubeId: 'YouTube video id', episodeTitle: 'Episode title',
     episodeNumber: 'Episode number', duration: 'Duration (seconds, optional)', add: 'Add', uploadVideo: 'Upload media (video/audio)',
     uploading: 'Uploading…', pause: 'Pause', resume: 'Resume', abort: 'Abort upload',
     incomplete: 'Upload incomplete', ready: 'Ready', close: 'Close', selectFile: 'Choose a video or audio file',
     deleteEpisode: 'Delete episode', episodes: 'Episodes', retrying: 'Retrying…',
+    editEpisode: 'Edit episode', processingChip: 'Processing',
   };
 }
 
@@ -393,6 +407,57 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
   const [showAdd, setShowAdd] = useState(false);
   const [uploadPanel, setUploadPanel] = useState(false);
   const [ytForm, setYtForm] = useState({ title: '', episodeNumber: '', duration: '', youtubeId: '' });
+  // Push 10.4 — episode editing + structured error surfacing.
+  const [editing, setEditing] = useState<CourseEpisode | null>(null);
+  const [errorDialog, setErrorDialog] = useState<{ humanMessage?: string; technicalDetails?: string | null } | null>(null);
+
+  /* ===== Push 10.4 — the processing poller (one loop for the whole drawer) =====
+   *
+   * One interval, two reasons to run: the upload panel watches the episode it
+   * just completed (watched set), and any episode stuck in a non-terminal
+   * pipeline status keeps the list chips live. The loop refreshes the SAME
+   * `detail` state the drawer renders from — no second source of truth. */
+  const [watched, setWatched] = useState<ReadonlySet<string>>(() => new Set());
+  const [processingRefresh, setProcessingRefresh] = useState(0);
+
+  const watchEpisode = useCallback((episodeId: string) => {
+    setWatched((prev) => {
+      if (prev.has(episodeId)) return prev;
+      const next = new Set(prev);
+      next.add(episodeId);
+      return next;
+    });
+  }, []);
+
+  const unwatchEpisode = useCallback((episodeId: string) => {
+    setWatched((prev) => {
+      if (!prev.has(episodeId)) return prev;
+      const next = new Set(prev);
+      next.delete(episodeId);
+      return next;
+    });
+  }, []);
+
+  /** Forces one immediate poll outside the interval (retry button path). */
+  const pollNow = useCallback(() => setProcessingRefresh((n) => n + 1), []);
+
+  const poll = useCallback(async () => {
+    try {
+      setDetail(await apiRequest<CourseDetail>(`/api/v1/admin/courses/${course.id}`, token));
+    } catch {
+      /* transient — the interval (or the next manual poll) retries */
+    }
+  }, [course.id, token]);
+
+  const anyProcessing = (detail?.episodes ?? []).some((episode) => isProcessingActive(episode.processingStatus));
+  const pollActive = watched.size > 0 || anyProcessing;
+
+  useEffect(() => {
+    if (!pollActive) return;
+    void poll(); // first check lands immediately on activation
+    const id = window.setInterval(() => void poll(), PROCESSING_POLL_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [pollActive, poll, processingRefresh]);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
 
@@ -488,13 +553,19 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
         <MultipartUploadPanel
           token={token} isArabic={isArabic} onError={onError} onNotice={onNotice}
           courseId={course.id} defaultEpisodeNumber={nextEpisodeNumber}
+          episodes={detail?.episodes ?? []}
+          watchEpisode={watchEpisode} unwatchEpisode={unwatchEpisode} pollNow={pollNow}
           onDone={async () => { await loadDetail(); await onChanged(); }}
         />
       )}
 
       {/* Episodes list */}
       <div className="space-y-2">
-        {(detail?.episodes ?? []).map(episode => (
+        {(detail?.episodes ?? []).map(episode => {
+          const difficulty = normalizeDifficulty(episode.difficulty);
+          const chipLabel = processingChipLabel(episode.processingStatus, isArabic);
+          const chipActive = isProcessingActive(episode.processingStatus);
+          return (
           <div key={episode.id} className="flex items-center gap-3 rounded-lg border bg-white p-3">
             <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
               style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
@@ -502,7 +573,7 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
             </span>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate" style={{ color: 'var(--cms-text)' }}>{episode.title}</p>
-              <p className="text-xs flex items-center gap-2" style={{ color: 'var(--cms-text-muted)' }}>
+              <p className="text-xs flex flex-wrap items-center gap-x-2 gap-y-1" style={{ color: 'var(--cms-text-muted)' }}>
                 {episode.sourceType === 'YouTube'
                   ? <span className="inline-flex items-center gap-1"><Youtube className="w-3 h-3" /> YouTube</span>
                   : <span className="inline-flex items-center gap-1"><Film className="w-3 h-3" /> {formatBytes(episode.fileSize)}</span>}
@@ -510,8 +581,36 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
                 {episode.sourceType === 'Upload' && !episode.uploadCompleted && (
                   <span className="inline-flex items-center gap-1 text-amber-600"><AlertCircle className="w-3 h-3" /> {copy.incomplete}</span>
                 )}
+                {/* Push 10.4 — live pipeline chip (only while processing or failed). */}
+                {chipLabel && (
+                  <span
+                    data-testid={`episode-processing-chip-${episode.id}`}
+                    className={`inline-flex items-center gap-1 ${episode.processingStatus === 'Failed' ? 'text-red-600' : 'text-teal-700'}`}
+                  >
+                    {chipActive && <LoaderCircle className="w-3 h-3 animate-spin" />}
+                    {episode.processingStatus === 'Failed' && <AlertCircle className="w-3 h-3" />}
+                    {chipLabel}
+                  </span>
+                )}
               </p>
             </div>
+            {/* Push 10.4 — difficulty badge (Easy/Medium/Hard → سهل/متوسط/صعب). */}
+            {difficulty !== null && (
+              <span
+                data-testid={`episode-difficulty-${episode.id}`}
+                className={`hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-xs border shrink-0 ${difficultyBadgeClass(difficulty)}`}
+              >
+                {difficultyLabel(difficulty, isArabic)}
+              </span>
+            )}
+            {can('btn:library.course.edit') && (
+              <button type="button" title={copy.editEpisode} disabled={busy}
+                onClick={() => setEditing(episode)}
+                data-testid={`episode-edit-button-${episode.id}`}
+                className="p-1.5 rounded-md hover:bg-slate-100 transition-colors" style={{ color: 'var(--cms-teal-700)' }}>
+                <Pencil className="w-4 h-4" />
+              </button>
+            )}
             {can('btn:library.course.episode.delete') && (
               <button type="button" title={copy.deleteEpisode} disabled={busy} onClick={() => void deleteEpisode(episode)}
                 className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors">
@@ -519,39 +618,95 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
               </button>
             )}
           </div>
-        ))}
+          );
+        })}
         {detail && detail.episodes.length === 0 && (
           <p className="text-xs text-center py-3" style={{ color: 'var(--cms-text-muted)' }}>—</p>
         )}
       </div>
+
+      {/* Push 10.4 — episode edit modal (title/description/difficulty + number/duration). */}
+      {editing && (
+        <EpisodeEditModal
+          episode={editing}
+          token={token}
+          isArabic={isArabic}
+          onClose={() => setEditing(null)}
+          onSaved={(notice) => {
+            onNotice(notice);
+            void loadDetail();
+            void onChanged();
+          }}
+          onStructuredError={(payload) => {
+            onError(payload.message);
+            setErrorDialog({ humanMessage: payload.humanMessage, technicalDetails: payload.technicalDetails });
+          }}
+        />
+      )}
+
+      {/* Push 10.4 — structured API failures from the edit flow (dual-language). */}
+      <ProcessingErrorModal
+        open={errorDialog !== null}
+        onOpenChange={(open) => { if (!open) setErrorDialog(null); }}
+        isArabic={isArabic}
+        humanMessage={errorDialog?.humanMessage}
+        technicalDetails={errorDialog?.technicalDetails}
+        testId="manager-error-modal"
+      />
     </div>
   );
 }
 
-// ===== Multipart upload panel =====
-type UploadState = 'idle' | 'initiating' | 'uploading' | 'paused' | 'completing' | 'done' | 'failed';
 
-function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, defaultEpisodeNumber, onDone }: {
+// ===== Multipart upload panel (Push 10.4: metadata + processing state machine) =====
+
+type UploadState = 'idle' | 'initiating' | 'uploading' | 'paused' | 'completing' | 'processing' | 'ready' | 'failed';
+
+/**
+ * MultipartUploadPanel — initiate → 64 MB presigned PUTs (per-part retry ×3,
+ * pause/resume with server-side part sync) → complete-upload → 10.4: the
+ * processing state machine (uploads stats strip, transcoding ladder, error
+ * modal) until the pipeline reports Ready/Failed.
+ *
+ * Push 10.4 contract:
+ *  - 1.A metadata: Title (≤200, required) + Description (≤1000) + Difficulty
+ *    (0|1|2) travel in the complete-upload body alongside the parts list.
+ *  - 1.B progress: the raw byte counter grew into a human machine —
+ *    Uploading (size/speed/ETA/parts) → Transcoding (the 10.3 ladder with
+ *    the task book's Arabic sentences + animated bar, polled every 3s) →
+ *    Ready. Absent processingStatus (today's API) resolves to Ready: the
+ *    source MP4 is already playable.
+ *  - 1.C failures: structured dual-language modal (humanMessage +
+ *    technicalDetails) with Copy Error + Retry (resume the session / re-poll
+ *    the pipeline); the Push 6 inline banner stays as the persistent record.
+ */
+function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, defaultEpisodeNumber, episodes, watchEpisode, unwatchEpisode, pollNow, onDone }: {
   token: string;
   isArabic: boolean;
   onError: (message: string) => void;
   onNotice: (message: string) => void;
   courseId: string;
   defaultEpisodeNumber: number;
+  /** Live episodes (the manager's polled detail) — the processing source of truth. */
+  episodes: CourseEpisode[];
+  watchEpisode: (episodeId: string) => void;
+  unwatchEpisode: (episodeId: string) => void;
+  pollNow: () => void;
   onDone: () => void | Promise<void>;
 }) {
   const copy = buildCopy(isArabic);
   const [file, setFile] = useState<File | null>(null);
-  const [title, setTitle] = useState('');
   const [episodeNumber, setEpisodeNumber] = useState(String(defaultEpisodeNumber));
+  const [metadata, setMetadata] = useState<EpisodeMetadataValues>({ title: '', description: '', difficulty: 0 });
+  const [titleInvalid, setTitleInvalid] = useState(false);
   const [state, setState] = useState<UploadState>('idle');
-  const [progressBytes, setProgressBytes] = useState(0);
-  const [eta, setEta] = useState<string>('');
+  const [uploadStats, setUploadStats] = useState<UploadStats | null>(null);
   const [episodeId, setEpisodeId] = useState<string | null>(null);
-  const [completedParts, setCompletedParts] = useState(0);
-  const [totalParts, setTotalParts] = useState(0);
   // Push 6: the failure reason persists inline in the panel (a toast alone is too easy to miss).
   const [lastError, setLastError] = useState<string | null>(null);
+  // Push 10.4 (1.C): structured failure payload for the dual-language modal.
+  const [errorDialog, setErrorDialog] = useState<{ humanMessage?: string; technicalDetails?: string | null; retryProcessing?: boolean } | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
   // Mutable upload session — survives pause/resume cycles.
   const sessionRef = useRef<{
@@ -565,6 +720,8 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     paused: boolean;
     cancelled: boolean;
     startedAt: number;
+    /** Rolling speed window (reset on start/resume so paused time never skews it). */
+    speedWindow: { t: number; bytes: number };
   } | null>(null);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
@@ -605,10 +762,29 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     xhr.send(blob);
   });
 
+  /** Rolling-window upload stats (size · speed · ETA · parts) for the 1.B strip. */
+  const refreshUploadStats = (session: NonNullable<typeof sessionRef.current>) => {
+    const uploaded = [...session.uploadedBytes.values()].reduce((a, b) => a + b, 0);
+    const now = Date.now();
+    const windowSeconds = Math.max((now - session.speedWindow.t) / 1000, 0.25);
+    const speed = Math.max((uploaded - session.speedWindow.bytes) / windowSeconds, 0);
+    session.speedWindow = { t: now, bytes: uploaded };
+    const remaining = Math.max(session.file.size - uploaded, 0);
+    setUploadStats({
+      uploadedBytes: uploaded,
+      totalBytes: session.file.size,
+      speedBps: speed,
+      etaSeconds: speed > 0 ? remaining / speed : Number.POSITIVE_INFINITY,
+      completedParts: session.etags.size,
+      totalParts: session.partCount,
+    });
+  };
+
   const runSession = async () => {
     const session = sessionRef.current;
     if (!session) return;
     session.paused = false;
+    session.speedWindow = { t: Date.now(), bytes: [...session.uploadedBytes.values()].reduce((a, b) => a + b, 0) };
     setState('uploading');
 
     for (let partNumber = 1; partNumber <= session.partCount; partNumber++) {
@@ -635,12 +811,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
           const etag = await putPart(session.urls.get(partNumber)!, blob);
           session.etags.set(partNumber, etag);
           session.uploadedBytes.set(partNumber, blob.size);
-          setCompletedParts(session.etags.size);
-          setProgressBytes([...session.uploadedBytes.values()].reduce((a, b) => a + b, 0));
-          const elapsed = (Date.now() - session.startedAt) / 1000;
-          const speed = [...session.uploadedBytes.values()].reduce((a, b) => a + b, 0) / Math.max(elapsed, 0.001);
-          const remaining = session.file.size - [...session.uploadedBytes.values()].reduce((a, b) => a + b, 0);
-          setEta(`${(speed / 1024 / 1024).toFixed(1)} MB/s · ~${Math.max(1, Math.round(remaining / Math.max(speed, 1)))}s`);
+          refreshUploadStats(session);
           break;
         } catch (error) {
           attempt++;
@@ -657,7 +828,9 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
       }
     }
 
-    // All parts stored → complete (server verifies the assembled size against the ceiling).
+    // All parts stored → complete (server verifies the assembled size against
+    // the ceiling). 10.4: the metadata fields ride along (additive keys —
+    // forward-compatible with the backend DTO wiring).
     if (session.cancelled) return;
     setState('completing');
     try {
@@ -666,25 +839,34 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           parts: [...session.etags.entries()].sort((a, b) => a[0] - b[0]).map(([partNumber, etag]) => ({ partNumber, etag })),
+          title: metadata.title.trim(),
+          description: metadata.description.trim() || null,
+          difficulty: metadata.difficulty,
         }),
       });
-      setState('done');
       setLastError(null);
-      onNotice(isArabic ? 'تم رفع الحلقة والتحقق من حجمها بنجاح.' : 'Episode uploaded and size-verified.');
+      // 10.4: the file is committed — hand over to the processing state
+      // machine (the manager's poller feeds this panel the pipeline status).
+      setEpisodeId(session.episodeId);
+      setState('processing');
+      watchEpisode(session.episodeId);
       await onDone();
-      sessionRef.current = null;
-      setFile(null);
-      setTitle('');
     } catch (error) {
       setState('failed');
+      const apiError = error as ApiError;
       const message = describeUploadError(error, 'complete-upload failed.');
       setLastError(message);
       onError(message);
+      setErrorDialog({
+        humanMessage: apiError?.humanMessage,
+        technicalDetails: apiError?.technicalDetails ?? null,
+      });
     }
   };
 
   const start = async () => {
-    if (!file || !title.trim() || !episodeNumber.trim()) {
+    if (!file || !metadata.title.trim() || !episodeNumber.trim()) {
+      if (!metadata.title.trim()) setTitleInvalid(true);
       onError(isArabic ? 'اختر ملف الفيديو وأدخل عنوان الحلقة ورقمها.' : 'Choose a video file, episode title and number.');
       return;
     }
@@ -701,6 +883,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     }
     setState('initiating');
     setLastError(null);
+    setTitleInvalid(false);
     try {
       const initiated = await request<InitiateUploadResponse>(`/api/v1/admin/courses/${courseId}/episodes/initiate-upload`, {
         method: 'POST',
@@ -709,7 +892,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
           fileName: file.name,
           contentType,
           fileSize: file.size,
-          title: title.trim(),
+          title: metadata.title.trim(),
           episodeNumber: Number(episodeNumber),
         }),
       });
@@ -726,17 +909,24 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
         paused: false,
         cancelled: false,
         startedAt: Date.now(),
+        speedWindow: { t: Date.now(), bytes: 0 },
       };
       setEpisodeId(initiated.episodeId);
-      setTotalParts(initiated.partCount);
-      setCompletedParts(0);
-      setProgressBytes(0);
+      setUploadStats({
+        uploadedBytes: 0, totalBytes: file.size, speedBps: 0,
+        etaSeconds: Number.POSITIVE_INFINITY, completedParts: 0, totalParts: initiated.partCount,
+      });
       await runSession();
     } catch (error) {
       setState('failed');
+      const apiError = error as ApiError;
       const message = describeUploadError(error, 'initiate-upload failed.');
       setLastError(message);
       onError(message);
+      setErrorDialog({
+        humanMessage: apiError?.humanMessage,
+        technicalDetails: apiError?.technicalDetails ?? null,
+      });
     }
   };
 
@@ -750,8 +940,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
       session.etags = new Map(status.uploadedParts.map(part => [part.partNumber, part.etag]));
       session.uploadedBytes = new Map(status.uploadedParts.map(part => [part.partNumber, part.size]));
       mapPendingUrls(status, session.urls);
-      setCompletedParts(session.etags.size);
-      setProgressBytes([...session.uploadedBytes.values()].reduce((a, b) => a + b, 0));
+      refreshUploadStats(session);
     } catch {
       // Offline re-sync failed — local part map is still usable for parts with valid URLs.
     }
@@ -780,8 +969,78 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     await onDone();
   };
 
+  /** Fresh upload from the success state (keeps the form, clears the session). */
+  const resetForNewUpload = () => {
+    sessionRef.current = null;
+    setState('idle');
+    setUploadStats(null);
+    setEpisodeId(null);
+  };
+
+  /* ===== 1.B processing transitions (the polled detail drives everything) ===== */
+
+  const processingEpisode = episodeId ? episodes.find((episode) => episode.id === episodeId) : undefined;
+  const processingStatus: ProcessingStatus | null | undefined = processingEpisode?.processingStatus;
+
+  useEffect(() => {
+    if (state !== 'processing' || !episodeId) return;
+
+    if (processingStatus === 'Failed') {
+      unwatchEpisode(episodeId);
+      setState('failed');
+      setLastError(isArabic ? 'فشلت معالجة الفيديو على الخادم.' : 'Server-side video processing failed.');
+      setErrorDialog({
+        humanMessage: isArabic
+          ? 'تعذّر تجهيز نسخ المشاهدة لهذه الحلقة على الخادم.'
+          : 'The server could not prepare watchable copies for this episode.',
+        technicalDetails: processingEpisode?.processingError ?? null,
+        retryProcessing: true,
+      });
+      return;
+    }
+
+    const ready = processingStatus === 'Ready'
+      // Degradation: the API is not reporting a pipeline status for this
+      // episode (today's DTOs) — the source MP4 is already playable, so the
+      // honest state is Ready, not an endless spinner.
+      || (processingEpisode && processingStatus == null && processingEpisode.uploadCompleted);
+
+    if (ready) {
+      unwatchEpisode(episodeId);
+      setState('ready');
+      onNotice(isArabic ? 'الفيديو جاهز للمشاهدة ✅' : 'The video is ready to watch ✅');
+      void onDone();
+    }
+    // Processing episodes that disappear from the list (deleted elsewhere)
+    // or are still unreported simply keep polling — the interval owns them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, episodeId, processingStatus, processingEpisode]);
+
+  /** 1.C retry for a failed pipeline: re-arm the watcher + force one poll. */
+  const retryProcessing = async () => {
+    if (!episodeId) return;
+    setRetrying(true);
+    setErrorDialog(null);
+    setLastError(null);
+    setState('processing');
+    watchEpisode(episodeId);
+    pollNow();
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    setRetrying(false);
+  };
+
   const busyState = state === 'initiating' || state === 'uploading' || state === 'completing';
-  const percent = file && file.size > 0 ? Math.min(100, Math.round((progressBytes / file.size) * 100)) : 0;
+  const percent = uploadStats && uploadStats.totalBytes > 0
+    ? Math.min(100, Math.round((uploadStats.uploadedBytes / uploadStats.totalBytes) * 100))
+    : 0;
+
+  const copy2 = isArabic ? {
+    start: 'بدء الرفع', another: 'رفع وسائط أخرى', paused: 'الرفع متوقف مؤقتاً',
+    details: 'عرض التفاصيل التقنية',
+  } : {
+    start: 'Start upload', another: 'Upload another media file', paused: 'Upload paused',
+    details: 'View technical details',
+  };
 
   return (
     <div className="rounded-lg border bg-white p-4 space-y-3" style={{ borderColor: 'var(--cms-teal-200)' }}>
@@ -790,25 +1049,69 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
         <h5 className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>{copy.uploadVideo}</h5>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-2">
+      {/* File + episode number, then the 1.A metadata block (title/difficulty
+          on one row, description below). */}
+      <div className="grid gap-2 md:grid-cols-2">
         <input type="file" accept="video/mp4,video/webm,video/quicktime,audio/mpeg,audio/mp4,audio/wav,audio/webm"
-          disabled={busyState || state === 'paused'}
+          disabled={busyState || state === 'paused' || state === 'processing'}
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           className="text-sm px-3 py-2 rounded-lg border w-full" style={{ borderColor: 'var(--cms-line-strong)' }} />
-        <input value={title} disabled={busyState || state === 'paused'} onChange={(e) => setTitle(e.target.value)}
-          placeholder={isArabic ? 'عنوان الحلقة' : 'Episode title'} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
-        <input value={episodeNumber} disabled={busyState || state === 'paused'} onChange={(e) => setEpisodeNumber(e.target.value)}
+        <input value={episodeNumber} disabled={busyState || state === 'paused' || state === 'processing'} onChange={(e) => setEpisodeNumber(e.target.value)}
           inputMode="numeric" placeholder={isArabic ? 'رقم الحلقة' : 'Episode number'} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
       </div>
+      <EpisodeMetadataFields
+        values={metadata}
+        onChange={(patch) => {
+          if ('title' in patch && patch.title !== undefined && patch.title.trim().length > 0) setTitleInvalid(false);
+          setMetadata((values) => ({ ...values, ...patch }));
+        }}
+        isArabic={isArabic}
+        disabled={busyState || state === 'paused' || state === 'processing'}
+        titleInvalid={titleInvalid}
+        layout="rows"
+        testIdPrefix="upload-metadata"
+      />
 
-      {file && state !== 'idle' && (
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-            <span>{formatBytes(progressBytes)} / {formatBytes(file.size)} · {completedParts}/{totalParts} parts</span>
-            <span>{percent}% {state === 'uploading' ? `· ${eta}` : ''}</span>
-          </div>
-          <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--cms-ivory-100)' }}>
-            <div className="h-full transition-all" style={{ width: `${percent}%`, background: state === 'failed' ? 'var(--cms-red-500)' : 'var(--cms-teal-600)' }} />
+      {/* ===== 1.B — the human state machine ===== */}
+      {(state === 'uploading' || state === 'initiating' || state === 'completing' || (state === 'paused' && uploadStats)) && (
+        <ProcessingTimeline
+          stage="uploading"
+          uploadPercent={percent}
+          uploadStats={uploadStats}
+          isArabic={isArabic}
+          testId="upload-processing-timeline"
+        />
+      )}
+      {state === 'paused' && (
+        <p className="text-xs font-medium" style={{ color: 'var(--cms-amber-600, #b45309)' }}>
+          {copy2.paused} — {copy.resume}
+        </p>
+      )}
+      {(state === 'initiating' || state === 'completing') && (
+        <p className="inline-flex items-center gap-1.5 text-sm" style={{ color: 'var(--cms-text-soft)' }}>
+          <LoaderCircle className="w-4 h-4 animate-spin" />
+          {state === 'initiating'
+            ? (isArabic ? 'جارٍ تهيئة جلسة الرفع…' : 'Initializing the upload session…')
+            : (isArabic ? 'جارٍ تجميع الأجزاء والتحقق من الحجم…' : 'Assembling parts & verifying size…')}
+        </p>
+      )}
+      {state === 'processing' && (
+        <ProcessingTimeline
+          stage="processing"
+          status={processingStatus ?? undefined}
+          isArabic={isArabic}
+          testId="upload-processing-timeline"
+        />
+      )}
+      {state === 'ready' && (
+        <div data-testid="upload-ready-banner" className="flex items-start gap-2 rounded-lg border p-3 text-sm"
+          style={{ background: 'rgba(16, 185, 129, 0.06)', borderColor: 'var(--cms-teal-200)', color: 'var(--cms-teal-700)' }}>
+          <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">{isArabic ? 'الفيديو جاهز للمشاهدة ✅' : 'The video is ready to watch ✅'}</p>
+            <p className="mt-0.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+              {isArabic ? 'اكتملت المعالجة — يمكنك رفع وسائط أخرى أو إغلاق اللوحة.' : 'Processing finished — you can upload another media file or close the panel.'}
+            </p>
           </div>
         </div>
       )}
@@ -826,17 +1129,33 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
                 ? (isArabic ? 'الأجزاء المرفوعة محفوظة — اضغط «استئناف» للمتابعة دون إعادة إرسالها.' : 'Uploaded parts are kept — press Resume to continue without re-sending them.')
                 : (isArabic ? 'اضغط «بدء الرفع» لإعادة المحاولة.' : 'Press Start upload to try again.')}
             </p>
+            {errorDialog && (errorDialog.technicalDetails || errorDialog.humanMessage) && (
+              <button type="button" onClick={() => setErrorDialog((dialog) => ({ ...dialog }))}
+                data-testid="upload-error-details-button"
+                className="mt-2 inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-slate-50"
+                style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}>
+                {copy2.details}
+              </button>
+            )}
           </div>
         </div>
       )}
 
       <div className="flex flex-wrap gap-2">
-        {state === 'idle' || state === 'done' || state === 'failed' ? (
+        {(state === 'idle' || state === 'failed') && (
           <button type="button" onClick={() => void start()} disabled={!file}
+            data-testid="upload-start-button"
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50" style={{ background: 'var(--cms-teal-700)' }}>
-            <Upload className="w-4 h-4" /> {isArabic ? 'بدء الرفع' : 'Start upload'}
+            <Upload className="w-4 h-4" /> {copy2.start}
           </button>
-        ) : null}
+        )}
+        {state === 'ready' && (
+          <button type="button" onClick={resetForNewUpload}
+            data-testid="upload-another-button"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-medium" style={{ background: 'var(--cms-teal-700)' }}>
+            <Upload className="w-4 h-4" /> {copy2.another}
+          </button>
+        )}
         {state === 'uploading' && (
           <button type="button" onClick={pause}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border text-sm font-medium" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}>
@@ -856,18 +1175,29 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
             <Play className="w-4 h-4" /> {copy.resume}
           </button>
         )}
-        {(state === 'paused' || state === 'uploading' || state === 'failed') && episodeId && (
+        {(state === 'paused' || state === 'uploading' || (state === 'failed' && episodeId)) && sessionRef.current && (
           <button type="button" onClick={() => void abort()}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border text-sm font-medium text-red-600" style={{ borderColor: 'var(--cms-red-200)' }}>
             <X className="w-4 h-4" /> {copy.abort}
           </button>
         )}
-        {(state === 'initiating' || state === 'completing') && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-2 text-sm" style={{ color: 'var(--cms-text-soft)' }}>
-            <LoaderCircle className="w-4 h-4 animate-spin" /> {state === 'initiating' ? (isArabic ? 'جارٍ التهيئة…' : 'Initializing…') : (isArabic ? 'جارٍ الإتمام والتحقق…' : 'Completing & verifying…')}
-          </span>
-        )}
       </div>
+
+      {/* ===== 1.C — the dual-language failure modal ===== */}
+      <ProcessingErrorModal
+        open={errorDialog !== null}
+        onOpenChange={(open) => { if (!open) setErrorDialog(null); }}
+        isArabic={isArabic}
+        humanMessage={errorDialog?.humanMessage}
+        technicalDetails={errorDialog?.technicalDetails}
+        retrying={retrying}
+        onRetry={errorDialog?.retryProcessing
+          ? () => void retryProcessing()
+          : sessionRef.current
+            ? () => { setErrorDialog(null); setLastError(null); void resume(); }
+            : undefined}
+        testId="upload-error-modal"
+      />
     </div>
   );
 }

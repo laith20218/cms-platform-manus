@@ -1,4 +1,6 @@
 /** Style reminder — غرفة القيادة السريرية: production API calls stay explicit, fail visibly, and never persist credentials. */
+import type { ProcessingStatus } from './mediaProcessing';
+
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'https://cms-api-preview.onrender.com').replace(/\/$/, '');
 
 // FIX-2: Backend UserDto returns { id, phone, fullName, role, avatarUrl, university, college }
@@ -51,23 +53,43 @@ export type PagedResult<T> = { items: T[]; total: number; page: number; pageSize
 
 export class ApiError extends Error {
   status: number;
+  /** Arabic human sentence from the API's dual-language ProblemDetails
+   * (media processing 422s carry `humanMessage` + `technicalDetails`). */
+  humanMessage?: string;
+  /** English technical payload (e.g. FFmpeg logs) — surfaced in the
+   * collapsible section of the Push 10.4 error modal. */
+  technicalDetails?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, humanMessage?: string, technicalDetails?: string) {
     super(message);
     this.status = status;
+    this.humanMessage = humanMessage;
+    this.technicalDetails = technicalDetails;
   }
 }
 
-function readMessage(payload: unknown): string {
+interface ProblemDetails {
+  detail?: string;
+  title?: string;
+  message?: string;
+  errors?: Record<string, string[]>;
+  /** ProblemDetails extensions — the media-processing 422 shape. */
+  humanMessage?: string;
+  technicalDetails?: string;
+}
+
+function readProblem(payload: unknown): { message: string; humanMessage?: string; technicalDetails?: string } {
   if (payload && typeof payload === 'object') {
-    const problem = payload as { detail?: string; title?: string; message?: string; errors?: Record<string, string[]> };
-    if (problem.detail) return problem.detail;
-    if (problem.message) return problem.message;
-    if (problem.title) return problem.title;
-    const first = Object.values(problem.errors ?? {}).flat()[0];
-    if (first) return first;
+    const problem = payload as ProblemDetails;
+    const message = problem.detail ?? problem.message ?? problem.title
+      ?? Object.values(problem.errors ?? {}).flat()[0];
+    return {
+      message: message ?? 'تعذر إتمام الطلب. حاول مرة أخرى.',
+      humanMessage: problem.humanMessage ?? problem.detail,
+      technicalDetails: problem.technicalDetails,
+    };
   }
-  return 'تعذر إتمام الطلب. حاول مرة أخرى.';
+  return { message: 'تعذر إتمام الطلب. حاول مرة أخرى.' };
 }
 
 export async function apiRequest<T>(path: string, token: string, init?: RequestInit): Promise<T> {
@@ -84,7 +106,10 @@ export async function apiRequest<T>(path: string, token: string, init?: RequestI
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
   if (response.status === 204) return undefined as T;
   const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) throw new ApiError(readMessage(payload), response.status);
+  if (!response.ok) {
+    const problem = readProblem(payload);
+    throw new ApiError(problem.message, response.status, problem.humanMessage, problem.technicalDetails);
+  }
   return payload as T;
 }
 
@@ -111,7 +136,10 @@ export async function login(email: string, password: string): Promise<{ accessTo
     body: JSON.stringify({ email, password, twoFactorCode: null, installationId: getOrCreateInstallationId() }),
   });
   const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) throw new ApiError(readMessage(payload), response.status);
+  if (!response.ok) {
+    const problem = readProblem(payload);
+    throw new ApiError(problem.message, response.status, problem.humanMessage, problem.technicalDetails);
+  }
   // FIX-1: Backend returns { accessToken, refreshToken, tokenType, expiresIn, user }
   const result = payload as { accessToken: string; refreshToken: string; tokenType: string; expiresIn: number; user: AdminUser };
   return { accessToken: result.accessToken, refreshToken: result.refreshToken, user: result.user };
@@ -247,6 +275,18 @@ export type CourseEpisode = {
   youtubeVideoId?: string | null;
   uploadCompleted: boolean;
   viewsCount: number;
+  /** Push 10.4 media-metadata fields. Optional: the API does not expose them
+   * yet (entities + migration shipped in 10.3; DTO wiring is future backend
+   * work) — every reader degrades gracefully on absence. `difficulty`
+   * accepts both the numeric value this UI sends (0|1|2) and the API's enum
+   * strings; `processingStatus`/`processingError` mirror the transcoding
+   * pipeline's state machine. */
+  description?: string | null;
+  difficulty?: number | string | null;
+  processingStatus?: ProcessingStatus | null;
+  /** English technical failure details (FFmpeg logs) — future field; feeds
+   * the collapsible section of the processing error modal. */
+  processingError?: string | null;
 };
 
 export type CourseDetail = {
