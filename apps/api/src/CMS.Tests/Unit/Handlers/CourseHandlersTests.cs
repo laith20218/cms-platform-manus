@@ -384,7 +384,7 @@ public sealed class CourseHandlersTests
         var (handler, storage, entitlements, _, _) = Create(db);
         entitlements.Setup(e => e.CanAccessSubjectContentAsync(student.Id, course.SubjectId, SubscriptionContentScope.VideoAudio, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
-        storage.Setup(s => s.GetSignedUrlViaCredentialsAsync("courses/x/y", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+        storage.Setup(s => s.GetSignedUrlAsync("courses/x/y", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("https://r2/signed-playback");
 
         var access = await handler.Handle(new GetEpisodeAccessCommand(episode.Id, student.Id), CancellationToken.None);

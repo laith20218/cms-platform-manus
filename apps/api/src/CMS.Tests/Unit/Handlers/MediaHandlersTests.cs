@@ -89,7 +89,7 @@ public sealed class MediaHandlersTests
         var file = await SeedVideoFileAsync(db);
         var (handler, storage, _) = Create(db);
 
-        storage.Setup(service => service.GetSignedUrlViaCredentialsAsync("library/test/video", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+        storage.Setup(service => service.GetSignedUrlAsync("library/test/video", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("https://example.r2.cloudflarestorage.com/library/test/video?X-Amz-Signature=redacted");
 
         var result = await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
@@ -99,10 +99,39 @@ public sealed class MediaHandlersTests
         result.ContentType.Should().Be("video/mp4");
         result.SupportsRange.Should().BeTrue();
         result.ExpiresAt.Should().BeAfter(DateTime.UtcNow);
-        storage.Verify(service => service.GetSignedUrlViaCredentialsAsync(
+        storage.Verify(service => service.GetSignedUrlAsync(
             "library/test/video",
             TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds),
             It.IsAny<CancellationToken>()));
+    }
+
+    /// <summary>
+    /// Push 10.0c security fix: playback URLs must be minted through the object-scoped
+    /// agent path (GetSignedUrlAsync → /v1/presign) and NEVER through the deprecated
+    /// credential-lease path (GetSignedUrlViaCredentialsAsync), whose URLs embedded the
+    /// bucket-wide session token (X-Amz-Security-Token). The supervisor's live test on a
+    /// production URL confirmed the exposure; this pins the fix.
+    /// </summary>
+    [Fact]
+    public async Task GetPlaybackUrl_UsesObjectScopedPresign_NeverTheCredentialLeasePath()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var file = await SeedVideoFileAsync(db);
+        var (handler, storage, _) = Create(db);
+
+        storage.Setup(service => service.GetSignedUrlAsync("library/test/video", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://example.r2.cloudflarestorage.com/library/test/video?X-Amz-Signature=redacted");
+
+        await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
+
+        storage.Verify(service => service.GetSignedUrlAsync(
+            "library/test/video",
+            TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds),
+            It.IsAny<CancellationToken>()), Times.Once);
+        storage.Verify(service => service.GetSignedUrlViaCredentialsAsync(
+            It.IsAny<string>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()), Times.Never,
+            "the credential-lease path embeds the bucket-wide session token in the URL (deprecated in 10.0c)");
     }
 
     [Fact]
@@ -116,13 +145,13 @@ public sealed class MediaHandlersTests
         await db.SaveChangesAsync();
         var (handler, storage, _) = Create(db);
 
-        storage.Setup(service => service.GetSignedUrlViaCredentialsAsync("library/test/audio", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+        storage.Setup(service => service.GetSignedUrlAsync("library/test/audio", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("https://example.r2.cloudflarestorage.com/library/test/audio?X-Amz-Signature=redacted");
 
         var result = await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
 
         result.ContentType.Should().Be("audio/mpeg");
-        storage.Verify(service => service.GetSignedUrlViaCredentialsAsync("library/test/audio", TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds), It.IsAny<CancellationToken>()));
+        storage.Verify(service => service.GetSignedUrlAsync("library/test/audio", TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds), It.IsAny<CancellationToken>()));
     }
 
     [Fact]
@@ -136,7 +165,7 @@ public sealed class MediaHandlersTests
         await db.SaveChangesAsync();
         var (handler, storage, _) = Create(db);
 
-        storage.Setup(service => service.GetSignedUrlViaCredentialsAsync("library/test/noformat", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+        storage.Setup(service => service.GetSignedUrlAsync("library/test/noformat", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("https://example.r2.cloudflarestorage.com/library/test/noformat?X-Amz-Signature=redacted");
 
         var result = await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
@@ -214,7 +243,7 @@ public sealed class MediaHandlersTests
         var episode = await SeedEpisodeAsync(db);
         var (handler, storage, _) = Create(db);
 
-        storage.Setup(service => service.GetSignedUrlViaCredentialsAsync("courses/test/episode", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+        storage.Setup(service => service.GetSignedUrlAsync("courses/test/episode", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("https://example.r2.cloudflarestorage.com/courses/test/episode?X-Amz-Signature=redacted");
 
         var result = await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
@@ -222,7 +251,7 @@ public sealed class MediaHandlersTests
         result.TtlSeconds.Should().Be(MediaPolicy.PlaybackUrlTtlSeconds);
         result.ContentType.Should().Be("video/mp4");
         result.SupportsRange.Should().BeTrue();
-        storage.Verify(service => service.GetSignedUrlViaCredentialsAsync("courses/test/episode", TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds), It.IsAny<CancellationToken>()));
+        storage.Verify(service => service.GetSignedUrlAsync("courses/test/episode", TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds), It.IsAny<CancellationToken>()));
     }
 
     [Fact]

@@ -1,10 +1,11 @@
 # Media CORS & Range — Current State (Upstash Blob)
 
-> Push 10.0b (verification-only). Written from static code inspection + Upstash/Cloudflare
-> public documentation + the official `@upstash/blob` SDK source. **No live test could be
-> run from the sandbox: it holds no Upstash credentials and no previously-issued presigned
-> URL exists in the repo or the sandbox.** Everything marked UNVERIFIED below requires one
-> operator run of `docs/ops/verify-range.sh` (see §6).
+> Push 10.0b (verification-only) + **10.0c update**. Written from static code inspection
+> + Upstash/Cloudflare public documentation + the official `@upstash/blob` SDK source.
+> **Live verification UPDATE (Push 10.0c): the supervisor ran the live Range test on a
+> production presigned URL — definitive PASS** (evidence in §3). The same test confirmed
+> the §2 Path-B credential exposure, which Push 10.0c fixed in code (both call sites now
+> use the object-scoped agent path; see the deprecation note in §2).
 
 ## 1. Provider chain
 
@@ -35,41 +36,71 @@ Our code has **two distinct GET-presign paths** with different signing authoriti
   so presigned read URLs are R2-direct, not `*.upstash.io`.
 - Scope: one object, one method (GET), one header set (empty `{}` for reads), TTL ≤ 600 s
   (SDK `MAX_PRESIGN_SECONDS = 600`; our clamp `MediaPolicy.UpstashPresignCapSeconds`).
-- Used by: library document `/access`, avatars.
+- Used by: library document `/access`, avatars, **and (since Push 10.0c) the media
+  playback-url handler and course episode `/access`** — every browser-facing presigned
+  GET now flows through this object-scoped path.
 
-### Path B — credential-lease presigned (bucket-scoped credential!) — `GetSignedUrlViaCredentialsAsync`
+### Path B — credential-lease presigned (bucket-scoped credential!) — `GetSignedUrlViaCredentialsAsync` — **DEPRECATED in Push 10.0c**
 
-- Code: `ExternalServices.cs:631-648` — AWS SDK `GetPreSignedURL` (SigV4) with the
+- Code: `ExternalServices.cs` — AWS SDK `GetPreSignedURL` (SigV4) with the
   short-lived session credentials leased from the Upstash exchange. Host = the R2 endpoint
-  returned by `/v1/credentials` (`UpstashS3ClientFactory.cs:155-164`, path-style addressing).
+  returned by `/v1/credentials` (`UpstashS3ClientFactory.cs`, path-style addressing).
 - TTL: clamped to `60 s … lease-remaining − 30 s` (effectively ≤ ~9 min).
-- Used by: course episode `/access` (`CourseHandlers.cs`) **and** the new
-  `POST /api/v1/media/{assetType}/{assetId}/playback-url` (`MediaHandlers.cs`).
-- **⚠️ SECURITY WARNING (documented by Upstash itself):** the presigned URL carries the
-  session token (`X-Amz-Security-Token`), and "R2 derives a temporary credential's secret
-  from its session token … a url signed with it would hand its holder every object in the
-  bucket until the credential expires" (`blob-js/src/server/r2.ts:213-216`). Upstash docs
-  say it plainly: *"Do not presign with an S3 client built from bucket.s3(). Its URLs carry
-  the temporary credential, which works on the whole bucket. Hand out URLs only from
-  signedReadUrl and signedUploadUrl."* (docs: /blob/bucket/connecting#using-an-s3-client,
-  /blob/reference/signing#who-signs-a-url). Anyone holding one Path-B playback URL
-  therefore holds bucket-wide read/write for its ≤ 9-minute lifetime. This is a
-  pre-existing pattern (episode `/access`, Push 4) that Push 10.0 deliberately mirrored;
-  it needs a supervisor decision — Path A (`/v1/presign`) is the object-scoped alternative
-  and already implemented in the same class.
+- **Used until Push 10.0c by:** course episode `/access` (`CourseHandlers.cs`, legacy since
+  Push 4) and the new `POST /api/v1/media/{assetType}/{assetId}/playback-url`
+  (`MediaHandlers.cs`).
+- **⚠️ SECURITY WARNING (documented by Upstash itself, confirmed live):** the presigned
+  URL carries the session token (`X-Amz-Security-Token`), and "R2 derives a temporary
+  credential's secret from its session token … a url signed with it would hand its holder
+  every object in the bucket until the credential expires" (`blob-js/src/server/r2.ts`).
+  Upstash docs say it plainly: *"Do not presign with an S3 client built from
+  bucket.s3(). Its URLs carry the temporary credential, which works on the whole bucket.
+  Hand out URLs only from signedReadUrl and signedUploadUrl."* The supervisor's live
+  production test (Push 10.0c) confirmed the token's presence in the issued URL.
+
+  **RESOLVED in Push 10.0c:** the method is now **deprecated** (doc-comment on
+  `IFileStorageService.GetSignedUrlViaCredentialsAsync`, no production call sites remain)
+  and both browser-facing flows were switched to the object-scoped agent path:
+  - `MediaHandlers.cs` (playback-url handler) → `GetSignedUrlAsync(fileKey, ttl, ct)`
+  - `CourseHandlers.cs` (episode `/access`, closing the vulnerability open since Push 4)
+    → `GetSignedUrlAsync(fileKey, PlaybackUrlTtl, ct)`
+  TTL stays `MediaPolicy.PlaybackUrlTtlSeconds` (540 s) — comfortably under the agent's
+  600 s cap, so no TTL adjustment was needed. A dedicated regression test
+  (`GetPlaybackUrl_UsesObjectScopedPresign_NeverTheCredentialLeasePath`) pins the fix.
+  The interface method is retained only for non-browser, server-to-server use.
 
 Neither path signs any response-header overrides; neither signs a `Range` header (Range
 is not part of query-string SigV4 presigns), so a client may send `Range: bytes=…` freely.
 
 ## 3. HTTP Range support
 
-**Verdict for OUR bucket: UNVERIFIED (live).** No Upstash credentials exist in the sandbox
-(env vars absent; `.env*` are placeholder templates; the clone is credential-free), and no
-previously-issued presigned URL exists anywhere (searched repo + sandbox for
-`X-Amz-Signature` / `X-Amz-Credential` / `*.r2.cloudflarestorage.com` — only synthetic unit-test
-fixtures and a health-check URL in `docs/ARCHITECTURE.md`).
+**Verdict: VERIFIED SUPPORTED — live PASS (supervisor-run, Push 10.0c).** The sandbox
+itself still holds no Upstash credentials (env vars absent; `.env*` are placeholder
+templates; the clone is credential-free), so the decisive test was executed by the
+supervisor on a production presigned URL with `docs/ops/verify-range.sh`'s exact
+curl commands. Raw evidence (URL redacted):
 
-Evidence that it *should* work (why UNVERIFIED, not "not supported"):
+```
+HTTP/1.1 206 Partial Content
+Content-Range: bytes 0-1023/1150804
+Accept-Ranges: bytes
+```
+
+— `206 Partial Content` + a correct `Content-Range` (1024 of 1,150,804 bytes) +
+`Accept-Ranges: bytes`: R2 honors byte-range requests on presigned GET URLs, and the
+object (1.15 MB — a real media blob) is served directly from the storage host.
+This closes the open question from 10.0b; the earlier "UNVERIFIED" sections below are
+kept for the record.
+
+<details><summary>Pre-verification record (Push 10.0b — superseded by the PASS above)</summary>
+
+The sandbox could not run the live test: no Upstash credentials exist in it (env vars
+absent; `.env*` are placeholder templates; the clone is credential-free), and no
+previously-issued presigned URL exists anywhere (searched repo + sandbox for
+`X-Amz-Signature` / `X-Amz-Credential` / `*.r2.cloudflarestorage.com` — only synthetic
+unit-test fixtures and a health-check URL in `docs/ARCHITECTURE.md`).
+
+Evidence that it *should* work (why it was UNVERIFIED, not "not supported"):
 
 - Cloudflare R2 S3 API compatibility table: **GetObject → Range ✅** (also HeadObject →
   Range ✅, "no effect"). A presigned GET URL is the same GetObject operation with the
@@ -91,7 +122,10 @@ Evidence NOT to trust it blindly:
   `result.SupportsRange.Should().BeTrue()`, which assert the hardcode itself; Upstash
   service tests stub the agent with a fake URL.
 
-**The decisive test** (operator-run, ~1 minute):
+</details>
+
+**The verifier** (already used by the supervisor for the PASS above; keep re-running on
+storage/infrastructure changes):
 
 ```bash
 bash docs/ops/verify-range.sh "<fresh presigned URL for a video/audio object>"
@@ -169,33 +203,25 @@ presigned-URL mechanics stay the same.
 
 ## 6. Operator checklist (before Wave 10.2 video player ships)
 
-1. **Mint a fresh playback URL** for one real video/audio object — either call
-   `POST /api/v1/media/library-file/{id}/playback-url` (or `/course-episode/{id}/…`) as
-   the student test account with valid `X-Entitlement` + `X-Installation-Id` headers, or
-   mint one directly from storage with the bucket token. Use it within minutes.
-2. **Run the verifier** (URL from step 1, never committed anywhere):
-   ```bash
-   bash docs/ops/verify-range.sh "<PRESIGNED_URL>"
-   ```
-   Record: the verdict line (PASS / FAIL / ERROR), `content-range`,
-   `access-control-allow-origin`, `access-control-expose-headers`, and the 16-byte dump.
-3. **If the verdict is FAIL (200 + full length):** STOP. Range is not honored — escalate
-   to the supervisor before any player work; the streaming architecture must be
-   re-evaluated (same-origin proxy for video, CDN, or transcode).
-4. **If the informational section shows no `Access-Control-Allow-Origin`:** browser
-   `fetch()` of playback URLs will fail cross-origin. Then check (a) whether plain
-   `<video>`/`<audio>` playback still works (media elements can play without CORS), and
-   (b) ask Upstash support to confirm/set the bucket CORS policy (origins
-   student-web + admin-web + localhost dev, methods GET/HEAD, `AllowedHeaders: ["*"]`,
-   `ExposeHeaders: [Content-Range, Accept-Ranges, ETag, Content-Length, Content-Type]`),
-   or schedule the owned-R2 migration (§5).
-5. **Cross-check in a real browser:** open the student web app, play a video, and confirm
+1. ~~**Mint a fresh playback URL**~~ — **DONE (supervisor, Push 10.0c).**
+2. ~~**Run the verifier**~~ — **DONE (supervisor, Push 10.0c): PASS** —
+   `206 Partial Content`, `Content-Range: bytes 0-1023/1150804`, `Accept-Ranges: bytes`.
+   No FAIL path was hit; no STOP escalation is required.
+3. **CORS remains the open item** (the 10.0c live test verdict covered Range, not CORS):
+   if the informational section of a `verify-range.sh` run shows no
+   `Access-Control-Allow-Origin`, browser `fetch()` of playback URLs will fail
+   cross-origin — check (a) whether plain `<video>`/`<audio>` playback still works (media
+   elements can play without CORS), and (b) ask Upstash support to confirm/set the bucket
+   CORS policy (origins student-web + admin-web + localhost dev, methods GET/HEAD,
+   `AllowedHeaders: ["*"]`, `ExposeHeaders: [Content-Range, Accept-Ranges, ETag,
+   Content-Length, Content-Type]`), or schedule the owned-R2 migration (§5).
+4. **Cross-check in a real browser:** open the student web app, play a video, and confirm
    in devtools → Network that media requests return `206` with `Content-Range` and carry
    `Access-Control-Allow-Origin` for the app origin.
-6. **Confirm refresh cadence:** the player must re-request playback URLs on error/stall;
-   effective URL lifetime is ≤ 9 min (Path B) / ≤ 10 min hard cap (Path A), and expired
-   URLs 403 without CORS headers (unreadable error bodies).
-7. **Report the results** (verdict + the two header lines) back in the push report; only
-   then start Wave 10.1/10.2 player work.
+5. **Confirm refresh cadence:** the player must re-request playback URLs on error/stall;
+   effective URL lifetime is ≤ 9 min (540 s from MediaPolicy) — and expired presigned URLs
+   403 **without** CORS headers, so browser JS cannot read the error body (refresh BEFORE
+   expiry, don't parse the 403).
+6. **Report the results** back in the push report before Wave 10.1/10.2 player work.
 
 *No secrets, full presigned URLs, or account IDs appear in this document by design.*

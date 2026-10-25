@@ -119,7 +119,12 @@ public interface IFileStorageService
     Task AbortMultipartUploadAsync(string key, string uploadId, CancellationToken ct = default);
     /// <summary>Returns the stored object's exact size in bytes (HEAD) — used to verify the final multipart result against the upload ceiling.</summary>
     Task<long> GetObjectSizeAsync(string key, CancellationToken ct = default);
-    /// <summary>Pre-signs a GET URL through the credential (lease) path instead of the capped presign agent — for long-lived playback of large videos. Actual validity is still bounded by the session-credential lifetime; callers must be ready to refresh.</summary>
+    /// <summary>DEPRECATED (Push 10.0c — do not use for browser-facing URLs). Pre-signs a GET
+    /// URL with the short-lived session credential instead of the object-scoped presign agent.
+    /// The resulting URL embeds X-Amz-Security-Token — a bucket-wide read/write grant for the
+    /// URL's lifetime (confirmed live in production by the supervisor's Range test). Playback
+    /// and access flows must use <see cref="GetSignedUrlAsync"/> (Upstash /v1/presign, one
+    /// object, one method, ≤ 10 minutes). Retained only for non-browser, server-to-server use.</summary>
     Task<string> GetSignedUrlViaCredentialsAsync(string key, TimeSpan desiredExpiry, CancellationToken ct = default);
 }
 

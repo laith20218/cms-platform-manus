@@ -12,8 +12,8 @@ namespace CMS.Application.Handlers.Media;
 
 /// <summary>
 /// Push 10.0 — student media backend:
-///   • §1.A direct playback URLs for stored video/audio (presigned GET against the
-///     storage host via the credential-lease path — R2 host, Range-capable, TTL from
+///   • §1.A direct playback URLs for stored video/audio (object-scoped presigned GET
+///     via the Upstash agent — R2 host, Range-capable, TTL from
 ///     <see cref="MediaPolicy"/>); documents keep the same-origin library channel;
 ///   • §1.B per-asset time-range bookmarks (first-class entity, strictly separate
 ///     from Favorite);
@@ -110,12 +110,14 @@ public class MediaHandlers :
             contentType = string.IsNullOrWhiteSpace(episode.Episode.ContentType) ? "video/mp4" : episode.Episode.ContentType!;
         }
 
-        // Lease-path presign (mirrors episode /access): GET verb against the storage host
-        // (R2), so the browser range-requests media directly and the API never proxies
-        // bytes. TTL is clamped under the ~10-minute session-credential lease; the player
-        // refreshes the URL on error/stall for long media.
+        // Object-scoped presign via the Upstash agent (/v1/presign) — Push 10.0c security
+        // fix: agent-signed GET URLs name exactly ONE object and expire with the URL.
+        // The previous credential-lease path signed with the bucket-wide session
+        // credential, so every playback URL embedded X-Amz-Security-Token — a
+        // bucket-wide read/write grant for the URL's lifetime. R2 serves Range requests
+        // directly; the player refreshes the URL on error/stall for long media.
         var ttl = TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds);
-        var url = await _storage.GetSignedUrlViaCredentialsAsync(fileKey, ttl, ct);
+        var url = await _storage.GetSignedUrlAsync(fileKey, ttl, ct);
 
         return new PlaybackUrlDto(
             url,

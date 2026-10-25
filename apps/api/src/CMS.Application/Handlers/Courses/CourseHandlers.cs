@@ -168,9 +168,12 @@ public class CourseHandlers :
         }
         else
         {
-            // Lease-path presign (the Upstash presign agent caps at 10 minutes): supports
-            // Range streaming; the player refreshes the URL on error/stall.
-            accessUrl = await _storage.GetSignedUrlViaCredentialsAsync(episode.Episode.FileKey!, PlaybackUrlTtl, ct);
+            // Object-scoped presign via the Upstash agent (/v1/presign) — Push 10.0c
+            // security fix (legacy vulnerability since Push 4): the old credential-lease
+            // path embedded the bucket-wide session token (X-Amz-Security-Token) in
+            // every episode access URL. Agent-signed URLs name one object only, support
+            // Range streaming, and the player refreshes the URL on error/stall.
+            accessUrl = await _storage.GetSignedUrlAsync(episode.Episode.FileKey!, PlaybackUrlTtl, ct);
             expiresAt = DateTime.UtcNow.Add(PlaybackUrlTtl);
         }
 
