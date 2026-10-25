@@ -18,9 +18,9 @@ export function PlayerProtection({
   className?: string;
   enabled?: boolean;
 }) {
-  const { ref } = usePlayerProtection({ enabled });
+  const { setContainer } = usePlayerProtection({ enabled });
   return (
-    <div ref={ref} className={cn('select-none', className)}>
+    <div ref={setContainer} className={cn('select-none', className)}>
       {children}
     </div>
   );

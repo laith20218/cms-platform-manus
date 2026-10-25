@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
 /**
  * Push 10.1 — Player-scoped copy deterrents.
@@ -49,6 +49,15 @@ function isEditableTarget(node: EventTarget | null): boolean {
 export function usePlayerProtection(options: PlayerProtectionOptions = {}): {
   /** Attach to the guarded container element (the player stage). */
   ref: RefObject<HTMLDivElement | null>;
+  /**
+   * Callback-ref version of `ref`. Hosts that need the same node for other
+   * purposes (e.g. the PlayerShell's fullscreen target) should spread THIS
+   * into their own callback ref instead of using `ref` directly — it feeds
+   * the container node into React state so listener attachment re-runs when
+   * portal-delayed mounts (AnimatePresence/Radix) land AFTER the `enabled`
+   * flip, not before.
+   */
+  setContainer: (node: HTMLDivElement | null) => void;
 } {
   const {
     enabled = true,
@@ -58,6 +67,14 @@ export function usePlayerProtection(options: PlayerProtectionOptions = {}): {
   } = options;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // State mirror of the container node: the portal that hosts the player
+  // stage can mount one commit AFTER `enabled` flips true (AnimatePresence),
+  // so the effect must re-run when the node actually appears.
+  const [containerNode, setContainerNode] = useState<HTMLDivElement | null>(null);
+  const setContainer = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node;
+    setContainerNode(node);
+  }, []);
 
   // Keep the callback fresh without re-attaching listeners.
   const onBlockRef = useRef(options.onBlock);
@@ -66,9 +83,8 @@ export function usePlayerProtection(options: PlayerProtectionOptions = {}): {
   });
 
   useEffect(() => {
-    if (!enabled) return;
-    const container = containerRef.current;
-    if (!container) return;
+    if (!enabled || !containerNode) return;
+    const container = containerNode;
 
     const isInside = (node: Node | EventTarget | null): boolean =>
       node instanceof Node && container.contains(node);
@@ -164,7 +180,7 @@ export function usePlayerProtection(options: PlayerProtectionOptions = {}): {
       document.removeEventListener('cut', handleCut, true);
       window.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [enabled, interceptGlobalShortcuts, throttleMs, shortcuts]);
+  }, [enabled, containerNode, interceptGlobalShortcuts, throttleMs, shortcuts]);
 
-  return { ref: containerRef };
+  return { ref: containerRef, setContainer };
 }

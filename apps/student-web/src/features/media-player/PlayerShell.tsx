@@ -70,7 +70,7 @@ export function PlayerShell({
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  const { ref: protectionRef } = usePlayerProtection({
+  const { setContainer } = usePlayerProtection({
     enabled: open && protection,
     interceptGlobalShortcuts: true,
     onBlock: (_action, label) => {
@@ -78,11 +78,13 @@ export function PlayerShell({
     },
   });
 
-  /** One element carries BOTH the fullscreen target and the protection scope. */
+  /** One element carries BOTH the fullscreen target and the protection scope.
+   * setContainer feeds the node into the hook's state so the capture-phase
+   * deterrents attach even though the portal mounts after `open` flips. */
   const setStage = useCallback((node: HTMLDivElement | null) => {
     stageRef.current = node;
-    protectionRef.current = node;
-  }, [protectionRef]);
+    setContainer(node);
+  }, [setContainer]);
 
   /* ---- Fullscreen API (on the SHELL, not the media element) ---- */
 
