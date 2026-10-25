@@ -7,6 +7,7 @@ using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
 using CMS.Domain.Enums;
 using CMS.Domain.Exceptions;
+using CMS.Domain.Constants;
 
 namespace CMS.Application.Handlers.Library;
 
@@ -178,12 +179,14 @@ public class LibraryHandlers :
             );
         }
 
-        // For other files, generate signed URL (5-minute expiry)
-        var signedUrl = await _storage.GetSignedUrlAsync(file.FileUrl, TimeSpan.FromMinutes(5));
+        // For other files, generate a signed URL — TTL from the single source of truth
+        // (MediaPolicy; 5 minutes, unchanged behavior, now stated once).
+        var accessTtl = TimeSpan.FromSeconds(MediaPolicy.PresignedAccessTtlSeconds);
+        var signedUrl = await _storage.GetSignedUrlAsync(file.FileUrl, accessTtl);
 
         return new FileAccessDto(
             signedUrl,
-            DateTime.UtcNow.AddMinutes(5),
+            DateTime.UtcNow.Add(accessTtl),
             BuildWatermark(student)
         );
     }

@@ -7,6 +7,7 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Extensions.Configuration;
 using CMS.Application.Interfaces;
+using CMS.Domain.Constants;
 
 namespace CMS.Infrastructure.Services;
 
@@ -693,8 +694,8 @@ public class UpstashBlobStorageService : IFileStorageService
 
     private static int ClampExpiry(TimeSpan expiry)
     {
-        // Upstash caps presign at 10 minutes (600s) per their docs.
-        var seconds = (int)Math.Min(600, Math.Max(1, expiry.TotalSeconds));
+        // Upstash caps presign at 10 minutes per their docs — single source of truth: MediaPolicy.
+        var seconds = (int)Math.Min(MediaPolicy.UpstashPresignCapSeconds, Math.Max(1, expiry.TotalSeconds));
         return seconds;
     }
 

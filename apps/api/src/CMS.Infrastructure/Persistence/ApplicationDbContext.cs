@@ -50,6 +50,10 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<DeviceBinding> DeviceBindings => Set<DeviceBinding>();
     public DbSet<Favorite> Favorites => Set<Favorite>();
 
+    // Push 10.0: media bookmarks + playback progress
+    public DbSet<MediaBookmark> MediaBookmarks => Set<MediaBookmark>();
+    public DbSet<PlaybackProgress> PlaybackProgress => Set<PlaybackProgress>();
+
     // Subscriptions and entitlement grants
     public DbSet<CodeBatch> CodeBatches => Set<CodeBatch>();
     public DbSet<SubscriptionCode> SubscriptionCodes => Set<SubscriptionCode>();
@@ -214,6 +218,25 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasOne(x => x.Course).WithMany(x => x.Episodes).HasForeignKey(x => x.CourseId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        // Push 10.0: media bookmarks + playback progress. The polymorphic AssetId has NO
+        // database-level FK (library_files vs course_episodes is decided by asset_type and
+        // validated in the application layer); StudentId cascades so a deleted student's
+        // rows disappear with them.
+        modelBuilder.Entity<MediaBookmark>(entity =>
+        {
+            entity.HasIndex(x => new { x.StudentId, x.AssetType, x.AssetId, x.StartSeconds, x.EndSeconds }).IsUnique();
+            entity.HasIndex(x => new { x.StudentId, x.CreatedAt });
+            entity.Property(x => x.Label).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.Note).HasMaxLength(500);
+            entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<PlaybackProgress>(entity =>
+        {
+            entity.HasIndex(x => new { x.StudentId, x.AssetType, x.AssetId }).IsUnique();
+            entity.Property(x => x.CompletionPercent).HasPrecision(5, 2);
+            entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         // Auto snake_case naming
         foreach (var entity in modelBuilder.Model.GetEntityTypes())
         {
@@ -259,6 +282,12 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
                 .HasDatabaseName("ix_favorites_student_id_library_file_id")
                 .IsUnique()
                 .HasFilter("library_file_id IS NOT NULL");
+        });
+
+        modelBuilder.Entity<MediaBookmark>(entity =>
+        {
+            entity.ToTable(table => table.HasCheckConstraint("ck_media_bookmarks_range",
+                "(end_seconds > start_seconds AND start_seconds >= 0)"));
         });
 
         base.OnModelCreating(modelBuilder);

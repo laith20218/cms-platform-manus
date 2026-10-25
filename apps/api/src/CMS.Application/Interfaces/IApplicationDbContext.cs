@@ -41,6 +41,10 @@ public interface IApplicationDbContext
     DbSet<DeviceBinding> DeviceBindings { get; }
     DbSet<Favorite> Favorites { get; }
 
+    // Push 10.0: media bookmarks + playback progress
+    DbSet<MediaBookmark> MediaBookmarks { get; }
+    DbSet<PlaybackProgress> PlaybackProgress { get; }
+
     DbSet<CodeBatch> CodeBatches { get; }
     DbSet<SubscriptionCode> SubscriptionCodes { get; }
     DbSet<StudentSubscription> StudentSubscriptions { get; }

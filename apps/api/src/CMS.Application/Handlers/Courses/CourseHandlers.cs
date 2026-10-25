@@ -7,6 +7,7 @@ using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
 using CMS.Domain.Enums;
 using CMS.Domain.Exceptions;
+using CMS.Domain.Constants;
 
 namespace CMS.Application.Handlers.Courses;
 
@@ -63,9 +64,10 @@ public class CourseHandlers :
     private const string VideoLimitSettingKey = "upload.limit.video_mb";
     private const int DefaultVideoLimitMb = 2560;
 
-    /// <summary>Playback URL TTL. The provider clamps it under the ~10-minute session-credential
-    /// lease; the player refreshes on error/stall so long videos keep playing across refreshes.</summary>
-    private static readonly TimeSpan PlaybackUrlTtl = TimeSpan.FromMinutes(9);
+    /// <summary>Playback URL TTL — single source of truth: <see cref="MediaPolicy"/> (540 s = 9 min,
+    /// under the provider's 10-minute presign cap with clock-skew headroom). The player refreshes
+    /// on error/stall so long videos keep playing across refreshes.</summary>
+    private static readonly TimeSpan PlaybackUrlTtl = TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds);
 
     public CourseHandlers(
         IApplicationDbContext db,
