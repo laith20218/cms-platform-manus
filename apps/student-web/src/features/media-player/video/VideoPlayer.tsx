@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import Hls, { type ErrorData } from 'hls.js';
 import { LoaderCircle, MonitorPlay, Play, RotateCcw } from 'lucide-react';
 import { cn } from '@/utils';
 import { useMediaLease } from '../hooks/useMediaLease';
@@ -9,9 +10,19 @@ import { BookmarkDialog } from './BookmarkDialog';
 import { ControlsBar } from './ControlsBar';
 
 /**
- * Push 10.2 — the production VideoPlayer (native <video>, MP4/Range — the
- * presigned URLs point at direct object-storage files, never HLS; no media
- * library needed).
+ * Push 10.2 — the production VideoPlayer. Push 10.4 — dual-engine:
+ *
+ *  - MP4/object-storage URLs → native <video src> (Range-capable files,
+ *    exactly as 10.2 shipped).
+ *  - `.m3u8` URLs (the Push 10.3 transcoding ladder's master playlist) →
+ *    hls.js + MSE. Safari/iOS builds without MSE fall back to the element's
+ *    native HLS support via the same `src` path.
+ *
+ * The silent lease refresh works for BOTH engines: the native path swaps the
+ * `src` prop, the HLS path calls `hls.loadSource(newUrl)` — each with the
+ * captured timestamp + play state restored in onLoadedMetadata (hls.js also
+ * gets `startPosition` so the fresh manifest buffers straight at the playhead
+ * instead of re-downloading from zero).
  *
  * Lifecycle:
  *  - useMediaLease fetches the playback URL and silently refreshes it at
@@ -32,6 +43,21 @@ const SKIP_SECONDS = 10;
 const KEYBOARD_SKIP_SECONDS = 5;
 const CONTROLS_AUTO_HIDE_MS = 2600;
 const PROGRESS_SAVE_INTERVAL_MS = 10_000;
+
+/**
+ * True when the playback URL points at an HLS master/variant playlist.
+ * Presigned URLs carry signature query strings, so the check runs on the
+ * URL's *pathname* — `endsWith('.m3u8')` on the raw string would break the
+ * moment a `?X-Signature=…` is appended.
+ */
+function isHlsUrl(url: string): boolean {
+  try {
+    return new URL(url).pathname.toLowerCase().endsWith('.m3u8');
+  } catch {
+    // Not an absolute URL (blob:/relative) — best-effort substring probe.
+    return url.toLowerCase().includes('.m3u8');
+  }
+}
 
 interface RippleFeedback {
   key: number;
@@ -73,6 +99,15 @@ export default function VideoPlayer({
     wasPlayingRef,
     resetPending,
   } = useMediaLease({ assetType, assetId, mediaRef: videoRef });
+
+  /* ============ engine selection (native MP4 vs hls.js MSE) ============ */
+
+  const playbackUrl = info?.url ?? null;
+  const urlIsHls = playbackUrl !== null && isHlsUrl(playbackUrl);
+  // Safari/iOS (no MSE) plays .m3u8 natively through the element's src —
+  // every other browser gets hls.js attached to the same <video>.
+  const useHlsEngine = urlIsHls && Hls.isSupported();
+  const hlsRef = useRef<Hls | null>(null);
 
   // ---- media state ----
   const [playing, setPlaying] = useState(false);
@@ -198,6 +233,73 @@ export default function VideoPlayer({
     lastMediaErrorAtRef.current = now;
     void fetchUrl({ preserveTime: true, reason: 'error' });
   }, [fetchUrl]);
+
+  // The hls.js error listener attaches once (instance creation) but must
+  // always see the *latest* refresh handler — fetchUrl's identity changes
+  // with every lease generation.
+  const handleMediaErrorRef = useRef(handleMediaError);
+  useEffect(() => {
+    handleMediaErrorRef.current = handleMediaError;
+  }, [handleMediaError]);
+
+  /* ============ hls.js engine (`.m3u8` playback URLs only) ============ */
+
+  // attach/load — runs on every playback URL change (initial + every silent
+  // refresh). Native mode keeps the plain `src` prop path and never spins up
+  // an instance; an engine flip (never expected for one asset) destroys it.
+  useEffect(() => {
+    if (!useHlsEngine) {
+      hlsRef.current?.destroy();
+      hlsRef.current = null;
+      return;
+    }
+    const video = videoRef.current;
+    if (!video || !playbackUrl) return;
+
+    let hls = hlsRef.current;
+    if (!hls) {
+      // autoStartLoad stays off: every load (initial + silent swaps) starts
+      // explicitly from the captured playhead via startLoad(position), so a
+      // lease refresh never re-buffers from zero.
+      hls = new Hls({ enableWorker: true, maxBufferLength: 30, autoStartLoad: false });
+      hlsRef.current = hls;
+      hls.attachMedia(video);
+      hls.on(Hls.Events.ERROR, (_event, data: ErrorData) => {
+        if (!data.fatal) return; // hls.js already retried/absorbed it.
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          hlsRef.current?.recoverMediaError();
+          return;
+        }
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          // Expired presigned manifest/fragment — the same throttled
+          // preserve-time refresh the native path uses for 403'd files.
+          handleMediaErrorRef.current();
+          return;
+        }
+        hlsRef.current?.destroy();
+        hlsRef.current = null;
+        setFatalError('تعذّر تشغيل البث. حاول إعادة التحميل.');
+      });
+    }
+
+    // Silent-refresh swap: buffer the fresh manifest straight at the captured
+    // playhead (loadedmetadata restores it again — the safety net for engines
+    // that ignore the start position).
+    const resumeAt = pendingTimeRef.current != null && pendingTimeRef.current > 0 ? pendingTimeRef.current : -1;
+    hls.once(Hls.Events.MANIFEST_PARSED, () => {
+      hlsRef.current?.startLoad(resumeAt);
+    });
+    hls.loadSource(playbackUrl);
+    // refs-only contract: pendingTimeRef/videoRef are stable; handleMediaError
+    // is read through its ref — re-running on identity churn would double-load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playbackUrl, useHlsEngine]);
+
+  // Unmount → release the MSE instance (and its SourceBuffers).
+  useEffect(() => () => {
+    hlsRef.current?.destroy();
+    hlsRef.current = null;
+  }, []);
 
   /* ============ volume / mute wiring (state → element) ============ */
 
@@ -386,6 +488,7 @@ export default function VideoPlayer({
       ref={containerRef}
       dir="rtl"
       data-testid={testId ?? 'video-player'}
+      data-engine={playbackUrl ? (useHlsEngine ? 'hls' : 'native') : undefined}
       tabIndex={0}
       role="region"
       aria-label={title ? `مشغّل فيديو: ${title}` : 'مشغّل فيديو'}
@@ -398,10 +501,11 @@ export default function VideoPlayer({
       )}
       style={{ boxShadow: '0 24px 64px rgba(2, 6, 23, 0.5)' }}
     >
-      {/* Media element — native controls hidden (custom bar below). */}
+      {/* Media element — native controls hidden (custom bar below). In HLS
+          mode the element carries no `src`; hls.js feeds it through MSE. */}
       <video
         ref={videoRef}
-        src={info?.url}
+        src={useHlsEngine ? undefined : info?.url}
         poster={posterUrl}
         preload="auto"
         playsInline

@@ -2,12 +2,24 @@ import { useState } from 'react';
 import { FlaskConical, MonitorPlay, ShieldCheck } from 'lucide-react';
 import { PlayerShell } from '@/features/media-player/PlayerShell';
 import { LazyPlayerMount } from '@/features/media-player/LazyPlayerMount';
+import type { EpisodeMetadataData } from '@/features/media-player/video/EpisodeMetadata';
 
 /** Real VideoPlayer chunk (Push 10.2) — stable module-level loader for React.lazy. */
 const loadVideoPlayer = () => import('@/features/media-player/video/VideoPlayer');
 
 /** Sandbox episode id — the e2e suite mocks the media API for this asset. */
 const TEST_EPISODE_ID = '11111111-2222-3333-4444-555555555555';
+
+/** Push 10.4 — sandbox episode metadata (the shape production pages will
+ * pass from the course detail DTO once the API exposes these fields). */
+const TEST_EPISODE_METADATA: EpisodeMetadataData = {
+  title: 'محاضرة تجريبية — القلب والأوعية',
+  description:
+    'مراجعة شاملة لجهاز الدوران القلبي: التشريح المجهري للقلب ومسارات الدم عبر الصمامات الأربعة، دورة الضربة القلبية مع قراءة منحنى الضغط، ثم الفسيولوجيا المرضية لأمراض الصمام التاجي والتضيّق الأورطي — مع حالات سريرية قصيرة وأسئلة مراجعة في نهاية المحاضرة. تنصح بمراجعة محاضرة الأوعية الدموية السابقة قبل البدء.',
+  difficulty: 1,
+  durationSeconds: 930,
+  viewsCount: 1245,
+};
 
 /**
  * Push 10.1/10.2 — sandbox page for the player stack
@@ -33,9 +45,10 @@ export function PlayerTestPage() {
         </div>
 
         <p className="mt-5 text-sm leading-7 text-[var(--c-text-soft)]">
-          هذه الصفحة تستضيف مشغّل الفيديو الحقيقي مع واجهة التحكم الكاملة: التجديد الصامت لرابط
-          التشغيل قبل انتهاء صلاحيته، استئناف المشاهدة من آخر موضع، حفظ المقاطع المرجعية،
-          والنقر المزدوج للتقديم والتأخير — كل ذلك داخل قشرة ملء الشاشة المحمية.
+          هذه الصفحة تستضيف مشغّل الفيديو الحقيقي مع واجهة التحكم الكاملة: التشغيل بتقنية HLS أو MP4
+          حسب نوع الرابط، التجديد الصامت قبل انتهاء صلاحيته، استئناف المشاهدة من آخر موضع، حفظ المقاطع
+          المرجعية، النقر المزدوج للتقديم والتأخير، وبطاقة بيانات الحلقة (العنوان، الوصف، الصعوبة،
+          المدة، المشاهدات) — كل ذلك داخل قشرة ملء الشاشة المحمية.
         </p>
 
         <button
@@ -58,8 +71,9 @@ export function PlayerTestPage() {
         open={open}
         onOpenChange={setOpen}
         title="محاضرة تجريبية — القلب والأوعية"
-        subtitle="مشغّل الفيديو الحقيقي — Push 10.2"
+        subtitle="مشغّل الفيديو الحقيقي — Push 10.4"
         kind="video"
+        metadata={TEST_EPISODE_METADATA}
         testId="player-shell"
       >
         <LazyPlayerMount

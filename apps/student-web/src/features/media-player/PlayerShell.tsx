@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { cn } from '@/utils';
 import { usePlayerProtection } from './protection/usePlayerProtection';
 import { PlayerShellContext, type PlayerShellApi } from './shell-context';
+import { EpisodeMetadata, type EpisodeMetadataData } from './video/EpisodeMetadata';
 
 /**
  * Push 10.1 — PlayerShell: the fullscreen-capable modal that will host every
@@ -54,6 +55,9 @@ export interface PlayerShellProps {
   children: ReactNode;
   /** Extra classes for the content column (e.g. max-w-5xl for readers). */
   contentClassName?: string;
+  /** Push 10.4 — episode metadata card (title/description/difficulty/duration/
+   * views) rendered under the player inside the shell. */
+  metadata?: EpisodeMetadataData;
   testId?: string;
 }
 
@@ -66,6 +70,7 @@ export function PlayerShell({
   protection = true,
   children,
   contentClassName,
+  metadata,
   testId,
 }: PlayerShellProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -232,13 +237,25 @@ export function PlayerShell({
                   </header>
 
                   {/* Content column — the player mounts here, centered with
-                      desktop max-width constraints. */}
-                  <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-4 pb-4 sm:px-6 sm:pb-6">
-                    <div
-                      data-testid="player-content"
-                      className={cn('flex w-full max-w-6xl items-center justify-center', contentClassName)}
-                    >
-                      {children}
+                      desktop max-width constraints. With metadata (10.4) the
+                      column becomes scrollable and groups the player + the
+                      metadata card; `m-auto` keeps the group centered when it
+                      fits while staying fully scrollable when it doesn't
+                      (auto margins collapse to zero on overflow). */}
+                  <div
+                    className={cn(
+                      'flex min-h-0 flex-1 px-4 pb-4 sm:px-6 sm:pb-6',
+                      metadata ? 'flex-col overflow-y-auto' : 'items-center justify-center overflow-hidden',
+                    )}
+                  >
+                    <div className="m-auto flex w-full max-w-6xl flex-col items-center gap-4">
+                      <div
+                        data-testid="player-content"
+                        className={cn('flex w-full items-center justify-center', contentClassName)}
+                      >
+                        {children}
+                      </div>
+                      {metadata && <EpisodeMetadata metadata={metadata} testId="player-shell-metadata" />}
                     </div>
                   </div>
                 </div>
