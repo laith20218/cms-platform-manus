@@ -1,3 +1,50 @@
+# WIP STATUS — Push 10.4 (Admin Upload UI & Student HLS Player — frontend)
+
+Branch: `wip/10.4` (from wip/10.3 @ f3364e0; **local commits only — push deferred: the supervisor PAT was scrubbed per protocol after 10.3 and is not present in this session**; re-supply it and `git push origin wip/10.4` is one command away)
+Scope: BOTH frontends (`apps/admin-web` + `apps/student-web`). **Zero backend files.** Lockfile exception used exactly as authorized: `hls.js@1.7.3` (+8 lines). `main` untouched @ 93367ae.
+
+## Done (10.4) — ADMIN-WEB
+
+- [x] 1.A Metadata fields (`EpisodeMetadataFields.tsx`, shared by the upload panel + the new `EpisodeEditModal`): Title (required, ≤200, live counter), Description (optional, ≤1000, counter), Difficulty native select (سهل/متوسط/صعب → Easy=0/Medium=1/Hard=2). Fields ride the **complete-upload** body (`{parts, title, description, difficulty}`) and the **PUT episode** update body — additive keys the current API ignores (unknown JSON members), forward-compatible the moment the backend DTO wiring ships (entities + migration already exist from 10.3).
+- [x] 1.B Processing state machine (`ProcessingTimeline.tsx` + the panel's new `processing|ready` states): **Uploading** = stats strip (total size · live speed MB/s · ETA · parts count, rolling-window speed that survives pause/resume) — the Push-6 multipart engine itself untouched; **Transcoding** = the 10.3 ladder as a human checklist with the task book's EXACT Arabic sentences (جاري تجهيز الفيديو في الخادم… / 360p مناسبة للجوال… / 720p جودة عالية… / 1080p جودة فائقة… / جاهز للمشاهدة ✅) + one shared animated bar (CSS `transition-all duration-700`, phase target %, pulse shimmer while in flight, red on Failed, 100% under the Ready banner); **polling** = ONE 3s interval per course drawer (`useEffect` in EpisodesManager — refreshes the same `detail` state the list renders from; active while any episode is non-terminal OR the upload panel watches one; immediate poll on activation; `pollNow()` forced poll for retries).
+- [x] **Honest degradation**: today's API returns no `processingStatus` on episode DTOs → the poller resolves an uploaded episode with an absent status to **Ready** (the source MP4 is playable immediately) — no infinite spinner, no fake ladder. The full ladder lights up with zero frontend changes once the field ships.
+- [x] 1.C Dual-language error modal (`AccessibleModal.tsx` primitive + `ProcessingErrorModal.tsx`): opens on `ProcessingStatus == Failed` AND on structured API failures (ApiError now parses ProblemDetails extensions `humanMessage`/`technicalDetails` from the 422 media-processing shape). Arabic human level: «عذراً، تعذر معالجة الفيديو.» + the API's humanMessage (curated fallback). Technical level: collapsible, LTR monospace, scrollable `technicalDetails` (FFmpeg logs) + **Copy Error** (clipboard API + execCommand fallback; "تم النسخ ✓" feedback) + **Retry** (resumes the multipart session for upload failures; re-arms the watcher + forced poll for pipeline failures — guarded so a stale Failed can't instantly undo the retry). Radix semantics replicated by hand (portal + focus trap + Escape + aria-modal + focus restore + body scroll lock + AnimatePresence) because admin-web carries no Radix packages and the lockfile exception is hls.js-only — documented reconciliation.
+- [x] Episode rows: difficulty badge (سهل green/متوسط amber/صعب red), live processing chip (spinner while a rung is active, red on Failed), edit pencil (gated `btn:library.course.edit`). `EpisodeEditModal` edits title/description/difficulty + episodeNumber/durationSeconds → PUT.
+- [x] `lib/mediaProcessing.ts`: ProcessingStatus union, PROCESSING_PHASES (exact sentences + % targets), difficulty normalization (accepts 0|1|2 AND "Easy"|"Medium"|"Hard"), chip/badge labels, speed/ETA formatters. `CourseEpisode` type gains optional `description/difficulty/processingStatus/processingError`.
+
+## Done (10.4) — STUDENT-WEB
+
+- [x] 2.B hls.js integration (`hls.js@1.7.3` — the authorized lockfile exception, +8 lines): `VideoPlayer` is dual-engine — `.m3u8` playback URLs (checked on the URL **pathname** so presign query strings can't break the sniff) play through hls.js+MSE; Safari/iOS without MSE falls back to native HLS `src`; MP4 keeps the exact 10.2 native path. **Silent refresh for HLS** = `hls.loadSource(newUrl)` with `autoStartLoad:false` + `startLoad(capturedPlayhead)` on MANIFEST_PARSED — the fresh manifest buffers straight at the playhead; `onLoadedMetadata` restore remains the safety net (time + play state + rate/volume/mute survive every swap). Fatal NETWORK errors ride the existing throttled preserve-time refresh (expired presigned manifest/fragment); MEDIA errors → `recoverMediaError()`; destroy+fatal UI otherwise. Custom controls, double-tap, bookmarks, progress pipeline all engine-agnostic (element properties + events) — verified e2e under MSE.
+- [x] 2.A Metadata display (`video/EpisodeMetadata.tsx` + `PlayerShell.metadata` prop): inside the shell under the player — prominent title (h2), difficulty badge (سهل emerald / متوسط amber / صعب red — accepts numeric or enum-string), duration `15:30` + views, description clamped to 3 lines with عرض المزيد/أقل toggle (aria-expanded). Shell content column groups player+metadata (`m-auto`: centered when it fits, scrollable when it doesn't). 375px-first. `PlayerTestPage` wired with sandbox metadata.
+
+## Verification (10.4)
+- **Admin e2e** `apps/admin-web/e2e/admin-upload.e2e.mjs` (new; RAM-capped single Chromium): **20/20** — simulated multipart upload with metadata body assertions on complete-upload AND the episode PUT, paced ladder Pending→360p→720p→1080p→Ready with the exact Arabic sentences + bar 8%→32%→58%→84%→100%, live chip, difficulty badge, edit-modal prefill, Failed modal (headline/human/LTR FFmpeg details/clipboard Copy/Retry→Ready), tablet 768px usability. **Peak Chromium RSS 961MB < 1.6GB; console errors 0.**
+- **Student HLS e2e** `e2e/player-hls.e2e.mjs` (new; REAL local 360p+720p ladder generated with ffmpeg, git-ignored): **19/19** — engine selection (hls+MSE, blob: src), master→variant→segment fetches, resume seek over MSE, real playback, **silent refresh via loadSource** (≥2 leases, time kept, engine stable, still playing), buffer indicator, controls under MSE, double-tap ±10s, metadata card (title/badge/duration/views/collapsible), progress POSTs, 375px. **Peak Chromium RSS 1034MB < 1.6GB; console errors 0.**
+- **Student MP4 regression** `e2e/player-video.e2e.mjs` re-run: **16/16** (native engine untouched).
+- Gates: student tsc clean + vitest **117/117** + 0 new eslint warnings; admin tsc clean + vitest **34/34** + 0 new warnings (31 pre-existing on base, untouched).
+- Two e2e-caught fixes: ① the ladder now stays mounted through Ready (full checklist + 100% bar instead of vanishing); ② retry guard holds transitions while a forced poll is in flight.
+
+## Commit log (10.4)
+- `b0f9d7a` — feat(student-web): hls.js dual-engine player + episode metadata card
+- `c9bbe82` — feat(admin-web): upload metadata + processing state machine + dual-language error modal
+- `339b50a` — test(student-web): HLS e2e suite (19/19, RAM 1034MB) + refreshed screenshots
+- `435c6a9` — test+fix(admin-web): upload e2e (20/20, RAM 961MB) + two e2e-caught UX fixes
+
+## Reconciliations (spec vs. constraints — deliberate, documented)
+- "Radix Dialog/Select" in admin-web → hand-built `AccessibleModal` (Radix semantics) + native select: no Radix packages exist there and the lockfile exception is hls.js-only.
+- Difficulty wire value = **numeric 0|1|2** (task-book mapping); the READER also normalizes the API's future enum strings ("Easy"…). JsonStringEnumConverter accepts both number and string on read.
+- Playback-url still returns the source MP4 today (HlsKey unread by MediaHandlers) — the player's URL-shape sniff means HLS engages automatically the moment the backend signs master.m3u8; e2e proves the full path against a real ladder.
+- Backend gaps (documented, NOT touched): no `processingStatus`/`difficulty`/`description` in any DTO yet, no poll-specific endpoint (admin polls the existing course-detail GET), no retry/requeue endpoint (the Retry button re-polls; a real requeue POST is future backend work).
+
+## Open items (for 10.5+ / supervisor)
+- **Push 10.4 → remote**: needs the PAT re-supplied (scrubbed after 10.3 per protocol; nothing persisted).
+- Backend DTO wiring for the metadata fields + `processingStatus`/`processingError` exposure + playback-url HlsKey switch (the frontend is ready for all three).
+- Migration apply remains a supervisor action (10.3 open item).
+- Transcoding requeue sweep + real retry endpoint.
+- Audio player (Push 10.5) — **STOP GATE: not started, awaiting supervisor approval.**
+
+---
+
 # WIP STATUS — Push 10.3 (FFmpeg Transcoding & Schema Upgrade — backend)
 
 Branch: `wip/10.3` (from wip/10.2 @ 2530f2c; **pushed to remote**)
