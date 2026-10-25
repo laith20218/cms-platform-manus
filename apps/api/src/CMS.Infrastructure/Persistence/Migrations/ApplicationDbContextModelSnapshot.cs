@@ -636,6 +636,15 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("deleted_by");
 
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<int>("Difficulty")
+                        .HasColumnType("integer")
+                        .HasColumnName("difficulty");
+
                     b.Property<int?>("DurationSeconds")
                         .HasColumnType("integer")
                         .HasColumnName("duration_seconds");
@@ -651,6 +660,15 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Property<long?>("FileSize")
                         .HasColumnType("bigint")
                         .HasColumnName("file_size");
+
+                    b.Property<string>("HlsKey")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)")
+                        .HasColumnName("hls_key");
+
+                    b.Property<int?>("ProcessingStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("processing_status");
 
                     b.Property<int>("SourceType")
                         .HasColumnType("integer")
@@ -682,6 +700,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CourseId")
                         .HasDatabaseName("ix_course_episodes_course_id");
+
+                    b.HasIndex("ProcessingStatus")
+                        .HasDatabaseName("ix_course_episodes_processing_status")
+                        .HasFilter("processing_status IS NOT NULL");
 
                     b.HasIndex("CourseId", "EpisodeNumber")
                         .IsUnique()
@@ -1448,6 +1470,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("description");
 
+                    b.Property<int>("Difficulty")
+                        .HasColumnType("integer")
+                        .HasColumnName("difficulty");
+
                     b.Property<int?>("DurationSeconds")
                         .HasColumnType("integer")
                         .HasColumnName("duration_seconds");
@@ -1469,6 +1495,11 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("file_url");
 
+                    b.Property<string>("HlsKey")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)")
+                        .HasColumnName("hls_key");
+
                     b.Property<Guid?>("LectureId")
                         .HasColumnType("uuid")
                         .HasColumnName("lecture_id");
@@ -1476,6 +1507,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Property<int?>("PagesCount")
                         .HasColumnType("integer")
                         .HasColumnName("pages_count");
+
+                    b.Property<int?>("ProcessingStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("processing_status");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer")
@@ -1524,6 +1559,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("LectureId")
                         .HasDatabaseName("ix_library_files_lecture_id");
+
+                    b.HasIndex("ProcessingStatus")
+                        .HasDatabaseName("ix_library_files_processing_status")
+                        .HasFilter("processing_status IS NOT NULL");
 
                     b.HasIndex("SubjectId")
                         .HasDatabaseName("ix_library_files_subject_id");

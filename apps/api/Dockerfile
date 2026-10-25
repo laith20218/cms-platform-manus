@@ -43,9 +43,19 @@ LABEL org.opencontainers.image.title="CMS API" \
       org.opencontainers.image.version="1.0.0" \
       org.opencontainers.image.authors="CMS Team"
 
-# Install required packages (icu for globalization + tzdata + wget for healthcheck)
-RUN apk add --no-cache icu-libs tzdata wget ca-certificates && \
+# Install required packages:
+#   icu-libs + tzdata + wget + ca-certificates — globalization (Arabic), healthcheck, TLS
+#   ffmpeg — Push 10.3 transcoding pipeline (HLS ladder 360p/720p/1080p). Alpine's ffmpeg
+#   builds ship libx264 + aac encoders; the version pinning follows the Alpine release
+#   the base image tracks (no host-side install at runtime).
+RUN apk add --no-cache icu-libs tzdata wget ca-certificates ffmpeg && \
     rm -rf /var/cache/apk/*
+
+# Transcoding pipeline knobs (Push 10.3): binary discovery + per-job watchdog.
+# Defaults: PATH lookup ("ffmpeg"/"ffprobe") and a 60-minute timeout per job.
+ENV FFMPEG_PATH=ffmpeg \
+    FFPROBE_PATH=ffprobe \
+    FFMPEG_TIMEOUT_MINUTES=60
 
 # Set globalization invariant to false (Arabic support)
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false

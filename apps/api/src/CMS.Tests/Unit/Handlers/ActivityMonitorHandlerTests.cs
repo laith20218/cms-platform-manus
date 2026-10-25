@@ -1,3 +1,4 @@
+using CMS.Application.BackgroundJobs;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using FluentAssertions;
@@ -197,7 +198,8 @@ public class ActivityMonitorHandlerTests
         var handler = new LibraryHandlers(db, uow, storage.Object, scanner.Object,
             AllowAllEntitlements(), settings.Object, sanitizer.Object,
             NullLogger<LibraryHandlers>.Instance,
-            new AdminActivityWriter(db, NullLogger<AdminActivityWriter>.Instance));
+            new AdminActivityWriter(db, NullLogger<AdminActivityWriter>.Instance),
+            new TranscodingChannelQueue()); // Push 10.3: inert queue — nothing consumes jobs in tests
 
         await handler.Handle(new CompleteUploadCommand(file.Id, file.FileUrl, 2048, 3, null, null, admin.Id, sessionId),
             CancellationToken.None);

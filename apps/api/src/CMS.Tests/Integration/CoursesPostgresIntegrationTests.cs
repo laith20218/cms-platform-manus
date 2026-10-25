@@ -1,3 +1,4 @@
+using CMS.Application.BackgroundJobs;
 using CMS.Application.Commands.Courses;
 using CMS.Application.Handlers.Courses;
 using CMS.Application.Interfaces;
@@ -55,7 +56,8 @@ public sealed class CoursesPostgresIntegrationTests
         new EntitlementService(db),
         new Mock<ISystemSettingsService>().Object,
         NoOp.ActivityWriter(),
-        NullLogger<CourseHandlers>.Instance);
+        NullLogger<CourseHandlers>.Instance,
+        new TranscodingChannelQueue()); // Push 10.3: inert queue — nothing consumes jobs in tests
 
     [Fact]
     public async Task MigrationContract_CoursesTablesExist_WithConstraints()

@@ -90,6 +90,22 @@ public class LibraryFile : AuditableEntity
     public ContentStatus Status { get; set; } = ContentStatus.Draft;
     public VirusScanStatus VirusScanStatus { get; set; } = VirusScanStatus.Pending;
 
+    // ===== Push 10.3 — rich media metadata + transcoding lifecycle =====
+    // Title and Description already exist on the entity; the new metadata surface is
+    // Difficulty, plus the HLS pipeline columns (FileUrl remains the source-object key).
+
+    /// <summary>Learning difficulty for catalog filtering. Defaults to Easy; shared with the
+    /// question domain's scale (Easy=0, Medium=1, Hard=2).</summary>
+    public Difficulty Difficulty { get; set; } = Difficulty.Easy;
+
+    /// <summary>FFmpeg pipeline state. NULL for non-video files / legacy rows.</summary>
+    public ProcessingStatus? ProcessingStatus { get; set; }
+
+    /// <summary>Object-storage key of the generated HLS master playlist
+    /// ({FileUrl}/hls/master.m3u8). NULL until the pipeline reaches Ready — playback
+    /// keeps using FileUrl until a later push switches the player to HLS.</summary>
+    public string? HlsKey { get; set; }
+
     public Subject Subject { get; set; } = null!;
     public Lecture? Lecture { get; set; }
     public ICollection<LibraryView> Views { get; set; } = new List<LibraryView>();

@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using CMS.Application.BackgroundJobs;
 using CMS.Application.Commands.Library;
 using CMS.Application.DTOs.Library;
 using CMS.Application.Interfaces;
@@ -38,6 +39,8 @@ public class LibraryHandlers :
     private readonly ILogger<LibraryHandlers> _logger;
     // Push 2 / Track 2: activity-monitor writer (best-effort — never fails the business op).
     private readonly IAdminActivityWriter _activity;
+    // Push 10.3: FFmpeg pipeline enqueue surface (complete-upload → TranscodingJob).
+    private readonly ITranscodingQueue _transcodingQueue;
 
     public LibraryHandlers(
         IApplicationDbContext db,
@@ -48,7 +51,8 @@ public class LibraryHandlers :
         ISystemSettingsService settings,
         IHtmlBlobSanitizer htmlSanitizer,
         ILogger<LibraryHandlers> logger,
-        IAdminActivityWriter activity)
+        IAdminActivityWriter activity,
+        ITranscodingQueue transcodingQueue)
     {
         _db = db;
         _unitOfWork = unitOfWork;
@@ -59,6 +63,7 @@ public class LibraryHandlers :
         _htmlSanitizer = htmlSanitizer;
         _logger = logger;
         _activity = activity;
+        _transcodingQueue = transcodingQueue;
     }
 
     // ===== Queries =====
@@ -373,6 +378,11 @@ public class LibraryHandlers :
         if (!string.IsNullOrEmpty(req.YoutubeVideoId))
             typeof(LibraryFile).GetProperty("YoutubeVideoId")?.SetValue(file, req.YoutubeVideoId);
 
+        // Push 10.3: video library files enter the FFmpeg HLS pipeline at complete-upload
+        // (same commit as the metadata). Non-video files keep ProcessingStatus NULL.
+        if (file.FileFormat?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true)
+            file.ProcessingStatus = ProcessingStatus.Pending;
+
         // Do not publish before an external scanner records a clean verdict.
         // The completion endpoint only confirms storage; publication remains a separate privileged action.
         await _unitOfWork.SaveChangesAsync(ct);
@@ -382,6 +392,14 @@ public class LibraryHandlers :
         await _activity.LogAsync(req.CreatedBy, AdminActivityActionType.UploadFile, file.Id.ToString(),
             new { fileId = file.Id, fileSize = req.ActualFileSize, contentType = file.FileFormat, category = file.Category?.ToString() },
             req.SessionId, ct);
+
+        // Push 10.3: enqueue AFTER the commit (same rationale as episodes). A full queue
+        // leaves the file Pending — a later sweep re-enqueues it.
+        if (file.ProcessingStatus == ProcessingStatus.Pending
+            && !_transcodingQueue.TryEnqueue(new TranscodingJob(MediaAssetType.LibraryFile, file.Id)))
+        {
+            _logger.LogWarning("Transcoding queue at capacity; library file {FileId} stays Pending until re-enqueued", file.Id);
+        }
 
         return MapToDto(file);
     }

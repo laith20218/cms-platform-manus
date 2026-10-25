@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using CMS.Application.BackgroundJobs;
 using CMS.Application.Commands.Courses;
 using CMS.Application.DTOs.Courses;
 using CMS.Application.Interfaces;
@@ -44,6 +45,7 @@ public class CourseHandlers :
     private readonly ISystemSettingsService _settings;
     private readonly IAdminActivityWriter _activity;
     private readonly ILogger<CourseHandlers> _logger;
+    private readonly ITranscodingQueue _transcodingQueue;
 
     /// <summary>Fixed 64 MB part size (د4): ≤ 40 parts for a 2.5 GB video, far under the 10,000-part S3 cap.</summary>
     private const long PartSizeBytes = 64L * 1024 * 1024;
@@ -76,7 +78,8 @@ public class CourseHandlers :
         IEntitlementService entitlements,
         ISystemSettingsService settings,
         IAdminActivityWriter activity,
-        ILogger<CourseHandlers> logger)
+        ILogger<CourseHandlers> logger,
+        ITranscodingQueue transcodingQueue)
     {
         _db = db;
         _unitOfWork = unitOfWork;
@@ -85,6 +88,7 @@ public class CourseHandlers :
         _settings = settings;
         _activity = activity;
         _logger = logger;
+        _transcodingQueue = transcodingQueue;
     }
 
     // ===== Student: catalog =====
@@ -473,10 +477,25 @@ public class CourseHandlers :
 
         typeof(CourseEpisode).GetProperty("FileSize")?.SetValue(episode, actualSize);
         typeof(CourseEpisode).GetProperty("UploadId")?.SetValue(episode, null); // blob ready for playback
+
+        // Push 10.3: video assets enter the FFmpeg HLS pipeline the moment the upload
+        // completes (same commit as the blob-ready marker). Audio episodes and YouTube
+        // episodes keep ProcessingStatus NULL — the pipeline never applies to them.
+        if (episode.ContentType?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true)
+            episode.ProcessingStatus = ProcessingStatus.Pending;
+
         await _unitOfWork.SaveChangesAsync(ct);
 
         await _activity.LogAsync(episode.CreatedBy, AdminActivityActionType.UploadEpisode, episode.Id.ToString(),
             new { episodeId = episode.Id, courseId = episode.CourseId, fileSize = actualSize, contentType = episode.ContentType }, ct: ct);
+
+        // Enqueue AFTER the commit: an in-memory queue must never observe a rolled-back row.
+        // A full queue leaves the episode Pending — a later sweep re-enqueues it.
+        if (episode.ProcessingStatus == ProcessingStatus.Pending
+            && !_transcodingQueue.TryEnqueue(new TranscodingJob(MediaAssetType.CourseEpisode, episode.Id)))
+        {
+            _logger.LogWarning("Transcoding queue at capacity; episode {EpisodeId} stays Pending until re-enqueued", episode.Id);
+        }
 
         return MapToEpisodeDto(episode);
     }

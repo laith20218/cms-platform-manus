@@ -237,6 +237,20 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        // Push 10.3: rich media metadata + transcoding lifecycle. Title already existed on
+        // both entities (no length ALTER — a live-data resize could fail the migration apply);
+        // the caps below apply to NEW columns only. LibraryFile.Description predates 10.3 and
+        // keeps its existing unbounded mapping for the same reason.
+        modelBuilder.Entity<CourseEpisode>(entity =>
+        {
+            entity.Property(x => x.Description).HasMaxLength(1000);
+            entity.Property(x => x.HlsKey).HasMaxLength(600);
+        });
+        modelBuilder.Entity<LibraryFile>(entity =>
+        {
+            entity.Property(x => x.HlsKey).HasMaxLength(600);
+        });
+
         // Auto snake_case naming
         foreach (var entity in modelBuilder.Model.GetEntityTypes())
         {
@@ -288,6 +302,21 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         {
             entity.ToTable(table => table.HasCheckConstraint("ck_media_bookmarks_range",
                 "(end_seconds > start_seconds AND start_seconds >= 0)"));
+        });
+
+        // Push 10.3: partial indexes for the admin pipeline views (pending/failed sweeps).
+        // Filtered = NULL rows (non-video + legacy assets) stay out of the index entirely.
+        modelBuilder.Entity<CourseEpisode>(entity =>
+        {
+            entity.HasIndex(x => x.ProcessingStatus)
+                .HasDatabaseName("ix_course_episodes_processing_status")
+                .HasFilter("processing_status IS NOT NULL");
+        });
+        modelBuilder.Entity<LibraryFile>(entity =>
+        {
+            entity.HasIndex(x => x.ProcessingStatus)
+                .HasDatabaseName("ix_library_files_processing_status")
+                .HasFilter("processing_status IS NOT NULL");
         });
 
         base.OnModelCreating(modelBuilder);

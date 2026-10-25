@@ -60,5 +60,24 @@ public class CourseEpisode : AuditableEntity
 
     public int ViewsCount { get; set; }
 
+    // ===== Push 10.3 — rich media metadata + transcoding lifecycle =====
+    // Title already exists on the entity (required, set at initiate-upload); the new
+    // metadata surface is Description + Difficulty, plus the HLS pipeline columns.
+
+    /// <summary>Librarian-authored learning description (≤ 1000 chars). NULL when unset.</summary>
+    public string? Description { get; set; }
+
+    /// <summary>Learning difficulty for catalog filtering. Defaults to Easy; shared with the
+    /// question domain's scale (Easy=0, Medium=1, Hard=2).</summary>
+    public Difficulty Difficulty { get; set; } = Difficulty.Easy;
+
+    /// <summary>FFmpeg pipeline state. NULL for YouTube episodes / audio episodes / legacy rows.</summary>
+    public ProcessingStatus? ProcessingStatus { get; set; }
+
+    /// <summary>Object-storage key of the generated HLS master playlist
+    /// ({FileKey}/hls/master.m3u8). NULL until the pipeline reaches Ready — playback
+    /// keeps using FileKey until a later push switches the player to HLS.</summary>
+    public string? HlsKey { get; set; }
+
     public Course Course { get; set; } = null!;
 }

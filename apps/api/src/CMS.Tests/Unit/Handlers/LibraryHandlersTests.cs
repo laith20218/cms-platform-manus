@@ -1,3 +1,4 @@
+using CMS.Application.BackgroundJobs;
 using CMS.Application.Commands.Library;
 using CMS.Application.Handlers.Library;
 using CMS.Application.Interfaces;
@@ -52,7 +53,8 @@ public sealed class LibraryHandlersTests
             entitlements.Object,
             settingsService.Object,
             sanitizer.Object,
-            NullLogger<LibraryHandlers>.Instance, NoOp.ActivityWriter());
+            NullLogger<LibraryHandlers>.Instance, NoOp.ActivityWriter(),
+            new TranscodingChannelQueue()); // Push 10.3: real inert queue — jobs buffer, nothing consumes them in tests
         return (handler, storage, sanitizer, scanner);
     }
 

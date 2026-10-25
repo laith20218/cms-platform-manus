@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using CMS.Application.Exceptions;
 using CMS.Application.Handlers.Admin;
 using CMS.Domain.Exceptions;
 using FluentValidation;
@@ -59,6 +60,13 @@ public class ExceptionHandlingMiddleware
         {
             await HandleDomainException(context, ex, HttpStatusCode.BadRequest);
         }
+        catch (MediaProcessingException ex)
+        {
+            // Push 10.3: FFmpeg/media pipeline failure → 422 Unprocessable Entity with BOTH
+            // messages (Arabic human + English technical). Must sit ABOVE the generic catch;
+            // MediaProcessingException is not a DomainException so order vs. it is free.
+            await HandleMediaProcessingException(context, ex);
+        }
         catch (UnauthorizedAccessException ex)
         {
             await HandleSimpleException(context, "Unauthorized", ex.Message, HttpStatusCode.Unauthorized, "UNAUTHORIZED");
@@ -114,6 +122,35 @@ public class ExceptionHandlingMiddleware
         };
 
         context.Response.StatusCode = (int)statusCode;
+        context.Response.ContentType = "application/problem+json";
+        await context.Response.WriteAsJsonAsync(problemDetails);
+    }
+
+    private async Task HandleMediaProcessingException(HttpContext context, MediaProcessingException ex)
+    {
+        var problemDetails = new ProblemDetails
+        {
+            Type = "https://cms.example.com/errors/media_processing_failed",
+            Title = "Media Processing Failed",
+            Status = (int)HttpStatusCode.UnprocessableEntity,
+            // Detail carries the human message (Arabic) — the primary audience for 422s;
+            // the technical string rides an extension for admins/logs.
+            Detail = ex.HumanMessage,
+            Instance = context.Request.Path,
+            Extensions =
+            {
+                ["traceId"] = context.TraceIdentifier,
+                ["errorCode"] = "MEDIA_PROCESSING_FAILED",
+                ["humanMessage"] = ex.HumanMessage,
+                ["technicalDetails"] = ex.TechnicalDetails
+            }
+        };
+
+        _logger.LogError(
+            "Media processing rejected with 422. TraceId: {TraceId} Technical: {Technical}",
+            context.TraceIdentifier, ex.TechnicalDetails);
+
+        context.Response.StatusCode = (int)HttpStatusCode.UnprocessableEntity;
         context.Response.ContentType = "application/problem+json";
         await context.Response.WriteAsJsonAsync(problemDetails);
     }

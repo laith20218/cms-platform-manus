@@ -1,3 +1,4 @@
+using CMS.Application.BackgroundJobs;
 using System.Text.RegularExpressions;
 using CMS.Application.Commands.Courses;
 using CMS.Application.DTOs.Courses;
@@ -47,7 +48,8 @@ public sealed class CourseHandlersTests
             entitlements.Object,
             settingsService.Object,
             activity,
-            NullLogger<CourseHandlers>.Instance);
+            NullLogger<CourseHandlers>.Instance,
+            new TranscodingChannelQueue()); // Push 10.3: real inert queue — jobs buffer, nothing consumes them in tests
         return (handler, storage, entitlements, settingsService, activity);
     }
 
