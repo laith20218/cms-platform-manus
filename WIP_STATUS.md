@@ -1,3 +1,29 @@
+# WIP STATUS — Push 10.3 (FFmpeg Transcoding & Schema Upgrade — backend)
+
+Branch: `wip/10.3` (from wip/10.2 @ 2530f2c; **pushed to remote**)
+Scope: BACKEND ONLY (`apps/api`). No frontend files. Migration **generated but NOT applied** (SQL script verified).
+
+## Done (10.3)
+- [x] 1.A Schema: `ProcessingStatus` enum in new `CMS.Domain/Enums/MediaEnums.cs` (Pending=0 … Failed=5). Entities: **CourseEpisode** + **LibraryFile** gain `Difficulty` (required int, default 0=Easy — REUSES the existing question-domain enum, exact Easy/Medium/Hard match), nullable `ProcessingStatus`, nullable `HlsKey` (≤600); **CourseEpisode** additionally gains `Description` (≤1000). **Title already existed on both entities** (and Description on LibraryFile) — documented; no risky live-data ALTERs on legacy columns. Migration `20261025211326_AddMediaMetadata` generated (NOT applied); idempotent SQL script verified: 7 additive ALTERs + 2 partial filtered indexes (`ix_{course_episodes,library_files}_processing_status WHERE processing_status IS NOT NULL`), one transaction, all new columns nullable-or-defaulted → safe on live Neon data.
+- [x] 1.B Dockerfile: runtime stage `apk add … ffmpeg` (Alpine stock package, ships libx264+aac) + `FFMPEG_PATH`/`FFPROBE_PATH`/`FFMPEG_TIMEOUT_MINUTES` env knobs. **No Docker daemon in this sandbox** → verified the equivalent of stages 1–3 locally: `dotnet publish -c Release -r linux-musl-x64` green (exact Dockerfile publish path); no NuGet lock files exist → `--locked-mode` inert; `apk add ffmpeg` is the stock Alpine package name.
+- [x] 1.C Pipeline `CMS.Application/BackgroundJobs/VideoTranscodingService.cs`: `ITranscodingQueue` (bounded 200, DropWrite) + hosted single-consumer `BackgroundService`. Flow: complete-upload (video/* only) sets `Pending` in the same commit → enqueue AFTER commit → worker: `DownloadAsync` → ffprobe (width/height/duration/HasAudio) → ONE ffmpeg `var_stream_map` ladder → upload tree via `PutAsync` (`{key}/hls/…`, m3u8/ts content types) → `HlsKey={key}/hls/master.m3u8` + `Ready`. Statuses advance Pending→360p→720p(≥⅓)→1080p(≥⅔)→Ready via `-progress pipe:1` parsing (out_time_us; rungs encode in lockstep — rung statuses = progress phases). Failed on any error (dual-language log); shutdown resets to Pending; 60-min watchdog + entireProcessTree kill; never upscales (rungs above source height dropped, 360p floor); temp workspace under `/tmp/cms-transcode` wiped in finally. Registered in AddApplicationServices (concrete singleton forwarded as interface + AddHostedService).
+- [x] 1.D `CMS.Application/Exceptions/MediaProcessingException.cs` (Arabic `HumanMessage` default + English `TechnicalDetails`) → `ExceptionHandlingMiddleware` maps to **422** ProblemDetails with BOTH messages (extensions humanMessage/technicalDetails + errorCode MEDIA_PROCESSING_FAILED).
+- [x] 1.E `FfmpegLadder` exact command (in code + live-validated): 360p 800k/720p 2800k/1080p 5000k (maxrate 107%, bufsize 1.5×), profiles main/main/high, aac 96/128/192k stereo, GOP 48, 4s MPEG-TS VOD segments, `independent_segments`, `-var_stream_map "v:N,a:N,name:{rung}"`, `-master_pl_name master.m3u8`.
+- [x] **LIVE command validation** (real ffmpeg vs generated sources): full 3-rung ladder on a 1080p+audio source → encode completed, master.m3u8 perfect (BANDWIDTH 985600/3220800/5711200, CODECS avc1.4d401e/4d401f/640028 + mp4a.40.2); caught+fixed a REAL hang (missing `-nostdin` → interactive stdin mode); audio-less 480p source validated the HasAudio gate (audio-form fails exactly as predicted; no-audio form exits 0 <1s) + rung filtering.
+- [x] Gates: `dotnet build CMS.sln` green (17 pre-existing warnings); unit suite **294/294** (4 test constructor call sites updated with an inert `TranscodingChannelQueue`).
+- [x] NuGet: CMS.Application gains `Microsoft.Extensions.Hosting.Abstractions` + `Logging.Abstractions` 10.0.0 (BackgroundService host — same 10.0.0 wave as the existing DI.Abstractions).
+
+## Commit log (10.3)
+- `629ec9c` — feat(api): FFmpeg transcoding pipeline + media metadata schema
+- `81e763e` — fix(api): -nostdin from live command validation
+
+## Open items (for 10.4 / supervisor)
+- Migration apply = supervisor action (`AddMediaMetadata` — SQL verified, safe).
+- Playback still signs `FileKey` (direct MP4); switching the player to `HlsKey`/HLS is future wiring (needs hls.js decision on the frontend or native HLS support).
+- Queue is in-memory (restart drops queued jobs — assets stay Pending); a requeue/sweep admin surface is the natural 10.4 addition. No `ProcessingError` column (failure reason lives in logs) — add if the admin UI needs to display it.
+
+---
+
 # WIP STATUS — Push 10.2 (Video Player Integration — frontend)
 
 Branch: `wip/10.2` (from wip/10.1 @ 2530f2c; **pushed to remote** @ 4554e5f)
