@@ -20,7 +20,15 @@ public record LibraryFileDto(
     List<string> Tags,
     int ViewsCount,
     int FavoritesCount,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    // ===== Push 10.5 — rich metadata + transcoding lifecycle exposure =====
+    // Same additive contract as CourseEpisodeDto: enum strings via the global
+    // JsonStringEnumConverter, null ProcessingStatus = pipeline never applied
+    // (non-video / legacy), ProcessingError only while status == Failed.
+    Difficulty Difficulty = Difficulty.Easy,
+    ProcessingStatus? ProcessingStatus = null,
+    string? ProcessingError = null,
+    string? HlsKey = null
 );
 
 public record LibraryFileListItemDto(
@@ -85,7 +93,13 @@ public record CompleteUploadDto(
     long ActualFileSize,
     int? PagesCount,
     int? DurationSeconds,
-    string? YoutubeVideoId
+    string? YoutubeVideoId,
+    // Push 10.5 — optional metadata override (null = keep the values captured at
+    // upload-url time). The current library UI does not send them yet; the keys are
+    // additive so the wire contract stays forward-compatible.
+    string? Title = null,
+    string? Description = null,
+    Difficulty? Difficulty = null
 );
 
 // ===== Admin: Update/Delete =====
@@ -93,5 +107,7 @@ public record UpdateLibraryFileDto(
     string Title,
     string? Description,
     List<string> Tags,
-    Guid? LectureId
+    Guid? LectureId,
+    // Push 10.5 — difficulty is PATCH-optional: null leaves the stored tier untouched.
+    Difficulty? Difficulty = null
 );

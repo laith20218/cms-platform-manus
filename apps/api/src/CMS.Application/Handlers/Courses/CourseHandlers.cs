@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using CMS.Application.BackgroundJobs;
 using CMS.Application.Commands.Courses;
 using CMS.Application.DTOs.Courses;
+using CMS.Application.DTOs.Media;
 using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
 using CMS.Domain.Enums;
@@ -336,6 +337,14 @@ public class CourseHandlers :
         typeof(CourseEpisode).GetProperty("EpisodeNumber")?.SetValue(episode, req.EpisodeNumber);
         typeof(CourseEpisode).GetProperty("DurationSeconds")?.SetValue(episode, req.DurationSeconds);
 
+        // Push 10.5 — PATCH-optional metadata from the 10.4 edit modal: null keys
+        // leave the stored values untouched; an explicit description (even empty)
+        // replaces the stored one after trimming.
+        if (req.Description is not null)
+            episode.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim();
+        if (req.Difficulty is not null)
+            episode.Difficulty = req.Difficulty.Value;
+
         await SaveEpisodesWithNumberGuardAsync(ct);
         return MapToEpisodeDto(episode);
     }
@@ -477,6 +486,16 @@ public class CourseHandlers :
 
         typeof(CourseEpisode).GetProperty("FileSize")?.SetValue(episode, actualSize);
         typeof(CourseEpisode).GetProperty("UploadId")?.SetValue(episode, null); // blob ready for playback
+
+        // Push 10.5 — metadata from the 10.4 upload panel rides the completion body
+        // (title/description/difficulty alongside the parts list). Null keys keep the
+        // initiate-time values; difficulty applies only when provided.
+        if (!string.IsNullOrWhiteSpace(req.Title))
+            episode.Title = req.Title.Trim();
+        if (req.Description is not null)
+            episode.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim();
+        if (req.Difficulty is not null)
+            episode.Difficulty = req.Difficulty.Value;
 
         // Push 10.3: video assets enter the FFmpeg HLS pipeline the moment the upload
         // completes (same commit as the blob-ready marker). Audio episodes and YouTube
@@ -625,5 +644,12 @@ public class CourseHandlers :
         episode.Id, episode.CourseId, episode.Title, episode.EpisodeNumber, episode.DurationSeconds,
         episode.SourceType.ToString(), episode.FileSize, episode.ContentType, episode.YoutubeVideoId,
         episode.SourceType == CourseEpisodeSource.YouTube || string.IsNullOrEmpty(episode.UploadId),
-        episode.ViewsCount);
+        episode.ViewsCount,
+        // Push 10.5 — rich metadata + transcoding lifecycle exposure (additive DTO keys;
+        // the 10.4 admin/student apps already render them and degrade on absence).
+        episode.Description,
+        episode.Difficulty,
+        episode.ProcessingStatus,
+        episode.ProcessingStatus == ProcessingStatus.Failed ? MediaProcessingFailure.TechnicalDetails : null,
+        episode.HlsKey);
 }

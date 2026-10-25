@@ -1,5 +1,6 @@
 using CMS.Application.Commands.Media;
 using CMS.Application.DTOs.Media;
+using CMS.Application.Exceptions;
 using CMS.Application.Handlers.Media;
 using CMS.Application.Interfaces;
 using CMS.Domain.Constants;
@@ -285,6 +286,144 @@ public sealed class MediaHandlersTests
         var act = async () => await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
 
         await act.Should().ThrowAsync<ForbiddenException>();
+    }
+
+    // ===== Push 10.5 — transcoding-aware playback resolution =====
+
+    [Fact]
+    public async Task GetPlaybackUrl_EpisodeReadyWithHlsKey_PresignsMasterPlaylist()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedEpisodeAsync(db);
+        db.CourseEpisodes.Update(episode);
+        episode.ProcessingStatus = ProcessingStatus.Ready;
+        episode.HlsKey = "courses/test/episode/hls/master.m3u8";
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+
+        storage.Setup(service => service.GetSignedUrlAsync("courses/test/episode/hls/master.m3u8", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://example.r2.cloudflarestorage.com/courses/test/episode/hls/master.m3u8?X-Amz-Signature=redacted");
+
+        var result = await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
+
+        result.Url.Should().Contain("master.m3u8", "Ready assets with a pinned HlsKey serve the HLS ladder, not the source object");
+        result.ContentType.Should().Be("application/vnd.apple.mpegurl");
+        result.SupportsRange.Should().BeTrue();
+        storage.Verify(service => service.GetSignedUrlAsync(
+            "courses/test/episode/hls/master.m3u8",
+            TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds),
+            It.IsAny<CancellationToken>()), Times.Once);
+        storage.Verify(service => service.GetSignedUrlAsync(
+            "courses/test/episode",
+            It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()), Times.Never,
+            "the source MP4 must not be presigned once the ladder is Ready");
+    }
+
+    [Fact]
+    public async Task GetPlaybackUrl_LibraryFileReadyWithHlsKey_PresignsMasterPlaylist()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var file = await SeedVideoFileAsync(db);
+        db.LibraryFiles.Update(file);
+        file.ProcessingStatus = ProcessingStatus.Ready;
+        file.HlsKey = "library/test/video/hls/master.m3u8";
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+
+        storage.Setup(service => service.GetSignedUrlAsync("library/test/video/hls/master.m3u8", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://example.r2.cloudflarestorage.com/library/test/video/hls/master.m3u8?X-Amz-Signature=redacted");
+
+        var result = await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
+
+        result.Url.Should().Contain("master.m3u8");
+        result.ContentType.Should().Be("application/vnd.apple.mpegurl");
+        storage.Verify(service => service.GetSignedUrlAsync(
+            "library/test/video/hls/master.m3u8",
+            TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(ProcessingStatus.Pending)]
+    [InlineData(ProcessingStatus.Transcoding_360p)]
+    [InlineData(ProcessingStatus.Transcoding_720p)]
+    [InlineData(ProcessingStatus.Transcoding_1080p)]
+    public async Task GetPlaybackUrl_WhileProcessing_IsConflict(ProcessingStatus status)
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedEpisodeAsync(db);
+        db.CourseEpisodes.Update(episode);
+        episode.ProcessingStatus = status;
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+
+        var act = async () => await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<ConflictException>())
+            .Which.Message.Should().Contain("قيد المعالجة",
+                "the 409 carries the dual-language still-processing sentence");
+        storage.VerifyNoOtherCalls(); // no presign happens while the ladder is still encoding
+    }
+
+    [Fact]
+    public async Task GetPlaybackUrl_FailedAsset_ThrowsMediaProcessingException()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedEpisodeAsync(db);
+        db.CourseEpisodes.Update(episode);
+        episode.ProcessingStatus = ProcessingStatus.Failed;
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+
+        var act = async () => await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
+
+        var failure = (await act.Should().ThrowAsync<MediaProcessingException>()).Which;
+        failure.HumanMessage.Should().NotBeNullOrWhiteSpace("the 422 ProblemDetails leads with the Arabic human sentence");
+        failure.TechnicalDetails.Should().Contain("Failed",
+            "the collapsible technical section explains the terminal pipeline failure");
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetPlaybackUrl_LibraryFileFailed_ThrowsMediaProcessingException()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var file = await SeedVideoFileAsync(db);
+        db.LibraryFiles.Update(file);
+        file.ProcessingStatus = ProcessingStatus.Failed;
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+
+        var act = async () => await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
+
+        await act.Should().ThrowAsync<MediaProcessingException>();
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetPlaybackUrl_ReadyWithoutHlsKey_FallsBackToSourceObject()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedEpisodeAsync(db);
+        db.CourseEpisodes.Update(episode);
+        episode.ProcessingStatus = ProcessingStatus.Ready; // HlsKey stays null — pipeline anomaly
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+
+        storage.Setup(service => service.GetSignedUrlAsync("courses/test/episode", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://example.r2.cloudflarestorage.com/courses/test/episode?X-Amz-Signature=redacted");
+
+        var result = await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
+
+        result.ContentType.Should().Be("video/mp4",
+            "a Ready status without a pinned key must degrade to the source object instead of failing playback");
+        storage.Verify(service => service.GetSignedUrlAsync("courses/test/episode", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ===== §1.B: bookmarks =====

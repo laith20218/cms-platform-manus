@@ -187,7 +187,8 @@ public sealed class AdminCoursesController : ControllerBase
         var subjectId = await SubjectIdForEpisodeAsync(id, ct);
         if (subjectId is null) return NotFound();
         if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Forbid();
-        return Ok(await _mediator.Send(new UpdateEpisodeCommand(id, dto.Title, dto.EpisodeNumber, dto.DurationSeconds), ct));
+        return Ok(await _mediator.Send(new UpdateEpisodeCommand(id, dto.Title, dto.EpisodeNumber, dto.DurationSeconds,
+            dto.Description, dto.Difficulty), ct));
     }
 
     [HttpDelete("episodes/{id:guid}")]
@@ -241,7 +242,10 @@ public sealed class AdminCoursesController : ControllerBase
         var subjectId = await SubjectIdForEpisodeAsync(episodeId, ct);
         if (subjectId is null) return NotFound();
         if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Forbid();
-        return Ok(await _mediator.Send(new CompleteEpisodeUploadCommand(episodeId, dto.Parts), ct));
+        // Push 10.5: metadata (title/description/difficulty) rides the complete-upload
+        // body from the 10.4 upload panel — null keys keep the initiate-time values.
+        return Ok(await _mediator.Send(new CompleteEpisodeUploadCommand(episodeId, dto.Parts,
+            dto.Title, dto.Description, dto.Difficulty), ct));
     }
 
     /// <summary>Aborts an in-flight upload and removes the incomplete episode row.</summary>
@@ -260,6 +264,19 @@ public record AdminCourseListItem(Guid Id, Guid SubjectId, string SubjectName, s
 public record CreateCourseDto(Guid SubjectId, string Title, string? Description, string? CoverImageUrl);
 public record UpdateCourseDto(string Title, string? Description, string? CoverImageUrl);
 public record AddYouTubeEpisodeDto(string Title, int EpisodeNumber, int? DurationSeconds, string YoutubeVideoId);
-public record UpdateEpisodeDto(string Title, int EpisodeNumber, int? DurationSeconds);
+public record UpdateEpisodeDto(
+    string Title,
+    int EpisodeNumber,
+    int? DurationSeconds,
+    // Push 10.5 — PATCH-optional metadata from the 10.4 edit modal.
+    string? Description = null,
+    Difficulty? Difficulty = null
+);
 public record InitiateUploadRequestDto(string FileName, string ContentType, long FileSize, string Title, int EpisodeNumber);
-public record CompleteUploadRequestDto(List<CompletedPartDto> Parts);
+public record CompleteUploadRequestDto(
+    List<CompletedPartDto> Parts,
+    // Push 10.5 — additive metadata keys sent by the 10.4 upload panel.
+    string? Title = null,
+    string? Description = null,
+    Difficulty? Difficulty = null
+);

@@ -331,6 +331,138 @@ public sealed class CourseHandlersTests
         activity.Actions.Should().ContainSingle(entry => entry.Action == AdminActivityActionType.UploadEpisode);
     }
 
+    // ===== Push 10.5 — upload-panel metadata + lifecycle exposure =====
+
+    [Fact]
+    public async Task CompleteUpload_SavesUploadPanelMetadata()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/meta/y", uploadId: "mpu-meta", fileSize: 100);
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.CompleteMultipartUploadAsync("courses/meta/y", "mpu-meta", It.IsAny<IReadOnlyList<CompletedPart>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        storage.Setup(s => s.GetObjectSizeAsync("courses/meta/y", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(2048L);
+
+        var completed = await handler.Handle(new CompleteEpisodeUploadCommand(episode.Id,
+            new List<CompletedPartDto> { new(1, "etag-1") },
+            Title: "  الحلقة المعدلة  ",
+            Description: "شرح مفصل لمنهج الباطنة",
+            Difficulty: Difficulty.Hard), CancellationToken.None);
+
+        completed.Title.Should().Be("الحلقة المعدلة", "the completion-body title overrides the initiate-time one after trimming");
+        completed.Description.Should().Be("شرح مفصل لمنهج الباطنة");
+        completed.Difficulty.Should().Be(Difficulty.Hard);
+        var stored = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == episode.Id);
+        stored.Title.Should().Be("الحلقة المعدلة");
+        stored.Description.Should().Be("شرح مفصل لمنهج الباطنة");
+        stored.Difficulty.Should().Be(Difficulty.Hard);
+        stored.ProcessingStatus.Should().Be(ProcessingStatus.Pending,
+            "video completions still enter the FFmpeg pipeline (10.3) with the metadata riding the same commit");
+        completed.ProcessingStatus.Should().Be(ProcessingStatus.Pending);
+    }
+
+    [Fact]
+    public async Task CompleteUpload_WithoutMetadata_KeepsInitiateTimeValues()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/keep/y", uploadId: "mpu-keep", fileSize: 100);
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.CompleteMultipartUploadAsync("courses/keep/y", "mpu-keep", It.IsAny<IReadOnlyList<CompletedPart>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        storage.Setup(s => s.GetObjectSizeAsync("courses/keep/y", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(2048L);
+
+        var completed = await handler.Handle(new CompleteEpisodeUploadCommand(episode.Id,
+            new List<CompletedPartDto> { new(1, "etag-1") }), CancellationToken.None);
+
+        var stored = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == episode.Id);
+        stored.Title.Should().Be("الحلقة الأولى", "null keys keep the initiate-time title");
+        stored.Description.Should().BeNull();
+        stored.Difficulty.Should().Be(Difficulty.Easy, "the entity default tier applies when the body omits difficulty");
+        completed.Difficulty.Should().Be(Difficulty.Easy);
+        completed.ProcessingError.Should().BeNull("technical details ride the DTO only while the pipeline is Failed");
+        completed.HlsKey.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpdateEpisode_PatchesOptionalMetadata()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", episodeNumber: 1);
+        db.CourseEpisodes.Update(episode);
+        episode.Description = "الوصف القديم";
+        episode.Difficulty = Difficulty.Medium;
+        await db.SaveChangesAsync();
+        var (handler, _, _, _, _) = Create(db);
+
+        var updated = await handler.Handle(new UpdateEpisodeCommand(episode.Id, "عنوان جديد", 2, 120,
+            Description: "  وصف محدث  ",
+            Difficulty: Difficulty.Hard), CancellationToken.None);
+
+        updated.Description.Should().Be("وصف محدث");
+        updated.Difficulty.Should().Be(Difficulty.Hard);
+        var stored = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == episode.Id);
+        stored.Description.Should().Be("وصف محدث");
+        stored.Difficulty.Should().Be(Difficulty.Hard);
+    }
+
+    [Fact]
+    public async Task UpdateEpisode_AbsentMetadataKeys_LeaveStoredValuesUntouched()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", episodeNumber: 1);
+        db.CourseEpisodes.Update(episode);
+        episode.Description = "الوصف القديم";
+        episode.Difficulty = Difficulty.Hard;
+        await db.SaveChangesAsync();
+        var (handler, _, _, _, _) = Create(db);
+
+        // Old callers compile against the pre-10.5 signature — PATCH semantics apply.
+        var updated = await handler.Handle(new UpdateEpisodeCommand(episode.Id, "عنوان جديد", 2, 120), CancellationToken.None);
+
+        updated.Description.Should().Be("الوصف القديم", "null description leaves the stored value untouched");
+        updated.Difficulty.Should().Be(Difficulty.Hard, "null difficulty leaves the stored tier untouched");
+    }
+
+    [Fact]
+    public async Task GetAdminCourse_ExposesEpisodeMetadataAndLifecycle()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var ready = await SeedUploadEpisodeAsync(db, course, "courses/ready/y", episodeNumber: 1);
+        db.CourseEpisodes.Update(ready);
+        ready.Description = "شرح مفصل للمنهج";
+        ready.Difficulty = Difficulty.Medium;
+        ready.ProcessingStatus = ProcessingStatus.Ready;
+        ready.HlsKey = "courses/ready/y/hls/master.m3u8";
+        var failed = await SeedUploadEpisodeAsync(db, course, "courses/failed/y", episodeNumber: 2);
+        db.CourseEpisodes.Update(failed);
+        failed.ProcessingStatus = ProcessingStatus.Failed;
+        await db.SaveChangesAsync();
+        var (handler, _, _, _, _) = Create(db);
+
+        var detail = await handler.Handle(new GetAdminCourseByIdQuery(course.Id), CancellationToken.None);
+
+        var readyDto = detail.Episodes.Single(e => e.Id == ready.Id);
+        readyDto.Description.Should().Be("شرح مفصل للمنهج");
+        readyDto.Difficulty.Should().Be(Difficulty.Medium);
+        readyDto.ProcessingStatus.Should().Be(ProcessingStatus.Ready);
+        readyDto.ProcessingError.Should().BeNull();
+        readyDto.HlsKey.Should().Be("courses/ready/y/hls/master.m3u8",
+            "the admin processing poller reads hlsKey to detect a finished ladder");
+
+        var failedDto = detail.Episodes.Single(e => e.Id == failed.Id);
+        failedDto.ProcessingStatus.Should().Be(ProcessingStatus.Failed);
+        failedDto.ProcessingError.Should().NotBeNullOrEmpty(
+            "the dual-language error modal's collapsible section consumes the technical string while polling a Failed asset");
+        failedDto.ProcessingError.Should().Contain("Failed");
+    }
+
     [Fact]
     public async Task AbortUpload_AbortsStorage_AndDeletesRow()
     {

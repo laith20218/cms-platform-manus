@@ -1,3 +1,5 @@
+using CMS.Domain.Enums;
+
 namespace CMS.Application.DTOs.Courses;
 
 // ===== Student-facing =====
@@ -36,7 +38,22 @@ public record CourseEpisodeDto(
     string? ContentType,
     string? YoutubeVideoId,
     bool UploadCompleted, // true when the blob is ready for playback
-    int ViewsCount
+    int ViewsCount,
+    // ===== Push 10.5 — rich metadata + transcoding lifecycle exposure =====
+    // Additive optional keys (camelCase on the wire): the 10.4 admin/student apps
+    // already read them and degrade gracefully on absence, so older clients keep
+    // working. `Difficulty` rides the global JsonStringEnumConverter → "Easy"|
+    // "Medium"|"Hard"; `ProcessingStatus` → "Pending"…"Ready"/"Failed", null = the
+    // pipeline never applied to this asset (YouTube/audio/legacy) and the source
+    // object is directly playable. `ProcessingError` carries English technical
+    // details ONLY while status == Failed (feeds the collapsible section of the
+    // dual-language error modal); `HlsKey` exposes the master.m3u8 object key once
+    // the FFmpeg ladder reaches Ready.
+    string? Description = null,
+    Difficulty Difficulty = Difficulty.Easy,
+    ProcessingStatus? ProcessingStatus = null,
+    string? ProcessingError = null,
+    string? HlsKey = null
 );
 
 /// <summary>Mirror of the library FileAccessDto contract: playback URL + watermark envelope.</summary>

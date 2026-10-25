@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using CMS.Application.Commands.Media;
 using CMS.Application.DTOs.Media;
+using CMS.Application.Exceptions;
 using CMS.Application.Interfaces;
 using CMS.Domain.Constants;
 using CMS.Domain.Entities;
@@ -19,6 +20,13 @@ namespace CMS.Application.Handlers.Media;
 ///     from Favorite);
 ///   • §1.C playback progress (resume position + derived completion, 95 % rule).
 ///
+/// Push 10.5 — §1.A is transcoding-aware: an asset whose FFmpeg ladder is Ready and
+/// has a pinned HlsKey serves the HLS master playlist (application/vnd.apple.mpegurl)
+/// instead of the source object — the student player's dual engine routes .m3u8 URLs
+/// to hls.js (10.4). Assets still encoding answer 409 (dual-language); terminal
+/// failures answer 422 with both audiences in the ProblemDetails payload. NULL
+/// ProcessingStatus keeps the legacy source-object path (audio / YouTube / pre-10.3).
+///
 /// Every student entry point enforces the VideoAudio content scope through
 /// IEntitlementService — the same gate the course catalog and episode access use.
 /// </summary>
@@ -34,6 +42,10 @@ public class MediaHandlers :
     private const int MaxBookmarkLabelLength = 100;
     private const int MaxBookmarkNoteLength = 500;
     private const int MaxBookmarkSpanSeconds = 3600;
+
+    /// <summary>HLS master playlist MIME — the presigned key ends with master.m3u8 and
+    /// the student player's dual engine routes .m3u8 URLs to hls.js (Push 10.4).</summary>
+    private const string HlsContentType = "application/vnd.apple.mpegurl";
 
     private readonly IApplicationDbContext _db;
     private readonly IUnitOfWork _unitOfWork;
@@ -65,7 +77,7 @@ public class MediaHandlers :
                 .Where(file => file.Id == req.AssetId && file.DeletedAt == null
                     && file.Status == ContentStatus.Published
                     && file.VirusScanStatus == VirusScanStatus.Clean)
-                .Select(file => new { file.FileUrl, file.Type, file.FileFormat, file.YoutubeVideoId, file.SubjectId })
+                .Select(file => new { file.FileUrl, file.Type, file.FileFormat, file.YoutubeVideoId, file.SubjectId, file.ProcessingStatus, file.HlsKey })
                 .FirstOrDefaultAsync(ct)
                 ?? throw new NotFoundException("LibraryFile", req.AssetId);
 
@@ -78,10 +90,14 @@ public class MediaHandlers :
             if (!await _entitlements.CanAccessSubjectContentAsync(req.StudentId, file.SubjectId, SubscriptionContentScope.VideoAudio, ct))
                 throw new ForbiddenException("لا تملك صلاحية تشغيل هذه الوسائط");
 
-            fileKey = file.FileUrl;
-            contentType = string.IsNullOrWhiteSpace(file.FileFormat)
-                ? (file.Type == LibraryFileType.Video ? "video/mp4" : "audio/mpeg")
-                : file.FileFormat!;
+            // Push 10.5 — transcoding-aware resolution AFTER the entitlement gate
+            // (processing state is never leaked to unentitled callers).
+            var hlsKey = ResolveHlsKeyForPlayback(file.ProcessingStatus, file.HlsKey);
+            fileKey = hlsKey ?? file.FileUrl;
+            contentType = hlsKey is not null ? HlsContentType
+                : string.IsNullOrWhiteSpace(file.FileFormat)
+                    ? (file.Type == LibraryFileType.Video ? "video/mp4" : "audio/mpeg")
+                    : file.FileFormat!;
         }
         else
         {
@@ -106,8 +122,11 @@ public class MediaHandlers :
             if (!await _entitlements.CanAccessSubjectContentAsync(req.StudentId, episode.CourseSubjectId, SubscriptionContentScope.VideoAudio, ct))
                 throw new ForbiddenException("لا تملك صلاحية تشغيل هذه الحلقة");
 
-            fileKey = episode.Episode.FileKey!;
-            contentType = string.IsNullOrWhiteSpace(episode.Episode.ContentType) ? "video/mp4" : episode.Episode.ContentType!;
+            // Push 10.5 — same transcoding-aware resolution as library files.
+            var hlsKey = ResolveHlsKeyForPlayback(episode.Episode.ProcessingStatus, episode.Episode.HlsKey);
+            fileKey = hlsKey ?? episode.Episode.FileKey!;
+            contentType = hlsKey is not null ? HlsContentType
+                : string.IsNullOrWhiteSpace(episode.Episode.ContentType) ? "video/mp4" : episode.Episode.ContentType!;
         }
 
         // Object-scoped presign via the Upstash agent (/v1/presign) — Push 10.0c security
@@ -301,6 +320,43 @@ public class MediaHandlers :
     }
 
     // ===== shared helpers =====
+
+    /// <summary>
+    /// Push 10.5 — transcoding-aware playback key resolution.
+    /// <list type="bullet">
+    ///   <item><c>null</c> status — the pipeline never applied to the asset (audio,
+    ///   YouTube, pre-10.3 rows): the source object stays the playback target (the
+    ///   honest-degradation contract; students keep playing the MP4).</item>
+    ///   <item>Pending / Transcoding_* — the ladder is still encoding: 409 Conflict
+    ///   with a dual-language "still processing" message (the middleware maps
+    ///   <see cref="ConflictException"/> to ProblemDetails).</item>
+    ///   <item>Failed — terminal failure: <see cref="MediaProcessingException"/> →
+    ///   422 Unprocessable Entity carrying the Arabic humanMessage + English
+    ///   technicalDetails pair in the ProblemDetails payload.</item>
+    ///   <item>Ready — returns the pinned HlsKey (master.m3u8). A Ready asset
+    ///   without a key (pipeline anomaly) returns null → source-object fallback.</item>
+    /// </list>
+    /// Must be called AFTER the entitlement gate so processing state is never
+    /// leaked to unentitled callers.
+    /// </summary>
+    private static string? ResolveHlsKeyForPlayback(ProcessingStatus? status, string? hlsKey)
+    {
+        switch (status)
+        {
+            case null:
+                return null;
+            case ProcessingStatus.Pending:
+            case ProcessingStatus.Transcoding_360p:
+            case ProcessingStatus.Transcoding_720p:
+            case ProcessingStatus.Transcoding_1080p:
+                throw new ConflictException(
+                    "الفيديو قيد المعالجة على الخادم — جاري إنشاء نسخ المشاهدة، أعد المحاولة بعد قليل.\nThe video is still being processed on the server — please try again shortly.");
+            case ProcessingStatus.Failed:
+                throw new MediaProcessingException(technicalDetails: MediaProcessingFailure.TechnicalDetails);
+            default:
+                return hlsKey;
+        }
+    }
 
     /// <summary>The 95 % rule: past 95 % of the duration, completion pins to 100.</summary>
     private static decimal ComputeCompletion(int position, int duration) =>

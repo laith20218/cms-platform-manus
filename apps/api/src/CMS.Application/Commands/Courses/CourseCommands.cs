@@ -58,7 +58,11 @@ public record UpdateEpisodeCommand(
     Guid Id,
     string Title,
     int EpisodeNumber,
-    int? DurationSeconds
+    int? DurationSeconds,
+    // Push 10.5 — PATCH-optional metadata: null leaves the stored value untouched
+    // (the 10.4 edit modal always sends them; older callers keep compiling).
+    string? Description = null,
+    Difficulty? Difficulty = null
 ) : IRequest<CourseEpisodeDto>;
 
 public record DeleteEpisodeCommand(Guid Id, Guid DeletedBy) : IRequest<Unit>;
@@ -80,7 +84,14 @@ public record GetMultipartStatusQuery(
 
 public record CompleteEpisodeUploadCommand(
     Guid EpisodeId,
-    List<CompletedPartDto> Parts
+    List<CompletedPartDto> Parts,
+    // Push 10.5 — metadata riding the complete-upload body (the 10.4 upload panel
+    // sends title/description/difficulty alongside the parts list). Title/description
+    // are overrides for the values captured at initiate-upload; difficulty defaults
+    // to the entity's stored tier when absent (null = leave unchanged).
+    string? Title = null,
+    string? Description = null,
+    Difficulty? Difficulty = null
 ) : IRequest<CourseEpisodeDto>;
 
 public record AbortEpisodeUploadCommand(Guid EpisodeId, Guid DeletedBy) : IRequest<Unit>;

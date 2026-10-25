@@ -340,6 +340,76 @@ public sealed class LibraryHandlersTests
             "only text/html uploads go through sanitization");
     }
 
+    // ===== Push 10.5 — optional metadata override + difficulty exposure =====
+
+    [Fact]
+    public async Task CompleteUpload_AppliesOptionalMetadataOverride()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        const string fileKey = "library/pdf/meta";
+        var file = await SeedFileAsync(db, fileKey);
+        var (handler, storage, _, _) = Create(db);
+        storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var result = await handler.Handle(new CompleteUploadCommand(
+            file.Id, fileKey, 2048, null, null, null, Guid.NewGuid(),
+            Title: "  عنوان معدل  ",
+            Description: "وصف مكتبي جديد",
+            Difficulty: Difficulty.Hard), CancellationToken.None);
+
+        result.Title.Should().Be("عنوان معدل");
+        result.Description.Should().Be("وصف مكتبي جديد");
+        result.Difficulty.Should().Be(Difficulty.Hard);
+        var stored = db.LibraryFiles.AsNoTracking().Single(f => f.Id == file.Id);
+        stored.Title.Should().Be("عنوان معدل");
+        stored.Description.Should().Be("وصف مكتبي جديد");
+        stored.Difficulty.Should().Be(Difficulty.Hard);
+    }
+
+    [Fact]
+    public async Task CompleteUpload_WithoutMetadata_KeepsUploadUrlTimeValues()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        const string fileKey = "library/pdf/keep";
+        var file = await SeedFileAsync(db, fileKey);
+        var (handler, storage, _, _) = Create(db);
+        storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var result = await handler.Handle(CompleteCommand(file), CancellationToken.None);
+
+        var stored = db.LibraryFiles.AsNoTracking().Single(f => f.Id == file.Id);
+        stored.Title.Should().Be("ملف اختبار الحذف", "null keys keep the upload-url-time title");
+        stored.Difficulty.Should().Be(Difficulty.Easy, "the entity default tier applies when the body omits difficulty");
+        result.Difficulty.Should().Be(Difficulty.Easy);
+        result.ProcessingStatus.Should().BeNull("non-video files never enter the transcoding pipeline");
+        result.ProcessingError.Should().BeNull();
+        result.HlsKey.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpdateLibraryFile_PatchesDifficulty_LeavesAbsentTierUntouched()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        const string fileKey = "library/pdf/update";
+        var file = await SeedFileAsync(db, fileKey);
+        db.LibraryFiles.Update(file);
+        file.Difficulty = Difficulty.Medium;
+        await db.SaveChangesAsync();
+        var (handler, _, _, _) = Create(db);
+
+        var updated = await handler.Handle(new UpdateLibraryFileCommand(
+            file.Id, "عنوان محدث", null, new List<string>(), null, Difficulty.Hard), CancellationToken.None);
+
+        updated.Difficulty.Should().Be(Difficulty.Hard);
+        db.LibraryFiles.AsNoTracking().Single(f => f.Id == file.Id).Difficulty.Should().Be(Difficulty.Hard);
+
+        // Absent key (old callers) — PATCH semantics keep the stored tier.
+        var untouched = await handler.Handle(new UpdateLibraryFileCommand(
+            file.Id, "عنوان آخر", null, new List<string>(), null), CancellationToken.None);
+
+        untouched.Difficulty.Should().Be(Difficulty.Hard, "null difficulty leaves the stored tier untouched");
+    }
+
     [Fact]
     public async Task CompleteUpload_SanitizerFailure_DeletesBlob_RejectsWithHtmlSanitizationFailed()
     {

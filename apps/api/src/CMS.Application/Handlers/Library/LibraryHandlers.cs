@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using CMS.Application.BackgroundJobs;
 using CMS.Application.Commands.Library;
 using CMS.Application.DTOs.Library;
+using CMS.Application.DTOs.Media;
 using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
 using CMS.Domain.Enums;
@@ -378,6 +379,16 @@ public class LibraryHandlers :
         if (!string.IsNullOrEmpty(req.YoutubeVideoId))
             typeof(LibraryFile).GetProperty("YoutubeVideoId")?.SetValue(file, req.YoutubeVideoId);
 
+        // Push 10.5 — optional metadata override from the complete-upload body (null =
+        // keep the upload-url-time values; the current library UI does not send them
+        // yet — the keys are additive on the wire).
+        if (!string.IsNullOrWhiteSpace(req.Title))
+            file.Title = req.Title.Trim();
+        if (req.Description is not null)
+            file.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim();
+        if (req.Difficulty is not null)
+            file.Difficulty = req.Difficulty.Value;
+
         // Push 10.3: video library files enter the FFmpeg HLS pipeline at complete-upload
         // (same commit as the metadata). Non-video files keep ProcessingStatus NULL.
         if (file.FileFormat?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true)
@@ -414,6 +425,10 @@ public class LibraryHandlers :
         typeof(LibraryFile).GetProperty("Description")?.SetValue(file, req.Description);
         typeof(LibraryFile).GetProperty("Tags")?.SetValue(file, req.Tags);
         typeof(LibraryFile).GetProperty("LectureId")?.SetValue(file, req.LectureId);
+
+        // Push 10.5 — PATCH-optional difficulty: null leaves the stored tier untouched.
+        if (req.Difficulty is not null)
+            file.Difficulty = req.Difficulty.Value;
 
         await _unitOfWork.SaveChangesAsync(ct);
         return MapToDto(file);
@@ -490,6 +505,11 @@ public class LibraryHandlers :
         f.Title, f.Description, f.FileSize, f.FileFormat,
         f.DurationSeconds, f.PagesCount, f.ThumbnailUrl,
         f.YoutubeVideoId, f.Tags, f.ViewsCount, f.FavoritesCount,
-        f.CreatedAt
+        f.CreatedAt,
+        // Push 10.5 — rich metadata + transcoding lifecycle exposure (additive DTO keys).
+        f.Difficulty,
+        f.ProcessingStatus,
+        f.ProcessingStatus == ProcessingStatus.Failed ? MediaProcessingFailure.TechnicalDetails : null,
+        f.HlsKey
     );
 }

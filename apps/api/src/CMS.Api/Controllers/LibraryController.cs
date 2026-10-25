@@ -235,10 +235,12 @@ public class LibraryController : ControllerBase
     public async Task<ActionResult<LibraryFileDto>> CompleteUpload([FromBody] CompleteUploadDto dto, CancellationToken ct)
     {
         if (!await CanManageAsync(Actions.Edit, "library_file", dto.FileId, ct)) return Forbid();
+        // Push 10.5: optional metadata override (null = keep upload-url-time values).
         var result = await _mediator.Send(new CompleteUploadCommand(
             dto.FileId, dto.FileKey, dto.ActualFileSize,
             dto.PagesCount, dto.DurationSeconds,
-            dto.YoutubeVideoId, GetAdminId(), GetSessionId()
+            dto.YoutubeVideoId, GetAdminId(), GetSessionId(),
+            dto.Title, dto.Description, dto.Difficulty
         ), ct);
         return Ok(result);
     }
@@ -251,7 +253,8 @@ public class LibraryController : ControllerBase
     public async Task<ActionResult<LibraryFileDto>> UpdateFile(Guid id, [FromBody] UpdateLibraryFileDto dto, CancellationToken ct)
     {
         if (!await CanManageAsync(Actions.Edit, "library_file", id, ct)) return Forbid();
-        var result = await _mediator.Send(new UpdateLibraryFileCommand(id, dto.Title, dto.Description, dto.Tags, dto.LectureId), ct);
+        var result = await _mediator.Send(new UpdateLibraryFileCommand(id, dto.Title, dto.Description, dto.Tags, dto.LectureId,
+            dto.Difficulty), ct);
         return Ok(result);
     }
 

@@ -45,13 +45,20 @@ public record CompleteUploadCommand(
     Guid FileId, string FileKey, long ActualFileSize,
     int? PagesCount, int? DurationSeconds,
     string? YoutubeVideoId, Guid CreatedBy,
-    Guid? SessionId = null
+    Guid? SessionId = null,
+    // Push 10.5 — optional metadata override (null = keep the values captured at
+    // upload-url time); difficulty is new on library files and defaults to Easy.
+    string? Title = null,
+    string? Description = null,
+    Difficulty? Difficulty = null
 ) : IRequest<LibraryFileDto>;
 
 // ===== Admin: Update/Delete =====
 public record UpdateLibraryFileCommand(
     Guid Id, string Title, string? Description,
-    List<string> Tags, Guid? LectureId
+    List<string> Tags, Guid? LectureId,
+    // Push 10.5 — PATCH-optional difficulty: null leaves the stored tier untouched.
+    Difficulty? Difficulty = null
 ) : IRequest<LibraryFileDto>;
 
 public record PublishLibraryFileCommand(Guid Id, Guid PublishedBy) : IRequest<LibraryFileDto>;
