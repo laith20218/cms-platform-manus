@@ -16,7 +16,7 @@ import { cn } from '@/utils';
  * loads, a premium skeleton/spinner holds the layout.
  */
 
-export interface LazyPlayerMountProps {
+export interface LazyPlayerMountProps<TProps extends Record<string, unknown>> {
   /** Mount gate — true only while the host surface (e.g. PlayerShell) is open. */
   active: boolean;
   /**
@@ -24,28 +24,30 @@ export interface LazyPlayerMountProps {
    * function (`const loadVideoPlayer = () => import('./VideoPlayer')`) so
    * React.lazy is created exactly once.
    */
-  loader: () => Promise<{ default: ComponentType }>;
+  loader: () => Promise<{ default: ComponentType<TProps> }>;
   /** Props forwarded to the lazily mounted player component. */
-  playerProps?: Record<string, unknown>;
+  playerProps?: TProps;
   /** Custom loading surface; defaults to the premium PlayerLoading block. */
   fallback?: ReactNode;
   className?: string;
   testId?: string;
 }
 
-export function LazyPlayerMount({
+export function LazyPlayerMount<TProps extends Record<string, unknown>>({
   active,
   loader,
   playerProps,
   fallback,
   className,
   testId,
-}: LazyPlayerMountProps) {
+}: LazyPlayerMountProps<TProps>) {
   const gateRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
 
   // Created exactly once per stable loader reference.
   const Player = useMemo(() => lazy(loader), [loader]);
+  // lazy() erases the TProps type (defaults to unknown props at the call
+  // site) — the element below is deliberately cast to accept TProps.
 
   useEffect(() => {
     if (visible) return;
@@ -71,12 +73,16 @@ export function LazyPlayerMount({
   }, [visible]);
 
   const mounted = active && visible;
+  // lazy() erases TProps — cast the lazily created component back so the
+  // spread below type-checks for both optional- and required-prop players.
+  const PlayerComponent = Player as unknown as ComponentType<TProps>;
+  const resolvedProps = (playerProps ?? {}) as TProps;
 
   return (
     <div ref={gateRef} data-testid={testId} className={cn('relative w-full', className)}>
       {mounted ? (
         <Suspense fallback={fallback ?? <PlayerLoading label="جارٍ تحضير المشغّل…" />}>
-          <Player {...playerProps} />
+          <PlayerComponent {...resolvedProps} />
         </Suspense>
       ) : (
         (fallback ?? <PlayerLoading label="بانتظار فتح المشغّل…" />)

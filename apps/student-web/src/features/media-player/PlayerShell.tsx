@@ -5,6 +5,7 @@ import { FileText, Globe, Maximize, Minimize, MonitorPlay, Music2, ShieldCheck, 
 import { toast } from 'sonner';
 import { cn } from '@/utils';
 import { usePlayerProtection } from './protection/usePlayerProtection';
+import { PlayerShellContext, type PlayerShellApi } from './shell-context';
 
 /**
  * Push 10.1 — PlayerShell: the fullscreen-capable modal that will host every
@@ -106,30 +107,38 @@ export function PlayerShell({
     }
   }, [open]);
 
-  const toggleFullscreen = useCallback(async () => {
+  const toggleFullscreen = useCallback(async (): Promise<boolean> => {
     const stage = stageRef.current;
-    if (!stage) return;
+    if (!stage) return false;
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
-        return;
+        return true;
       }
       if (typeof stage.requestFullscreen === 'function') {
         await stage.requestFullscreen();
-      } else {
-        // Legacy WebKit fallback (older iPad Safari).
-        const legacy = stage as HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> };
-        if (legacy.webkitRequestFullscreen) await legacy.webkitRequestFullscreen();
+        return true;
       }
+      // Legacy WebKit fallback (older iPad Safari).
+      const legacy = stage as HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> };
+      if (legacy.webkitRequestFullscreen) {
+        await legacy.webkitRequestFullscreen();
+        return true;
+      }
+      return false; // API unavailable — caller may fall back (e.g. video native fs).
     } catch {
       // The UA refused (embedded iframe policy / transient gesture lock).
       // The button state self-heals via the fullscreenchange listener.
+      return document.fullscreenElement === stage;
     }
   }, []);
 
   const KindIcon = KIND_META[kind].icon;
 
+  const shellApi: PlayerShellApi = { toggleFullscreen, isFullscreen };
+
   return (
+    <PlayerShellContext.Provider value={shellApi}>
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <AnimatePresence>
         {open && (
@@ -239,5 +248,6 @@ export function PlayerShell({
         )}
       </AnimatePresence>
     </DialogPrimitive.Root>
+    </PlayerShellContext.Provider>
   );
 }

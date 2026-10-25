@@ -3,14 +3,18 @@ import { FlaskConical, MonitorPlay, ShieldCheck } from 'lucide-react';
 import { PlayerShell } from '@/features/media-player/PlayerShell';
 import { LazyPlayerMount } from '@/features/media-player/LazyPlayerMount';
 
-/** Dummy player chunk — must be a stable module-level function for React.lazy. */
-const loadDummyVideoPlayer = () => import('../player-test/DummyVideoPlayer');
+/** Real VideoPlayer chunk (Push 10.2) — stable module-level loader for React.lazy. */
+const loadVideoPlayer = () => import('@/features/media-player/video/VideoPlayer');
+
+/** Sandbox episode id — the e2e suite mocks the media API for this asset. */
+const TEST_EPISODE_ID = '11111111-2222-3333-4444-555555555555';
 
 /**
- * Push 10.1 — TEMPORARY sandbox page for the player shell stack
- * (/my-studies/player-test). Lets the shell, fullscreen, protection and lazy
- * mount be exercised in a real browser BEFORE any real player exists.
- * Remove this route once the production players land (later pushes).
+ * Push 10.1/10.2 — sandbox page for the player stack
+ * (/my-studies/player-test). Since 10.2 this hosts the REAL VideoPlayer
+ * (API-backed playback-url + progress + bookmarks) pointed at the sandbox
+ * episode id above. Remove this route once the production players land
+ * (later pushes wire VideoPlayer into the course player / library pages).
  */
 export function PlayerTestPage() {
   const [open, setOpen] = useState(false);
@@ -24,14 +28,14 @@ export function PlayerTestPage() {
           </span>
           <div className="min-w-0">
             <h1 className="text-xl font-bold text-[var(--c-text)]">صفحة اختبار المشغّل</h1>
-            <p className="text-sm text-[var(--c-text-muted)]">Push 10.1 — هيكل المشغّل وملء الشاشة (مسار مؤقت)</p>
+            <p className="text-sm text-[var(--c-text-muted)]">Push 10.2 — مشغّل الفيديو الحقيقي (مسار مؤقت)</p>
           </div>
         </div>
 
         <p className="mt-5 text-sm leading-7 text-[var(--c-text-soft)]">
-          هذه الصفحة تختبر قشرة المشغّل قبل دمج المشغّلات الحقيقية: فتح النافذة، ملء الشاشة
-          على القشرة كاملة (وليس على عنصر الفيديو)، حماية النسخ داخل منطقة المشغّل فقط،
-          والتحميل الكسول لحزمة المشغّل عند الفتح.
+          هذه الصفحة تستضيف مشغّل الفيديو الحقيقي مع واجهة التحكم الكاملة: التجديد الصامت لرابط
+          التشغيل قبل انتهاء صلاحيته، استئناف المشاهدة من آخر موضع، حفظ المقاطع المرجعية،
+          والنقر المزدوج للتقديم والتأخير — كل ذلك داخل قشرة ملء الشاشة المحمية.
         </p>
 
         <button
@@ -54,14 +58,19 @@ export function PlayerTestPage() {
         open={open}
         onOpenChange={setOpen}
         title="محاضرة تجريبية — القلب والأوعية"
-        subtitle="اختبار قشرة المشغّل — Push 10.1"
+        subtitle="مشغّل الفيديو الحقيقي — Push 10.2"
         kind="video"
         testId="player-shell"
       >
         <LazyPlayerMount
           active={open}
-          loader={loadDummyVideoPlayer}
-          playerProps={{ title: 'مشغّل فيديو تجريبي' }}
+          loader={loadVideoPlayer}
+          playerProps={{
+            assetType: 'course-episode' as const,
+            assetId: TEST_EPISODE_ID,
+            title: 'محاضرة تجريبية — القلب والأوعية',
+            testId: 'sandbox-video-player',
+          }}
           testId="lazy-player-mount"
         />
       </PlayerShell>
