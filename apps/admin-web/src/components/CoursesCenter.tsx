@@ -984,6 +984,9 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
 
   useEffect(() => {
     if (state !== 'processing' || !episodeId) return;
+    // A retry is in flight — hold transitions until the FORCED poll lands;
+    // otherwise the stale Failed status would instantly undo the retry.
+    if (retrying) return;
 
     if (processingStatus === 'Failed') {
       unwatchEpisode(episodeId);
@@ -1014,7 +1017,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     // Processing episodes that disappear from the list (deleted elsewhere)
     // or are still unreported simply keep polling — the interval owns them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, episodeId, processingStatus, processingEpisode]);
+  }, [state, episodeId, processingStatus, processingEpisode, retrying]);
 
   /** 1.C retry for a failed pipeline: re-arm the watcher + force one poll. */
   const retryProcessing = async () => {
@@ -1095,10 +1098,12 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
             : (isArabic ? 'جارٍ تجميع الأجزاء والتحقق من الحجم…' : 'Assembling parts & verifying size…')}
         </p>
       )}
-      {state === 'processing' && (
+      {/* The ladder stays mounted through Ready — the admin sees the full
+          checklist complete + the bar at 100% under the success banner. */}
+      {(state === 'processing' || state === 'ready') && (
         <ProcessingTimeline
           stage="processing"
-          status={processingStatus ?? undefined}
+          status={state === 'ready' ? 'Ready' : (processingStatus ?? undefined)}
           isArabic={isArabic}
           testId="upload-processing-timeline"
         />
