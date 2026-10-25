@@ -412,7 +412,7 @@ public static class FfmpegLadder
 
         var args = new List<string>
         {
-            "-y", "-hide_banner", "-nostats", "-loglevel", "error",
+            "-y", "-hide_banner", "-nostats", "-nostdin", "-loglevel", "error",
             "-progress", "pipe:1",
             "-i", sourcePath,
         };
