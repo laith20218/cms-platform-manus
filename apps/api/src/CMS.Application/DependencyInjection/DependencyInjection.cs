@@ -37,6 +37,9 @@ public static class DependencyInjection
         // and worker share ONE channel instance.
         services.AddSingleton<TranscodingChannelQueue>();
         services.AddSingleton<ITranscodingQueue>(sp => sp.GetRequiredService<TranscodingChannelQueue>());
+        // Push 10.8 — the abort bridge: abort-processing handlers cancel the worker's
+        // in-flight job (killing FFmpeg) through this shared registry.
+        services.AddSingleton<ITranscodingJobRegistry, TranscodingJobRegistry>();
         services.AddHostedService<VideoTranscodingService>();
 
         return services;

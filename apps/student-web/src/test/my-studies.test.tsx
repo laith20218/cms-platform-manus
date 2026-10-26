@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -216,45 +216,67 @@ function renderPlayer(entry: string) {
   );
 }
 
-/**
- * jsdom reports videoWidth === 0 for every <video> — which the Push 7 fallback
- * interprets as "no video track". Tests that exercise the VIDEO path (lease
- * refresh, aspect swap) stub a real track so the fallback stays out of the way.
- */
-function stubVideoTrack(el: HTMLVideoElement, width = 1280, height = 720) {
-  Object.defineProperty(el, 'videoWidth', { configurable: true, get: () => width });
-  Object.defineProperty(el, 'videoHeight', { configurable: true, get: () => height });
+/** The custom player's OWN lease response (POST /media/…/playback-url). */
+const playbackUrlInfo = (url: string) => ({
+  url, ttlSeconds: 540, expiresAt: '2026-10-24T13:00:00Z',
+  contentType: 'video/mp4', supportsRange: true,
+});
+
+/** Routes postMock per endpoint: the video path uses the player-internal
+ * playback-url lease; the audio/YouTube paths use the page-side /access lease. */
+function stubPost({ video = 'https://r2.example.com/video?sig=1', accessUrl = 'https://r2.example.com/audio?sig=1' } = {}) {
+  postMock.mockImplementation(async (url: string) => {
+    if (typeof url === 'string' && url.includes('/playback-url')) return { data: playbackUrlInfo(video) };
+    return { data: access(accessUrl) };
+  });
 }
 
 describe('CoursePlayerPage — rendering', () => {
-  it('renders the native video player with the signed URL + watermark + episode list', async () => {
-    postMock.mockResolvedValue({ data: access('https://r2.example.com/video?sig=1') });
+  it('renders the CUSTOM VideoPlayer + metadata card + watermark + episode list', async () => {
+    stubPost();
     renderPlayer('/my-studies/courses/c1');
 
-    const video = await screen.findByTestId('course-video') as HTMLVideoElement;
+    // The production custom player replaces the old native <video controls>.
+    await screen.findByTestId('course-episode-player');
+    const video = await screen.findByTestId('video-element') as HTMLVideoElement;
     await waitFor(() => expect(video.getAttribute('src')).toBe('https://r2.example.com/video?sig=1'));
-    expect(video.hasAttribute('controls')).toBe(true);
+    expect(video.hasAttribute('controls')).toBe(false); // the custom bar owns interactions
 
+    // 2.B — the metadata card under the player.
+    expect(screen.getByTestId('course-episode-metadata')).toBeInTheDocument();
+    expect(screen.getByTestId('episode-metadata-title').textContent).toBe('الحلقة الأولى');
+    expect(screen.getByTestId('episode-metadata-duration')).toBeInTheDocument();
+    expect(screen.getByTestId('episode-metadata-views')).toBeInTheDocument();
+
+    // The anti-recording watermark still rides on top of the player.
     const watermark = screen.getByTestId('course-watermark');
     expect(watermark.textContent).toContain('طالب تجريبي');
     expect(watermark.textContent).toContain('0999000111');
 
     expect(screen.getByTestId('episode-list')).toBeInTheDocument();
-    expect(screen.getByText('الحلقة الأولى')).toBeInTheDocument();
-    // Push 5: backend lease details are intentionally hidden from the student.
-    expect(screen.queryByText(/رابط مؤقت حتى/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/التسجيل أو التصوير/)).not.toBeInTheDocument();
+    expect(within(screen.getByTestId('episode-list')).getByText('الحلقة الأولى')).toBeInTheDocument();
+  });
+
+  it('fetches the video lease itself — the page never calls /access for video episodes', async () => {
+    stubPost();
+    renderPlayer('/my-studies/courses/c1');
+
+    await screen.findByTestId('video-element');
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    const urls = postMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes('/media/course-episode/ep1/playback-url'))).toBe(true);
+    expect(urls.some((url) => url.includes('/access'))).toBe(false);
   });
 
   it('renders the elegant custom audio player for audio-only episodes', async () => {
-    postMock.mockResolvedValue({ data: access('https://r2.example.com/audio?sig=1') });
+    stubPost();
     renderPlayer('/my-studies/courses/c1');
 
-    await screen.findByTestId('course-video'); // ep1 is video
+    await screen.findByTestId('course-episode-player'); // ep1 is video
     fireEvent.click(screen.getByText('الحلقة الصوتية'));
     const audio = await screen.findByTestId('course-audio') as HTMLAudioElement;
     expect(audio.getAttribute('src')).toBe('https://r2.example.com/audio?sig=1');
-    expect(screen.queryByTestId('course-video')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('course-episode-player')).not.toBeInTheDocument();
     // Push 5: the designed stage + custom control bar replace the black box.
     expect(screen.getByTestId('audio-stage')).toBeInTheDocument();
     expect(screen.getByTestId('audio-disc')).toBeInTheDocument();
@@ -265,155 +287,121 @@ describe('CoursePlayerPage — rendering', () => {
 
   it('renders the YouTube iframe for YouTube episodes (no refresh loop)', async () => {
     stubGet(youtubeCourse());
-    postMock.mockResolvedValue({ data: access('https://www.youtube.com/embed/abc123') });
+    stubPost({ accessUrl: 'https://www.youtube.com/embed/abc123' });
     renderPlayer('/my-studies/courses/c1?refreshMs=120');
 
     const iframe = await screen.findByTestId('youtube-player') as HTMLIFrameElement;
     expect(iframe.getAttribute('src')).toBe('https://www.youtube.com/embed/abc123');
-    expect(screen.queryByTestId('course-video')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('course-episode-player')).not.toBeInTheDocument();
 
     await act(async () => { await new Promise((r) => setTimeout(r, 320)); });
     expect(postMock.mock.calls.length).toBe(1); // no interval for YouTube
   });
 });
 
-describe('CoursePlayerPage — the lease trap (auto-refresh)', () => {
+describe('CoursePlayerPage — the audio lease trap (auto-refresh)', () => {
   it('refreshes the signed URL on schedule and preserves timestamp + play state', async () => {
-    // First access returns URL1, every later refresh returns URL2.
-    postMock.mockImplementation(async () => ({ data: access(postMock.mock.calls.length <= 1 ? 'https://r2.example.com/v1?sig=a' : 'https://r2.example.com/v2?sig=b') }));
+    // First /access returns URL1, every later refresh returns URL2; the video
+    // lease (playback-url) is stable so only the AUDIO interval drives refreshes.
+    let accessCalls = 0;
+    postMock.mockImplementation(async (url: string) => {
+      if (typeof url === 'string' && url.includes('/playback-url')) return { data: playbackUrlInfo('https://r2.example.com/v1?sig=a') };
+      accessCalls += 1;
+      return { data: access(accessCalls <= 1 ? 'https://r2.example.com/v1?sig=a' : 'https://r2.example.com/v2?sig=b') };
+    });
 
     renderPlayer('/my-studies/courses/c1?refreshMs=200');
-    const video = await screen.findByTestId('course-video') as HTMLVideoElement;
-    await waitFor(() => expect(video.getAttribute('src')).toBe('https://r2.example.com/v1?sig=a'));
-    expect(postMock.mock.calls.length).toBe(1);
+    await screen.findByTestId('course-episode-player'); // ep1 video first
+    fireEvent.click(screen.getByText('الحلقة الصوتية'));
+    const audio = await screen.findByTestId('course-audio') as HTMLAudioElement;
+    await waitFor(() => expect(audio.getAttribute('src')).toBe('https://r2.example.com/v1?sig=a'));
+    expect(accessCalls).toBe(1);
 
     // Simulate mid-playback state at the moment the refresh fires.
     act(() => {
-      video.currentTime = 42;
+      audio.currentTime = 42;
       mediaPaused = false; // playing
     });
 
     // The 8-minute mark (shortened to 200ms here) swaps the source.
-    await waitFor(() => expect(postMock.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 3000 });
-    await waitFor(() => expect(video.getAttribute('src')).toBe('https://r2.example.com/v2?sig=b'));
+    await waitFor(() => expect(accessCalls).toBeGreaterThanOrEqual(2), { timeout: 3000 });
+    await waitFor(() => expect(audio.getAttribute('src')).toBe('https://r2.example.com/v2?sig=b'));
 
     // Metadata of the new source loads → timestamp + playback resume seamlessly.
-    stubVideoTrack(video); // jsdom's videoWidth===0 would otherwise trigger the Push 7 audio fallback
     playMock.mockClear();
-    fireEvent(video, new Event('loadedmetadata'));
-    expect(video.currentTime).toBe(42);
+    fireEvent(audio, new Event('loadedmetadata'));
+    expect(audio.currentTime).toBe(42);
     expect(playMock).toHaveBeenCalled();
   });
 
-  it('re-fetches access immediately when the media errors (expired lease)', async () => {
-    postMock.mockResolvedValue({ data: access('https://r2.example.com/v1?sig=a') });
+  it('re-fetches access immediately when the audio errors (expired lease)', async () => {
+    stubPost();
     renderPlayer('/my-studies/courses/c1');
 
-    const video = await screen.findByTestId('course-video') as HTMLVideoElement;
-    await waitFor(() => expect(postMock.mock.calls.length).toBe(1));
+    await screen.findByTestId('course-episode-player');
+    fireEvent.click(screen.getByText('الحلقة الصوتية'));
+    const audio = await screen.findByTestId('course-audio') as HTMLAudioElement;
+    await waitFor(() => expect(postMock.mock.calls.filter((c) => String(c[0]).includes('/access')).length).toBe(1));
 
-    fireEvent.error(video);
-    await waitFor(() => expect(postMock.mock.calls.length).toBe(2));
+    fireEvent.error(audio);
+    await waitFor(() => expect(postMock.mock.calls.filter((c) => String(c[0]).includes('/access')).length).toBe(2));
   });
 });
 
-// ================= Push 7: video → audio graceful fallback =================
-// An episode stored under video/* whose bytes are actually audio-only (the
-// mislabeled-MP3 incident) must not dead-end the student: the player detects
-// it and swaps to the custom audio stage — per episode, watermark preserved.
+// ================= Push 10.8: the processing gate (2.C) =================
+// An episode the transcoding pipeline hasn't finished never mounts the player:
+// Pending/Transcoding_* → the "قيد المعالجة" card; Failed → the support card.
+// null status (legacy/audio/YouTube) plays directly.
 
-describe('CoursePlayerPage — Push 7 video→audio fallback', () => {
-  it('falls back to the custom audio stage when metadata has no video track (videoWidth 0)', async () => {
-    postMock.mockResolvedValue({ data: access('https://r2.example.com/v1?sig=a') });
+describe('CoursePlayerPage — Push 10.8 processing gate', () => {
+  function withStatus(status: string): CourseDetail {
+    const detail = courseDetail();
+    (detail.episodes[0] as typeof detail.episodes[0] & { processingStatus?: string }).processingStatus = status;
+    return detail;
+  }
+
+  it('shows the locked card while the pipeline is running — no player, no lease', async () => {
+    stubGet(withStatus('Transcoding_720p'));
+    stubPost();
     renderPlayer('/my-studies/courses/c1');
 
-    const video = await screen.findByTestId('course-video') as HTMLVideoElement;
-    await waitFor(() => expect(video.getAttribute('src')).toBe('https://r2.example.com/v1?sig=a'));
+    expect(await screen.findByTestId('episode-processing-locked')).toBeInTheDocument();
+    expect(screen.getByText('الفيديو قيد المعالجة حالياً. يرجى المحاولة لاحقاً.')).toBeInTheDocument();
+    expect(screen.queryByTestId('course-episode-player')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('video-element')).not.toBeInTheDocument();
+    // The metadata card still renders under the locked card.
+    expect(screen.getByTestId('course-episode-metadata')).toBeInTheDocument();
 
-    // Mid-playback when the metadata reveals there is nothing to show.
-    act(() => {
-      video.currentTime = 30;
-      mediaPaused = false;
-    });
-    fireEvent(video, new Event('loadedmetadata')); // jsdom videoWidth === 0 here
-
-    const audio = await screen.findByTestId('course-audio') as HTMLAudioElement;
-    expect(screen.queryByTestId('course-video')).not.toBeInTheDocument();
-    expect(audio.getAttribute('src')).toBe('https://r2.example.com/v1?sig=a');
-    // The designed audio stage + the watermark survive the swap.
-    expect(screen.getByTestId('audio-stage')).toBeInTheDocument();
-    expect(screen.getByTestId('audio-play-button')).toBeInTheDocument();
-    expect(screen.getByTestId('course-watermark')).toBeInTheDocument();
-
-    // The audio element's metadata loads → timestamp + playback resume seamlessly.
-    playMock.mockClear();
-    fireEvent(audio, new Event('loadedmetadata'));
-    expect(playMock).toHaveBeenCalled();
+    // No lease of any kind is requested for a locked episode.
+    await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+    expect(postMock).not.toHaveBeenCalled();
   });
 
-  it('falls back when the video bytes cannot be decoded (error code 3)', async () => {
-    postMock.mockResolvedValue({ data: access('https://r2.example.com/v1?sig=a') });
+  it('shows the failed card when processing failed terminally', async () => {
+    stubGet(withStatus('Failed'));
+    stubPost();
     renderPlayer('/my-studies/courses/c1');
 
-    const video = await screen.findByTestId('course-video') as HTMLVideoElement;
-    await waitFor(() => expect(postMock.mock.calls.length).toBe(1));
-
-    Object.defineProperty(video, 'error', { configurable: true, value: { code: 3 } });
-    fireEvent.error(video);
-
-    await screen.findByTestId('audio-stage');
-    expect(screen.queryByTestId('course-video')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('episode-processing-failed')).toBeInTheDocument();
+    expect(screen.getByText('تعذر معالجة هذا الفيديو. يرجى التواصل مع الدعم.')).toBeInTheDocument();
+    expect(screen.queryByTestId('course-episode-player')).not.toBeInTheDocument();
   });
 
-  it('falls back when the source is not supported (error code 4)', async () => {
-    postMock.mockResolvedValue({ data: access('https://r2.example.com/v1?sig=a') });
+  it('plays legacy rows (null status) directly — no lock', async () => {
+    stubGet(courseDetail()); // no processingStatus on any episode
+    stubPost();
     renderPlayer('/my-studies/courses/c1');
 
-    const video = await screen.findByTestId('course-video') as HTMLVideoElement;
-    await waitFor(() => expect(postMock.mock.calls.length).toBe(1));
-
-    Object.defineProperty(video, 'error', { configurable: true, value: { code: 4 } });
-    fireEvent.error(video);
-
-    await screen.findByTestId('audio-stage');
-    expect(screen.queryByTestId('course-video')).not.toBeInTheDocument();
+    await screen.findByTestId('course-episode-player');
+    expect(screen.queryByTestId('episode-processing-locked')).not.toBeInTheDocument();
   });
 
-  it('keeps the lease-refetch path for codes 1–2 — no stage swap', async () => {
-    postMock.mockResolvedValue({ data: access('https://r2.example.com/v1?sig=a') });
+  it('Ready episodes play normally', async () => {
+    stubGet(withStatus('Ready'));
+    stubPost();
     renderPlayer('/my-studies/courses/c1');
 
-    const video = await screen.findByTestId('course-video') as HTMLVideoElement;
-    await waitFor(() => expect(postMock.mock.calls.length).toBe(1));
-
-    // MEDIA_ERR_ABORTED / MEDIA_ERR_NETWORK — likely an expired lease → refetch.
-    Object.defineProperty(video, 'error', { configurable: true, value: { code: 1 } });
-    fireEvent.error(video);
-
-    await waitFor(() => expect(postMock.mock.calls.length).toBe(2));
-    expect(screen.getByTestId('course-video')).toBeInTheDocument();
-    expect(screen.queryByTestId('audio-stage')).not.toBeInTheDocument();
-  });
-
-  it('resets the fallback per episode — switching back re-mounts the video stage', async () => {
-    postMock.mockResolvedValue({ data: access('https://r2.example.com/v1?sig=a') });
-    renderPlayer('/my-studies/courses/c1');
-
-    // ep1 (mislabeled video) falls back to audio…
-    const video = await screen.findByTestId('course-video') as HTMLVideoElement;
-    fireEvent(video, new Event('loadedmetadata')); // videoWidth 0
-    await screen.findByTestId('audio-stage');
-
-    // …then ep2 (real audio) plays in the audio stage…
-    fireEvent.click(screen.getByText('الحلقة الصوتية'));
-    await screen.findByTestId('course-audio');
-
-    // …and returning to ep1 starts fresh in the VIDEO stage (no leak across episodes).
-    fireEvent.click(screen.getByText('الحلقة الأولى'));
-    const videoAgain = await screen.findByTestId('course-video') as HTMLVideoElement;
-    stubVideoTrack(videoAgain);
-    fireEvent(videoAgain, new Event('loadedmetadata'));
-    expect(screen.getByTestId('course-video')).toBeInTheDocument();
-    expect(screen.queryByTestId('audio-stage')).not.toBeInTheDocument();
+    await screen.findByTestId('course-episode-player');
+    expect(screen.queryByTestId('episode-processing-locked')).not.toBeInTheDocument();
   });
 });

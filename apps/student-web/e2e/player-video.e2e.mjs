@@ -1,5 +1,8 @@
 /**
  * Push 10.2 — VideoPlayer E2E (real video, real API mocks).
+ * Push 10.8 — retargeted from the deleted /player-test sandbox to the PRODUCTION
+ * course player page (/my-studies/courses/:courseId): the same player now runs
+ * inline with the episode metadata card under it.
  *
  * RAM contract: ONE Chromium instance, --headless=new --disable-gpu
  * --disable-dev-shm-usage (+ --autoplay-policy=no-user-gesture-required so
@@ -29,6 +32,7 @@ const EXECUTABLE =
   '/home/z/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome';
 const SHOT_DIR = fileURLToPath(new URL('./screenshots/', import.meta.url));
 
+const COURSE_ID = '21111111-1111-1111-1111-111111111111';
 const EPISODE_ID = '11111111-2222-3333-4444-555555555555';
 const VIDEO_URL = `${BASE_URL}/e2e-test-video.mp4`; // real 90s MP4 via vite public/
 const TTL_SECONDS = 8; // production is 540; short TTL → clamp → refresh at ~3s
@@ -70,6 +74,25 @@ async function newStudentContext(browser, viewport) {
   await context.route('**/api/v1/auth/me', (route) => route.fulfill({ json: E2E_USER }));
   await context.route('**/api/v1/entitlements/issue', (route) =>
     route.fulfill({ json: { token: ENTITLEMENT_TOKEN } }));
+
+  // Push 10.8 — the production course page's detail payload: one Ready video
+  // episode carrying rich metadata (drives the 2.B metadata card checks).
+  await context.route(`**/api/v1/courses/${COURSE_ID}`, (route) => route.fulfill({
+    json: {
+      id: COURSE_ID, subjectId: 's-e2e', title: 'كورس الاختبار — مشغّل الإنتاج',
+      description: null, coverImageUrl: null, status: 'Published', episodesCount: 1,
+      createdAt: '2026-10-20T12:00:00Z',
+      episodes: [{
+        id: EPISODE_ID, courseId: COURSE_ID,
+        title: 'محاضرة تجريبية — القلب والأوعية', episodeNumber: 1,
+        durationSeconds: 90, sourceType: 'Upload', fileSize: 903_000,
+        contentType: 'video/mp4', youtubeVideoId: null, uploadCompleted: true,
+        viewsCount: 1245,
+        description: 'مراجعة شاملة لجهاز الدوران القلبي مع حالات سريرية قصيرة وأسئلة مراجعة.',
+        difficulty: 'Medium', processingStatus: 'Ready', targetQuality: 'Auto',
+      }],
+    },
+  }));
 
   await context.route(`**/api/v1/media/course-episode/${EPISODE_ID}/playback-url`, async (route) => {
     counters.playbackUrl += 1;
@@ -122,10 +145,9 @@ async function newStudentContext(browser, viewport) {
 }
 
 async function openPlayer(page) {
-  await page.goto(`${BASE_URL}/my-studies/player-test`);
-  await page.getByTestId('open-player-test').click();
-  await page.getByTestId('player-shell').waitFor({ state: 'visible', timeout: 15_000 });
-  await page.getByTestId('sandbox-video-player').waitFor({ state: 'visible', timeout: 20_000 });
+  await page.goto(`${BASE_URL}/my-studies/courses/${COURSE_ID}`);
+  await page.getByTestId('episode-stage').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByTestId('course-episode-player').waitFor({ state: 'visible', timeout: 20_000 });
   await page.getByTestId('video-element').waitFor({ state: 'attached', timeout: 20_000 });
 }
 
@@ -155,6 +177,20 @@ try {
     null, { timeout: 15_000 },
   );
   check('playback-url fetched → real <video> src attached', true);
+
+  // 1b — Push 10.8: the production page renders the custom player + the rich
+  //      metadata card (title / difficulty badge / views / description).
+  {
+    const metaTitle = await page.getByTestId('episode-metadata-title').textContent();
+    const badgeVisible = await page.getByTestId('episode-metadata-difficulty').isVisible();
+    const viewsText = await page.getByTestId('episode-metadata-views').textContent();
+    const descVisible = await page.getByTestId('episode-metadata-description').isVisible();
+    check(
+      'metadata card renders title + difficulty badge + views + description',
+      metaTitle === 'محاضرة تجريبية — القلب والأوعية' && badgeVisible && /1245|1\.2ألف/.test(viewsText ?? '') && descVisible,
+      `title="${metaTitle}" views="${viewsText}"`,
+    );
+  }
 
   // 2 — Resume: GET progress (12s) → seek applied once metadata loads.
   await page.waitForFunction(
@@ -210,7 +246,7 @@ try {
 
   // 6 — Keyboard seek on the player region (Space/K/J/L/M/F + arrows).
   const tBefore = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
-  await page.getByTestId('sandbox-video-player').focus();
+  await page.getByTestId('course-episode-player').focus();
   await page.keyboard.press('ArrowRight');
   const tAfter = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
   check('keyboard: ArrowRight on the player region seeks +5s', tAfter - tBefore >= 4 && tAfter - tBefore <= 6.5,
@@ -286,25 +322,29 @@ try {
   }
 
   // 13 — Progress autosave: 10s cadence while playing (we've been playing a
-  //      while — at least one interval or pause-triggered POST must exist).
+  //      while — poll up to 15s so the interval's phase never flakes the window).
   {
     const before = context.__counters.progressPosts.length;
-    await page.waitForTimeout(11_000);
-    const after = context.__counters.progressPosts.length;
+    let after = before;
+    for (let i = 0; i < 30 && after === before; i++) {
+      await page.waitForTimeout(500);
+      after = context.__counters.progressPosts.length;
+    }
     const bodiesOk = context.__counters.progressPosts.every((p) =>
       Number.isFinite(p?.positionSeconds) && Number.isFinite(p?.durationSeconds));
     check('progress POST every 10s during playback', after > before && bodiesOk,
       `posts ${before}→${after}`);
   }
 
-  // 14 — Close (X): unmount fires the keepalive final save.
+  // 14 — Leaving the page unmounts the player → the keepalive final save fires
+  //      (the sandbox shell's close button is gone; navigation is the real exit).
   {
     const before = context.__counters.progressPosts.length;
-    await page.getByTestId('player-close').click();
-    await page.getByTestId('player-shell').waitFor({ state: 'detached', timeout: 10_000 });
+    await page.goto(`${BASE_URL}/my-studies`);
+    await page.getByTestId('course-episode-player').waitFor({ state: 'detached', timeout: 10_000 });
     await page.waitForTimeout(800);
     const after = context.__counters.progressPosts.length;
-    check('close/unmount → final progress save (keepalive)', after > before, `posts ${before}→${after}`);
+    check('page-leave/unmount → final progress save (keepalive)', after > before, `posts ${before}→${after}`);
   }
 
   await context.close();

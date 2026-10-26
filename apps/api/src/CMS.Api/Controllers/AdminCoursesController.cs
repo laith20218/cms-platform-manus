@@ -188,7 +188,7 @@ public sealed class AdminCoursesController : ControllerBase
         if (subjectId is null) return NotFound();
         if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Forbid();
         return Ok(await _mediator.Send(new UpdateEpisodeCommand(id, dto.Title, dto.EpisodeNumber, dto.DurationSeconds,
-            dto.Description, dto.Difficulty), ct));
+            dto.Description, dto.Difficulty, dto.TargetQuality), ct));
     }
 
     [HttpDelete("episodes/{id:guid}")]
@@ -244,8 +244,25 @@ public sealed class AdminCoursesController : ControllerBase
         if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Forbid();
         // Push 10.5: metadata (title/description/difficulty) rides the complete-upload
         // body from the 10.4 upload panel — null keys keep the initiate-time values.
+        // Push 10.8: TargetQuality rides too — THE 10.7 binding gap: the DTO never
+        // exposed the key, so the admin's P360/P720/P1080 pick was silently dropped
+        // at this boundary and the worker encoded the full Auto ladder.
         return Ok(await _mediator.Send(new CompleteEpisodeUploadCommand(episodeId, dto.Parts,
-            dto.Title, dto.Description, dto.Difficulty), ct));
+            dto.Title, dto.Description, dto.Difficulty, dto.TargetQuality), ct));
+    }
+
+    /// <summary>
+    /// Push 10.8 — aborts an in-flight server-side transcode: marks the episode
+    /// Failed (terminal) and signals the worker to kill the running FFmpeg process.
+    /// The admin "إلغاء المعالجة" button — an escape hatch for stuck encodes.
+    /// </summary>
+    [HttpPost("episodes/{episodeId:guid}/abort-processing")]
+    public async Task<ActionResult<CourseEpisodeDto>> AbortProcessing(Guid episodeId, CancellationToken ct)
+    {
+        var subjectId = await SubjectIdForEpisodeAsync(episodeId, ct);
+        if (subjectId is null) return NotFound();
+        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Forbid();
+        return Ok(await _mediator.Send(new AbortEpisodeProcessingCommand(episodeId, GetAdminId()), ct));
     }
 
     /// <summary>Aborts an in-flight upload and removes the incomplete episode row.</summary>
@@ -270,7 +287,10 @@ public record UpdateEpisodeDto(
     int? DurationSeconds,
     // Push 10.5 — PATCH-optional metadata from the 10.4 edit modal.
     string? Description = null,
-    Difficulty? Difficulty = null
+    Difficulty? Difficulty = null,
+    // Push 10.8 — PATCH-optional transcoding target from the edit modal's quality
+    // dropdown (the 10.7 gap: the command accepted it, this boundary dropped it).
+    TargetQuality? TargetQuality = null
 );
 public record InitiateUploadRequestDto(string FileName, string ContentType, long FileSize, string Title, int EpisodeNumber);
 public record CompleteUploadRequestDto(
@@ -278,5 +298,8 @@ public record CompleteUploadRequestDto(
     // Push 10.5 — additive metadata keys sent by the 10.4 upload panel.
     string? Title = null,
     string? Description = null,
-    Difficulty? Difficulty = null
+    Difficulty? Difficulty = null,
+    // Push 10.8 — the upload panel's quality dropdown value ("Auto"|"P360"|"P720"|
+    // "P1080" via the JsonStringEnumConverter). Absent = keep the stored target.
+    TargetQuality? TargetQuality = null
 );

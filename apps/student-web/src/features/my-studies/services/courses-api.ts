@@ -32,6 +32,14 @@ export interface CourseEpisode {
   /** true once the multipart upload has completed and the blob is playable. */
   uploadCompleted: boolean;
   viewsCount: number;
+  /** Push 10.8 — rich episode metadata the API already returns (CourseEpisodeDto
+   * since 10.5): drives the player-page metadata card and the processing gate.
+   * Optional here so older payloads degrade gracefully. */
+  description?: string | null;
+  difficulty?: number | string | null;
+  /** "Pending" | "Transcoding_360p/720p/1080p" | "Ready" | "Failed" — null on
+   * audio/YouTube/legacy rows (never entered the transcoding pipeline). */
+  processingStatus?: string | null;
 }
 
 export interface CourseDetail {

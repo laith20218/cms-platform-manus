@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -58,6 +59,42 @@ public sealed class TranscodingChannelQueue : ITranscodingQueue
 }
 
 /// <summary>
+/// Push 10.8 — the abort surface between admin handlers and the worker: maps each
+/// in-flight job to its job-scoped CancellationTokenSource so an abort request
+/// (POST …/abort-processing) can kill the running FFmpeg WITHOUT touching the host's
+/// shutdown token. Thread-safe by construction (handler threads cancel while the
+/// single worker loop registers/removes).
+/// </summary>
+public interface ITranscodingJobRegistry
+{
+    /// <summary>Registers a job's cancellation source (worker side, at job start).</summary>
+    void Begin(TranscodingJob job, CancellationTokenSource jobCancellation);
+
+    /// <summary>Removes the registration (worker side, at job end — any outcome).</summary>
+    void End(TranscodingJob job);
+
+    /// <summary>Cancels the job's source when one is live. False = no in-flight job
+    /// (queued-not-started or already finished — the status write alone is enough).</summary>
+    bool TryCancel(TranscodingJob job);
+}
+
+public sealed class TranscodingJobRegistry : ITranscodingJobRegistry
+{
+    private readonly ConcurrentDictionary<TranscodingJob, CancellationTokenSource> _jobs = new();
+
+    public void Begin(TranscodingJob job, CancellationTokenSource jobCancellation) => _jobs[job] = jobCancellation;
+
+    public void End(TranscodingJob job) => _jobs.TryRemove(job, out _);
+
+    public bool TryCancel(TranscodingJob job)
+    {
+        if (!_jobs.TryGetValue(job, out var cts)) return false;
+        try { cts.Cancel(); return true; }
+        catch (ObjectDisposedException) { return false; } // job ended concurrently
+    }
+}
+
+/// <summary>
 /// The hosted worker. Single-consumer by design: transcoding is CPU/disk heavy; one job
 /// at a time keeps Render's container predictable (scale-out = more replicas later, the
 /// queue stays per-instance).
@@ -74,14 +111,17 @@ public sealed class VideoTranscodingService : BackgroundService
     private const int DefaultTimeoutMinutes = 10;
 
     private readonly TranscodingChannelQueue _queue;
+    private readonly ITranscodingJobRegistry _jobRegistry;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<VideoTranscodingService> _logger;
 
-    public VideoTranscodingService(TranscodingChannelQueue queue, IServiceScopeFactory scopeFactory, ILogger<VideoTranscodingService> logger)
+    public VideoTranscodingService(TranscodingChannelQueue queue, ITranscodingJobRegistry jobRegistry, IServiceScopeFactory scopeFactory, ILogger<VideoTranscodingService> logger)
     {
         // DI registers the concrete queue once and forwards it as ITranscodingQueue —
-        // handlers and this worker share ONE channel instance.
+        // handlers and this worker share ONE channel instance. The registry is the
+        // 10.8 abort bridge: handlers cancel in-flight jobs through it.
         _queue = queue;
+        _jobRegistry = jobRegistry;
         _scopeFactory = scopeFactory;
         _logger = logger;
     }
@@ -130,42 +170,54 @@ public sealed class VideoTranscodingService : BackgroundService
 
     // ================= pipeline =================
 
-    private async Task ProcessJobAsync(TranscodingJob job, CancellationToken ct)
+    private async Task ProcessJobAsync(TranscodingJob job, CancellationToken stoppingToken)
     {
+        // Push 10.8 — job-scoped cancellation: the abort endpoint cancels THIS token
+        // (killing the in-flight ffmpeg) without touching the host's stoppingToken.
+        // Registered BEFORE the skip-check below so an abort racing the dequeue
+        // still finds (and cancels) this job.
+        using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        _jobRegistry.Begin(job, jobCts);
+        var ct = jobCts.Token;
+
+        // The scope lives for the whole job: the catch paths below need the db to
+        // persist the terminal status.
         await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
         var storage = scope.ServiceProvider.GetRequiredService<IFileStorageService>();
 
-        // ---- resolve the asset (skip: deleted, not Pending, no source key) ----
-        string sourceKey;
-        Func<ProcessingStatus?, Task> saveStatus;
-        Func<string?, Task> saveReady;
-        TargetQuality targetQuality;
-
-        if (job.AssetType == MediaAssetType.CourseEpisode)
-        {
-            var episode = await db.CourseEpisodes.FirstOrDefaultAsync(e => e.Id == job.AssetId && e.DeletedAt == null, ct);
-            if (episode is null || episode.ProcessingStatus != ProcessingStatus.Pending || string.IsNullOrEmpty(episode.FileKey))
-                return;
-            sourceKey = episode.FileKey;
-            targetQuality = episode.TargetQuality;
-            saveStatus = async status => { episode.ProcessingStatus = status; await db.SaveChangesAsync(ct); };
-            saveReady = async hlsKey => { episode.HlsKey = hlsKey; episode.ProcessingStatus = ProcessingStatus.Ready; await db.SaveChangesAsync(ct); };
-        }
-        else
-        {
-            var file = await db.LibraryFiles.FirstOrDefaultAsync(f => f.Id == job.AssetId && f.DeletedAt == null, ct);
-            if (file is null || file.ProcessingStatus != ProcessingStatus.Pending || string.IsNullOrEmpty(file.FileUrl))
-                return;
-            sourceKey = file.FileUrl;
-            targetQuality = file.TargetQuality;
-            saveStatus = async status => { file.ProcessingStatus = status; await db.SaveChangesAsync(ct); };
-            saveReady = async hlsKey => { file.HlsKey = hlsKey; file.ProcessingStatus = ProcessingStatus.Ready; await db.SaveChangesAsync(ct); };
-        }
-
         var workspace = Path.Combine(Path.GetTempPath(), "cms-transcode", $"{job.AssetType}-{job.AssetId:N}");
         try
         {
+            // ---- resolve the asset (skip: deleted, not Pending, no source key) ----
+            // A job aborted while queued reads Failed here (the abort handler wrote
+            // it) and is skipped — exactly the "kill the background job" contract.
+            string sourceKey;
+            Func<ProcessingStatus?, Task> saveStatus;
+            Func<string?, Task> saveReady;
+            TargetQuality targetQuality;
+
+            if (job.AssetType == MediaAssetType.CourseEpisode)
+            {
+                var episode = await db.CourseEpisodes.FirstOrDefaultAsync(e => e.Id == job.AssetId && e.DeletedAt == null, ct);
+                if (episode is null || episode.ProcessingStatus != ProcessingStatus.Pending || string.IsNullOrEmpty(episode.FileKey))
+                    return;
+                sourceKey = episode.FileKey;
+                targetQuality = episode.TargetQuality;
+                saveStatus = async status => { episode.ProcessingStatus = status; await db.SaveChangesAsync(ct); };
+                saveReady = async hlsKey => { episode.HlsKey = hlsKey; episode.ProcessingStatus = ProcessingStatus.Ready; await db.SaveChangesAsync(ct); };
+            }
+            else
+            {
+                var file = await db.LibraryFiles.FirstOrDefaultAsync(f => f.Id == job.AssetId && f.DeletedAt == null, ct);
+                if (file is null || file.ProcessingStatus != ProcessingStatus.Pending || string.IsNullOrEmpty(file.FileUrl))
+                    return;
+                sourceKey = file.FileUrl;
+                targetQuality = file.TargetQuality;
+                saveStatus = async status => { file.ProcessingStatus = status; await db.SaveChangesAsync(ct); };
+                saveReady = async hlsKey => { file.HlsKey = hlsKey; file.ProcessingStatus = ProcessingStatus.Ready; await db.SaveChangesAsync(ct); };
+            }
+
             // Clean slate (a crashed earlier attempt must never leak half-written segments).
             if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
             Directory.CreateDirectory(workspace);
@@ -199,6 +251,14 @@ public sealed class VideoTranscodingService : BackgroundService
             // "Transcoding_720p" while only the 360p rung was encoding). N rungs → N shares.
             var rungStatuses = ffmpegArgs.RungNames.Select(StatusForRung).ToList();
             await saveStatus(rungStatuses[0]);
+
+            // Push 10.8 (task book 1.A) — the mandated job-start evidence line: target,
+            // probed source height and the rung set the encoder will actually build
+            // (P360 → exactly ["360p"]; Auto → the source-driven ladder). This is the
+            // line that PROVES the admin's TargetQuality choice reaches the encoder.
+            _logger.LogInformation(
+                "Starting job: ID={Id}, Target={TargetQuality}, SourceHeight={SourceHeight}, Rungs={Rungs}",
+                job.AssetId, targetQuality, probe.Height, string.Join(",", ffmpegArgs.RungNames));
             _logger.LogInformation(
                 "Transcode {AssetType} {AssetId}: ffmpeg ladder starting ({Rungs} rungs [{Names}], {Width}x{Height} display, {Duration:F0}s source)",
                 job.AssetType, job.AssetId, rungStatuses.Count, string.Join(",", ffmpegArgs.RungNames),
@@ -247,7 +307,17 @@ public sealed class VideoTranscodingService : BackgroundService
                 job.AssetType, job.AssetId, mex.HumanMessage, mex.TechnicalDetails);
             await TryMarkFailedAsync(db, job);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (jobCts.IsCancellationRequested && !stoppingToken.IsCancellationRequested)
+        {
+            // Push 10.8 — ADMIN ABORT: the abort-processing endpoint already persisted
+            // Failed and cancelled the job token; the cancelled token killed ffmpeg
+            // (RunFfmpegAsync's finally reaps the process tree). Never reset to Pending
+            // and never overwrite the Failed status from here — just report and stop.
+            _logger.LogInformation(
+                "Transcode {AssetType} {AssetId}: aborted by admin — FFmpeg terminated, status stays Failed",
+                job.AssetType, job.AssetId);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // Host shutdown mid-job: best-effort reset so the next boot re-picks it.
             await TryResetToPendingAsync(db, job);
@@ -264,6 +334,8 @@ public sealed class VideoTranscodingService : BackgroundService
         }
         finally
         {
+            // Push 10.8 — the registry entry must never outlive the job (any outcome).
+            _jobRegistry.End(job);
             try { if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true); }
             catch (Exception cleanupEx) { _logger.LogWarning(cleanupEx, "Temp workspace cleanup failed: {Path}", workspace); }
         }

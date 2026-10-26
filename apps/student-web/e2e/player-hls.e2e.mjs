@@ -40,6 +40,7 @@ const EXECUTABLE =
   '/home/z/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome';
 const SHOT_DIR = fileURLToPath(new URL('./screenshots/', import.meta.url));
 
+const COURSE_ID = '21111111-1111-1111-1111-111111111111';
 const EPISODE_ID = '11111111-2222-3333-4444-555555555555';
 const HLS_URL = `${BASE_URL}/e2e-hls/master.m3u8`; // real 2-rung ladder via vite public/
 const TTL_SECONDS = 8; // production is 540; short TTL → clamp → refresh at ~3s
@@ -89,6 +90,25 @@ async function newStudentContext(browser, viewport) {
   await context.route('**/api/v1/auth/me', (route) => route.fulfill({ json: E2E_USER }));
   await context.route('**/api/v1/entitlements/issue', (route) =>
     route.fulfill({ json: { token: ENTITLEMENT_TOKEN } }));
+
+  // Push 10.8 — the production course page's detail payload: one Ready HLS episode
+  // carrying the full metadata card content (long description → clamp/expand test).
+  await context.route(`**/api/v1/courses/${COURSE_ID}`, (route) => route.fulfill({
+    json: {
+      id: COURSE_ID, subjectId: 's-e2e', title: 'كورس الاختبار — مشغّل الإنتاج',
+      description: null, coverImageUrl: null, status: 'Published', episodesCount: 1,
+      createdAt: '2026-10-20T12:00:00Z',
+      episodes: [{
+        id: EPISODE_ID, courseId: COURSE_ID,
+        title: 'محاضرة تجريبية — القلب والأوعية', episodeNumber: 1,
+        durationSeconds: 930, sourceType: 'Upload', fileSize: 120_000,
+        contentType: 'video/mp4', youtubeVideoId: null, uploadCompleted: true,
+        viewsCount: 1245,
+        description: 'مراجعة شاملة لجهاز الدوران القلبي: التشريح المجهري للقلب ومسارات الدم عبر الصمامات الأربعة، دورة الضربة القلبية مع قراءة منحنى الضغط، ثم الفسيولوجيا المرضية لأمراض الصمام التاجي والتضيّق الأورطي — مع حالات سريرية قصيرة وأسئلة مراجعة في نهاية المحاضرة. تنصح بمراجعة محاضرة الأوعية الدموية السابقة قبل البدء.',
+        difficulty: 'Medium', processingStatus: 'Ready', targetQuality: 'Auto',
+      }],
+    },
+  }));
 
   await context.route(`**/api/v1/media/course-episode/${EPISODE_ID}/playback-url`, async (route) => {
     counters.playbackUrl += 1;
@@ -141,10 +161,9 @@ async function newStudentContext(browser, viewport) {
 }
 
 async function openPlayer(page) {
-  await page.goto(`${BASE_URL}/my-studies/player-test`);
-  await page.getByTestId('open-player-test').click();
-  await page.getByTestId('player-shell').waitFor({ state: 'visible', timeout: 15_000 });
-  await page.getByTestId('sandbox-video-player').waitFor({ state: 'visible', timeout: 20_000 });
+  await page.goto(`${BASE_URL}/my-studies/courses/${COURSE_ID}`);
+  await page.getByTestId('episode-stage').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByTestId('course-episode-player').waitFor({ state: 'visible', timeout: 20_000 });
   await page.getByTestId('video-element').waitFor({ state: 'attached', timeout: 20_000 });
 }
 
@@ -171,7 +190,7 @@ try {
   // 1 — Engine selection: .m3u8 URL (with presign query) → hls.js attached,
   //     element fed through MSE (blob: src, never the playlist URL itself).
   const engineInfo = await page.waitForFunction(() => {
-    const container = document.querySelector('[data-testid="sandbox-video-player"]');
+    const container = document.querySelector('[data-testid="course-episode-player"]');
     const v = document.querySelector('[data-testid="video-element"]');
     if (!container || !v) return null;
     return {
@@ -228,7 +247,7 @@ try {
     }
     const after = await page.evaluate(() => {
       const v = document.querySelector('[data-testid="video-element"]');
-      const container = document.querySelector('[data-testid="sandbox-video-player"]');
+      const container = document.querySelector('[data-testid="course-episode-player"]');
       return {
         time: v.currentTime, paused: v.paused,
         engine: container.getAttribute('data-engine'),
@@ -290,7 +309,7 @@ try {
   /* ================= Metadata card (2.A) — same open shell ================= */
 
   // 9 — Episode metadata: title, difficulty badge (متوسط), duration 15:30, views.
-  const metaVisible = await page.getByTestId('player-shell-metadata').isVisible();
+  const metaVisible = await page.getByTestId('course-episode-metadata').isVisible();
   check('episode metadata card renders inside the shell', metaVisible);
   const metaTitle = await page.getByTestId('episode-metadata-title').textContent();
   check('metadata title prominent', Boolean(metaTitle && metaTitle.includes('القلب والأوعية')), metaTitle ?? '');
@@ -334,11 +353,14 @@ try {
   await openPlayer(mobilePage);
   await mobilePage.getByTestId('video-center-play').click().catch(() => {});
   await mobilePage.waitForTimeout(1200);
+  // Push 10.8: the shell stage is gone — the inline page (dark cinema wrapper +
+  // metadata card) must fit 375px with no horizontal scroll.
   const noHorizontalOverflow = await mobilePage.evaluate(() => {
-    const stage = document.querySelector('[data-testid="player-stage"]');
-    return stage ? stage.scrollWidth <= window.innerWidth + 1 : false;
+    const meta = document.querySelector('[data-testid="course-episode-metadata"]');
+    const metaFits = meta ? meta.getBoundingClientRect().width <= window.innerWidth + 1 : false;
+    return document.documentElement.scrollWidth <= window.innerWidth + 1 && metaFits;
   });
-  check('mobile 375px: shell + metadata card, no horizontal overflow', noHorizontalOverflow);
+  check('mobile 375px: player + metadata card, no horizontal overflow', noHorizontalOverflow);
   await mobilePage.screenshot({ path: path.join(SHOT_DIR, 'player-hls-03-mobile-375.png') });
   await mobileContext.close();
 

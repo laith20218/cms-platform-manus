@@ -1,3 +1,40 @@
+# WIP STATUS — Push 10.8 (Combined: Admin Fixes & Student UI Integration)
+
+Branch: `wip/10.8` (from main @ b093d1a — deployed 10.7)
+Scope: api + admin-web + student-web. **No new migration** (no schema change — abort-processing flips the existing `processing_status` column; TargetQuality columns shipped in 10.7 and were applied to Neon by the supervisor). NOT merged to main — STOP GATE.
+
+## Done (10.8)
+
+### Phase 1 — Admin & backend fixes
+- [x] **1.A THE BUG + fix**: the admin's TargetQuality pick was silently DROPPED at four HTTP boundaries — `CompleteUploadRequestDto`/`UpdateEpisodeDto` (AdminCoursesController) and `CompleteUploadDto`/`UpdateLibraryFileDto` (LibraryController) never exposed the key, so the commands received null and the worker read the stored default (Auto) → the full 3-rung ladder. The Application layer (10.7) was already correct. All four boundaries now bind + forward `TargetQuality?`.
+- [x] **1.A mandated log line**: `Starting job: ID={Id}, Target={TargetQuality}, SourceHeight={SourceHeight}, Rungs={Rungs}` emitted right after the ladder build — LIVE evidence captured by `VideoTranscodingTargetQualityLiveTests` (real ffmpeg 7.1.5, real 1280×720 source): `Target=P360, SourceHeight=720, Rungs=360p` (one rung, 3 HLS objects) vs `Target=Auto, SourceHeight=720, Rungs=360p,720p` (5 objects).
+- [x] **1.B terminology**: 360p→SD, 720p→HD, 1080p→FHD across `PROCESSING_PHASES` sentences, `TARGET_QUALITY_OPTIONS` dropdown labels, and the row chip (`المعالجة: HD`).
+- [x] **1.B dynamic timeline**: `processingPhasesFor(targetQuality)` — P360/P720/P1080 collapse the ladder to exactly `[Pending, rung, Ready]` (bar passes 60% mid-encode); Auto keeps the five steps. `ProcessingTimeline` renders the visible set; a legacy Transcoding_* status outside the set widens back to the full ladder (honest fallback). `CoursesCenter` passes the episode's stored target.
+- [x] **1.C abort-processing**: `POST /api/v1/admin/courses/episodes/{id}/abort-processing` → `AbortEpisodeProcessingCommand` → marks Failed (persist FIRST) + `ITranscodingJobRegistry.TryCancel` kills the in-flight ffmpeg via a job-scoped linked CTS (registered before the skip-check so an abort racing the dequeue still cancels; the worker's abort path never overwrites the Failed status; queued-not-started jobs are skipped at dequeue by the Failed read). Admin UI: "إلغاء المعالجة" button renders ONLY while `processingStatus` is `Transcoding_*` (hidden while Pending — asserted in e2e), with a deliberate-cancel banner (not the generic failure headline).
+- [x] SQL rescue snippet (for the supervisor, Neon): `UPDATE course_episodes SET processing_status = 5 WHERE deleted_at IS NULL AND processing_status IN (1,2,3);` (enum stored as integer; 5 = Failed).
+
+### Phase 2 — Student UI integration
+- [x] **2.A**: `CoursePlayerPage` video path renders the production custom `VideoPlayer` (features/media-player) inline — HLS/MP4 dual-engine, silent lease refresh, resume, progress autosave, bookmarks all live INSIDE the player. The old native `<video controls>` `VideoStage`, the video lease-refresh useEffect, `handleNoVideoTrack`/`forceAudioStage` are deleted. The audio stage + YouTube embed keep the page-side lease trap (interval gated to `isAudioOnly`; YouTube gets the initial fetch only).
+- [x] **2.B**: `EpisodeMetadata` card rendered under the player inside a dark cinema wrapper (title / description / difficulty badge / duration / views — the API has carried these since 10.5; the TS `CourseEpisode` interface now declares them).
+- [x] **2.C processing gate**: status ≠ Ready (and non-null) → no player. `Pending/Transcoding_*` → "الفيديو قيد المعالجة حالياً. يرجى المحاولة لاحقاً." (spinner card); `Failed` → "تعذر معالجة هذا الفيديو. يرجى التواصل للدعم." (amber card). null status = legacy row → plays directly.
+- [x] **2.D**: `/my-studies/player-test` route + `PlayerTestPage.tsx` deleted; `player-shell.e2e.mjs` deleted with it (sandbox target gone); `player-video`/`player-hls` e2e retargeted to the PRODUCTION course page.
+- [x] Watermark preserved: `WatermarkLayer` decoupled from the access envelope (video path passes the student profile; audio stage forwards access.watermark) — rides z-30 over the custom player, pointer-events-none; wrapper `overflow-hidden` keeps the 375px no-overflow contract.
+
+## Verification (10.8)
+- API: `dotnet build` 0 errors; unit suite **336/336** (6 new: TargetQuality persistence ×2, abort ×3 + registry); live-pipeline evidence tests **2/2**.
+- vitest: student **117/117** (CoursePlayerPage section rewritten: custom player + metadata card + no-/access-for-video + audio lease trap + 4 processing-gate cases), admin **34/34**.
+- Playwright (real chromium, RAM-capped): student `player-video` **17/17** + `player-hls` **19/19** (custom player mechanics on the production page + the full metadata card matrix), admin `admin-upload` **28/28** (SD/HD/FHD sentences, P360 dynamic timeline = 3 steps with HD/FHD hidden, targetQuality=P360 riding the complete-upload body, cancel-button lifecycle + deliberate-cancel banner).
+
+## Commit log (10.8)
+- (this commit) — feat(api+admin+student): Push 10.8 — TargetQuality binding fix + live evidence, SD/HD/FHD dynamic timeline, abort-processing, student VideoPlayer + metadata + locked states, player-test deleted
+
+## Open items (for the supervisor)
+- **STOP GATE**: 10.8 implemented and pushed to `wip/10.8`; do NOT merge to main until the supervisor approves.
+- Rescue the stuck 58% row with the SQL snippet (or the new abort button once 10.8 deploys).
+- PlayerShell + LazyPlayerMount are now unused infra (kept for future reader players; tree-shaken from the bundle).
+
+---
+
 # WIP STATUS — Push 10.5 (API Integration & Metadata Exposure — backend)
 
 Branch: `wip/10.5` (from wip/10.4 @ 4e6d062; **local commit `7a64b57` — push blocked: no PAT in this session** (verified: no credential helper, no ~/.git-credentials, env clean — same state as 10.4's session; re-supply the PAT and `git push origin wip/10.5` completes it))

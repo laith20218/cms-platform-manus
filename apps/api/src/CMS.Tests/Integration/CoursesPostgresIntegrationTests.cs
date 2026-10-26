@@ -57,7 +57,8 @@ public sealed class CoursesPostgresIntegrationTests
         new Mock<ISystemSettingsService>().Object,
         NoOp.ActivityWriter(),
         NullLogger<CourseHandlers>.Instance,
-        new TranscodingChannelQueue()); // Push 10.3: inert queue — nothing consumes jobs in tests
+        new TranscodingChannelQueue(), // Push 10.3: inert queue — nothing consumes jobs in tests
+        new TranscodingJobRegistry()); // Push 10.8: inert abort registry — no live jobs in tests
 
     [Fact]
     public async Task MigrationContract_CoursesTablesExist_WithConstraints()

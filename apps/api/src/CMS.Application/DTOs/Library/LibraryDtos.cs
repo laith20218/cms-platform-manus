@@ -101,7 +101,11 @@ public record CompleteUploadDto(
     // additive so the wire contract stays forward-compatible.
     string? Title = null,
     string? Description = null,
-    Difficulty? Difficulty = null
+    Difficulty? Difficulty = null,
+    // Push 10.8 — admin-selected transcoding target for video files (the 10.7
+    // binding gap: the command accepted it, this DTO dropped it). Absent = keep
+    // the stored value (Auto).
+    TargetQuality? TargetQuality = null
 );
 
 // ===== Admin: Update/Delete =====
@@ -111,5 +115,7 @@ public record UpdateLibraryFileDto(
     List<string> Tags,
     Guid? LectureId,
     // Push 10.5 — difficulty is PATCH-optional: null leaves the stored tier untouched.
-    Difficulty? Difficulty = null
+    Difficulty? Difficulty = null,
+    // Push 10.8 — PATCH-optional transcoding target (same 10.7 binding gap).
+    TargetQuality? TargetQuality = null
 );

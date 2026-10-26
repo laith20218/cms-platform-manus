@@ -236,11 +236,13 @@ public class LibraryController : ControllerBase
     {
         if (!await CanManageAsync(Actions.Edit, "library_file", dto.FileId, ct)) return Forbid();
         // Push 10.5: optional metadata override (null = keep upload-url-time values).
+        // Push 10.8: TargetQuality rides too (the 10.7 binding gap — the DTO never
+        // exposed the key, so the admin's pick was dropped at this boundary).
         var result = await _mediator.Send(new CompleteUploadCommand(
             dto.FileId, dto.FileKey, dto.ActualFileSize,
             dto.PagesCount, dto.DurationSeconds,
             dto.YoutubeVideoId, GetAdminId(), GetSessionId(),
-            dto.Title, dto.Description, dto.Difficulty
+            dto.Title, dto.Description, dto.Difficulty, dto.TargetQuality
         ), ct);
         return Ok(result);
     }
@@ -254,7 +256,7 @@ public class LibraryController : ControllerBase
     {
         if (!await CanManageAsync(Actions.Edit, "library_file", id, ct)) return Forbid();
         var result = await _mediator.Send(new UpdateLibraryFileCommand(id, dto.Title, dto.Description, dto.Tags, dto.LectureId,
-            dto.Difficulty), ct);
+            dto.Difficulty, dto.TargetQuality), ct);
         return Ok(result);
     }
 

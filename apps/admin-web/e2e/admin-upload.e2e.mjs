@@ -12,16 +12,23 @@
  * Flows:
  *  A. Happy ladder (desktop 1280×800): login-restore → Library → Courses →
  *     hierarchy picks → course drawer → upload panel → simulated multipart
- *     PUT → complete-upload (assert Title/Description/Difficulty ride the
- *     body) → ProcessingStatus poll ladder Pending → 360p → 720p → 1080p →
- *     Ready with the human sentences + animated bar → episode row chip +
- *     difficulty badge → edit modal (assert metadata on the PUT).
+ *     PUT → complete-upload (assert Title/Description/Difficulty + the 10.8
+ *     targetQuality key ride the body) → ProcessingStatus poll ladder Pending →
+ *     360p (SD) → 720p (HD) → 1080p (FHD) → Ready with the human sentences +
+ *     animated bar → episode row chip + difficulty badge → edit modal (assert
+ *     metadata on the PUT).
  *  B. Failed processing (desktop): ladder lands on Failed with an FFmpeg
  *     technical payload → dual-language error modal (Arabic headline +
  *     human message + collapsible LTR technical details + Copy Error +
  *     Retry that re-polls to Ready).
- *  C. Tablet 768×1024: upload form usable (fields + timeline visible, no
- *     horizontal overflow).
+ *  C. Abort processing (desktop, Push 10.8 1.C): the ladder parks at
+ *     Transcoding_720p (the production stuck-at-58% shape) → the "إلغاء
+ *     المعالجة" button appears ONLY while encoding → click → abort-processing
+ *     POST → episode flips to Failed → the deliberate-cancel banner (not the
+ *     generic failure headline).
+ *  D. Tablet 768×1024 (Push 10.8 1.B): P360 selected → complete-upload body
+ *     carries targetQuality=P360 → the DYNAMIC timeline renders exactly
+ *     [Pending, SD, Ready] (HD/FHD steps hidden) → form usable, no overflow.
  *
  * Run (admin dev server on 127.0.0.1:5174):  node e2e/admin-upload.e2e.mjs
  */
@@ -80,13 +87,19 @@ const sampler = setInterval(() => {
  */
 function makeWorld() {
   return {
-    mode: 'ladder', // 'ladder' | 'failed'
+    mode: 'ladder', // 'ladder' | 'failed' | 'stuck' | 'sd'
     completeUploads: 0,
     detailGetsAfterComplete: 0,
     retryArmed: false,
     completeBodies: [],
     partPuts: 0,
     editBodies: [],
+    // Push 10.8 — the abort-processing world state.
+    aborted: false,
+    abortCalls: 0,
+    // Push 10.8 — the quality the episode DTO echoes back (drives the
+    // dynamic timeline); the complete-upload body carries the admin's pick.
+    targetQuality: 'Auto',
   };
 }
 
@@ -109,10 +122,26 @@ function courseDetailPayload(world) {
   episode.uploadCompleted = true;
   episode.difficulty = 2;
   episode.description = 'وصف تجريبي للحلقة';
+  episode.targetQuality = world.targetQuality;
 
-  if (world.mode === 'failed') {
+  if (world.aborted) {
+    // Push 10.8 — abort-processing flipped the episode to Failed (terminal).
+    episode.processingStatus = 'Failed';
+  } else if (world.mode === 'failed') {
     episode.processingStatus = world.retryArmed ? 'Ready' : 'Failed';
     if (episode.processingStatus === 'Failed') episode.processingError = FFMPEG_LOG;
+  } else if (world.mode === 'stuck') {
+    // Push 10.8 — the production shape: the encode parks at Transcoding_720p
+    // (the admin UI's 58%) and never advances — the cancel-button world.
+    const stuckLadder = ['Pending', 'Transcoding_360p', 'Transcoding_720p'];
+    const rung = Math.min(Math.floor((world.detailGetsAfterComplete - 1) / 2), stuckLadder.length - 1);
+    episode.processingStatus = stuckLadder[rung];
+  } else if (world.mode === 'sd') {
+    // Push 10.8 — a P360 encode: the status IS Transcoding_360p for the whole
+    // single-rung encode, then Ready.
+    const sdLadder = ['Pending', 'Transcoding_360p', 'Ready'];
+    const rung = Math.min(Math.floor((world.detailGetsAfterComplete - 1) / 2), sdLadder.length - 1);
+    episode.processingStatus = sdLadder[rung];
   } else {
     // Each rung persists for TWO detail fetches: complete-upload triggers two
     // immediate GETs (loadDetail + the poller's activation poll) — without
@@ -226,6 +255,13 @@ async function newAdminContext(browser, viewport, world) {
     }
   });
 
+  // Push 10.8 — the abort-processing endpoint: flips the world to Failed.
+  await context.route(`**/api/v1/admin/courses/episodes/${EPISODE_ID}/abort-processing`, (route) => {
+    world.abortCalls += 1;
+    world.aborted = true;
+    route.fulfill({ json: {} });
+  });
+
   return context;
 }
 
@@ -309,18 +345,26 @@ try {
     await waitForPhaseActive(page, 'Pending', 15_000);
     const completeBody = world.completeBodies[0];
     check('simulated multipart PUT executed (presigned part)', world.partPuts === 1, `puts=${world.partPuts}`);
-    check('complete-upload body carries the metadata (1.A)',
+    check('complete-upload body carries the metadata (1.A) + targetQuality (10.8)',
       Boolean(completeBody?.parts?.length)
         && completeBody?.title === 'حلقة القلب والأوعية'
         && completeBody?.description === 'مراجعة شاملة لدورة القلب مع حالات سريرية.'
-        && completeBody?.difficulty === 2,
-      `title=${completeBody?.title} difficulty=${completeBody?.difficulty} parts=${completeBody?.parts?.length}`);
+        && completeBody?.difficulty === 2
+        && completeBody?.targetQuality === 'Auto',
+      `title=${completeBody?.title} difficulty=${completeBody?.difficulty} target=${completeBody?.targetQuality} parts=${completeBody?.parts?.length}`);
+
+    // 2b — Push 10.8 (1.C): the cancel button is HIDDEN while Pending (queued,
+    //      not encoding) — it must appear only for Transcoding_* statuses.
+    {
+      const cancelCount = await page.getByTestId('cancel-processing-button').count();
+      check('cancel button hidden while Pending (not encoding yet)', cancelCount === 0);
+    }
 
     // 3 — The human ladder: each rung's exact Arabic sentence + active state.
     await waitForPhaseActive(page, 'Transcoding_360p');
     const phase360 = await page.getByTestId('processing-phase-Transcoding_360p').textContent();
-    check('phase sentence 360p (exact task-book Arabic)',
-      phase360?.includes('جاري إنشاء نسخة 360p (مناسبة للجوال)...') ?? false, phase360 ?? '');
+    check('phase sentence SD (exact task-book Arabic, 10.8 vocabulary)',
+      phase360?.includes('جاري إنشاء نسخة SD (مناسبة للجوال)...') ?? false, phase360 ?? '');
     const percent360 = await page.getByTestId('processing-bar-percent').textContent();
     check('animated bar reflects the 360p rung (~32%)', percent360?.includes('32') ?? false, percent360 ?? '');
 
@@ -331,11 +375,11 @@ try {
 
     await waitForPhaseActive(page, 'Transcoding_720p');
     const phase720 = await page.getByTestId('processing-phase-Transcoding_720p').textContent();
-    check('phase sentence 720p', phase720?.includes('جاري إنشاء نسخة 720p (جودة عالية)...') ?? false, phase720 ?? '');
+    check('phase sentence HD', phase720?.includes('جاري إنشاء نسخة HD (جودة عالية)...') ?? false, phase720 ?? '');
 
     await waitForPhaseActive(page, 'Transcoding_1080p');
     const phase1080 = await page.getByTestId('processing-phase-Transcoding_1080p').textContent();
-    check('phase sentence 1080p', phase1080?.includes('جاري إنشاء نسخة 1080p (جودة فائقة)...') ?? false, phase1080 ?? '');
+    check('phase sentence FHD', phase1080?.includes('جاري إنشاء نسخة FHD (جودة فائقة)...') ?? false, phase1080 ?? '');
     await page.screenshot({ path: path.join(SHOT_DIR, 'admin-upload-02-ladder-1080p.png') });
 
     // 5 — Ready: the success sentence + full bar + row badge.
@@ -428,9 +472,54 @@ try {
     await context.close();
   }
 
-  /* ================= Flow C — tablet 768×1024 usability ================= */
+  /* ============ Flow C — abort processing (Push 10.8 1.C) ============ */
   {
     const world = makeWorld();
+    world.mode = 'stuck'; // parks at Transcoding_720p — the 58% production freeze
+    const context = await newAdminContext(browser, { width: 1280, height: 800 }, world);
+    const page = await context.newPage();
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text().slice(0, 200));
+    });
+
+    await openCoursesDrawer(page);
+    await runSimulatedUpload(page, world, {
+      title: 'حلقة عالقة في المعالجة',
+      description: 'اختبار زر إلغاء المعالجة.',
+      difficulty: 1,
+    });
+
+    // 11 — The encode parks at Transcoding_720p → the cancel button appears.
+    await waitForPhaseActive(page, 'Transcoding_720p', 30_000);
+    await page.getByTestId('cancel-processing-button').waitFor({ state: 'visible', timeout: 10_000 });
+    const cancelLabel = await page.getByTestId('cancel-processing-button').textContent();
+    check('إلغاء المعالجة button visible while encoding (Transcoding_720p)',
+      cancelLabel?.includes('إلغاء المعالجة') ?? false, cancelLabel ?? '');
+
+    // 12 — Click → POST abort-processing → the episode flips to Failed → the
+    //      deliberate-cancel banner (NOT the generic upload-failure headline).
+    await page.getByTestId('cancel-processing-button').click();
+    await page.getByTestId('upload-error-banner').waitFor({ state: 'visible', timeout: 10_000 });
+    check('abort-processing POST fired exactly once', world.abortCalls === 1, `calls=${world.abortCalls}`);
+    const banner = await page.getByTestId('upload-error-banner').textContent();
+    check('deliberate-cancel banner headline (تم إلغاء المعالجة)',
+      (banner?.includes('تم إلغاء المعالجة') ?? false) && !(banner ?? '').includes('تعذّر إتمام الرفع'),
+      (banner ?? '').slice(0, 80));
+
+    // 13 — The button disappears once the episode is no longer encoding.
+    await page.waitForTimeout(600);
+    const cancelGone = (await page.getByTestId('cancel-processing-button').count()) === 0;
+    check('cancel button disappears after the abort (Failed is terminal)', cancelGone);
+
+    await page.screenshot({ path: path.join(SHOT_DIR, 'admin-upload-06-abort-processing.png') });
+    await context.close();
+  }
+
+  /* ======== Flow D — tablet 768×1024: P360 dynamic timeline (10.8 1.B) ======== */
+  {
+    const world = makeWorld();
+    world.mode = 'sd';
+    world.targetQuality = 'P360'; // the episode echoes the stored target
     const context = await newAdminContext(browser, { width: 768, height: 1024 }, world);
     const page = await context.newPage();
     page.on('console', (msg) => {
@@ -446,10 +535,40 @@ try {
       && await page.locator('input[type="file"]').isVisible();
     check('tablet 768px: upload form fields all visible', fieldsVisible);
 
+    // 14 — Pick the video FIRST (the quality dropdown renders only for video
+    //      picks), then select P360 → the complete-upload body carries it — the
+    //      10.8 binding-chain evidence at the HTTP layer (the 10.7 gap dropped
+    //      the key exactly here).
+    await page.getByPlaceholder('عنوان الحلقة').fill('حلقة SD بخطوة واحدة');
+    await page.getByTestId('upload-metadata-description').fill('اختبار الجدول الزمني الديناميكي.');
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'lecture-sd.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(256 * 1024, 7),
+    });
+    await page.getByTestId('upload-metadata-target-quality').waitFor({ state: 'visible', timeout: 5_000 });
+    await page.getByTestId('upload-metadata-target-quality').selectOption('P360');
+    await page.getByTestId('upload-start-button').click();
+
+    await waitForPhaseActive(page, 'Transcoding_360p', 25_000);
+    const sdBody = world.completeBodies[0];
+    check('complete-upload body carries targetQuality=P360 (10.8 binding fix)',
+      sdBody?.targetQuality === 'P360', `target=${sdBody?.targetQuality}`);
+
+    // 15 — The DYNAMIC timeline: exactly [Pending, SD, Ready]; the HD/FHD
+    //      steps that will never run are NOT rendered.
+    const phaseCount = await page.getByTestId('processing-phases').locator('li').count();
+    const hdCount = await page.getByTestId('processing-phase-Transcoding_720p').count();
+    const fhdCount = await page.getByTestId('processing-phase-Transcoding_1080p').count();
+    check('P360 timeline: exactly 3 steps [Pending, SD, Ready] — HD/FHD hidden',
+      phaseCount === 3 && hdCount === 0 && fhdCount === 0,
+      `steps=${phaseCount} hd=${hdCount} fhd=${fhdCount}`);
+    const sdSentence = await page.getByTestId('processing-phase-Transcoding_360p').textContent();
+    check('single-rung sentence uses the SD vocabulary',
+      sdSentence?.includes('جاري إنشاء نسخة SD (مناسبة للجوال)...') ?? false, sdSentence ?? '');
+
     const noOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
     check('tablet 768px: no horizontal overflow', noOverflow);
 
-    await page.screenshot({ path: path.join(SHOT_DIR, 'admin-upload-05-tablet-768.png') });
+    await page.screenshot({ path: path.join(SHOT_DIR, 'admin-upload-07-p360-dynamic-timeline.png') });
     await context.close();
   }
 

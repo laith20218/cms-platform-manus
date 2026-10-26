@@ -49,7 +49,8 @@ public sealed class CourseHandlersTests
             settingsService.Object,
             activity,
             NullLogger<CourseHandlers>.Instance,
-            new TranscodingChannelQueue()); // Push 10.3: real inert queue — jobs buffer, nothing consumes them in tests
+            new TranscodingChannelQueue(), // Push 10.3: real inert queue — jobs buffer, nothing consumes them in tests
+            new TranscodingJobRegistry()); // Push 10.8: inert abort registry — no live jobs to cancel in tests
         return (handler, storage, entitlements, settingsService, activity);
     }
 
@@ -460,6 +461,135 @@ public sealed class CourseHandlersTests
         completed.Difficulty.Should().Be(Difficulty.Easy);
         completed.ProcessingError.Should().BeNull("technical details ride the DTO only while the pipeline is Failed");
         completed.HlsKey.Should().BeNull();
+    }
+
+    // ===== Push 10.8 — TargetQuality enforcement + abort-processing =====
+
+    [Fact]
+    public async Task CompleteUpload_Persists_AdminSelectedTargetQuality()
+    {
+        // The 10.7 production bug: the controller boundary dropped the admin's pick,
+        // so the worker read Auto and encoded the full ladder. This guards the
+        // handler side of the fixed chain (controller → command → same-commit persist).
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/tq/y", uploadId: "mpu-tq", fileSize: 100);
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.CompleteMultipartUploadAsync("courses/tq/y", "mpu-tq", It.IsAny<IReadOnlyList<CompletedPart>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        storage.Setup(s => s.GetObjectSizeAsync("courses/tq/y", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(2048L);
+
+        var completed = await handler.Handle(new CompleteEpisodeUploadCommand(episode.Id,
+            new List<CompletedPartDto> { new(1, "etag-1") },
+            TargetQuality: TargetQuality.P360), CancellationToken.None);
+
+        completed.TargetQuality.Should().Be(TargetQuality.P360);
+        var stored = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == episode.Id);
+        stored.TargetQuality.Should().Be(TargetQuality.P360,
+            "the admin's pick rides the SAME commit the enqueue follows, so the worker encodes exactly one 360p rung");
+        stored.ProcessingStatus.Should().Be(ProcessingStatus.Pending);
+    }
+
+    [Fact]
+    public async Task UpdateEpisode_PatchesTargetQuality()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/tqu/y", episodeNumber: 1);
+        var (handler, _, _, _, _) = Create(db);
+
+        var updated = await handler.Handle(new UpdateEpisodeCommand(episode.Id, "عنوان", 1, null,
+            TargetQuality: TargetQuality.P720), CancellationToken.None);
+
+        updated.TargetQuality.Should().Be(TargetQuality.P720);
+        db.CourseEpisodes.AsNoTracking().Single(e => e.Id == episode.Id).TargetQuality
+            .Should().Be(TargetQuality.P720);
+    }
+
+    [Fact]
+    public async Task AbortProcessing_StuckEncode_MarkedFailed()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/abort/y", uploadId: "mpu-done", fileSize: 100);
+        episode.ProcessingStatus = ProcessingStatus.Transcoding_720p; // the 58% production freeze
+        await db.SaveChangesAsync();
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.CompleteMultipartUploadAsync("courses/abort/y", "mpu-done", It.IsAny<IReadOnlyList<CompletedPart>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        storage.Setup(s => s.GetObjectSizeAsync("courses/abort/y", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(2048L);
+
+        var aborted = await handler.Handle(new AbortEpisodeProcessingCommand(episode.Id, Guid.NewGuid()), CancellationToken.None);
+
+        aborted.ProcessingStatus.Should().Be(ProcessingStatus.Failed);
+        var stored = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == episode.Id);
+        stored.ProcessingStatus.Should().Be(ProcessingStatus.Failed,
+            "abort is terminal — the worker never touches the row again");
+    }
+
+    [Theory]
+    [InlineData(ProcessingStatus.Ready)]
+    [InlineData(ProcessingStatus.Failed)]
+    public async Task AbortProcessing_NothingActive_Rejected(ProcessingStatus status)
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/na/y", uploadId: "mpu-na", fileSize: 100);
+        episode.ProcessingStatus = status;
+        await db.SaveChangesAsync();
+        var (handler, _, _, _, _) = Create(db);
+
+        var act = () => handler.Handle(new AbortEpisodeProcessingCommand(episode.Id, Guid.NewGuid()), CancellationToken.None);
+
+        await act.Should().ThrowAsync<DomainException>()
+            .Where(ex => ex.ErrorCode == "NO_ACTIVE_PROCESSING");
+        db.CourseEpisodes.AsNoTracking().Single(e => e.Id == episode.Id).ProcessingStatus
+            .Should().Be(status, "a rejected abort never touches the stored status");
+    }
+
+    [Fact]
+    public async Task AbortProcessing_PendingEpisode_AlsoAbortable()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/pending/y", uploadId: "mpu-p", fileSize: 100);
+        episode.ProcessingStatus = ProcessingStatus.Pending;
+        await db.SaveChangesAsync();
+        var (handler, _, _, _, _) = Create(db);
+
+        var aborted = await handler.Handle(new AbortEpisodeProcessingCommand(episode.Id, Guid.NewGuid()), CancellationToken.None);
+
+        aborted.ProcessingStatus.Should().Be(ProcessingStatus.Failed);
+        db.CourseEpisodes.AsNoTracking().Single(e => e.Id == episode.Id).ProcessingStatus
+            .Should().Be(ProcessingStatus.Failed,
+                "a queued-not-started job is killed by the status alone — the worker skips it at dequeue");
+    }
+
+    [Fact]
+    public void TranscodingJobRegistry_TryCancel_CancelsTheLiveJobOnly()
+    {
+        // The worker side of the abort bridge: Begin exposes the job's CTS, TryCancel
+        // flips it (killing FFmpeg via the linked token), End removes it, and other
+        // jobs are never affected.
+        var registry = new TranscodingJobRegistry();
+        var job = new TranscodingJob(MediaAssetType.CourseEpisode, Guid.NewGuid());
+        var other = new TranscodingJob(MediaAssetType.CourseEpisode, Guid.NewGuid());
+
+        registry.TryCancel(job).Should().BeFalse("no live job yet");
+
+        using var cts = new CancellationTokenSource();
+        using var otherCts = new CancellationTokenSource();
+        registry.Begin(job, cts);
+        registry.Begin(other, otherCts);
+
+        registry.TryCancel(job).Should().BeTrue();
+        cts.IsCancellationRequested.Should().BeTrue("the live FFmpeg token is cancelled");
+        otherCts.IsCancellationRequested.Should().BeFalse("unrelated jobs keep encoding");
+
+        registry.End(job);
+        registry.TryCancel(job).Should().BeFalse("the entry never outlives the job");
     }
 
     [Fact]

@@ -102,3 +102,10 @@ public record CompleteEpisodeUploadCommand(
 ) : IRequest<CourseEpisodeDto>;
 
 public record AbortEpisodeUploadCommand(Guid EpisodeId, Guid DeletedBy) : IRequest<Unit>;
+
+/// <summary>
+/// Push 10.8 — aborts an in-flight server-side transcode for one episode: the
+/// handler marks the row Failed (terminal) and signals the worker's job registry
+/// to cancel the running FFmpeg process. The admin "إلغاء المعالجة" escape hatch.
+/// </summary>
+public record AbortEpisodeProcessingCommand(Guid EpisodeId, Guid AbortedBy) : IRequest<CourseEpisodeDto>;

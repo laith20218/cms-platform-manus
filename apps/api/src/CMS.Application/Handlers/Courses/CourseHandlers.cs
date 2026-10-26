@@ -37,7 +37,8 @@ public class CourseHandlers :
     IRequestHandler<InitiateEpisodeUploadCommand, InitiateUploadDto>,
     IRequestHandler<GetMultipartStatusQuery, MultipartStatusDto>,
     IRequestHandler<CompleteEpisodeUploadCommand, CourseEpisodeDto>,
-    IRequestHandler<AbortEpisodeUploadCommand, Unit>
+    IRequestHandler<AbortEpisodeUploadCommand, Unit>,
+    IRequestHandler<AbortEpisodeProcessingCommand, CourseEpisodeDto>
 {
     private readonly IApplicationDbContext _db;
     private readonly IUnitOfWork _unitOfWork;
@@ -47,6 +48,7 @@ public class CourseHandlers :
     private readonly IAdminActivityWriter _activity;
     private readonly ILogger<CourseHandlers> _logger;
     private readonly ITranscodingQueue _transcodingQueue;
+    private readonly ITranscodingJobRegistry _transcodingJobRegistry;
 
     /// <summary>Fixed 64 MB part size (د4): ≤ 40 parts for a 2.5 GB video, far under the 10,000-part S3 cap.</summary>
     private const long PartSizeBytes = 64L * 1024 * 1024;
@@ -80,7 +82,9 @@ public class CourseHandlers :
         ISystemSettingsService settings,
         IAdminActivityWriter activity,
         ILogger<CourseHandlers> logger,
-        ITranscodingQueue transcodingQueue)
+        ITranscodingQueue transcodingQueue,
+        // Push 10.8 — the abort bridge for abort-processing (kills in-flight FFmpeg).
+        ITranscodingJobRegistry transcodingJobRegistry)
     {
         _db = db;
         _unitOfWork = unitOfWork;
@@ -90,6 +94,7 @@ public class CourseHandlers :
         _activity = activity;
         _logger = logger;
         _transcodingQueue = transcodingQueue;
+        _transcodingJobRegistry = transcodingJobRegistry;
     }
 
     // ===== Student: catalog =====
@@ -603,6 +608,37 @@ public class CourseHandlers :
         _db.CourseEpisodes.Remove(episode);
         await _unitOfWork.SaveChangesAsync(ct);
         return Unit.Value;
+    }
+
+    /// <summary>
+    /// Push 10.8 — the admin escape hatch for a stuck encode ("إلغاء المعالجة"):
+    /// marks the episode Failed (terminal — the pipeline never touches the row again)
+    /// and cancels the worker's live job through the registry, which kills the running
+    /// FFmpeg process. A job still queued is skipped at dequeue by the Failed status —
+    /// TryCancel being false there is fine.
+    /// </summary>
+    public async Task<CourseEpisodeDto> Handle(AbortEpisodeProcessingCommand req, CancellationToken ct)
+    {
+        var episode = await _db.CourseEpisodes.FirstOrDefaultAsync(episode => episode.Id == req.EpisodeId && episode.DeletedAt == null, ct)
+            ?? throw new NotFoundException("CourseEpisode", req.EpisodeId);
+
+        if (episode.ProcessingStatus is not (ProcessingStatus.Pending
+                or ProcessingStatus.Transcoding_360p
+                or ProcessingStatus.Transcoding_720p
+                or ProcessingStatus.Transcoding_1080p))
+            throw new DomainException("لا توجد معالجة نشطة لهذه الحلقة", "NO_ACTIVE_PROCESSING");
+
+        // Persist FIRST, cancel second: the worker's abort path never writes a status,
+        // so Failed is the value every reader sees from here on.
+        episode.ProcessingStatus = ProcessingStatus.Failed;
+        await _unitOfWork.SaveChangesAsync(ct);
+
+        var cancelledLiveJob = _transcodingJobRegistry.TryCancel(new TranscodingJob(MediaAssetType.CourseEpisode, episode.Id));
+
+        _logger.LogInformation(
+            "Transcoding aborted by admin. EpisodeId={EpisodeId} AbortedBy={AdminId} LiveJobCancelled={LiveJobCancelled}",
+            episode.Id, req.AbortedBy, cancelledLiveJob);
+        return MapToEpisodeDto(episode);
     }
 
     // ===== Helpers =====

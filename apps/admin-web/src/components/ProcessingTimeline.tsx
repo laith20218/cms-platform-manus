@@ -3,6 +3,9 @@ import {
   PROCESSING_PHASES,
   formatEta,
   formatSpeed,
+  normalizeTargetQuality,
+  processingPhasesFor,
+  type ProcessingPhaseInfo,
   type ProcessingStatus,
 } from '../lib/mediaProcessing';
 
@@ -19,6 +22,11 @@ import {
  *  spinner while it's active, and the shared bar animates to the rung's
  *  target percent (CSS transition — smooth by construction). `Failed` turns
  *  the bar red; `Ready` completes it with the success sentence.
+ *
+ * Push 10.8 (1.B) — the ladder is DYNAMIC: `targetQuality` collapses it to the
+ * steps the pipeline will actually run (P360 → [Pending, SD, Ready]; Auto →
+ * the full five steps). A status outside the visible set (legacy stuck rows)
+ * falls back to the full ladder so the live phase always renders honestly.
  */
 
 export interface UploadStats {
@@ -42,6 +50,7 @@ export function ProcessingTimeline({
   uploadPercent,
   uploadStats,
   status,
+  targetQuality,
   isArabic,
   testId = 'processing-timeline',
 }: {
@@ -49,14 +58,27 @@ export function ProcessingTimeline({
   uploadPercent?: number;
   uploadStats?: UploadStats | null;
   status?: ProcessingStatus | null | undefined;
+  /** Push 10.8 (1.B) — the stored transcoding target drives the visible steps
+   * (P360/P720/P1080 → one rung; Auto/absent → the full ladder). */
+  targetQuality?: string | null | undefined;
   isArabic: boolean;
   testId?: string;
 }) {
   const failed = status === 'Failed';
-  const activeIndex = PROCESSING_PHASES.findIndex((phase) => phase.status === status);
+
+  /* Push 10.8 — the dynamic ladder: steps that will not run are never shown.
+   * Fallback: a live Transcoding_* status outside the visible set (a legacy row
+   * edited to a lower target mid-encode) widens back to the full ladder so the
+   * active phase keeps rendering instead of vanishing. */
+  const phases: ProcessingPhaseInfo[] = processingPhasesFor(normalizeTargetQuality(targetQuality));
+  const visible = status && status.startsWith('Transcoding_') && !phases.some((phase) => phase.status === status)
+    ? [...PROCESSING_PHASES]
+    : phases;
+
+  const activeIndex = visible.findIndex((phase) => phase.status === status);
   const barPercent = stage === 'uploading'
     ? Math.min(100, Math.max(0, uploadPercent ?? 0))
-    : failed ? 100 : (activeIndex >= 0 ? PROCESSING_PHASES[activeIndex].progress : 0);
+    : failed ? 100 : (activeIndex >= 0 ? visible[activeIndex].progress : 0);
 
   return (
     <div data-testid={testId} className="space-y-3">
@@ -95,10 +117,10 @@ export function ProcessingTimeline({
         </div>
       )}
 
-      {/* ===== Stage 2: transcoding ladder ===== */}
+      {/* ===== Stage 2: transcoding ladder (dynamic — 10.8) ===== */}
       {stage === 'processing' && (
         <ol className="space-y-1.5" data-testid="processing-phases">
-          {PROCESSING_PHASES.map((phase, index) => {
+          {visible.map((phase, index) => {
             const done = activeIndex > index || (status === 'Ready' && phase.status === 'Ready');
             const active = activeIndex === index;
             return (

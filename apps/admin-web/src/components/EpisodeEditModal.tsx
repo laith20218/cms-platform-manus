@@ -19,9 +19,8 @@ import { EpisodeMetadataFields, type EpisodeMetadataValues } from './EpisodeMeta
  *
  * Submit → PUT /api/v1/admin/courses/episodes/{id} with the full payload
  * (title, episodeNumber, durationSeconds, description, difficulty,
- * targetQuality). The metadata keys are additive: the current API ignores
- * unknown JSON members, so the request is forward-compatible with the backend
- * DTO wiring without changing any behavior today.
+ * targetQuality). Push 10.8 wired the targetQuality key through the backend
+ * DTO/command chain — the edit modal's quality pick now actually persists.
  */
 
 export interface EpisodeEditModalProps {

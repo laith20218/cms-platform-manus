@@ -35,12 +35,14 @@ export interface ProcessingPhaseInfo {
   progress: number;
 }
 
-/** The ladder, in order — exactly the task book's human sentences. */
+/** The ladder, in order — exactly the task book's human sentences.
+ * Push 10.8 (1.B): the rung text switched from raw pixel heights to the market
+ * vocabulary — 360p → SD, 720p → HD, 1080p → FHD. */
 export const PROCESSING_PHASES: readonly ProcessingPhaseInfo[] = [
   { status: 'Pending', labelAr: 'جاري تجهيز الفيديو في الخادم...', labelEn: 'Preparing the video on the server…', progress: 8 },
-  { status: 'Transcoding_360p', labelAr: 'جاري إنشاء نسخة 360p (مناسبة للجوال)...', labelEn: 'Creating the 360p copy (mobile-friendly)…', progress: 32 },
-  { status: 'Transcoding_720p', labelAr: 'جاري إنشاء نسخة 720p (جودة عالية)...', labelEn: 'Creating the 720p copy (high quality)…', progress: 58 },
-  { status: 'Transcoding_1080p', labelAr: 'جاري إنشاء نسخة 1080p (جودة فائقة)...', labelEn: 'Creating the 1080p copy (ultra quality)…', progress: 84 },
+  { status: 'Transcoding_360p', labelAr: 'جاري إنشاء نسخة SD (مناسبة للجوال)...', labelEn: 'Creating the SD copy (mobile-friendly)…', progress: 32 },
+  { status: 'Transcoding_720p', labelAr: 'جاري إنشاء نسخة HD (جودة عالية)...', labelEn: 'Creating the HD copy (high quality)…', progress: 58 },
+  { status: 'Transcoding_1080p', labelAr: 'جاري إنشاء نسخة FHD (جودة فائقة)...', labelEn: 'Creating the FHD copy (ultra quality)…', progress: 84 },
   { status: 'Ready', labelAr: 'الفيديو جاهز للمشاهدة ✅', labelEn: 'The video is ready to watch ✅', progress: 100 },
 ] as const;
 
@@ -53,6 +55,36 @@ export function processingPhaseIndex(status: ProcessingStatus | null | undefined
   if (!status) return -1;
   const index = PROCESSING_PHASES.findIndex((phase) => phase.status === status);
   return index;
+}
+
+/** Push 10.8 (1.B) — the rung→market-vocabulary chip text ("المعالجة: HD"). */
+const RUNG_LABELS: Record<string, string> = {
+  '360p': 'SD',
+  '720p': 'HD',
+  '1080p': 'FHD',
+};
+
+/**
+ * Push 10.8 (1.B) — the DYNAMIC timeline: the steps the pipeline will ACTUALLY run,
+ * derived from the episode's stored target quality. A concrete target collapses the
+ * ladder to exactly one rung (P360 → [Pending, Transcoding_360p (SD), Ready]; Auto
+ * keeps the full five-step machine). Steps that will never run are not shown.
+ */
+export function processingPhasesFor(targetQuality: TargetQuality | string | null | undefined): ProcessingPhaseInfo[] {
+  const rungStatus = targetQuality === 'P360'
+    ? 'Transcoding_360p'
+    : targetQuality === 'P720'
+      ? 'Transcoding_720p'
+      : targetQuality === 'P1080'
+        ? 'Transcoding_1080p'
+        : null;
+  if (!rungStatus || !PHASE_BY_STATUS.has(rungStatus)) return [...PROCESSING_PHASES];
+
+  const rung = PHASE_BY_STATUS.get(rungStatus)!;
+  // One rung carries the whole encode: the bar passes the halfway mark mid-encode
+  // instead of ⅓/⅔ shares of the never-shown upper rungs.
+  const single: ProcessingPhaseInfo = { ...rung, progress: 60 };
+  return [PROCESSING_PHASES[0], single, PROCESSING_PHASES[4]];
 }
 
 /** Display info for a status; `undefined` status → null (caller decides). */
@@ -75,9 +107,10 @@ export function processingChipLabel(status: ProcessingStatus | null | undefined,
   const phase = processingPhase(status);
   if (!phase) return null;
   if (status === 'Ready') return isArabic ? 'جاهز' : 'Ready';
-  // Compact rung label for the row chip: "المعالجة: 720p"
+  // Compact rung label for the row chip: "المعالجة: HD" (10.8 market vocabulary).
   const rung = phase.status.startsWith('Transcoding_') ? phase.status.replace('Transcoding_', '') : '...';
-  return isArabic ? `المعالجة: ${rung}` : `Processing: ${rung}`;
+  const rungLabel = RUNG_LABELS[rung] ?? rung;
+  return isArabic ? `المعالجة: ${rungLabel}` : `Processing: ${rungLabel}`;
 }
 
 /* ============ target quality (Push 10.7 — Auto/P360/P720/P1080) ============ */
@@ -86,12 +119,12 @@ export function processingChipLabel(status: ProcessingStatus | null | undefined,
 export type TargetQuality = 'Auto' | 'P360' | 'P720' | 'P1080';
 
 export const TARGET_QUALITY_OPTIONS: readonly { value: TargetQuality; labelAr: string; labelEn: string }[] = [
-  // Task-book labels verbatim: Auto is recommended; the concrete rungs are one
-  // rendition each (memory-friendly on the transcoding host).
+  // Task-book labels (10.8 vocabulary): Auto is recommended; the concrete rungs are
+  // one rendition each (memory-friendly on the transcoding host).
   { value: 'Auto', labelAr: 'تلقائي (موصى به)', labelEn: 'Auto (recommended)' },
-  { value: 'P1080', labelAr: 'عالية (1080p)', labelEn: 'High (1080p)' },
-  { value: 'P720', labelAr: 'متوسطة (720p)', labelEn: 'Medium (720p)' },
-  { value: 'P360', labelAr: 'منخفضة (360p)', labelEn: 'Low (360p)' },
+  { value: 'P1080', labelAr: 'عالية (FHD)', labelEn: 'High (FHD)' },
+  { value: 'P720', labelAr: 'متوسطة (HD)', labelEn: 'Medium (HD)' },
+  { value: 'P360', labelAr: 'منخفضة (SD)', labelEn: 'Low (SD)' },
 ];
 
 /**

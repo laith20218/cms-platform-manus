@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
-  ArrowRight, BookOpenCheck, ChevronLeft, Clock, Eye, ListVideo,
-  LoaderCircle, MonitorPlay, Music2, Pause, Play, PlayCircle, RotateCcw,
+  AlertTriangle, ArrowRight, BookOpenCheck, ChevronLeft, ListVideo,
+  LoaderCircle, MonitorPlay, Music2, Pause, Play, RotateCcw,
   SkipBack, SkipForward, Volume2, VolumeX, Youtube,
 } from 'lucide-react';
 import * as SliderPrimitive from '@radix-ui/react-slider';
@@ -10,31 +10,32 @@ import { toast } from 'sonner';
 import { useAuth } from '@/app/providers/useAuth';
 import { SecurityWrapper } from '@/features/security/SecurityWrapper';
 import { cn } from '@/utils';
+import VideoPlayer from '@/features/media-player/video/VideoPlayer';
+import { EpisodeMetadata, type EpisodeMetadataData } from '@/features/media-player/video/EpisodeMetadata';
 import { coursesApi } from '../services/courses-api';
 import type { CourseDetail, CourseEpisode, EpisodeAccess } from '../services/courses-api';
 import '../watermark.css';
 
 /**
- * Course player (Push 4 Phase 5 → Push 8 premium redesign).
+ * Course player (Push 4 Phase 5 → Push 8 premium redesign → Push 10.8).
  *
- * The Lease Trap: presigned playback URLs live on a short S3 credential lease
- * (≈10 minutes). A refresh interval fires at the 8-minute mark and swaps the
- * media source seamlessly — the current playback timestamp and play/pause
- * state survive the swap (the student never notices). DEV builds allow
- * ?refreshMs= to shorten the cycle for testing.
+ * Push 10.8 — the video stage is the production custom VideoPlayer
+ * (features/media-player): HLS or MP4 dual-engine, silent lease refresh,
+ * resume-from-last-position, progress autosave and bookmarks all live INSIDE
+ * the player now — this page no longer runs its own video lease machinery.
+ * The old native <video controls> stage is gone. Under the player sits the
+ * EpisodeMetadata card (title / description / difficulty / duration / views).
  *
- * Push 8: skeleton loaders instead of spinners, a cinema-grade video frame,
- * and a Radix-Slider audio stage with a spinning disc, waveform strip and
- * ±10s skip controls. All technical texts (lease expiry, piracy notices)
- * stay OUT of the UI — the moving watermark overlay is the protection.
+ * Locked states (2.C): an episode whose processingStatus is not Ready renders
+ * a locked card instead of the player — "قيد المعالجة" while the pipeline
+ * runs, "تعذر المعالجة" when it failed. Null status = legacy row → the source
+ * MP4 plays directly (the pre-pipeline behaviour).
+ *
+ * The audio stage keeps its page-side Lease Trap (refresh interval swaps the
+ * src seamlessly); YouTube embeds are stable — no lease, no refresh needed.
+ * DEV builds allow ?refreshMs= to shorten the cycle for testing.
  */
 const DEFAULT_REFRESH_MS = 8 * 60 * 1000;
-
-/** MediaError codes as LOCAL numeric consts (Push 7). The MediaError GLOBAL does
- *  not exist in jsdom — referencing it inside the handler threw a ReferenceError
- *  that killed error handling in tests — so we never touch the global here. */
-const MEDIA_ERR_DECODE = 3;
-const MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
 
 function isYouTubeEpisode(episode: CourseEpisode): boolean {
   return episode.sourceType === 'YouTube' || Boolean(episode.youtubeVideoId);
@@ -175,15 +176,11 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
   const [access, setAccess] = useState<EpisodeAccess | null>(null);
   const [accessLoading, setAccessLoading] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
-  // Push 7: an episode whose declared type is video but whose bytes carry no
-  // video track (the mislabeled-MP3 case) flips this to true and re-renders in
-  // the audio stage — gracefully, without erroring out on the student.
-  const [forceAudioStage, setForceAudioStage] = useState(false);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // The AUDIO engine's hidden element + the audio Lease-Trap swap-restore refs.
+  // The video path needs none of these anymore — the custom VideoPlayer owns
+  // its element, its lease refresh and its resume position internally (10.8).
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  // Timestamp / play-state captured right before a lease refresh swaps the src,
-  // restored in onLoadedMetadata so playback continues seamlessly.
   const pendingTimeRef = useRef<number | null>(null);
   const wasPlayingRef = useRef(false);
 
@@ -196,8 +193,16 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
   const isYouTube = selected ? isYouTubeEpisode(selected) : false;
   const isAudioOnly = useMemo(() => {
     if (!selected || isYouTube) return false;
-    return forceAudioStage || (selected.contentType ?? '').startsWith('audio/');
-  }, [selected, isYouTube, forceAudioStage]);
+    return (selected.contentType ?? '').startsWith('audio/');
+  }, [selected, isYouTube]);
+
+  /* ===== Push 10.8 (2.C) — the processing gate =====
+   * An episode the transcoding pipeline hasn't finished never mounts the
+   * VideoPlayer. null status = legacy/audio/YouTube row → directly playable. */
+  const processingStatus = selected?.processingStatus ?? null;
+  const videoFailed = processingStatus === 'Failed';
+  const videoLocked = !isYouTube && !isAudioOnly
+    && processingStatus !== null && processingStatus !== 'Ready';
 
   // DEV/test-only refresh-cycle override (?refreshMs=). Production keeps the
   // 8-minute default — the param is ignored outside development builds.
@@ -207,8 +212,14 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_REFRESH_MS;
   }, [searchParams]);
 
+  // Only the audio stage + YouTube embed still consume the page-side access
+  // envelope (signed URL + watermark data); the video player fetches its own.
+  // YouTube embeds are STABLE — they need the initial fetch but never the
+  // refresh interval (urls don't expire).
+  const needsAccess = isYouTube || isAudioOnly;
+
   const fetchAccess = useCallback(async (episodeId: string, { preserveTime }: { preserveTime: boolean }) => {
-    const media = videoRef.current ?? audioRef.current;
+    const media = audioRef.current;
     if (preserveTime && media) {
       pendingTimeRef.current = media.currentTime;
       wasPlayingRef.current = !media.paused;
@@ -226,30 +237,30 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
     }
   }, []);
 
-  // Initial access for the selected episode (and on every episode switch).
+  // Initial access for the selected audio/YouTube episode (and on every switch).
   useEffect(() => {
     if (!activeEpisodeId) return;
     pendingTimeRef.current = null;
     wasPlayingRef.current = false;
-    setForceAudioStage(false); // Push 7: the fallback decision is per-episode.
     setAccess(null);
-    void fetchAccess(activeEpisodeId, { preserveTime: false });
-  }, [activeEpisodeId, fetchAccess]);
+    if (needsAccess) void fetchAccess(activeEpisodeId, { preserveTime: false });
+  }, [activeEpisodeId, needsAccess, fetchAccess]);
 
-  // ---- The Lease Trap: refresh the signed URL at the 8-minute mark. ----
+  // ---- The audio Lease Trap: refresh the signed URL at the 8-minute mark. ----
   // The interval restarts on every new URL (fresh 8-min lease countdown).
-  // YouTube embeds are stable — no lease, no refresh needed.
+  // The custom VideoPlayer refreshes internally and YouTube embeds are stable —
+  // this interval applies to the AUDIO path only (10.8).
   useEffect(() => {
-    if (!activeEpisodeId || isYouTube) return;
+    if (!activeEpisodeId || !isAudioOnly) return;
     const interval = window.setInterval(() => {
       void fetchAccess(activeEpisodeId, { preserveTime: true });
     }, refreshMs);
     return () => window.clearInterval(interval);
-  }, [activeEpisodeId, isYouTube, access?.accessUrl, refreshMs, fetchAccess]);
+  }, [activeEpisodeId, isAudioOnly, access?.accessUrl, refreshMs, fetchAccess]);
 
-  // Seamless src swap: restore timestamp + play state once metadata loads.
+  // Seamless audio src swap: restore timestamp + play state once metadata loads.
   const handleLoadedMetadata = useCallback(() => {
-    const media = videoRef.current ?? audioRef.current;
+    const media = audioRef.current;
     if (!media || pendingTimeRef.current == null) return;
     try {
       media.currentTime = pendingTimeRef.current;
@@ -263,101 +274,139 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
     pendingTimeRef.current = null;
   }, []);
 
-  // Fatal media error (e.g. an expired lease 403s): retry access immediately.
+  // Fatal audio media error (e.g. an expired lease 403s): retry access immediately.
   const handleMediaError = useCallback(() => {
-    if (activeEpisodeId && !isYouTube) void fetchAccess(activeEpisodeId, { preserveTime: true });
-  }, [activeEpisodeId, isYouTube, fetchAccess]);
-
-  // Push 7: the <video> element proves there is no video track (metadata loaded
-  // with videoWidth === 0 — e.g. an MP3 stored under a video/* content type) or
-  // fails with a decode/src-not-supported error. Capture where playback was,
-  // then swap to the custom audio stage; the shared handleLoadedMetadata restores
-  // the timestamp + play state on the audio element, and the watermark stays.
-  const handleNoVideoTrack = useCallback(() => {
-    const media = videoRef.current;
-    if (media) {
-      pendingTimeRef.current = media.currentTime;
-      wasPlayingRef.current = !media.paused;
-    }
-    setForceAudioStage(true);
-  }, []);
+    if (activeEpisodeId && isAudioOnly) void fetchAccess(activeEpisodeId, { preserveTime: true });
+  }, [activeEpisodeId, isAudioOnly, fetchAccess]);
 
   if (!selected) return null;
+
+  /* Push 10.8 (2.B) — the rich metadata card under the video player: title,
+   * description, difficulty badge, duration and views (all optional; the card
+   * degrades honestly on legacy rows without metadata). */
+  const episodeMetadata: EpisodeMetadataData = {
+    title: selected.title,
+    description: selected.description ?? null,
+    difficulty: selected.difficulty ?? null,
+    durationSeconds: selected.durationSeconds ?? null,
+    viewsCount: selected.viewsCount ?? null,
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-6">
       {/* Player column */}
       <div>
-        <div
-          className="relative rounded-3xl overflow-hidden border border-[var(--c-border)] bg-black shadow-2xl ring-1 ring-black/5"
-          data-testid="episode-stage"
-          style={{ boxShadow: '0 24px 64px rgba(15, 23, 42, 0.22)' }}
-        >
-          {accessLoading && !access && (
-            <div className="aspect-video flex items-center justify-center">
-              <LoaderCircle className="w-8 h-8 animate-spin text-white/70" />
-            </div>
-          )}
-          {accessError && !access && (
-            <div className="aspect-video flex flex-col items-center justify-center gap-4 text-white/80">
-              <MonitorPlay className="w-10 h-10" />
-              <p className="text-sm">{accessError}</p>
-              <button
-                type="button"
-                onClick={() => void fetchAccess(activeEpisodeId, { preserveTime: false })}
-                className="press inline-flex min-h-11 items-center gap-2 rounded-2xl px-5 py-2 text-sm font-bold text-white shadow-lg"
-                style={{ background: 'var(--c-primary-700)' }}
-              >
-                <RotateCcw className="w-4 h-4" /> إعادة المحاولة
-              </button>
-            </div>
-          )}
-          {access && isYouTube && (
-            <div className="aspect-video">
-              <iframe
-                src={access.accessUrl}
-                className="w-full h-full"
-                style={{ border: 'none' }}
-                title={selected.title}
-                allowFullScreen
-                data-testid="youtube-player"
-              />
-            </div>
-          )}
-          {access && !isYouTube && isAudioOnly && (
-            <AudioStage
-              access={access}
-              audioRef={audioRef}
-              title={selected.title}
-              onLoadedMetadata={handleLoadedMetadata}
-              onError={handleMediaError}
-              fallbackName={fallbackName}
-              fallbackPhone={fallbackPhone}
-            />
-          )}
-          {access && !isYouTube && !isAudioOnly && (
-            <VideoStage
-              access={access}
-              videoRef={videoRef}
-              onLoadedMetadata={handleLoadedMetadata}
-              onError={handleMediaError}
-              onNoVideoTrack={handleNoVideoTrack}
-              fallbackName={fallbackName}
-              fallbackPhone={fallbackPhone}
-            />
-          )}
-        </div>
+        {/* ===== VIDEO — the production custom VideoPlayer (Push 10.8 2.A) ===== */}
+        {!isYouTube && !isAudioOnly && (
+          <div
+            data-testid="episode-stage"
+            className="space-y-4 rounded-3xl border border-[var(--c-border)] bg-[#0b1120] p-3 shadow-2xl sm:p-4"
+            style={{ boxShadow: '0 24px 64px rgba(15, 23, 42, 0.30)' }}
+          >
+            {videoLocked ? (
+              <LockedVideoCard failed={videoFailed} />
+            ) : (
+              /* overflow-hidden: the watermark layer's scale-125 rotation must
+                 never bleed outside the cinema frame (375px no-overflow contract). */
+              <div className="relative overflow-hidden rounded-3xl">
+                <VideoPlayer
+                  key={selected.id}
+                  assetType="course-episode"
+                  assetId={selected.id}
+                  title={selected.title}
+                  testId="course-episode-player"
+                />
+                {/* Anti-screen-recording watermark — rides on top of the custom
+                    player exactly as it did over the old native stage. */}
+                <WatermarkLayer studentName={fallbackName} studentPhone={fallbackPhone} />
+              </div>
+            )}
+            {/* 2.B — the episode metadata card (title/description/difficulty/
+                duration/views) rendered under the player inside the dark stage. */}
+            <EpisodeMetadata metadata={episodeMetadata} testId="course-episode-metadata" />
+          </div>
+        )}
 
-        {/* Episode meta under the player */}
-        <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-[var(--c-text-muted)]">
-          <span className="inline-flex items-center gap-1 font-semibold text-[var(--c-text)] text-sm">
-            <PlayCircle className="w-4 h-4" /> الحلقة {selected.episodeNumber}: {selected.title}
-          </span>
-          {selected.durationSeconds ? (
-            <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{formatDuration(selected.durationSeconds)}</span>
-          ) : null}
-          <span className="inline-flex items-center gap-1"><Eye className="w-3.5 h-3.5" />{selected.viewsCount} مشاهدة</span>
-        </div>
+        {/* ===== AUDIO — the premium custom audio stage (Push 8) ===== */}
+        {isAudioOnly && (
+          <div
+            className="relative rounded-3xl overflow-hidden border border-[var(--c-border)] bg-black shadow-2xl ring-1 ring-black/5"
+            data-testid="episode-stage"
+            style={{ boxShadow: '0 24px 64px rgba(15, 23, 42, 0.22)' }}
+          >
+            {accessLoading && !access && (
+              <div className="aspect-video flex items-center justify-center">
+                <LoaderCircle className="w-8 h-8 animate-spin text-white/70" />
+              </div>
+            )}
+            {accessError && !access && (
+              <div className="aspect-video flex flex-col items-center justify-center gap-4 text-white/80">
+                <MonitorPlay className="w-10 h-10" />
+                <p className="text-sm">{accessError}</p>
+                <button
+                  type="button"
+                  onClick={() => void fetchAccess(activeEpisodeId, { preserveTime: false })}
+                  className="press inline-flex min-h-11 items-center gap-2 rounded-2xl px-5 py-2 text-sm font-bold text-white shadow-lg"
+                  style={{ background: 'var(--c-primary-700)' }}
+                >
+                  <RotateCcw className="w-4 h-4" /> إعادة المحاولة
+                </button>
+              </div>
+            )}
+            {access && (
+              <AudioStage
+                access={access}
+                audioRef={audioRef}
+                title={selected.title}
+                onLoadedMetadata={handleLoadedMetadata}
+                onError={handleMediaError}
+                fallbackName={fallbackName}
+                fallbackPhone={fallbackPhone}
+              />
+            )}
+          </div>
+        )}
+
+        {/* ===== YOUTUBE — stable embed, no lease machinery ===== */}
+        {isYouTube && (
+          <div
+            className="relative rounded-3xl overflow-hidden border border-[var(--c-border)] bg-black shadow-2xl ring-1 ring-black/5"
+            data-testid="episode-stage"
+            style={{ boxShadow: '0 24px 64px rgba(15, 23, 42, 0.22)' }}
+          >
+            {accessLoading && !access && (
+              <div className="aspect-video flex items-center justify-center">
+                <LoaderCircle className="w-8 h-8 animate-spin text-white/70" />
+              </div>
+            )}
+            {accessError && !access && (
+              <div className="aspect-video flex flex-col items-center justify-center gap-4 text-white/80">
+                <MonitorPlay className="w-10 h-10" />
+                <p className="text-sm">{accessError}</p>
+                <button
+                  type="button"
+                  onClick={() => void fetchAccess(activeEpisodeId, { preserveTime: false })}
+                  className="press inline-flex min-h-11 items-center gap-2 rounded-2xl px-5 py-2 text-sm font-bold text-white shadow-lg"
+                  style={{ background: 'var(--c-primary-700)' }}
+                >
+                  <RotateCcw className="w-4 h-4" /> إعادة المحاولة
+                </button>
+              </div>
+            )}
+            {access && (
+              <div className="aspect-video">
+                <iframe
+                  src={access.accessUrl}
+                  className="w-full h-full"
+                  style={{ border: 'none' }}
+                  title={selected.title}
+                  allowFullScreen
+                  data-testid="youtube-player"
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Episode list column */}
@@ -409,70 +458,31 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
   );
 }
 
-// ===== Cinema video stage =====
+// ===== Locked video card (Push 10.8 2.C) =====
 
 /**
- * Native <video> in a premium frame: rounded-3xl, deep elevation, dynamically
- * proportioned to the actual media (portrait videos keep their aspect ratio),
- * download disabled. The lease-refresh watermark rides on top at ~4% opacity.
- *
- * Push 7: this stage also DETECTS audio-only bytes served under a video/*
- * content type — metadata with videoWidth === 0, or decode / src-not-supported
- * errors, hand control back to the parent (onNoVideoTrack) which swaps in the
- * custom audio stage. Codes 1–2 (aborted / network) keep the lease-refetch path.
+ * Replaces the VideoPlayer when the episode is not playable yet: the transcode
+ * pipeline is still running (Pending/Transcoding_*) → the "قيد المعالجة"
+ * message, or it failed terminally → the "تواصل مع الدعم" message. Same dark
+ * cinema proportions as the player so switching states never jumps the layout.
  */
-function VideoStage({ access, videoRef, onLoadedMetadata, onError, onNoVideoTrack, fallbackName, fallbackPhone }: {
-  access: EpisodeAccess;
-  videoRef: React.RefObject<HTMLVideoElement | null>;
-  onLoadedMetadata: () => void;
-  onError: () => void;
-  onNoVideoTrack: () => void;
-  fallbackName: string;
-  fallbackPhone: string;
-}) {
-  const [aspect, setAspect] = useState<number | null>(null);
-
-  const handleError = (event: React.SyntheticEvent<HTMLVideoElement>) => {
-    const code = event.currentTarget.error?.code;
-    if (code === MEDIA_ERR_DECODE || code === MEDIA_ERR_SRC_NOT_SUPPORTED) {
-      onNoVideoTrack();
-      return;
-    }
-    onError(); // aborted / network — likely an expired lease: refetch access
-  };
-
+function LockedVideoCard({ failed }: { failed: boolean }) {
   return (
-    <div className="relative" data-testid="video-stage">
-      <WatermarkLayer access={access} fallbackName={fallbackName} fallbackPhone={fallbackPhone} />
-      <div
-        className="flex items-center justify-center bg-black transition-[aspect-ratio] duration-300"
-        style={{ aspectRatio: aspect ? `${aspect}` : '16 / 9', maxHeight: '72vh' }}
-      >
-        <video
-          ref={videoRef}
-          src={access.accessUrl}
-          className="w-full h-full object-contain"
-          style={{ maxHeight: '72vh' }}
-          controls
-          controlsList="nodownload"
-          onLoadedMetadata={(event) => {
-            const media = event.currentTarget;
-            if (media.videoWidth === 0) {
-              // Audio-only bytes in a video tag: the browser decodes the sound
-              // track but shows nothing — swap to the designed audio stage.
-              onNoVideoTrack();
-              return;
-            }
-            if (media.videoHeight > 0) setAspect(media.videoWidth / media.videoHeight);
-            onLoadedMetadata();
-          }}
-          onError={handleError}
-          playsInline
-          data-testid="course-video"
-        >
-          متصفحك لا يدعم تشغيل الفيديو.
-        </video>
-      </div>
+    <div
+      data-testid={failed ? 'episode-processing-failed' : 'episode-processing-locked'}
+      role="status"
+      className="flex aspect-video w-full flex-col items-center justify-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] px-6 text-center"
+    >
+      {failed ? (
+        <AlertTriangle className="h-12 w-12 text-amber-400/90" strokeWidth={1.5} aria-hidden="true" />
+      ) : (
+        <LoaderCircle className="h-12 w-12 animate-spin text-teal-300/90" strokeWidth={1.5} aria-hidden="true" />
+      )}
+      <p className="max-w-md text-sm font-medium leading-7 text-white/85">
+        {failed
+          ? 'تعذر معالجة هذا الفيديو. يرجى التواصل مع الدعم.'
+          : 'الفيديو قيد المعالجة حالياً. يرجى المحاولة لاحقاً.'}
+      </p>
     </div>
   );
 }
@@ -553,7 +563,7 @@ function AudioStage({ access, audioRef, title, onLoadedMetadata, onError, fallba
 
   return (
     <div className="relative" data-testid="audio-stage">
-      <WatermarkLayer access={access} fallbackName={fallbackName} fallbackPhone={fallbackPhone} />
+      <WatermarkLayer studentName={access.watermark.studentName || fallbackName} studentPhone={access.watermark.studentPhone || fallbackPhone} />
       <div
         className="flex flex-col items-center justify-center gap-7 py-12 px-6"
         style={{ background: 'linear-gradient(160deg, var(--c-primary-50) 0%, var(--c-surface) 55%, var(--c-bg) 100%)' }}
@@ -728,15 +738,20 @@ function AudioStage({ access, audioRef, title, onLoadedMetadata, onError, fallba
  * slightly every 30 seconds (see watermark.css — 4 positions × 30s = 120s).
  * Subtle by design (~4% opacity) and pointer-events-none so it never
  * intercepts the play controls.
+ *
+ * Push 10.8 — decoupled from the access envelope: the video path has no
+ * page-side access fetch anymore (the custom player owns it), so callers pass
+ * the identity directly (the audio stage forwards access.watermark values;
+ * the video path passes the student's profile data). z-30 sits above the
+ * custom player's control bar (z-20) — clicks pass through regardless.
  */
-function WatermarkLayer({ access, fallbackName, fallbackPhone }: {
-  access: EpisodeAccess;
-  fallbackName: string;
-  fallbackPhone: string;
+function WatermarkLayer({ studentName, studentPhone }: {
+  studentName: string;
+  studentPhone: string;
 }) {
-  const line = `${access.watermark.studentName || fallbackName} — ${access.watermark.studentPhone || fallbackPhone}`;
+  const line = `${studentName} — ${studentPhone}`;
   return (
-    <div className="course-watermark-layer absolute inset-0 z-10 pointer-events-none" data-testid="course-watermark">
+    <div className="course-watermark-layer absolute inset-0 z-30 pointer-events-none" data-testid="course-watermark">
       <div className="absolute inset-0 flex flex-col items-center justify-around gap-6 rotate-[-24deg] scale-125">
         {Array.from({ length: 4 }).map((_, row) => (
           <div key={row} className="flex items-center justify-around w-full gap-10">

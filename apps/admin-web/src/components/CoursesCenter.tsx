@@ -23,7 +23,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AlertCircle, Archive, CheckCircle2, ChevronDown, ChevronUp, Film, GraduationCap,
+  AlertCircle, Archive, Ban, CheckCircle2, ChevronDown, ChevronUp, Film, GraduationCap,
   AlertTriangle, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, Upload, X, Youtube, Pause, Play,
 } from 'lucide-react';
 import {
@@ -763,6 +763,10 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
   // Push 10.4 (1.C): structured failure payload for the dual-language modal.
   const [errorDialog, setErrorDialog] = useState<{ humanMessage?: string; technicalDetails?: string | null; retryProcessing?: boolean } | null>(null);
   const [retrying, setRetrying] = useState(false);
+  /* Push 10.8 (1.C) — the abort-processing round-trip guard + the deliberate-cancel
+   * marker (drives the failure banner's copy after the admin cancels an encode). */
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelledProcessing, setCancelledProcessing] = useState(false);
 
   /* Hotfix 10.6-2 (1.D): the processing watchdog — if the pipeline is still Transcoding_*
    * after 15 minutes the server-side encode is stuck (worker died / container restarted
@@ -1181,6 +1185,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     setRetrying(true);
     setErrorDialog(null);
     setLastError(null);
+    setCancelledProcessing(false);
     setState('processing');
     watchEpisode(episodeId);
     pollNow();
@@ -1188,7 +1193,40 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     setRetrying(false);
   };
 
+  /* Push 10.8 (1.C) — "إلغاء المعالجة": POST abort-processing → the backend marks
+   * the episode Failed (terminal) and kills the in-flight FFmpeg via the job
+   * registry. The upload itself stays committed — only the encode is cancelled. */
+  const cancelProcessing = async () => {
+    if (!episodeId || cancelling) return;
+    setCancelling(true);
+    try {
+      await request(`/api/v1/admin/courses/episodes/${episodeId}/abort-processing`, { method: 'POST' });
+      unwatchEpisode(episodeId);
+      sessionRef.current = null; // the upload is long-committed — no resume path after an abort
+      setState('failed');
+      setCancelledProcessing(true);
+      setLastError(isArabic
+        ? 'تم إلغاء معالجة هذا الفيديو بناءً على طلبك. لإعادة المحاولة، عدّل الحلقة أو ارفع ملفاً جديداً.'
+        : 'Processing was cancelled at your request. To retry, edit the episode or upload a new file.');
+      onNotice(isArabic
+        ? 'تم إلغاء المعالجة — الحلقة الآن بحالة «فشلت المعالجة».'
+        : 'Processing aborted — the episode is now marked Failed.');
+      pollNow();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'abort-processing failed.');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   const busyState = state === 'initiating' || state === 'uploading' || state === 'completing';
+
+  /* Push 10.8 (1.C) — the cancel button lives ONLY while an encode is actually
+   * running (Transcoding_*): Pending means queued-not-started, Ready/Failed are
+   * terminal. Task-book contract, exactly. */
+  const encodeRunning = state === 'processing'
+    && typeof processingStatus === 'string'
+    && processingStatus.startsWith('Transcoding_');
 
   /* Push 10.7 (2.C) — the quality dropdown applies to video picks only (the picker
    * accepts audio too; audio never enters the transcoding pipeline). */
@@ -1289,11 +1327,14 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
         </p>
       )}
       {/* The ladder stays mounted through Ready — the admin sees the full
-          checklist complete + the bar at 100% under the success banner. */}
+          checklist complete + the bar at 100% under the success banner.
+          10.8: the visible steps follow the episode's stored target quality
+          (P360 → [Pending, SD, Ready]; Auto → the full five steps). */}
       {(state === 'processing' || state === 'ready') && (
         <ProcessingTimeline
           stage="processing"
           status={state === 'ready' ? 'Ready' : (processingStatus ?? undefined)}
+          targetQuality={processingEpisode ? (processingEpisode.targetQuality ?? null) : metadata.targetQuality}
           isArabic={isArabic}
           testId="upload-processing-timeline"
         />
@@ -1311,18 +1352,23 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
         </div>
       )}
 
-      {/* Push 6: persistent inline failure banner with retry guidance */}
+      {/* Push 6: persistent inline failure banner with retry guidance.
+          10.8: a DELIBERATE processing abort swaps the headline — it is not a failure. */}
       {state === 'failed' && lastError && (
         <div role="alert" data-testid="upload-error-banner" className="flex items-start gap-2 rounded-lg border p-3 text-sm"
           style={{ background: 'rgba(239, 68, 68, 0.06)', borderColor: 'var(--cms-red-200)', color: 'var(--cms-red-600)' }}>
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <div className="min-w-0">
-            <p className="font-medium">{isArabic ? 'تعذّر إتمام الرفع' : 'Upload failed'}</p>
+            <p className="font-medium">{cancelledProcessing
+              ? (isArabic ? 'تم إلغاء المعالجة' : 'Processing cancelled')
+              : (isArabic ? 'تعذّر إتمام الرفع' : 'Upload failed')}</p>
             <p className="mt-0.5 text-xs leading-relaxed" style={{ color: 'var(--cms-text-soft)' }}>{lastError}</p>
             <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-              {episodeId
-                ? (isArabic ? 'الأجزاء المرفوعة محفوظة — اضغط «استئناف» للمتابعة دون إعادة إرسالها.' : 'Uploaded parts are kept — press Resume to continue without re-sending them.')
-                : (isArabic ? 'اضغط «بدء الرفع» لإعادة المحاولة.' : 'Press Start upload to try again.')}
+              {cancelledProcessing
+                ? (isArabic ? 'الحالة على الخادم: «فشلت المعالجة» — إعادة المحاولة تكون برفع جديد أو بعد تعديل الحلقة.' : 'Server status: Processing failed — retry with a new upload or after editing the episode.')
+                : episodeId
+                  ? (isArabic ? 'الأجزاء المرفوعة محفوظة — اضغط «استئناف» للمتابعة دون إعادة إرسالها.' : 'Uploaded parts are kept — press Resume to continue without re-sending them.')
+                  : (isArabic ? 'اضغط «بدء الرفع» لإعادة المحاولة.' : 'Press Start upload to try again.')}
             </p>
             {errorDialog && (errorDialog.technicalDetails || errorDialog.humanMessage) && (
               <button type="button" onClick={() => setErrorDialog((dialog) => ({ ...dialog }))}
@@ -1374,6 +1420,19 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
           <button type="button" onClick={() => void abort()}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border text-sm font-medium text-red-600" style={{ borderColor: 'var(--cms-red-200)' }}>
             <X className="w-4 h-4" /> {copy.abort}
+          </button>
+        )}
+        {/* Push 10.8 (1.C) — "إلغاء المعالجة": visible ONLY while an encode is
+            actually running (Transcoding_*). Kills the server-side FFmpeg and
+            marks the episode Failed. */}
+        {encodeRunning && (
+          <button type="button" onClick={() => void cancelProcessing()} disabled={cancelling}
+            data-testid="cancel-processing-button"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50" style={{ borderColor: 'var(--cms-red-200)' }}>
+            {cancelling
+              ? <LoaderCircle className="w-4 h-4 animate-spin" />
+              : <Ban className="w-4 h-4" />}
+            {isArabic ? 'إلغاء المعالجة' : 'Cancel processing'}
           </button>
         )}
       </div>
