@@ -1,3 +1,52 @@
+# WIP STATUS — Push 10.9 (Migrate Storage to Backblaze B2)
+
+Branch: `wip/10.9` (from main @ 0b3597d — deployed 10.8f)
+Scope: **`apps/api` ONLY** (DI + storage provider + tests) plus ops docs/env template. No migration, no schema change, no frontend change, no package change (AWSSDK.S3 3.7.421.10 stays). NOT merged to main — STOP GATE (supervisor tests in production first).
+
+## Incident (supervisor directive)
+Upstash Blob hit its **1GB free-tier limit — the account is now read-only**. Directive: migrate storage to **Backblaze B2 (S3-compatible API)**. The supervisor already provisioned the bucket and updated the Render environment variables (all `Upstash:Blob:*` variables deleted; active set is `Storage__S3__Endpoint` = `https://s3.eu-central-003.backblazeb2.com`, `Storage__S3__BucketName` = `CMSmedia`, `Storage__S3__Region` = `eu-central-003`, plus the B2 application key pair).
+
+## Done (10.9)
+
+### 1.A — S3StorageService is the ONLY active provider
+- [x] **`DependencyInjection.cs`**: the `if (Upstash:Blob:Token) → UpstashBlobStorageService / else → S3StorageService` conditional is DELETED. `services.AddSingleton<IFileStorageService, S3StorageService>()` is now the single unconditional registration. The `IUpstashS3ClientFactory` registration and the dead `"UpstashBlob"` named HttpClient are removed too (the `"UpstashRedis"` named client for the cache service is untouched — Redis cache is unaffected by this migration).
+- [x] `UpstashBlobStorageService` / `UpstashS3ClientFactory` classes stay COMPILED (their unit tests + AdminCoursesController's catch clause still reference them) but can never be activated: DI no longer constructs them and both fail-closed without `Upstash:Blob:Token`, which no longer exists anywhere. Full class deletion is deferred to a later cleanup push.
+
+### 1.B — S3StorageService configured for B2
+- [x] `AmazonS3Config.ServiceURL = configuration["Storage:S3:Endpoint"]` (matches `Storage__S3__Endpoint` on Render) — already wired; verified.
+- [x] `ForcePathStyle = true` — already pinned; now load-bearing for B2 (mixed-case bucket `CMSmedia` is ONLY addressable path-style; virtual-hosted DNS is case-insensitive). Comment added.
+- [x] `AuthenticationRegion = configuration["Storage:S3:Region"]` → `eu-central-003` (B2 region string, not an AWS region) — already wired; verified.
+- [x] `RequestChecksumCalculation`/`ResponseChecksumValidation` = `WHEN_REQUIRED` — the 10.8d guard, retained for B2 (harmless: B2 tolerates optional checksums; keeps the R2-era posture and skips per-request CRC32 CPU).
+- [x] `DisablePayloadSigning = true` on PutObject — the 10.8e mechanism (`BuildPutObjectRequest`, wire-proven UNSIGNED-PAYLOAD), retained for B2 (B2 accepts both; unsigned is the battle-tested form).
+- [x] **NEW: `Storage:S3:BucketName` is now REQUIRED** (fail-closed at startup). Previously it silently fell back to `"cms-files"` — a misconfigured deploy would have targeted a nonexistent bucket with obscure 404s instead of failing fast. Test added.
+
+### 1.C — IFileStorageService completeness (verified, no code change needed)
+- [x] All 14 interface methods are implemented by `S3StorageService` (Initiate/PresignUploadPart/ListParts/Complete/Abort multipart kept for legacy rows; Put/Upload/Download/Delete/Exists/GetObjectSize/GetSignedUrl/GetSignedUploadUrl/GetSignedUrlViaCredentials active).
+- [x] **10.8f Single-PUT flow works as-is on S3StorageService**: `InitiateEpisodeUploadCommand` → `GetSignedUploadUrlAsync(key, contentType, 10min, fileSize)` (presigned PUT with content-type + size bound into the signature — SigV4 presign against B2's S3 endpoint, no Upstash agent involved) → browser single XHR PUT → `CompleteEpisodeUploadCommand` → `GetObjectSizeAsync` (HEAD) proof + ceiling re-check. Every other call site (avatars, library, transcoding DownloadAsync/PutAsync, playback GetSignedUrlAsync) verified to hit methods S3StorageService implements.
+- [x] MediaPolicy TTLs (≤600s) are all far under B2's 7-day presign cap — no clamp change needed; the Upstash-era cap constant simply stays as a conservative internal bound.
+
+## Verification (10.9)
+- API: `dotnet build` → **0 errors** (17 warnings — the pre-existing baseline count). `dotnet test --filter "Category!=PostgresIntegration"` → **440/440 passed** (438 from 10.8f + 2 new: BucketName-required fail-closed + full B2-shape config accepted).
+
+## What production will show after deploy
+1. The API constructs `S3StorageService` at startup from `Storage:S3:*` (fails fast with `InvalidOperationException` if any of the five values is missing — Render deploy will show it immediately in logs if the env vars are wrong).
+2. `initiate-upload` returns a presigned PUT URL on the `s3.eu-central-003.backblazeb2.com` host with path-style bucket addressing (Render line `Single-PUT presign: …`, query redacted).
+3. Browser PUT/GET flows hit B2 directly — **the operator MUST apply the CORS policy on the `CMSmedia` bucket first** (see `docs/ops/r2-cors.md` → new "Backblaze B2 application" section: console / b2 CLI / S3 PutBucketCors).
+4. Playback, avatars, library documents, and the FFmpeg pipeline (DownloadAsync/PutAsync server-side) all flow through the same B2 client.
+
+## Operator prerequisites (outside code)
+- B2 bucket `CMSmedia` exists @ eu-central-003 (done by supervisor) and stays **private**.
+- Apply the CORS policy (r2-cors.md) on `CMSmedia` BEFORE the first browser upload/playback test.
+- B2 application key scoped to the bucket (keyID/secret pair = Storage__S3__AccessKey/SecretKey on Render).
+
+## Commit log (10.9)
+- (this commit) — feat(api): Push 10.9 — migrate storage to Backblaze B2: S3StorageService sole provider (Upstash DI conditional deleted), BucketName fail-closed, B2 config/docs/env-template, 440/440 green
+
+## Open items (for the supervisor)
+- **STOP GATE**: 10.9 pushed to `wip/10.9`; do NOT merge to main — production test first.
+- Data migration: existing objects in the read-only Upstash bucket are NOT copied (1GB free tier — nothing meaningful stored; the 10.8 incident uploads never completed). If anything needs salvaging, it must be downloaded from Upstash (reads still work) and re-uploaded to B2 manually.
+- Later cleanup push: delete `UpstashBlobStorageService` + `UpstashS3ClientFactory` + their tests + the controller catch clause wholesale.
+
 # WIP STATUS — Hotfix 10.8f (Single PUT Upload — Bypass Multipart)
 
 Branch: `wip/10.8f` (from main @ c9d5d0b — deployed 10.8e)

@@ -68,6 +68,43 @@ public sealed class S3StorageServiceConfigurationTests
     }
 
     /// <summary>
+    /// PUSH 10.9 (Backblaze B2 migration): the bucket name is now a REQUIRED field
+    /// (previously it silently fell back to "cms-files", which would have pointed
+    /// a misconfigured Render deployment at a nonexistent bucket instead of failing
+    /// fast at startup). Render supplies Storage:S3:BucketName=CMSmedia.
+    /// </summary>
+    [Fact]
+    public void Constructor_ThrowsWhenBucketNameIsEmpty()
+    {
+        var cfg = CompleteConfig();
+        cfg["Storage:S3:BucketName"] = "";
+        var act = () => new S3StorageService(BuildConfig(cfg), NullLogger<S3StorageService>.Instance);
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("Storage S3 configuration must be supplied at runtime");
+    }
+
+    /// <summary>
+    /// PUSH 10.9: the exact production shape — Backblaze B2 S3-compatible endpoint,
+    /// B2 region string (eu-central-003, NOT an AWS-style region), mixed-case bucket
+    /// name (B2 allows them; path-style addressing handles them) — must construct
+    /// cleanly. Guards against any future validation that wrongly rejects B2 values
+    /// (e.g. an AWS-only region/bucket-name regex).
+    /// </summary>
+    [Fact]
+    public void Constructor_AcceptsBackblazeB2Configuration()
+    {
+        var cfg = CompleteConfig();
+        cfg["Storage:S3:Endpoint"] = "https://s3.eu-central-003.backblazeb2.com";
+        cfg["Storage:S3:Region"] = "eu-central-003";
+        cfg["Storage:S3:AccessKey"] = "005e2f8e1b234d000000000005"; // B2 keyID shape
+        cfg["Storage:S3:SecretKey"] = "K005xyzSECRETKEYabcDEFghiJKLmnoPQRstu/123456";
+        cfg["Storage:S3:BucketName"] = "CMSmedia";
+
+        var act = () => new S3StorageService(BuildConfig(cfg), NullLogger<S3StorageService>.Instance);
+        act.Should().NotThrow();
+    }
+
+    /// <summary>
     /// Directly inspects the verb and content-type of the pre-signed request built by the service.
     /// We use a subclass that exposes the constructed request so we don't need a live S3 endpoint.
     /// </summary>

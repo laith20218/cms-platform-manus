@@ -54,24 +54,20 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         // External Services (Singleton - stateless)
-        services.AddHttpClient(); // IHttpClientFactory for UpstashBlobStorageService
-        services.AddHttpClient("UpstashBlob").ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-        {
-            PooledConnectionLifetime = TimeSpan.FromMinutes(2)
-        });
+        services.AddHttpClient(); // IHttpClientFactory for the Upstash Redis REST cache client below
         services.AddSingleton<ICacheService>(sp => sp.GetRequiredService<UpstashRedisRestCacheService>());
-        // Storage: prefer Upstash Blob when configured; fall back to S3StorageService otherwise.
-        if (!string.IsNullOrWhiteSpace(configuration["Upstash:Blob:Token"]))
-        {
-            // S3-credential client factory — /v1/presign cannot sign DELETE, so blob
-            // deletion goes through the S3-compatible API (AWS SigV4, short-lived creds).
-            services.AddSingleton<IUpstashS3ClientFactory, UpstashS3ClientFactory>();
-            services.AddSingleton<IFileStorageService, UpstashBlobStorageService>();
-        }
-        else
-        {
-            services.AddSingleton<IFileStorageService, S3StorageService>();
-        }
+
+        // PUSH 10.9 — MIGRATION TO BACKBLAZE B2 (S3-compatible). Upstash Blob hit its
+        // 1GB free-tier limit and is now read-only; the supervisor removed the
+        // Upstash:Blob:* variables from Render and provisioned Storage:S3:* against
+        // a Backblaze B2 bucket (CMSmedia @ eu-central-003). S3StorageService is
+        // therefore the ONLY registered IFileStorageService — no conditional, no
+        // fallback. The UpstashBlobStorageService / UpstashS3ClientFactory classes
+        // stay compiled (unit tests + the AdminCoursesController catch clause still
+        // reference them), but they can never be activated: DI no longer constructs
+        // them, and they fail-closed without Upstash:Blob:Token, which no longer
+        // exists in any environment. Delete them wholesale in a later cleanup push.
+        services.AddSingleton<IFileStorageService, S3StorageService>();
         services.AddSingleton<IFileScanner, TrustedFileScanner>();
         // Server-side HTML sanitization for uploaded library documents (Ganss.XSS).
         services.AddSingleton<IHtmlBlobSanitizer, HtmlSanitizerService>();

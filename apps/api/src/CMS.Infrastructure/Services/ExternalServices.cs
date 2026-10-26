@@ -153,7 +153,12 @@ public sealed class UpstashRedisRestCacheService : ICacheService
 
 /// <summary>
 /// S3-compatible private object storage implementation.
-/// Supports Supabase Storage and other S3-compatible providers through runtime configuration.
+/// Production provider (PUSH 10.9): **Backblaze B2** via its S3-compatible API
+/// (Storage:S3:* — bucket CMSmedia, region eu-central-003, endpoint
+/// https://s3.&lt;region&gt;.backblazeb2.com). Also works with any other S3-compatible
+/// provider (Supabase Storage, Cloudflare R2, AWS) through runtime configuration.
+/// The Upstash Blob provider was retired by 10.9 (1GB free-tier limit hit — account
+/// now read-only); this class is the only registered IFileStorageService.
 /// </summary>
 public class S3StorageService : IFileStorageService
 {
@@ -168,12 +173,13 @@ public class S3StorageService : IFileStorageService
         var region = configuration["Storage:S3:Region"];
         var accessKey = configuration["Storage:S3:AccessKey"];
         var secretKey = configuration["Storage:S3:SecretKey"];
-        _bucketName = configuration["Storage:S3:BucketName"] ?? "cms-files";
+        _bucketName = configuration["Storage:S3:BucketName"] ?? string.Empty;
 
         if (string.IsNullOrWhiteSpace(endpoint) ||
             string.IsNullOrWhiteSpace(region) ||
             string.IsNullOrWhiteSpace(accessKey) ||
-            string.IsNullOrWhiteSpace(secretKey))
+            string.IsNullOrWhiteSpace(secretKey) ||
+            string.IsNullOrWhiteSpace(_bucketName))
         {
             throw new InvalidOperationException("Storage S3 configuration must be supplied at runtime");
         }
@@ -182,11 +188,17 @@ public class S3StorageService : IFileStorageService
         {
             ServiceURL = endpoint.TrimEnd('/'),
             AuthenticationRegion = region,
+            // PUSH 10.9 (B2): Backblaze bucket names may be mixed-case (e.g. CMSmedia),
+            // which CANNOT be addressed virtual-hosted-style (DNS is case-insensitive;
+            // AWS S3 itself mandates lowercase). Path-style addressing
+            // (https://s3.<region>.backblazeb2.com/<bucket>/<key>) is the correct —
+            // and B2-supported — form, exactly as for R2 before it.
             ForcePathStyle = true,
-            // HOTFIX 10.8d (1.A) — CRITICAL R2 COMPATIBILITY FIX (same guard as the
-            // Upstash factory; see UpstashS3ClientFactory for the full rationale):
-            // the SDK's WHEN_SUPPORTED checksum default adds x-amz-sdk-checksum-algorithm /
-            // x-amz-checksum-crc32 headers that Cloudflare R2 answers with 403 Access Denied.
+            // HOTFIX 10.8d (1.A) — R2 COMPATIBILITY GUARD, retained for B2 (harmless:
+            // B2 tolerates the optional checksums, but WHEN_REQUIRED keeps the SDK from
+            // emitting x-amz-sdk-checksum-algorithm / x-amz-checksum-crc32 headers that
+            // Cloudflare R2 answered with 403 Access Denied — see UpstashS3ClientFactory
+            // for the full rationale). Also skips the CRC32 CPU cost per request.
             RequestChecksumCalculation = Amazon.Runtime.RequestChecksumCalculation.WHEN_REQUIRED,
             ResponseChecksumValidation = Amazon.Runtime.ResponseChecksumValidation.WHEN_REQUIRED
             // HOTFIX 10.8e (1.A) note: AmazonS3Config has NO DisablePayloadSigning property
@@ -200,15 +212,17 @@ public class S3StorageService : IFileStorageService
     }
 
     /// <summary>
-    /// Builds the S3 PUT request every SDK-side upload goes through. HOTFIX 10.8e (1.A):
-    /// pins <c>DisablePayloadSigning = true</c> so the SDK signs the request with
+    /// Builds the S3 PUT request every SDK-side upload goes through. HOTFIX 10.8e (1.A),
+    /// retained for B2 by PUSH 10.9 (B2 accepts both signed and unsigned payloads; the
+    /// unsigned form is the cheaper, battle-tested one): pins
+    /// <c>DisablePayloadSigning = true</c> so the SDK signs the request with
     /// <c>UNSIGNED-PAYLOAD</c> instead of the SigV4 chunked streaming encoding
     /// (<c>STREAMING-AWS4-HMAC-SHA256-PAYLOAD</c> + aws-chunked framing), which
     /// Cloudflare R2 rejects as a signature mismatch. Wire-proven over HTTPS against
     /// AWSSDK.S3 3.7.421.10: this flag removes the streaming signature and the chunk
     /// framing entirely. AmazonS3Config offers no equivalent switch on the 3.7 line,
     /// so this construction site is the mechanism. Requires an https ServiceURL —
-    /// guaranteed by the R2 endpoints used in production.
+    /// guaranteed by the R2/B2 endpoints used in production.
     /// </summary>
     internal static Amazon.S3.Model.PutObjectRequest BuildPutObjectRequest(
         string bucket, string key, Stream content, string contentType) => new()
