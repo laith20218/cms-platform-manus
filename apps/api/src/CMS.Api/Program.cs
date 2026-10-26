@@ -2,7 +2,9 @@ using System.Text;
 using CMS.Api.Health;
 using CMS.Api.Middleware;
 using CMS.Application.DependencyInjection;
+using CMS.Application.Interfaces;
 using CMS.Infrastructure.DependencyInjection;
+using CMS.Infrastructure.Services;
 using Serilog;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -187,6 +189,39 @@ try
         .AddCheck<UpstashRedisHealthCheck>("redis", tags: new[] { "ready" });
 
     var app = builder.Build();
+
+    // === HOTFIX 10.10: apply the B2 bucket CORS policy at startup ===
+    // The Backblaze web UI cannot express AllowedHeaders: ["*"] (wildcards) or
+    // ExposeHeaders (ETag, Content-Range, …) — both required by the browser-direct
+    // single-PUT upload and Range playback — so the policy is pushed programmatically
+    // via the S3 API (PutBucketCors) with the bucket's own credentials. Idempotent
+    // (PutBucketCors overwrites the bucket's CORS config wholesale): every restart
+    // re-applies the same policy. Best-effort by design — a failure MUST NOT crash
+    // the API (server-side storage calls still work); the warning points ops at the
+    // manual procedure in docs/ops/r2-cors.md. Skipped in the Testing environment so
+    // integration tests never attempt the network call.
+    if (!app.Environment.IsEnvironment("Testing"))
+    {
+        try
+        {
+            if (app.Services.GetService<IFileStorageService>() is S3StorageService s3Storage)
+            {
+                await s3Storage.SetBucketCorsAsync();
+                Log.Information("HOTFIX 10.10: B2 bucket CORS policy applied at startup.");
+            }
+            else
+            {
+                Log.Warning("HOTFIX 10.10: IFileStorageService is not S3StorageService — startup bucket CORS policy application skipped.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex,
+                "HOTFIX 10.10: failed to apply the B2 bucket CORS policy at startup — continuing. " +
+                "Browser-direct uploads/playback will fail CORS preflights (status 0) until the bucket policy is fixed; " +
+                "apply it manually per docs/ops/r2-cors.md (b2 update-bucket --cors-rules).");
+        }
+    }
 
     // === Middleware Pipeline ===
     // Fix-3 (Push 2): honor the reverse proxy's X-Forwarded-For / X-Forwarded-Proto headers so

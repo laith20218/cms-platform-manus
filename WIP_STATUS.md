@@ -1,3 +1,40 @@
+# WIP STATUS — Hotfix 10.10 (B2 CORS via S3 API — Fix Status 0)
+
+Branch: `wip/10.10` (from main @ 44bdd9c — deployed 10.9)
+Scope: **`apps/api` ONLY** (storage provider + startup hook). No migration, no schema change, no frontend change, no package change. NOT merged to main — STOP GATE (production test first).
+
+## Incident (supervisor directive)
+Production testing after the 10.9 deploy fails with a **browser CORS error (status 0)** when uploading to Backblaze B2. Root cause: **the Backblaze web UI cannot express `AllowedHeaders: ["*"]` (wildcards) or `ExposeHeaders` (ETag, Content-Range, …)** — both required by the browser-direct single-PUT upload (signed Content-Type joins the preflight; the panel reads ETag/Content-Range/Content-Length on responses) and by Range playback. Directive: configure CORS **programmatically via the S3 API (`PutBucketCors`)** using our own `S3StorageService`.
+
+## Done (10.10)
+
+### 1.A — `S3StorageService.SetBucketCorsAsync()` (ExternalServices.cs)
+- [x] Public method pushes the full CORS rule via `PutCORSConfigurationAsync` with the bucket's own credentials: `AllowedMethods = GET, PUT, HEAD, POST, DELETE` · `AllowedOrigins = ["*"]` (supervisor-approved testing posture — safe for credential-less presigned flows; tighten to the Vercel origins in a later hardening push if desired) · `AllowedHeaders = ["*"]` · `ExposeHeaders = ETag, Content-Range, Accept-Ranges, Content-Length, Content-Type` · `MaxAgeSeconds = 3600`.
+- [x] SDK reality check: `CORSRule.MaxAgeSeconds` is the actual AWSSDK.S3 3.7 property name (XML-doc-verified against the installed 3.7.421.10 — the directive's `MaxAgeInSeconds` does not exist and would not compile).
+- [x] Success logged with the bucket name.
+
+### 1.B — Startup trigger (Program.cs)
+- [x] Right after `builder.Build()`: resolves `IFileStorageService`, pattern-matches to `S3StorageService`, `await SetBucketCorsAsync()` **inside try-catch** — a failure logs a warning (pointing ops at the manual `r2-cors.md` procedure) and NEVER crashes the API; server-side storage calls keep working regardless.
+- [x] **Skipped in the `Testing` environment** — all six HTTP integration-test hosts boot via `UseEnvironment("Testing")`, so no test ever attempts the network call (verified: full suite stays green and fast).
+- [x] Idempotent by nature: `PutBucketCors` overwrites the bucket's CORS config wholesale — every restart re-applies the same policy (also self-healing: if the policy is ever lost/edited in the B2 console, the next deploy restores it).
+
+## Verification (10.10)
+- `dotnet build` → **0 errors / 17 warnings** (the pre-existing baseline count).
+- `dotnet test --filter "Category!=PostgresIntegration"` → **440/440 passed** — the Program.cs change provably does not disturb the integration-test boots (Testing-env skip).
+
+## What production will show after deploy
+1. One log line at startup: `B2/S3 CORS configuration applied successfully to bucket CMSmedia.` + `HOTFIX 10.10: B2 bucket CORS policy applied at startup.`
+2. The status-0 upload failure disappears: the browser preflight (PUT + Content-Type) is admitted (`AllowedHeaders: "*"`), and the response headers the panel reads are exposed (ETag et al.).
+3. If B2 rejects the call (bad keys / no bucket-cors permission on the application key), the API still boots; the warning line names the manual fallback.
+
+## Open items (for the supervisor)
+- **STOP GATE**: 10.10 pushed to `wip/10.10`; do NOT merge to main — production test first.
+- The B2 application key must be allowed to `setBucketCors`/`writeBucket` (master application keys are; scoped keys need the capability). If the startup log shows the 10.10 warning, check the key's capabilities.
+- Optional later hardening: tighten `AllowedOrigins` from `"*"` to the two Vercel origins.
+
+## Commit log (10.10)
+- (this commit) — fix(api): Hotfix 10.10 — apply B2 bucket CORS via S3 API at startup (PutBucketCors from S3StorageService, best-effort + Testing-env skip), fixes browser status-0 upload CORS failure
+
 # WIP STATUS — Push 10.9 (Migrate Storage to Backblaze B2)
 
 Branch: `wip/10.9` (from main @ 0b3597d — deployed 10.8f)

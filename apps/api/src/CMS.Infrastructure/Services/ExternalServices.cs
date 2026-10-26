@@ -417,6 +417,64 @@ public class S3StorageService : IFileStorageService
             Expires = DateTime.UtcNow.AddSeconds(seconds),
         }));
     }
+
+    /// <summary>
+    /// HOTFIX 10.10 — applies the bucket CORS policy programmatically via the S3 API
+    /// (<c>PutBucketCors</c>). Why: the Backblaze web UI cannot express
+    /// <c>AllowedHeaders: ["*"]</c> (wildcards) or <c>ExposeHeaders</c> (ETag etc.) —
+    /// both REQUIRED by the browser-direct single-PUT upload (the signed Content-Type
+    /// header joins the preflight; the panel reads ETag/Content-Range/Content-Length on
+    /// the responses) and by Range playback. Production testing failed with a browser
+    /// CORS error (status 0) until this policy lands. The S3-compatible API accepts the
+    /// full rule shape, so we push it from code with the bucket's own credentials.
+    ///
+    /// Called once at API startup (Program.cs) — idempotent: PutBucketCors overwrites
+    /// the bucket's CORS configuration wholesale, so restarts just re-apply the same
+    /// policy. NOTE: <see cref="Amazon.S3.Model.CORSRule.MaxAgeSeconds"/> is the actual
+    /// AWSSDK.S3 3.7 property name (XML-doc-verified against 3.7.421.10).
+    ///
+    /// Wildcard origins are the supervisor-approved testing posture (10.10): presigned
+    /// URL flows carry no credentials (no cookies — the signature IS the authorization),
+    /// so <c>AllowedOrigins: ["*"]</c> is safe for them. Tighten to the two Vercel
+    /// origins in a later hardening push if desired.
+    /// </summary>
+    public async Task SetBucketCorsAsync(CancellationToken ct = default)
+    {
+        var corsConfig = new Amazon.S3.Model.CORSConfiguration
+        {
+            Rules = new List<Amazon.S3.Model.CORSRule>
+            {
+                new()
+                {
+                    // GET/HEAD: playback + Range streaming. PUT: browser-direct single-PUT
+                    // course uploads + library presigns. POST/DELETE: harmless superset
+                    // reserved for future browser-direct flows (never used today).
+                    AllowedMethods = new List<string> { "GET", "PUT", "HEAD", "POST", "DELETE" },
+                    // All origins "for now" per the 10.10 directive — see the doc comment
+                    // above for why this is safe for credential-less presigned flows.
+                    AllowedOrigins = new List<string> { "*" },
+                    // "*" as a FULL value is legal on B2 (partial wildcards are not).
+                    // The single-PUT XHR sends Content-Type (signed into the URL), which
+                    // is a non-simple header and joins the preflight — "*" admits it.
+                    AllowedHeaders = new List<string> { "*" },
+                    // ETag: response-header read the upload panel / future flows need.
+                    // Content-Range + Accept-Ranges: seek/progress on playback.
+                    // Content-Length + Content-Type: buffer sizing and MIME checks.
+                    ExposeHeaders = new List<string> { "ETag", "Content-Range", "Accept-Ranges", "Content-Length", "Content-Type" },
+                    MaxAgeSeconds = 3600
+                }
+            }
+        };
+
+        var request = new Amazon.S3.Model.PutCORSConfigurationRequest
+        {
+            BucketName = _bucketName,
+            Configuration = corsConfig
+        };
+
+        await _client.PutCORSConfigurationAsync(request, ct);
+        _logger.LogInformation("B2/S3 CORS configuration applied successfully to bucket {BucketName}.", _bucketName);
+    }
 }
 
 /// <summary>

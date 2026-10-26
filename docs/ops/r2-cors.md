@@ -76,6 +76,17 @@ Field notes:
 
 ## Backblaze B2 application (PUSH 10.9 — current production storage)
 
+> **HOTFIX 10.10 — the policy is now applied by the API itself at startup.**
+> The Backblaze **web UI cannot express** `AllowedHeaders: ["*"]` (wildcards) or
+> `ExposeHeaders` (ETag, Content-Range, …) — exactly the fields the browser-direct
+> flows need, which caused the production status-0 upload failure after the 10.9
+> deploy. Since 10.10, `S3StorageService.SetBucketCorsAsync()` pushes the full rule
+> via the S3 API (`PutBucketCors`) with the bucket's own credentials on every API
+> startup (idempotent — overwrites wholesale; best-effort — a failure logs a warning
+> and the API keeps running). The manual surfaces below remain the fallback when the
+> startup log shows the 10.10 warning (e.g. the application key lacks the
+> `setBucketCors` capability — master keys always have it).
+
 The `CMSmedia` bucket is under OUR Backblaze account — no support email needed anymore.
 Apply the same policy JSON above (B2's S3-compatible CORS follows the same rule shape)
 through either surface:
