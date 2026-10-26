@@ -255,8 +255,38 @@ public class S3StorageService : IFileStorageService
             Verb = Amazon.S3.HttpVerb.GET
         };
 
-        return await Task.FromResult(_client.GetPreSignedURL(request));
+        var url = _client.GetPreSignedURL(request);
+
+        // HOTFIX 10.13 (1.B-1) — TEMPORARY 401 DIAGNOSTIC (remove after the B2 incident):
+        // B2 answers 401 (not 404) for objects missing from a PRIVATE bucket, and
+        // presigning is computed locally (no network round-trip), so a URL can be
+        // issued successfully for an object that does not exist in CMSmedia — e.g.
+        // a Ready episode whose HLS tree was transcoded on the retired provider and
+        // never migrated. This line surfaces the exact ServiceURL + bucket + key +
+        // redacted URL so ops can diff the key against the bucket inventory. The
+        // X-Amz-Credential token (visible: key IDs are not secret material) shows
+        // WHICH application key signed — direct evidence for the cms-api-key-01
+        // verification (1.C). Only the signature value is redacted.
+        _logger.LogInformation(
+            "Presigned GET issued: ServiceURL={ServiceURL} Bucket={Bucket} Key={Key} ExpiresIn={ExpiresInSeconds}s Url={Url}",
+            _client.Config.ServiceURL, _bucketName, key, (int)expiry.TotalSeconds, RedactPresignedSignature(url));
+
+        return await Task.FromResult(url);
     }
+
+    /// <summary>
+    /// HOTFIX 10.13 (1.B-1) — TEMPORARY diagnostic helper (remove with the log above):
+    /// masks every <c>X-Amz-Signature</c> query value in a presigned URL. Everything
+    /// else (algorithm, credential/key-id, dates, expiry, signed headers, the full
+    /// object path) stays visible on purpose — that is the diagnostic surface.
+    /// </summary>
+    internal static string RedactPresignedSignature(string url) =>
+        string.IsNullOrEmpty(url)
+            ? url
+            : System.Text.RegularExpressions.Regex.Replace(
+                url,
+                @"([?&]X-Amz-Signature=)[0-9a-fA-F]+",
+                "$1[REDACTED]");
 
     /// <summary>
     /// Issues a short-lived pre-signed URL for direct browser upload using the PUT verb.

@@ -234,3 +234,30 @@ Stage Summary:
 - Both builds green (tsc -b + vite, exit 0); JSON valid; CSPs byte-identical across apps.
 - Branch wip/10.12 pushed; main NOT touched (STOP GATE — production test first). Backend (apps/api) untouched.
 - After deploy: master.m3u8/.ts requests to s3.eu-central-003.backblazeb2.com leave the browser; player exits "Renewing link…". Remember: bucket CORS (10.10, server-side) and Vercel CSP (10.12, client-side) are two halves of the same policy — future provider migrations must move both together.
+
+---
+Task ID: HOTFIX-10.13-B2-401-DIAGNOSTIC
+Agent: GLM (main)
+Task: Two production symptoms: (1) Google Fonts blocked by CSP; (2) master.m3u8 returns 401 and the player sticks on "Renewing link…". Fix CSP fonts in both webs, add temporary 401 diagnostics (presigned URL log with redacted signature + ServiceURL; transcode job start/complete/fail logs), verify GetCourseByIdQuery returns processingStatus and the frontend gates on it, verify the new B2 key (cms-api-key-01) is config-driven. Checkpoint wip/10.13 (NO merge).
+
+Work Log:
+- Read worklog.md (10.12 record) + WIP_STATUS.md; repo on main @ d055c4d, clean, PAT-free. Created wip/10.13.
+- Root-cause recon (fonts): both apps' globals.css @import the fonts CSS from fonts.googleapis.com — a stylesheet fetch governed by style-src, which lacked the origin (font binaries' gstatic origin was already allowed). The block was style-src, not font-src.
+- Root-cause recon (401): GetPlaybackUrlQuery is transcoding-aware (409 Pending/Transcoding, 422 Failed) and presigning is computed locally (no existence check) → the 401 path is status=Ready + HlsKey pointing at an object CMSmedia doesn't hold (old-provider HLS trees never migrated in 10.9). B2 answers 401 for missing objects in private buckets. The player then loops the silent lease refresh → stuck "تجديد الرابط…".
+- 1.A: style-src += https://fonts.googleapis.com in BOTH vercel.json (student-web + admin-web, CSPs stay byte-identical); font-src already had fonts.gstatic.com (verified, unchanged).
+- 1.B-1: S3StorageService.GetSignedUrlAsync — after GetPreSignedURL, logs Information "Presigned GET issued: ServiceURL=… Bucket=… Key=… ExpiresIn=…s Url=<redacted>"; new internal static RedactPresignedSignature regex-masks only the X-Amz-Signature value (X-Amz-Credential keyID stays visible by design — key IDs are not secret and it is the 1.C runtime evidence). Covers every playback path (media/episode-access/library/avatars).
+- 1.B-2: VideoTranscodingService — job-start log at dequeue ("dequeued and entering pipeline"); skip-reason warnings on both previously-SILENT early returns (episode + library file arms: notFound/status/fileKeyEmpty — a stuck episode used to exit the pipeline without a trace); completion log now carries the exact pinned HlsKey ("status=Ready HlsKey=… (N HLS objects)"). Existing dual-language fail/abort logs unchanged.
+- 1.B-3: VERIFIED (no code change): CourseEpisodeDto.ProcessingStatus (camelCase processingStatus) has been returned by MapToCourseDto/MapToEpisodeDto since Push 10.5; the student player's Push 10.8 2.C gate (videoLocked/videoFailed → LockedVideoCard: قيد المعالجة / تعذر المعالجة) prevents mounting the player for Pending/Transcoding/Failed; audio/YouTube/null-status paths unaffected.
+- 1.C: VERIFIED (no code change): S3StorageService reads Storage:S3:AccessKey/SecretKey purely from configuration (Render Storage__S3__*) — rg-proven no key material/key IDs in the codebase; the key rotation on Render is picked up with zero code changes. The new presign log's visible X-Amz-Credential token names WHICH key signed — runtime proof.
+- Demonstrated the redaction helper's exact output on a representative B2 path-style URL: signature fully masked, credential/dates/path preserved.
+- Verification: dotnet build → 0 errors / 17 warnings (baseline); dotnet test --filter "Category!=PostgresIntegration" → 440/440 passed (2m22s).
+- Docs: WIP_STATUS.md 10.13 section prepended (incl. the 401 decision tree: object missing = migration gap → re-transcode; object present = key capability).
+- Committed; pushed wip/10.13 to origin with PAT; scrubbed PAT (git remote -v + .git/config verified clean).
+
+Stage Summary:
+- CSP (both apps, byte-identical): style-src now 'self' 'unsafe-inline' https://fonts.googleapis.com — unblocks the globals.css fonts import; font-src unchanged (gstatic already allowed).
+- Temporary diagnostics in place: presign log (ServiceURL+Bucket+Key+redacted URL, keyID visible) + transcode lifecycle logs (start/skip-reason/complete-with-HlsKey).
+- processingStatus → frontend gate verified end-to-end (DTO field + LockedVideoCard + 409/422 playback guards) — already correct since 10.5/10.8.
+- cms-api-key-01 usage is config-driven (no code change); runtime proof via the visible X-Amz-Credential in the new log.
+- Build 0 errors / 17 warnings; tests 440/440. Branch wip/10.13 pushed; main NOT touched (STOP GATE).
+- Leading hypothesis for the 401: old-provider Ready assets (HLS trees in R2/Upstash) never migrated to CMSmedia — presign succeeds locally, B2 401s the missing object. Decision tree in WIP_STATUS.md; fix options: migrate the trees or admin re-transcode.

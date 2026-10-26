@@ -180,6 +180,13 @@ public sealed class VideoTranscodingService : BackgroundService
         _jobRegistry.Begin(job, jobCts);
         var ct = jobCts.Token;
 
+        // HOTFIX 10.13 (1.B-2) — job-start evidence: the dequeue moment itself, before
+        // any pipeline stage (download/probe already log inside their stages; this line
+        // proves the worker picked the job up and brackets silent-skip cases below).
+        _logger.LogInformation(
+            "Transcoding job started: {AssetType} {AssetId} dequeued and entering pipeline",
+            job.AssetType, job.AssetId);
+
         // The scope lives for the whole job: the catch paths below need the db to
         // persist the terminal status.
         await using var scope = _scopeFactory.CreateAsyncScope();
@@ -201,7 +208,16 @@ public sealed class VideoTranscodingService : BackgroundService
             {
                 var episode = await db.CourseEpisodes.FirstOrDefaultAsync(e => e.Id == job.AssetId && e.DeletedAt == null, ct);
                 if (episode is null || episode.ProcessingStatus != ProcessingStatus.Pending || string.IsNullOrEmpty(episode.FileKey))
+                {
+                    // HOTFIX 10.13 (1.B-2) — the previously SILENT skip: without this line a
+                    // dropped/aborted/deleted episode exits the pipeline with no trace, and
+                    // the asset sits in whatever its prior status was (a stuck episode keeps
+                    // 409-ing playback forever with no log to explain why).
+                    _logger.LogWarning(
+                        "Transcoding job skipped: episode {EpisodeId} — notFound={NotFound} status={Status} fileKeyEmpty={FileKeyEmpty}",
+                        job.AssetId, episode is null, episode?.ProcessingStatus?.ToString() ?? "<null>", string.IsNullOrEmpty(episode?.FileKey));
                     return;
+                }
                 sourceKey = episode.FileKey;
                 targetQuality = episode.TargetQuality;
                 saveStatus = async status => { episode.ProcessingStatus = status; await db.SaveChangesAsync(ct); };
@@ -211,7 +227,13 @@ public sealed class VideoTranscodingService : BackgroundService
             {
                 var file = await db.LibraryFiles.FirstOrDefaultAsync(f => f.Id == job.AssetId && f.DeletedAt == null, ct);
                 if (file is null || file.ProcessingStatus != ProcessingStatus.Pending || string.IsNullOrEmpty(file.FileUrl))
+                {
+                    // HOTFIX 10.13 (1.B-2) — same silent-skip diagnostic as the episode arm.
+                    _logger.LogWarning(
+                        "Transcoding job skipped: library file {FileId} — notFound={NotFound} status={Status} fileKeyEmpty={FileKeyEmpty}",
+                        job.AssetId, file is null, file?.ProcessingStatus?.ToString() ?? "<null>", string.IsNullOrEmpty(file?.FileUrl));
                     return;
+                }
                 sourceKey = file.FileUrl;
                 targetQuality = file.TargetQuality;
                 saveStatus = async status => { file.ProcessingStatus = status; await db.SaveChangesAsync(ct); };
@@ -295,10 +317,15 @@ public sealed class VideoTranscodingService : BackgroundService
             }
 
             // ---- 5. finalize: HlsKey → master.m3u8, status Ready ----
-            await saveReady($"{sourceKey}/hls/master.m3u8");
+            var hlsKey = $"{sourceKey}/hls/master.m3u8";
+            await saveReady(hlsKey);
+            // HOTFIX 10.13 (1.B-2) — completion evidence: the EXACT key the asset now
+            // pins (the playback path presigns this key; if B2 answers 401 on it, this
+            // line + the presigned-GET diagnostic in S3StorageService give the full key
+            // chain from encode → DB → presign in two log lines).
             _logger.LogInformation(
-                "Transcode {AssetType} {AssetId}: Ready — {Files} HLS objects under {Prefix}/hls/",
-                job.AssetType, job.AssetId, uploaded, sourceKey);
+                "Transcoding job completed: {AssetType} {AssetId} — status=Ready HlsKey={HlsKey} ({Files} HLS objects)",
+                job.AssetType, job.AssetId, hlsKey, uploaded);
         }
         catch (MediaProcessingException mex)
         {

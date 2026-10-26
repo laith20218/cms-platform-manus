@@ -1,3 +1,50 @@
+# WIP STATUS — Hotfix 10.13 (CSP Fonts + B2 401 Diagnostic)
+
+Branch: `wip/10.13` (from main @ d055c4d — deployed 10.12)
+Scope: frontend CSP fix (both vercel.json) + **temporary** API diagnostics (S3StorageService presign log, VideoTranscodingService lifecycle logs). NOT merged to main — STOP GATE.
+
+## Incident (supervisor directive)
+Two production symptoms after the 10.12 CSP deploy:
+1. **Google Fonts blocked by CSP** — both apps `@import` the fonts CSS from `https://fonts.googleapis.com` (globals.css) but `style-src` lacked that origin (the font binaries' origin `fonts.gstatic.com` was already allowed).
+2. **`master.m3u8` returns HTTP 401** and the player sticks on "تجديد الرابط…" — B2's documented behavior for **missing objects in a private bucket** (401, not 404). Likely root cause: episodes already `Ready` on the retired provider (HLS trees in R2/Upstash) — 10.9 switched the provider but the objects were never migrated, and **presigning is computed locally (no existence check)**, so a URL is issued for an object CMSmedia doesn't hold.
+
+## Done (10.13)
+
+### 1.A — CSP fonts fix (both apps, byte-identical CSPs)
+- [x] `style-src` += `https://fonts.googleapis.com` (the fonts CSS import — the actual block).
+- [x] `font-src` — `https://fonts.gstatic.com` was ALREADY present (verified; no change needed).
+
+### 1.B — 401 diagnostics (temporary — remove after the incident)
+- [x] **S3StorageService.GetSignedUrlAsync** now logs at Information: `ServiceURL=… Bucket=… Key=… ExpiresIn=…s Url=<REDACTED>` — covers EVERY playback path (media playback-url, episode access, library content, avatars). New internal helper `RedactPresignedSignature` masks only the `X-Amz-Signature` value; the **X-Amz-Credential keyID stays visible on purpose** (key IDs are not secret) so the log doubles as the 1.C runtime proof.
+- [x] **VideoTranscodingService**: job-start log at dequeue; **skip-reason warnings** on both silent early-returns (episode + library file: notFound/status/fileKeyEmpty); completion log now carries the exact pinned `HlsKey`. Existing fail/abort logs unchanged (already dual-language).
+- [x] **GetCourseByIdQuery → processingStatus**: VERIFIED already in place — `CourseEpisodeDto.ProcessingStatus` (camelCase `processingStatus`, Push 10.5) + the student player's Push 10.8 2.C gate (`videoLocked`/`videoFailed` → LockedVideoCard: "الفيديو قيد المعالجة حالياً" / "تعذر معالجة هذا الفيديو"). The playback-url endpoint is also transcoding-aware (409 while Pending/Transcoding, 422 on Failed). **No code change needed.**
+
+### 1.C — Key verification (cms-api-key-01)
+- [x] Code is **config-driven**: `Storage:S3:AccessKey/SecretKey` (= Render `Storage__S3__*`) — no key material or key ID exists anywhere in the codebase (rg-proven). Rotating the key on Render requires zero code changes.
+- [x] Runtime proof arrives with the new presign log: the visible `X-Amz-Credential=<keyID>` token shows exactly which application key signed. Read&Write keys presign GETs; if the 401 persists with a correctly-signed URL, the object is missing → data migration (or admin re-transcode) is the fix, not the key.
+
+## Verification (10.13)
+- `dotnet build` → **0 errors / 17 warnings** (baseline).
+- `dotnet test --filter "Category!=PostgresIntegration"` → **440/440 passed** (2m22s).
+- Redaction helper verified: signature fully masked, keyID/algorithm/dates/path preserved.
+- Both vercel.json valid JSON; CSPs byte-identical across apps.
+
+## Reading the new logs in production
+```
+Presigned GET issued: ServiceURL=https://s3.eu-central-003.backblazeb2.com Bucket=CMSmedia Key=episodes/<guid>.mp4/hls/master.m3u8 ExpiresIn=600s Url=https://…/CMSmedia/episodes/…/master.m3u8?X-Amz-Algorithm=…&X-Amz-Credential=<keyID>/…&X-Amz-Signature=[REDACTED]
+Transcoding job started: CourseEpisode <id> dequeued and entering pipeline
+Transcoding job completed: CourseEpisode <id> — status=Ready HlsKey=episodes/<guid>.mp4/hls/master.m3u8 (N HLS objects)
+```
+**Decision tree for the 401:** presign log shows the key+credential → check the object exists in CMSmedia (B2 console/browser download). Missing = migration gap (old-provider Ready assets) → re-upload/re-transcode those episodes. Present but still 401 = key capability problem (check the key's readFiles on the bucket).
+
+## Open items (for the supervisor)
+- **STOP GATE**: pushed to `wip/10.13`; do NOT merge — production diagnostics first.
+- The presign + transcode logs are TEMPORARY diagnostics — remove in the post-incident cleanup push.
+- If the diagnosis confirms old-provider Ready assets: decide between (a) migrating the HLS trees to CMSmedia, or (b) admin-triggered re-transcode from the stored source objects.
+
+## Commit log (10.13)
+- (this commit) — fix(web+api): Hotfix 10.13 — CSP style-src += fonts.googleapis.com (both apps); temporary 401 diagnostics (presign log w/ redacted signature + ServiceURL, transcode job start/skip/complete logs); processingStatus gate verified end-to-end
+
 # WIP STATUS — Hotfix 10.12 (CSP Update for Backblaze B2 — Fix blocked:csp)
 
 Branch: `wip/10.12` (from main @ 1a5fcb3 — deployed 10.10)
