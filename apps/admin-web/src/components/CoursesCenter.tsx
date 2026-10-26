@@ -374,6 +374,16 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
 /** Push 10.4 — ProcessingStatus poll cadence (task book: "every 3 seconds"). */
 const PROCESSING_POLL_INTERVAL_MS = 3000;
 
+/** Hotfix 10.6-2 (1.D): continuous polling hard-stops after 15 minutes — a worker that
+ * died mid-encode (or a container restart on the memory-constrained host) leaves the
+ * statuses frozen at Transcoding_* forever, so the browser must not poll endlessly. */
+const PROCESSING_POLL_TIMEOUT_MS = 15 * 60 * 1000;
+
+/** Hotfix 10.6-2 (1.D): the task-book timeout sentence (exact). */
+const processingTimeoutMessage = (isArabic: boolean) => isArabic
+  ? 'استغرق الترميز وقتاً طويلاً جداً. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.'
+  : 'Transcoding is taking too long. Please try again or contact support.';
+
 function buildCopy(isArabic: boolean) {
   return isArabic ? {
     addEpisode: 'إضافة حلقة', youtubeId: 'معرّف فيديو يوتيوب', episodeTitle: 'عنوان الحلقة',
@@ -419,6 +429,9 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
    * `detail` state the drawer renders from — no second source of truth. */
   const [watched, setWatched] = useState<ReadonlySet<string>>(() => new Set());
   const [processingRefresh, setProcessingRefresh] = useState(0);
+  /* Hotfix 10.6-2 (1.D): the poller watchdog window (see PROCESSING_POLL_TIMEOUT_MS). */
+  const [pollStartedAt, setPollStartedAt] = useState<number | null>(null);
+  const [pollTimedOut, setPollTimedOut] = useState(false);
 
   const watchEpisode = useCallback((episodeId: string) => {
     setWatched((prev) => {
@@ -427,6 +440,10 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
       next.add(episodeId);
       return next;
     });
+    // Hotfix 10.6-2 (1.D): each newly watched episode re-arms a fresh 15-minute window
+    // (an admin actively uploading always keeps a live poller).
+    setPollStartedAt(Date.now());
+    setPollTimedOut(false);
   }, []);
 
   const unwatchEpisode = useCallback((episodeId: string) => {
@@ -452,12 +469,37 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
   const anyProcessing = (detail?.episodes ?? []).some((episode) => isProcessingActive(episode.processingStatus));
   const pollActive = watched.size > 0 || anyProcessing;
 
+  // Hotfix 10.6-2 (1.D): arm the watchdog window the moment continuous polling
+  // activates; disarm when everything settles (all episodes terminal, nothing watched).
   useEffect(() => {
-    if (!pollActive) return;
+    if (!pollActive) {
+      setPollStartedAt(null);
+      setPollTimedOut(false);
+      return;
+    }
+    if (pollStartedAt == null) setPollStartedAt(Date.now());
+  }, [pollActive, pollStartedAt]);
+
+  useEffect(() => {
+    if (pollStartedAt == null || pollTimedOut) return;
+    const id = window.setTimeout(() => setPollTimedOut(true), PROCESSING_POLL_TIMEOUT_MS);
+    return () => window.clearTimeout(id);
+  }, [pollStartedAt, pollTimedOut]);
+
+  useEffect(() => {
+    if (!pollTimedOut) return;
+    onNotice(processingTimeoutMessage(isArabic));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollTimedOut]);
+
+  const pollEnabled = pollActive && !pollTimedOut;
+
+  useEffect(() => {
+    if (!pollEnabled) return;
     void poll(); // first check lands immediately on activation
     const id = window.setInterval(() => void poll(), PROCESSING_POLL_INTERVAL_MS);
     return () => window.clearInterval(id);
-  }, [pollActive, poll, processingRefresh]);
+  }, [pollEnabled, poll, processingRefresh]);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
 
@@ -716,6 +758,31 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
   // Push 10.4 (1.C): structured failure payload for the dual-language modal.
   const [errorDialog, setErrorDialog] = useState<{ humanMessage?: string; technicalDetails?: string | null; retryProcessing?: boolean } | null>(null);
   const [retrying, setRetrying] = useState(false);
+
+  /* Hotfix 10.6-2 (1.D): the processing watchdog — if the pipeline is still Transcoding_*
+   * after 15 minutes the server-side encode is stuck (worker died / container restarted
+   * mid-encode on the memory-constrained host): stop waiting, stop polling and surface
+   * the task-book timeout sentence instead of spinning forever. */
+  const processingSinceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (state !== 'processing') {
+      processingSinceRef.current = null;
+      return;
+    }
+    if (processingSinceRef.current == null) processingSinceRef.current = Date.now();
+    const id = window.setTimeout(() => {
+      processingSinceRef.current = null;
+      if (episodeId) unwatchEpisode(episodeId);
+      setState('failed');
+      setLastError(processingTimeoutMessage(isArabic));
+      setErrorDialog({
+        humanMessage: processingTimeoutMessage(isArabic),
+        technicalDetails: null,
+        retryProcessing: true,
+      });
+    }, PROCESSING_POLL_TIMEOUT_MS);
+    return () => window.clearTimeout(id);
+  }, [state, episodeId, isArabic, unwatchEpisode]);
 
   // Mutable upload session — survives pause/resume cycles.
   const sessionRef = useRef<{

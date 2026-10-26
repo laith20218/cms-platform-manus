@@ -51,11 +51,12 @@ LABEL org.opencontainers.image.title="CMS API" \
 RUN apk add --no-cache icu-libs tzdata wget ca-certificates ffmpeg && \
     rm -rf /var/cache/apk/*
 
-# Transcoding pipeline knobs (Push 10.3): binary discovery + per-job watchdog.
-# Defaults: PATH lookup ("ffmpeg"/"ffprobe") and a 60-minute timeout per job.
+# Transcoding pipeline knobs (Push 10.3 / Hotfix 10.6-2): binary discovery + per-job
+# watchdog. 10 minutes — a standard encode that exceeds this on the memory-constrained
+# free tier is stuck, not slow (env can still override at deploy time).
 ENV FFMPEG_PATH=ffmpeg \
     FFPROBE_PATH=ffprobe \
-    FFMPEG_TIMEOUT_MINUTES=60
+    FFMPEG_TIMEOUT_MINUTES=10
 
 # Set globalization invariant to false (Arabic support)
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false

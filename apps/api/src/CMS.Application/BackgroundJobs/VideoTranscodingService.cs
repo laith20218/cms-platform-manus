@@ -19,7 +19,8 @@ namespace CMS.Application.BackgroundJobs;
 // Lifecycle (state machine — ProcessingStatus on CourseEpisode/LibraryFile):
 //   Pending ──► Transcoding_360p ──► Transcoding_720p ──► Transcoding_1080p ──► Ready
 //      │                (single ffmpeg run; the rung statuses advance as overall      │
-//      │                 encoding progress passes ⅓ and ⅔ — see FfmpegLadder)        │
+//      │                 encoding progress crosses each rung's even share — rungs    │
+//      │                 above the source are dropped, never upscaled)              │
 //      └────────────────────────── any failure ──► Failed (terminal; retry = admin) ─┘
 //
 // The worker is a hosted BackgroundService: complete-upload handlers enqueue a
@@ -67,7 +68,10 @@ public sealed class VideoTranscodingService : BackgroundService
     public const string FfmpegPathEnv = "FFMPEG_PATH";
     public const string FfprobePathEnv = "FFPROBE_PATH";
     public const string TimeoutMinutesEnv = "FFMPEG_TIMEOUT_MINUTES";
-    private const int DefaultTimeoutMinutes = 60;
+    /// <summary>Hotfix 10.6-2: 10 minutes — a standard encode that exceeds this on the
+    /// memory-constrained host (Render free tier) is stuck, not slow; fail gracefully.
+    /// The env override stays available for unusual deployments.</summary>
+    private const int DefaultTimeoutMinutes = 10;
 
     private readonly TranscodingChannelQueue _queue;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -87,6 +91,19 @@ public sealed class VideoTranscodingService : BackgroundService
         _logger.LogInformation("VideoTranscodingService started (ffmpeg={Ffmpeg})", ResolveFfmpegPath());
         try
         {
+            // Hotfix 10.6-2 (1.C): the queue is in-memory — assets a previous process left
+            // mid-flight (container OOM kill, crash, deploy restart) stay stuck in a
+            // Transcoding_* status forever because nothing ever re-enqueues them (the
+            // browser then polls endlessly). At boot nothing is encoding yet: reset those
+            // rows to Pending and re-enqueue; stranded Pending rows (queue-full drops)
+            // drain too. This also self-heals the production record frozen at 720p.
+            try { await RecoverStuckJobsAsync(stoppingToken); }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Startup transcoding recovery sweep failed; stuck assets keep their current status.");
+            }
+
             await foreach (var job in _queue.Reader.ReadAllAsync(stoppingToken))
             {
                 try
@@ -168,22 +185,33 @@ public sealed class VideoTranscodingService : BackgroundService
                     technicalDetails: $"ffprobe could not read the source object (key: {sourceKey}). The file may be corrupt or not a media container.");
 
             // ---- 3. run the ladder (statuses advance inside onProgress) ----
-            var ffmpegArgs = FfmpegLadder.BuildHlsLadderArgs(sourcePath, outputDir, probe.Height, probe.HasAudio);
-            await saveStatus(ProcessingStatus.Transcoding_360p);
+            var ffmpegArgs = FfmpegLadder.BuildHlsLadderArgs(sourcePath, outputDir, probe.Height, probe.Width, probe.HasAudio);
+
+            // Hotfix 10.6-2 (1.B): the phase ladder mirrors the rungs ACTUALLY generated —
+            // a 480p source drops 720p/1080p, so its single 360p rung must hold the status
+            // Transcoding_360p for the whole encode (the old hardcoded ⅓/⅔ mapping advanced
+            // the status to rungs that do not exist, freezing the admin UI on
+            // "Transcoding_720p" while only the 360p rung was encoding). N rungs → N shares.
+            var rungStatuses = ffmpegArgs.RungNames.Select(StatusForRung).ToList();
+            await saveStatus(rungStatuses[0]);
             _logger.LogInformation(
-                "Transcode {AssetType} {AssetId}: ffmpeg ladder starting ({Rungs} rungs, {Duration:F0}s source)",
-                job.AssetType, job.AssetId, ffmpegArgs.RungNames.Count, probe.DurationSeconds);
+                "Transcode {AssetType} {AssetId}: ffmpeg ladder starting ({Rungs} rungs [{Names}], {Width}x{Height} display, {Duration:F0}s source)",
+                job.AssetType, job.AssetId, rungStatuses.Count, string.Join(",", ffmpegArgs.RungNames),
+                probe.Width, probe.Height, probe.DurationSeconds);
 
             // Local phase tracker (NOT an instance field: jobs run sequentially but the
             // field would leak the phase into the next job).
-            var phase = ProcessingStatus.Transcoding_360p;
+            var phase = rungStatuses[0];
             await RunFfmpegAsync(ffmpegArgs.Args, probe.DurationSeconds, ct, async fraction =>
             {
                 // Ladder rungs encode in lockstep (single command) — the rung statuses are
-                // the progress phases: 360p at start, 720p past ⅓, 1080p past ⅔.
-                var next = fraction >= 2.0 / 3.0
-                    ? ProcessingStatus.Transcoding_1080p
-                    : fraction >= 1.0 / 3.0 ? ProcessingStatus.Transcoding_720p : ProcessingStatus.Transcoding_360p;
+                // the progress phases, evenly divided across the rungs actually in the
+                // ladder: 1 rung → 360p throughout; 2 rungs → 720p past ½; 3 rungs →
+                // 720p past ⅓ and 1080p past ⅔.
+                var index = fraction >= 1.0
+                    ? rungStatuses.Count - 1
+                    : Math.Min((int)(fraction * rungStatuses.Count), rungStatuses.Count - 1);
+                var next = rungStatuses[index];
                 if (next != phase) { phase = next; await saveStatus(next); }
             });
 
@@ -290,14 +318,30 @@ public sealed class VideoTranscodingService : BackgroundService
             await process.WaitForExitAsync(timeoutCts.Token);
 
             if (process.ExitCode != 0)
+            {
+                // Hotfix 10.6-2 (1.C): 137 = 128 + SIGKILL — the Linux OOM killer reaped
+                // ffmpeg mid-encode on the memory-constrained host (Render free tier,
+                // 512MB). Surface the memory cause explicitly instead of a generic
+                // encode error so the log carries the real diagnosis.
+                if (process.ExitCode == 137)
+                    throw new MediaProcessingException(
+                        humanMessage: "نفدت ذاكرة الخادم أثناء معالجة هذا الفيديو. يرجى تجربة ملف أصغر حجماً.",
+                        technicalDetails:
+                            "FFmpeg was killed by SIGKILL (exit code 137 — host out of memory, Render free tier 512MB). " +
+                            "Try a smaller or shorter video. " + stderrTail);
                 throw new MediaProcessingException(technicalDetails:
                     $"FFmpeg exited with code {process.ExitCode}: {stderrTail}");
+            }
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             Kill(process);
-            throw new MediaProcessingException(technicalDetails:
-                $"FFmpeg timed out after {timeoutMinutes} minutes and was terminated.");
+            // Hotfix 10.6-2 (1.C): a hung encode must fail FAST and gracefully — the
+            // watchdog was cut 60→10 minutes because a standard video that exceeds it
+            // on the free-tier host is stuck, not slow.
+            throw new MediaProcessingException(
+                humanMessage: "استغرق ترميز الفيديو وقتاً أطول من المسموح على الخادم.",
+                technicalDetails: $"FFmpeg timed out after {timeoutMinutes} minutes and was terminated (watchdog).");
         }
         finally
         {
@@ -359,6 +403,67 @@ public sealed class VideoTranscodingService : BackgroundService
         catch (Exception ex) { _logger.LogWarning(ex, "Failed to reset status to Pending for {Job}", job); }
     }
 
+    /// <summary>Hotfix 10.6-2 (1.B): maps a ladder rung name to its progress-phase status.</summary>
+    private static ProcessingStatus StatusForRung(string rungName) => rungName switch
+    {
+        "720p" => ProcessingStatus.Transcoding_720p,
+        "1080p" => ProcessingStatus.Transcoding_1080p,
+        _ => ProcessingStatus.Transcoding_360p,
+    };
+
+    /// <summary>
+    /// Hotfix 10.6-2 (1.C): boot-time recovery sweep. Rows the previous process left in
+    /// Pending or any Transcoding_* status are orphaned (in-memory queue, no re-enqueue
+    /// surface yet): reset mid-flight rows to Pending and re-enqueue everything. At boot
+    /// nothing is encoding yet, so a Transcoding_* status can only be a crash leftover —
+    /// including the whole-container OOM kill that froze the production record at 720p.
+    /// Non-video assets never carry these statuses (audio/YouTube rows stay NULL).
+    /// </summary>
+    private async Task RecoverStuckJobsAsync(CancellationToken ct)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+
+        var stuckEpisodes = await db.CourseEpisodes
+            .Where(e => e.DeletedAt == null
+                && (e.ProcessingStatus == ProcessingStatus.Pending
+                    || e.ProcessingStatus == ProcessingStatus.Transcoding_360p
+                    || e.ProcessingStatus == ProcessingStatus.Transcoding_720p
+                    || e.ProcessingStatus == ProcessingStatus.Transcoding_1080p))
+            .ToListAsync(ct);
+        var stuckFiles = await db.LibraryFiles
+            .Where(f => f.DeletedAt == null
+                && (f.ProcessingStatus == ProcessingStatus.Pending
+                    || f.ProcessingStatus == ProcessingStatus.Transcoding_360p
+                    || f.ProcessingStatus == ProcessingStatus.Transcoding_720p
+                    || f.ProcessingStatus == ProcessingStatus.Transcoding_1080p))
+            .ToListAsync(ct);
+
+        var requeued = 0;
+        foreach (var episode in stuckEpisodes)
+        {
+            if (episode.ProcessingStatus != ProcessingStatus.Pending) requeued++;
+            episode.ProcessingStatus = ProcessingStatus.Pending;
+            if (!_queue.TryEnqueue(new TranscodingJob(MediaAssetType.CourseEpisode, episode.Id)))
+                _logger.LogWarning("Recovery: transcoding queue at capacity; episode {EpisodeId} stays Pending", episode.Id);
+        }
+        foreach (var file in stuckFiles)
+        {
+            if (file.ProcessingStatus != ProcessingStatus.Pending) requeued++;
+            file.ProcessingStatus = ProcessingStatus.Pending;
+            if (!_queue.TryEnqueue(new TranscodingJob(MediaAssetType.LibraryFile, file.Id)))
+                _logger.LogWarning("Recovery: transcoding queue at capacity; library file {FileId} stays Pending", file.Id);
+        }
+
+        if (stuckEpisodes.Count > 0 || stuckFiles.Count > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            _logger.LogInformation(
+                "Startup recovery: {Episodes} episode(s) + {Files} library file(s) reset to Pending; {Requeued} mid-flight job(s) re-enqueued",
+                stuckEpisodes.Count, stuckFiles.Count, requeued);
+        }
+    }
+
     private static string ResolveFfmpegPath() => Environment.GetEnvironmentVariable(FfmpegPathEnv) is { Length: > 0 } path ? path : "ffmpeg";
 
     private static bool IsOnPath(string fileName) =>
@@ -383,8 +488,10 @@ public sealed class VideoTranscodingService : BackgroundService
 ///
 /// GOP: -g 48 -keyint_min 48 -sc_threshold 0 (aligned to 4-second segments).
 /// Segments: MPEG-TS, 4s, independent_segments, VOD playlist type.
-/// Rungs whose height exceeds the source are dropped (never upscale — a 720p source
-/// yields 360p+720p; 360p is always kept so every input produces an HLS output).
+/// Rungs whose canvas exceeds the source's DISPLAY dimensions are dropped
+/// (never upscale — Hotfix 10.6-2: a 480p source yields 360p ONLY; the probe is
+/// rotation-corrected so portrait phone videos report their display height).
+/// Encode preset: ultrafast + 2 threads (Render free tier, 512MB RAM).
 /// </summary>
 public static class FfmpegLadder
 {
@@ -403,11 +510,19 @@ public static class FfmpegLadder
 
     /// <summary>Builds the exact argument vector for the multi-variant ffmpeg run.
     /// <paramref name="sourcePath"/> is the downloaded temp source; the output tree
-    /// lands under <paramref name="outputDirectory"/> (master.m3u8 + one dir per rung).</summary>
-    public static LadderPlan BuildHlsLadderArgs(string sourcePath, string outputDirectory, int sourceHeight, bool hasAudio)
+    /// lands under <paramref name="outputDirectory"/> (master.m3u8 + one dir per rung).
+    /// <paramref name="sourceHeight"/>/<paramref name="sourceWidth"/> are the DISPLAY
+    /// (rotation-corrected) dimensions from the probe.</summary>
+    public static LadderPlan BuildHlsLadderArgs(string sourcePath, string outputDirectory, int sourceHeight, int sourceWidth, bool hasAudio)
     {
-        // Never upscale: keep the rungs at or below the source height; 360p is the floor.
-        var rungs = FullLadder.Where(r => r.Height <= sourceHeight).ToList();
+        // Never upscale (Hotfix 10.6-2 1.A): a rung survives only when BOTH canvas
+        // dimensions fit the source's DISPLAY dimensions. A 480p source yields 360p
+        // ONLY — 720p/1080p are dropped instead of encoding upscaled renditions (the
+        // production 480p upload froze exactly there: three parallel x264 encoders on
+        // a 512MB container). The width guard keeps native-portrait sources (e.g.
+        // 480×854) from emitting absurd pillarboxed 1280×720 canvases. 360p is the
+        // floor so every input still produces an HLS output.
+        var rungs = FullLadder.Where(r => r.Height <= sourceHeight && r.Width <= sourceWidth).ToList();
         if (rungs.Count == 0) rungs = [FullLadder[0]];
 
         var args = new List<string>
@@ -439,7 +554,12 @@ public static class FfmpegLadder
         }
 
         // ---- per-rung encodes ----
-        args.AddRange(new[] { "-preset", "veryfast" }); // one preset for every x264 stream
+        // Hotfix 10.6-2 (1.C): ultrafast + capped threads for the Render free tier
+        // (512MB): veryfast's lookahead buffers OOMed the container, and x264 sizes its
+        // thread pool from the HOST's core count (not the container CPU quota),
+        // multiplying per-thread frame buffers on shared machines. One preset for
+        // every x264 stream, as before.
+        args.AddRange(new[] { "-preset", "ultrafast", "-threads", "2" });
         for (var i = 0; i < rungs.Count; i++)
         {
             var rung = rungs[i];
@@ -478,7 +598,10 @@ public static class FfmpegLadder
         return new LadderPlan(args, rungs.Select(r => r.Name).ToList());
     }
 
-    /// <summary>Probes width/height/duration (video) + audio presence. Null = ffprobe failed.</summary>
+    /// <summary>Probes DISPLAY width/height (rotation-corrected), duration and audio
+    /// presence. Null = ffprobe failed. Rotation matters (Hotfix 10.6-2 1.A): a portrait
+    /// phone video is STORED 480×854 with a 90° rotation matrix — reporting the stored
+    /// height 854 made the ladder "not upscale" straight into 720p/1080p rungs.</summary>
     public static async Task<ProbeResult?> ProbeAsync(string sourcePath, CancellationToken ct)
     {
         var ffprobe = Environment.GetEnvironmentVariable(VideoTranscodingService.FfprobePathEnv) is { Length: > 0 } probe ? probe : "ffprobe";
@@ -493,7 +616,8 @@ public static class FfmpegLadder
         };
         probePsi.ArgumentList.Add("-v"); probePsi.ArgumentList.Add("error");
         probePsi.ArgumentList.Add("-select_streams"); probePsi.ArgumentList.Add("v:0");
-        probePsi.ArgumentList.Add("-show_entries"); probePsi.ArgumentList.Add("stream=width,height");
+        // Hotfix 10.6-2 (1.A): rotation rides along — see ProbeAsync's doc.
+        probePsi.ArgumentList.Add("-show_entries"); probePsi.ArgumentList.Add("stream=width,height,rotation,side_data_list");
         probePsi.ArgumentList.Add("-show_entries"); probePsi.ArgumentList.Add("format=duration");
         probePsi.ArgumentList.Add("-of"); probePsi.ArgumentList.Add("json");
         probePsi.ArgumentList.Add(sourcePath);
@@ -511,18 +635,39 @@ public static class FfmpegLadder
             using var doc = JsonDocument.Parse(stdout);
             var root = doc.RootElement;
             var stream = root.TryGetProperty("streams", out var streams) && streams.GetArrayLength() > 0 ? streams[0] : default;
-            int? width = null, height = null;
+            int? width = null, height = null, rotation = null;
             if (stream.ValueKind == JsonValueKind.Object)
             {
                 if (stream.TryGetProperty("width", out var w) && w.TryGetInt32(out var wi)) width = wi;
                 if (stream.TryGetProperty("height", out var h) && h.TryGetInt32(out var hi)) height = hi;
+                // Rotation sits at stream level on older ffprobe builds and inside
+                // side_data_list ("Display Matrix") on modern ones — read both.
+                if (stream.TryGetProperty("rotation", out var r))
+                    rotation = ParseRotation(r);
+                if (rotation is null
+                    && stream.TryGetProperty("side_data_list", out var sideData)
+                    && sideData.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var entry in sideData.EnumerateArray())
+                    {
+                        if (!entry.TryGetProperty("rotation", out var sideRotation)) continue;
+                        rotation = ParseRotation(sideRotation);
+                        break;
+                    }
+                }
             }
             double duration = 0;
             if (root.TryGetProperty("format", out var format) && format.TryGetProperty("duration", out var d)
                 && double.TryParse(d.GetString(), out var parsed)) duration = parsed;
             if (width is null || height is null) return null; // no video stream at all
 
-            return new ProbeResult(duration, width.Value, height.Value, await HasAudioAsync(ffprobe, sourcePath, timeoutCts.Token));
+            // DISPLAY dimensions: a 90°/270° rotation swaps the stored width/height —
+            // the ladder must filter against what the viewer actually sees.
+            var quarterTurn = rotation is not null && Math.Abs(rotation.Value) % 180 == 90;
+            var displayWidth = quarterTurn ? height.Value : width.Value;
+            var displayHeight = quarterTurn ? width.Value : height.Value;
+
+            return new ProbeResult(duration, displayWidth, displayHeight, await HasAudioAsync(ffprobe, sourcePath, timeoutCts.Token));
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -533,6 +678,14 @@ public static class FfmpegLadder
             return null; // ffprobe missing / bad JSON — the pipeline reports a clear failure
         }
     }
+
+    /// <summary>Reads a rotation value that may arrive as an int or a double JSON number.</summary>
+    private static int? ParseRotation(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Number when value.TryGetInt32(out var i) => i,
+        JsonValueKind.Number when value.TryGetDouble(out var d) => (int)d,
+        _ => null,
+    };
 
     private static async Task<bool> HasAudioAsync(string ffprobe, string sourcePath, CancellationToken ct)
     {

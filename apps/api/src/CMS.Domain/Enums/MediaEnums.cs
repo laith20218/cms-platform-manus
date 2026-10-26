@@ -8,8 +8,10 @@ namespace CMS.Domain.Enums;
 /// later admin action may enqueue those). The ladder statuses
 /// (Transcoding_360p/720p/1080p) double as the progress phases the admin UI
 /// will surface: the service runs the single-command multi-variant ladder
-/// (all three rungs encode in lockstep, industry standard), so the rung
-/// statuses advance as overall encoding progress passes ⅓ and ⅔.
+/// (all rungs encode in lockstep, industry standard), so the rung statuses
+/// advance as overall encoding progress crosses each rung's even share of the
+/// ladder ACTUALLY generated — rungs above the source are dropped (never
+/// upscale), so a 480p source holds Transcoding_360p until Ready.
 /// </summary>
 public enum ProcessingStatus
 {
