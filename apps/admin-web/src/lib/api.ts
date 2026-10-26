@@ -318,4 +318,8 @@ export type MultipartStatus = {
   partCount: number;
   uploadedParts: Array<{ partNumber: number; size: number; etag: string }>;
   pendingPartUrls: string[];
+  /** Hotfix 10.6: false = no live multipart session (completed, aborted, or gone
+   * upstream) — the upload panel resets gracefully instead of parsing a 400.
+   * Absent (older API) = treat as active. */
+  hasActiveUpload?: boolean;
 };

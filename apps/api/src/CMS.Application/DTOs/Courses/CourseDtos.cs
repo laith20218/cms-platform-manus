@@ -87,7 +87,13 @@ public record MultipartStatusDto(
     int PartSizeBytes,
     int PartCount,
     List<UploadedPartStateDto> UploadedParts, // parts already stored — client skips these
-    List<string> PendingPartUrls              // fresh presigned URLs for the remaining parts
+    List<string> PendingPartUrls,             // fresh presigned URLs for the remaining parts
+    // Hotfix 10.6 (production upload CORS): false = no live multipart session
+    // (completed, aborted, or gone upstream). A status poll racing the upload
+    // lifecycle must degrade gracefully — not 400/500 — so the client reads this
+    // flag instead of parsing an error. Optional parameter keeps every existing
+    // construction and JSON payload compiling (older clients ignore the field).
+    bool HasActiveUpload = true
 );
 
 public record UploadedPartStateDto(

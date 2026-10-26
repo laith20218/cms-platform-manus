@@ -287,6 +287,81 @@ public sealed class CourseHandlersTests
     }
 
     [Fact]
+    public async Task MultipartStatus_NoActiveUpload_ReturnsGracefulInactiveStatus()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        // Episode completed earlier — UploadId cleared (blob ready for playback).
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: null);
+        var (handler, storage, _, _, _) = Create(db);
+
+        // Hotfix 10.6 (1.D): a status poll racing the upload lifecycle must answer
+        // gracefully — the OLD behavior threw 400 NO_ACTIVE_UPLOAD and froze the UI.
+        var status = await handler.Handle(new GetMultipartStatusQuery(episode.Id), CancellationToken.None);
+
+        status.HasActiveUpload.Should().BeFalse("completed uploads report no live session");
+        status.EpisodeId.Should().Be(episode.Id);
+        status.UploadId.Should().BeEmpty();
+        status.UploadedParts.Should().BeEmpty();
+        status.PendingPartUrls.Should().BeEmpty();
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task MultipartStatus_EpisodeGone_ReturnsGracefulInactiveStatus()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var (handler, storage, _, _, _) = Create(db);
+
+        // Aborted upload → row deleted; polling its id must not 404/400 the panel.
+        var status = await handler.Handle(new GetMultipartStatusQuery(Guid.NewGuid()), CancellationToken.None);
+
+        status.HasActiveUpload.Should().BeFalse("a missing episode row means no live session");
+        status.UploadedParts.Should().BeEmpty();
+        status.PendingPartUrls.Should().BeEmpty();
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task MultipartStatus_UploadGoneUpstream_ReturnsGracefulInactiveStatus()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: "mpu-dead");
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.ListMultipartPartsAsync("courses/x/y", "mpu-dead", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new Amazon.S3.AmazonS3Exception(
+                "The specified upload does not exist. The upload ID may be invalid, or the upload may have been aborted or completed."));
+
+        // R2 reports NoSuchUpload (session aborted/expired upstream while UploadId
+        // lingered) — must degrade to the inactive answer, not a 500.
+        var status = await handler.Handle(new GetMultipartStatusQuery(episode.Id), CancellationToken.None);
+
+        status.HasActiveUpload.Should().BeFalse("an upstream NoSuchUpload is a dead session");
+        status.UploadedParts.Should().BeEmpty();
+        status.PendingPartUrls.Should().BeEmpty();
+        storage.Verify(s => s.PresignUploadPartAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()), Times.Never,
+            "presigning part URLs against a dead upload session only hands the browser URLs that cannot work");
+    }
+
+    [Fact]
+    public async Task CompleteUpload_BlankEtag_RejectedWithInvalidParts()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: "mpu-blank");
+        var (handler, storage, _, _, _) = Create(db);
+
+        // Hotfix 10.6: blank ETags (browser CORS masked the header) must fail fast
+        // with a clear 400 — not an opaque upstream 500 at CompleteMultipartUpload.
+        var act = () => handler.Handle(new CompleteEpisodeUploadCommand(episode.Id,
+            new List<CompletedPartDto> { new(1, " ") }), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("INVALID_PARTS");
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task CompleteUpload_VerifiesActualSize_OverLimit_AbortsDeletesRowAndFails()
     {
         using var db = TestDbHelper.CreateInMemoryContext();

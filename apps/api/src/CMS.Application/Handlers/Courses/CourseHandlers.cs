@@ -424,19 +424,44 @@ public class CourseHandlers :
         for (var partNumber = 1; partNumber <= partCount; partNumber++)
             partUrls.Add(await _storage.PresignUploadPartAsync(fileKey, uploadId, partNumber, TimeSpan.FromMinutes(9), ct));
 
+        // Hotfix 10.6 (1.A): one low-noise diagnostics line — presigned host+path with
+        // the query string (signature) redacted, so Render logs alone prove the URLs
+        // target the R2 storage host with the expected path-style bucket addressing.
+        if (Uri.TryCreate(partUrls[0], UriKind.Absolute, out var initiateSample))
+            _logger.LogInformation(
+                "Multipart presign: {PartCount} UploadPart PUT URLs for episode {EpisodeId}; sample (query redacted): {SampleUrl}",
+                partUrls.Count, episode.Id, initiateSample.GetLeftPart(UriPartial.Path));
+
         return new InitiateUploadDto(episode.Id, uploadId, fileKey, (int)PartSizeBytes, partCount, partUrls);
     }
 
     public async Task<MultipartStatusDto> Handle(GetMultipartStatusQuery req, CancellationToken ct)
     {
         var episode = await _db.CourseEpisodes.AsNoTracking()
-            .FirstOrDefaultAsync(episode => episode.Id == req.EpisodeId && episode.DeletedAt == null, ct)
-            ?? throw new NotFoundException("CourseEpisode", req.EpisodeId);
+            .FirstOrDefaultAsync(episode => episode.Id == req.EpisodeId && episode.DeletedAt == null, ct);
 
-        if (string.IsNullOrEmpty(episode.UploadId) || string.IsNullOrEmpty(episode.FileKey))
-            throw new DomainException("لا يوجد رفع نشط لهذه الحلقة", "NO_ACTIVE_UPLOAD");
+        // Hotfix 10.6 (1.D): a status poll racing the upload lifecycle (episode already
+        // completed → UploadId cleared; aborted → row removed; never initiated) must
+        // degrade gracefully. Answer with an explicit inactive status instead of the
+        // old 400 NO_ACTIVE_UPLOAD — the admin UI then resets cleanly instead of
+        // freezing mid-upload.
+        if (episode is null || string.IsNullOrEmpty(episode.UploadId) || string.IsNullOrEmpty(episode.FileKey))
+            return InactiveMultipartStatus(req.EpisodeId);
 
-        var storedParts = await _storage.ListMultipartPartsAsync(episode.FileKey, episode.UploadId, ct);
+        List<CMS.Application.Interfaces.UploadedPartInfo> storedParts;
+        try
+        {
+            storedParts = await _storage.ListMultipartPartsAsync(episode.FileKey, episode.UploadId, ct);
+        }
+        catch (Exception ex) when (IsNoSuchUpload(ex))
+        {
+            // The multipart session no longer exists upstream (aborted server-side,
+            // expired, or completed elsewhere while UploadId lingered in the DB) —
+            // same graceful inactive answer, plus a warning for ops.
+            _logger.LogWarning(ex, "Multipart session for episode {EpisodeId} no longer exists upstream", req.EpisodeId);
+            return InactiveMultipartStatus(req.EpisodeId);
+        }
+
         var storedNumbers = storedParts.Select(part => part.PartNumber).ToHashSet();
 
         var partCount = (int)Math.Ceiling((episode.FileSize ?? PartSizeBytes) / (double)PartSizeBytes);
@@ -447,10 +472,39 @@ public class CourseHandlers :
                 pendingUrls.Add(await _storage.PresignUploadPartAsync(episode.FileKey, episode.UploadId, partNumber, TimeSpan.FromMinutes(9), ct));
         }
 
+        // Hotfix 10.6 (1.A): one low-noise diagnostics line — presigned host+path with
+        // the query string (signature) redacted, so Render logs alone prove the URLs
+        // target the R2 storage host on the expected PUT verb.
+        if (pendingUrls.Count > 0 && Uri.TryCreate(pendingUrls[0], UriKind.Absolute, out var sample))
+            _logger.LogInformation(
+                "Multipart status presign: {PendingCount} UploadPart PUT URLs for episode {EpisodeId}; sample (query redacted): {SampleUrl}",
+                pendingUrls.Count, episode.Id, sample.GetLeftPart(UriPartial.Path));
+
         return new MultipartStatusDto(
             episode.Id, episode.UploadId, episode.FileKey, (int)PartSizeBytes, partCount,
             storedParts.Select(part => new UploadedPartStateDto(part.PartNumber, part.Size, part.ETag)).ToList(),
             pendingUrls);
+    }
+
+    /// <summary>Hotfix 10.6 (1.D): explicit "no live multipart session" answer — empty
+    /// payloads plus <c>HasActiveUpload = false</c>; the client stops gracefully.</summary>
+    private static MultipartStatusDto InactiveMultipartStatus(Guid episodeId) => new(
+        episodeId, string.Empty, string.Empty, (int)PartSizeBytes, 0, [], [], HasActiveUpload: false);
+
+    /// <summary>
+    /// Matches the S3 "NoSuchUpload" failure without referencing the AWS SDK: the
+    /// Application layer must stay AWS-free (Infrastructure owns the SDK), so the
+    /// check is name- and payload-based — exact type name, its ErrorCode property
+    /// (read defensively), and the documented message phrasing shared by S3 and R2.
+    /// </summary>
+    private static bool IsNoSuchUpload(Exception ex)
+    {
+        if (ex.GetType().Name != "AmazonS3Exception")
+            return false;
+        var errorCode = ex.GetType().GetProperty("ErrorCode")?.GetValue(ex) as string;
+        return string.Equals(errorCode, "NoSuchUpload", StringComparison.Ordinal)
+            || ex.Message.Contains("NoSuchUpload", StringComparison.Ordinal)
+            || ex.Message.Contains("does not exist", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<CourseEpisodeDto> Handle(CompleteEpisodeUploadCommand req, CancellationToken ct)
@@ -462,6 +516,11 @@ public class CourseHandlers :
             throw new DomainException("لا يوجد رفع نشط لهذه الحلقة", "NO_ACTIVE_UPLOAD");
         if (req.Parts.Count == 0)
             throw new DomainException("قائمة الأجزاء فارغة", "INVALID_PARTS");
+        // Hotfix 10.6: blank ETags (browser CORS masked the response header) would
+        // surface as an opaque upstream 500 at CompleteMultipartUpload — reject them
+        // with a clear, actionable 400 instead (the client re-syncs via multipart-status).
+        if (req.Parts.Any(part => string.IsNullOrWhiteSpace(part.ETag)))
+            throw new DomainException("جزء أو أكثر بلا ETag صالح — أعد المزامنة ثم أعد المحاولة", "INVALID_PARTS");
 
         await _storage.CompleteMultipartUploadAsync(
             episode.FileKey,

@@ -668,6 +668,15 @@ type UploadState = 'idle' | 'initiating' | 'uploading' | 'paused' | 'completing'
  * processing state machine (uploads stats strip, transcoding ladder, error
  * modal) until the pipeline reports Ready/Failed.
  *
+ * Hotfix 10.6 (production upload CORS): the browser PUTs parts DIRECTLY to the
+ * R2 presigned URLs — two storage-CORS failure modes are now handled in code:
+ * (a) a 2xx PUT whose ETag is unreadable (bucket CORS lacks
+ *     Access-Control-Expose-Headers: ETag) resolves with null and the authoritative
+ *     ETags are recovered server-side from multipart-status (ListParts) before
+ *     complete-upload — CORS never applies to that server-to-server call;
+ * (b) a status poll hitting a dead session (hasActiveUpload=false — completed,
+ *     aborted, or expired upstream) resets the panel gracefully instead of a 400.
+ *
  * Push 10.4 contract:
  *  - 1.A metadata: Title (≤200, required) + Description (≤1000) + Difficulty
  *    (0|1|2) travel in the complete-upload body alongside the parts list.
@@ -714,7 +723,9 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     partSize: number;
     partCount: number;
     urls: Map<number, string>;
-    etags: Map<number, string>;
+    // Hotfix 10.6: null = part stored (2xx) but its ETag was masked by storage CORS —
+    // recovered server-side via multipart-status before complete-upload.
+    etags: Map<number, string | null>;
     uploadedBytes: Map<number, number>;
     file: File;
     paused: boolean;
@@ -725,6 +736,38 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
   } | null>(null);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
+
+  /** Hotfix 10.6: re-syncs etags/bytes/URLs from the server — ListParts (via
+   * multipart-status) is the authoritative part record AND the ETag recovery path
+   * for parts whose ETag the browser could not read cross-origin. Returns 'dead'
+   * when the server reports no live multipart session, 'offline' when the sync
+   * call itself failed (the local part map stays usable for parts with valid URLs). */
+  const syncFromServer = async (session: NonNullable<typeof sessionRef.current>): Promise<'ok' | 'dead' | 'offline'> => {
+    try {
+      const status = await request<MultipartStatus>(`/api/v1/admin/courses/episodes/${session.episodeId}/multipart-status`);
+      if (status.hasActiveUpload === false) return 'dead';
+      session.etags = new Map(status.uploadedParts.map(part => [part.partNumber, part.etag]));
+      session.uploadedBytes = new Map(status.uploadedParts.map(part => [part.partNumber, part.size]));
+      mapPendingUrls(status, session.urls);
+      refreshUploadStats(session);
+      return 'ok';
+    } catch {
+      return 'offline';
+    }
+  };
+
+  /** Hotfix 10.6: the server reports no live multipart session (completed or aborted
+   * upstream) — reset the panel cleanly instead of chasing a dead upload. */
+  const deadSessionReset = () => {
+    sessionRef.current = null;
+    setState('idle');
+    setUploadStats(null);
+    setEpisodeId(null);
+    setFile(null);
+    onError(isArabic
+      ? 'لا يوجد رفع نشط لهذه الحلقة — ربما اكتمل أو أُلغي سابقًا. ابدأ رفعًا جديدًا.'
+      : 'No active upload for this episode — it may have completed or been aborted earlier. Start a new upload.');
+  };
 
   /**
    * Push 6: the API's global 500 handler answers with a generic English detail
@@ -749,16 +792,23 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     });
   };
 
-  const putPart = (url: string, blob: Blob) => new Promise<string>((resolve, reject) => {
+  const putPart = (url: string, blob: Blob) => new Promise<string | null>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
     xhr.addEventListener('load', () => {
       if (xhr.status >= 200 && xhr.status < 300) {
+        // Hotfix 10.6: a 2xx means the part IS stored on R2. The ETag may still be
+        // unreadable when the bucket's CORS policy lacks Access-Control-Expose-Headers:
+        // ETag — resolve with null and let the pre-complete server sync (ListParts via
+        // multipart-status) recover the authoritative ETags, instead of failing the
+        // whole upload on a masked header.
         const etag = (xhr.getResponseHeader('ETag') ?? '').replace(/"/g, '');
-        etag ? resolve(etag) : reject(new Error('missing ETag'));
+        resolve(etag || null);
       } else reject(new Error(`HTTP ${xhr.status}`));
     });
-    xhr.addEventListener('error', () => reject(new Error('network error')));
+    xhr.addEventListener('error', () => reject(new Error(xhr.status === 0
+      ? 'network/CORS error (status 0) — the browser blocked the cross-origin PUT to storage; the bucket CORS policy must allow PUT from this origin'
+      : 'network error')));
     xhr.send(blob);
   });
 
@@ -792,10 +842,29 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
       if (session.paused) { setState('paused'); return; }
       if (session.etags.has(partNumber)) continue; // already stored (resume)
 
-      const url = session.urls.get(partNumber);
-      if (!url) { // part URL expired (credentials rotate) — re-fetch via multipart-status
-        const status = await request<MultipartStatus>(`/api/v1/admin/courses/episodes/${session.episodeId}/multipart-status`);
-        mapPendingUrls(status, session.urls);
+      let url = session.urls.get(partNumber);
+      if (!url) { // part URL expired (credentials rotate) — re-sync via multipart-status
+        // Hotfix 10.6: a dead session resets the panel; a failed sync pauses with a
+        // clear message instead of throwing mid-loop and freezing the UI.
+        const sync = await syncFromServer(session);
+        if (sync === 'dead') return deadSessionReset();
+        if (sync === 'offline') {
+          session.paused = true;
+          setState('paused');
+          onError(isArabic
+            ? 'تعذّرت مزامنة حالة الرفع مع الخادم — تم الإيقاف المؤقت. تحقق من الاتصال ثم اضغط "استئناف".'
+            : 'Could not re-sync upload state with the server — paused. Check the connection and press Resume.');
+          return;
+        }
+        url = session.urls.get(partNumber);
+        if (!url) {
+          session.paused = true;
+          setState('paused');
+          onError(isArabic
+            ? `تعذّر الحصول على رابط الجزء ${partNumber} — تم الإيقاف المؤقت. اضغط "استئناف" لإعادة المحاولة.`
+            : `Could not obtain the URL for part ${partNumber} — paused. Press Resume to retry.`);
+          return;
+        }
       }
 
       const start = (partNumber - 1) * session.partSize;
@@ -808,8 +877,8 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
         if (session.cancelled) return;
         if (session.paused) { setState('paused'); return; }
         try {
-          const etag = await putPart(session.urls.get(partNumber)!, blob);
-          session.etags.set(partNumber, etag);
+          const etag = await putPart(url, blob);
+          session.etags.set(partNumber, etag); // null = stored, ETag CORS-masked (recovered pre-complete)
           session.uploadedBytes.set(partNumber, blob.size);
           refreshUploadStats(session);
           break;
@@ -826,6 +895,23 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
           await new Promise(resolve => setTimeout(resolve, 1500 * attempt));
         }
       }
+    }
+
+    // Hotfix 10.6: recover ETags the browser could not read (storage CORS did not
+    // expose the header) from the server's ListParts — CORS never applies to that
+    // server-to-server call. A dead session resets the panel instead of completing.
+    if ([...session.etags.values()].some(etag => !etag)) {
+      const sync = await syncFromServer(session);
+      if (sync === 'dead') return deadSessionReset();
+    }
+    const unresolved = [...session.etags.entries()].filter(([, etag]) => !etag);
+    if (unresolved.length > 0) {
+      session.paused = true;
+      setState('paused');
+      onError(isArabic
+        ? `تعذّر التحقق من ${unresolved.length} جزء مرفوع (ETag غير متاح للقراءة من المتصفح) — اضغط "استئناف" لإعادة المزامنة، وإن استمر الخطأ فتحقق من سياسة CORS لمخزن الملفات (ExposeHeaders: ETag).`
+        : `Could not confirm ${unresolved.length} uploaded part(s) (ETag unreadable by the browser) — press Resume to re-sync; if it persists, check the storage bucket CORS policy (ExposeHeaders: ETag).`);
+      return;
     }
 
     // All parts stored → complete (server verifies the assembled size against
@@ -935,15 +1021,10 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     if (!session) return;
     // Re-sync with the server: parts already stored are listed and never re-sent;
     // fresh presigned URLs are issued for the rest (credentials rotate every ~10 min).
-    try {
-      const status = await request<MultipartStatus>(`/api/v1/admin/courses/episodes/${session.episodeId}/multipart-status`);
-      session.etags = new Map(status.uploadedParts.map(part => [part.partNumber, part.etag]));
-      session.uploadedBytes = new Map(status.uploadedParts.map(part => [part.partNumber, part.size]));
-      mapPendingUrls(status, session.urls);
-      refreshUploadStats(session);
-    } catch {
-      // Offline re-sync failed — local part map is still usable for parts with valid URLs.
-    }
+    // Hotfix 10.6: a 'dead' answer (completed/aborted upstream) resets the panel
+    // gracefully; 'offline' keeps the local part map, as before.
+    const sync = await syncFromServer(session);
+    if (sync === 'dead') return deadSessionReset();
     await runSession();
   };
 
