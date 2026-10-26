@@ -16,7 +16,12 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="AWSSDK.S3" Version="3.7.400" />
+    <!-- HOTFIX 10.8d: 3.7.400 → 3.7.421.10. The upgrade is itself part of the fix:
+         only 3.7.4xx-late exposes AmazonS3Config.RequestChecksumCalculation /
+         ResponseChecksumValidation, which we set to WHEN_REQUIRED to stop the SDK
+         sending x-amz-sdk-checksum-algorithm / x-amz-checksum-crc32 headers that
+         Cloudflare R2 answers with 403 Access Denied. -->
+    <PackageReference Include="AWSSDK.S3" Version="3.7.421.10" />
     <PackageReference Include="FirebaseAdmin" Version="3.0.0" />
     <PackageReference Include="Serilog" Version="4.0.2" />
     <PackageReference Include="Serilog.Extensions.Logging" Version="8.0.0" />

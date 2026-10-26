@@ -69,7 +69,8 @@ public sealed class UpstashBlobStorageServiceConfigurationTests
     private sealed class TestableUpstashBlobStorageService : UpstashBlobStorageService
     {
         public TestableUpstashBlobStorageService(HttpClient httpClient, IConfiguration cfg, IUpstashS3ClientFactory factory)
-            : base(MakeFactory(httpClient), cfg, factory) { }
+            : base(MakeFactory(httpClient), cfg, factory,
+                   Microsoft.Extensions.Logging.Abstractions.NullLogger<UpstashBlobStorageService>.Instance) { }
 
         private static IHttpClientFactory MakeFactory(HttpClient httpClient) => new SimpleFactory(httpClient);
 
@@ -373,6 +374,23 @@ public sealed class UpstashS3ClientFactoryTests
         lease.Bucket.Should().Be("test-bucket-1");
         lease.ExpiresAt.Should().Be(DateTimeOffset.FromUnixTimeSeconds(4_102_444_800));
         lease.Client.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task CreateAsync_MintsR2CompatibleClient_WithSdkChecksumsDisabled()
+    {
+        // HOTFIX 10.8d: Cloudflare R2 rejects the AWS SDK's WHEN_SUPPORTED checksum
+        // default — on PutObject the SDK then sends "X-Amz-Trailer: x-amz-checksum-crc32"
+        // + "x-amz-sdk-checksum-algorithm: CRC32" (wire-verified against 3.7.421.10).
+        // Every client minted here must pin WHEN_REQUIRED on both knobs so no checksum
+        // headers are ever emitted against R2.
+        var (factory, _) = BuildFactory(CredentialsJson(4_102_444_800));
+
+        var lease = await factory.CreateAsync();
+
+        var config = ((AmazonS3Client)lease.Client).Config;
+        config.RequestChecksumCalculation.Should().Be(Amazon.Runtime.RequestChecksumCalculation.WHEN_REQUIRED);
+        config.ResponseChecksumValidation.Should().Be(Amazon.Runtime.ResponseChecksumValidation.WHEN_REQUIRED);
     }
 
     [Fact]

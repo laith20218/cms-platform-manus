@@ -6,6 +6,7 @@ using System.Text.Json;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using CMS.Application.Interfaces;
 using CMS.Domain.Constants;
 
@@ -158,9 +159,11 @@ public class S3StorageService : IFileStorageService
 {
     private readonly Amazon.S3.IAmazonS3 _client;
     private readonly string _bucketName;
+    private readonly ILogger<S3StorageService> _logger;
 
-    public S3StorageService(IConfiguration configuration)
+    public S3StorageService(IConfiguration configuration, ILogger<S3StorageService> logger)
     {
+        _logger = logger;
         var endpoint = configuration["Storage:S3:Endpoint"];
         var region = configuration["Storage:S3:Region"];
         var accessKey = configuration["Storage:S3:AccessKey"];
@@ -179,7 +182,13 @@ public class S3StorageService : IFileStorageService
         {
             ServiceURL = endpoint.TrimEnd('/'),
             AuthenticationRegion = region,
-            ForcePathStyle = true
+            ForcePathStyle = true,
+            // HOTFIX 10.8d (1.A) — CRITICAL R2 COMPATIBILITY FIX (same guard as the
+            // Upstash factory; see UpstashS3ClientFactory for the full rationale):
+            // the SDK's WHEN_SUPPORTED checksum default adds x-amz-sdk-checksum-algorithm /
+            // x-amz-checksum-crc32 headers that Cloudflare R2 answers with 403 Access Denied.
+            RequestChecksumCalculation = Amazon.Runtime.RequestChecksumCalculation.WHEN_REQUIRED,
+            ResponseChecksumValidation = Amazon.Runtime.ResponseChecksumValidation.WHEN_REQUIRED
         };
 
         _client = new Amazon.S3.AmazonS3Client(accessKey, secretKey, config);
@@ -284,13 +293,27 @@ public class S3StorageService : IFileStorageService
 
     public async Task<string> InitiateMultipartUploadAsync(string key, string contentType, CancellationToken ct = default)
     {
-        var response = await _client.InitiateMultipartUploadAsync(new Amazon.S3.Model.InitiateMultipartUploadRequest
+        try
         {
-            BucketName = _bucketName,
-            Key = key,
-            ContentType = contentType,
-        }, ct);
-        return response.UploadId;
+            var response = await _client.InitiateMultipartUploadAsync(new Amazon.S3.Model.InitiateMultipartUploadRequest
+            {
+                BucketName = _bucketName,
+                Key = key,
+                ContentType = contentType,
+            }, ct);
+            return response.UploadId;
+        }
+        catch (Amazon.S3.AmazonS3Exception ex)
+        {
+            // HOTFIX 10.8d (1.C): the provider's exact rejection is the single most useful
+            // diagnostic in an upload incident — log the full message plus the HTTP status
+            // code R2 answered with (e.g. 403 Forbidden), then rethrow so the API boundary
+            // still maps it to the 503 storage-provider response.
+            _logger.LogError(ex,
+                "S3 InitiateMultipartUpload rejected: HTTP {StatusCode} ({StatusCodeText}) from provider for bucket {Bucket}, key {Key}: {Message}",
+                (int)ex.StatusCode, ex.StatusCode, _bucketName, key, ex.Message);
+            throw;
+        }
     }
 
     public Task<string> PresignUploadPartAsync(string key, string uploadId, int partNumber, TimeSpan expiry, CancellationToken ct = default)
@@ -389,12 +412,15 @@ public class UpstashBlobStorageService : IFileStorageService
     private readonly HttpClient _httpClient;
     private readonly string _token;
     private readonly IUpstashS3ClientFactory _s3ClientFactory;
+    private readonly ILogger<UpstashBlobStorageService> _logger;
 
     public UpstashBlobStorageService(
         IHttpClientFactory httpClientFactory,
         IConfiguration configuration,
-        IUpstashS3ClientFactory s3ClientFactory)
+        IUpstashS3ClientFactory s3ClientFactory,
+        ILogger<UpstashBlobStorageService> logger)
     {
+        _logger = logger;
         var token = configuration["Upstash:Blob:Token"];
         if (string.IsNullOrWhiteSpace(token))
             throw new InvalidOperationException("Upstash:Blob:Token must be configured at runtime");
@@ -531,13 +557,27 @@ public class UpstashBlobStorageService : IFileStorageService
             throw new ArgumentException("Object key must be provided by the server.", nameof(key));
 
         var lease = await _s3ClientFactory.CreateAsync(ct);
-        var response = await lease.Client.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+        try
         {
-            BucketName = lease.Bucket,
-            Key = key,
-            ContentType = contentType,
-        }, ct);
-        return response.UploadId;
+            var response = await lease.Client.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
+            {
+                BucketName = lease.Bucket,
+                Key = key,
+                ContentType = contentType,
+            }, ct);
+            return response.UploadId;
+        }
+        catch (AmazonS3Exception ex)
+        {
+            // HOTFIX 10.8d (1.C): log the exact rejection — full message, the HTTP status code
+            // R2 answered with (e.g. 403 Forbidden) and the ServiceURL the client addressed
+            // (host-only, no credentials) — then rethrow so the API boundary still maps it
+            // to the 503 storage-provider response (AdminCoursesController.InitiateUpload).
+            _logger.LogError(ex,
+                "S3 multipart initiate rejected: HTTP {StatusCode} ({StatusCodeText}) from {ServiceURL} for bucket {Bucket}, key {Key}: {Message}",
+                (int)ex.StatusCode, ex.StatusCode, lease.ServiceURL, lease.Bucket, key, ex.Message);
+            throw;
+        }
     }
 
     public async Task<string> PresignUploadPartAsync(string key, string uploadId, int partNumber, TimeSpan expiry, CancellationToken ct = default)

@@ -1,3 +1,51 @@
+# WIP STATUS — Hotfix 10.8d (AWS SDK R2 Compatibility — Checksums)
+
+Branch: `wip/10.8d` (from main @ 890236d — deployed 10.8c)
+Scope: **`apps/api` ONLY**. No migration, no schema change, no frontend touch. One package upgrade (`AWSSDK.S3` 3.7.400 → 3.7.421.10 — supervisor-directed). NOT merged to main — STOP GATE.
+
+## Incident (from Render production logs)
+After 10.8c (endpoint fix + `UPSTASH__BLOB__S3ENDPOINT` set in Render), `initiate-upload` STILL answers 503 "Storage provider rejected credentials" — R2 keeps returning Access Denied. Supervisor diagnosis: known AWS-SDK-vs-R2 checksum incompatibility (SDK decorating requests with `x-amz-checksum-crc32` / `x-amz-sdk-checksum-algorithm`).
+
+## Done (10.8d)
+
+### 1.A — Disable AWS SDK checksums (CRITICAL)
+- [x] **`AWSSDK.S3` upgraded 3.7.400 → 3.7.421.10** (`CMS.Infrastructure.csproj`) — the only AWSSDK reference in the solution; `RequestChecksumCalculation`/`ResponseChecksumValidation` do not exist in 3.7.400 (verified: zero occurrences in the 3.7.400 package), so the upgrade is a prerequisite for the config-level kill switch.
+- [x] **`UpstashS3ClientFactory.cs`**: every minted `AmazonS3Client` now pins `RequestChecksumCalculation = WHEN_REQUIRED` + `ResponseChecksumValidation = WHEN_REQUIRED` on the `AmazonS3Config` (next to `ForcePathStyle`/`AuthenticationRegion`). This is the config-level, all-operations switch — no per-request flags needed.
+- [x] **`ExternalServices.cs` (S3StorageService)**: identical guard on its static-config client — both providers share the same R2-compatible policy.
+- [x] **Wire-level proof** (local HttpListener capture harness outside the repo, real SDK requests):
+  - 3.7.400 (pre-upgrade production): initiate/put/complete — NO checksum headers anywhere.
+  - **3.7.421.10 default (`WHEN_SUPPORTED`)**: PutObject sends `X-Amz-Trailer: x-amz-checksum-crc32` + `x-amz-sdk-checksum-algorithm: CRC32` + `X-Amz-Content-SHA256: STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER` — exactly the R2-rejected combination. (Upgrading WITHOUT the fix would have introduced the bug.)
+  - **3.7.421.10 + our fix (`WHEN_REQUIRED`)**: ZERO checksum headers across initiate/put/complete — wire-identical to 3.7.400's clean behavior (programmatically counted: 0 matches for `x-amz-checksum|x-amz-trailer|x-amz-sdk-checksum`).
+  - Honest nuance: 3.7.400 does not emit checksum headers on CreateMultipartUpload/PutObject/Complete — so if the current production 403 has another immediate cause, the new 1.C logging below will expose it (status code + full R2 message + ServiceURL).
+
+### 1.B — CORS doc verified (`docs/ops/r2-cors.md`)
+- [x] The policy already pins `AllowedHeaders: ["*"]` and `ExposeHeaders: ETag` ("first and non-negotiable"). Added a 10.8d **triage section** distinguishing server-side 403 Access Denied (check `S3 multipart initiate rejected` in Render logs first) from browser CORS preflight failures (this doc's domain).
+
+### 1.C — Diagnostic logging on multipart initiate
+- [x] `UpstashBlobStorageService.InitiateMultipartUploadAsync` (production path): catches `AmazonS3Exception`, logs **the full provider message + the HTTP status code R2 answered with + the ServiceURL/bucket/key** (`S3 multipart initiate rejected: HTTP {StatusCode} … from {ServiceURL} …`), then rethrows so the 10.8c 503 ProblemDetails mapping still applies. `ILogger<UpstashBlobStorageService>` added to the constructor (DI-resolved).
+- [x] `S3StorageService.InitiateMultipartUploadAsync`: mirrored guard with `ILogger<S3StorageService>`.
+
+## Verification (10.8d)
+- Build: `dotnet build` → **0 errors**.
+- Full unit regression: `dotnet test --filter "Category!=PostgresIntegration"` → **434/434 passed** (433 from 10.8c + 1 new).
+- New test: `CreateAsync_MintsR2CompatibleClient_WithSdkChecksumsDisabled` — asserts the minted client's `Config.RequestChecksumCalculation`/`ResponseChecksumValidation` are `WHEN_REQUIRED` (config survives client construction).
+- Constructor-signature ripple updated in tests (`NullLogger<...>.Instance`): `S3StorageServiceConfigurationTests` ×5 sites, `TestableUpstashBlobStorageService` ×1 site. DI registrations untouched (type-activated singletons resolve `ILogger<T>` automatically).
+
+## What production will show after deploy
+1. If the checksum behavior was the cause: initiate-upload succeeds (no more Access Denied).
+2. If Access Denied persists: Render logs now contain `S3 multipart initiate rejected: HTTP 403 (Forbidden) from https://… {the exact R2 message}` — one line settles the next diagnosis (e.g. endpoint value not matching the credentials' bucket/account).
+3. Every lease mint still logs the exact ServiceURL (10.8c behavior, unchanged).
+
+## Commit log (10.8d)
+- (this commit) — fix(api): Hotfix 10.8d — upgrade AWSSDK.S3 to 3.7.421.10 + pin RequestChecksumCalculation/ResponseChecksumValidation=WHEN_REQUIRED (R2 checksum compatibility); diagnostic logging (status code + full provider message + ServiceURL) on multipart initiate rejection; CORS triage doc
+
+## Open items (for the supervisor)
+- **STOP GATE**: 10.8d pushed to `wip/10.8d`; do NOT merge to main until approved.
+- After deploy, if initiate-upload still answers 503: read the new `S3 multipart initiate rejected:` line in Render logs — it names the HTTP status code, the full R2 message and the exact ServiceURL, which will distinguish wrong-endpoint-value vs credential-scope vs SDK-behavior causes in one attempt.
+- Optional ops belt-and-braces (not required — code pins are authoritative): env `AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED` / `AWS_RESPONSE_CHECKSUM_VALIDATION=WHEN_REQUIRED`.
+
+---
+
 # WIP STATUS — Hotfix 10.8c (S3 Config & Non-Blocking Cleanup)
 
 Branch: `wip/10.8c` (from main @ 63cdb09 — deployed 10.8)

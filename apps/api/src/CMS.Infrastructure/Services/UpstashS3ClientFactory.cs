@@ -51,6 +51,16 @@ public interface IUpstashS3ClientFactory
 /// The exact ServiceURL actually used is logged on every mint (no tokens — the URL is
 /// host-only) and carried on the lease.
 ///
+/// HOTFIX 10.8d (1.A): with the endpoint verified correct, R2 STILL answered
+/// <c>403 Access Denied</c> on initiate-upload. Root cause: AWS SDK for .NET 3.7.4xx+
+/// defaults to <c>RequestChecksumCalculation = WHEN_SUPPORTED</c> — it decorates
+/// CreateMultipartUpload/PutObject with <c>x-amz-sdk-checksum-algorithm</c> (and
+/// <c>x-amz-checksum-crc32</c>) headers that Cloudflare R2 rejects. The SDK was upgraded
+/// to 3.7.421.10 (the config knobs exist only in late 3.7.4xx) and every client minted
+/// here pins <c>RequestChecksumCalculation = WHEN_REQUIRED</c> +
+/// <c>ResponseChecksumValidation = WHEN_REQUIRED</c> — no checksum headers unless the
+/// operation itself requires one. Wire-level proof: docs/ops/ + the 10.8d report.
+///
 /// Configuration keys:
 ///   Upstash:Blob:Token — the UPSTASH_BLOB_TOKEN (secret; never logged).
 ///   Upstash:Blob:S3Endpoint — optional R2 endpoint override, e.g.
@@ -243,7 +253,15 @@ public sealed class UpstashS3ClientFactory : IUpstashS3ClientFactory
                     // Path-style addressing keeps the bucket out of the host name — the safest
                     // mode for S3-compatible stores such as Cloudflare R2 (matches the
                     // official @upstash/blob SDK: {endpoint}/{bucket}/{key}).
-                    ForcePathStyle = true
+                    ForcePathStyle = true,
+                    // HOTFIX 10.8d (1.A) — CRITICAL R2 COMPATIBILITY FIX:
+                    // the SDK's WHEN_SUPPORTED default decorates CreateMultipartUpload and
+                    // PutObject with x-amz-sdk-checksum-algorithm / x-amz-checksum-crc32
+                    // headers; Cloudflare R2 rejects them with 403 Access Denied. WHEN_REQUIRED
+                    // restores the classic behavior — no checksum headers unless the operation
+                    // actually requires one (none of ours do).
+                    RequestChecksumCalculation = RequestChecksumCalculation.WHEN_REQUIRED,
+                    ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED
                 });
 
             var expiresAtUnix = root.TryGetProperty("expiresAt", out var expiresElement)

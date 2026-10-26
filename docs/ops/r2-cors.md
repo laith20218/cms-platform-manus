@@ -81,6 +81,25 @@ shipped with the 10.6 hotfix (ETag recovery via server-side ListParts, graceful
 multipart-status) keep the admin panel from freezing either way, but **completing an
 upload still requires the CORS fix** when the preflight itself is rejected.
 
+## Triage: server-side 403 ≠ CORS failure (added by HOTFIX 10.8d)
+
+Two distinct upload failure modes must not be conflated:
+
+- **Server-side 403 Access Denied** — the API's own SigV4 call to R2 was rejected
+  (`initiate-upload` answers 503 "Storage provider rejected credentials"). Causes: wrong
+  endpoint host, credentials not valid for that bucket, or SDK request features R2
+  refuses. HOTFIX 10.8d pins the AWS SDK checksum knobs
+  (`RequestChecksumCalculation`/`ResponseChecksumValidation` = `WHEN_REQUIRED`) so the
+  SDK never emits the `x-amz-sdk-checksum-algorithm` / `x-amz-trailer:
+  x-amz-checksum-crc32` headers R2 rejects, and the API now logs the exact HTTP status
+  code, the full provider message and the ServiceURL on every multipart-initiate
+  rejection — check the Render logs for `S3 multipart initiate rejected` before
+  touching CORS.
+- **Browser CORS preflight failure** — the browser-direct part PUTs from admin-web are
+  blocked before ever reaching R2 (upload freezes at 0%, errors in the browser console
+  only). That is THIS document's domain: `AllowedHeaders` must include `"*"` and
+  `ExposeHeaders` must include `ETag` — see the policy above.
+
 ## Verification (after applying)
 
 ```bash

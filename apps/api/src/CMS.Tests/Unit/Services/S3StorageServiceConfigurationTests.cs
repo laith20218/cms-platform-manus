@@ -3,6 +3,7 @@ using Amazon.S3.Model;
 using CMS.Infrastructure.Services;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CMS.Tests.Unit.Services;
 
@@ -34,7 +35,7 @@ public sealed class S3StorageServiceConfigurationTests
     {
         var cfg = CompleteConfig();
         cfg["Storage:S3:Endpoint"] = "";
-        var act = () => new S3StorageService(BuildConfig(cfg));
+        var act = () => new S3StorageService(BuildConfig(cfg), NullLogger<S3StorageService>.Instance);
         act.Should().Throw<InvalidOperationException>()
             .WithMessage("Storage S3 configuration must be supplied at runtime");
     }
@@ -44,7 +45,7 @@ public sealed class S3StorageServiceConfigurationTests
     {
         var cfg = CompleteConfig();
         cfg["Storage:S3:AccessKey"] = "";
-        var act = () => new S3StorageService(BuildConfig(cfg));
+        var act = () => new S3StorageService(BuildConfig(cfg), NullLogger<S3StorageService>.Instance);
         act.Should().Throw<InvalidOperationException>();
     }
 
@@ -53,7 +54,7 @@ public sealed class S3StorageServiceConfigurationTests
     {
         var cfg = CompleteConfig();
         cfg["Storage:S3:SecretKey"] = "";
-        var act = () => new S3StorageService(BuildConfig(cfg));
+        var act = () => new S3StorageService(BuildConfig(cfg), NullLogger<S3StorageService>.Instance);
         act.Should().Throw<InvalidOperationException>();
     }
 
@@ -62,7 +63,7 @@ public sealed class S3StorageServiceConfigurationTests
     {
         var cfg = CompleteConfig();
         cfg["Storage:S3:Region"] = "";
-        var act = () => new S3StorageService(BuildConfig(cfg));
+        var act = () => new S3StorageService(BuildConfig(cfg), NullLogger<S3StorageService>.Instance);
         act.Should().Throw<InvalidOperationException>();
     }
 
@@ -72,7 +73,7 @@ public sealed class S3StorageServiceConfigurationTests
     /// </summary>
     private sealed class ExposedS3StorageService : S3StorageService
     {
-        public ExposedS3StorageService(IConfiguration cfg) : base(cfg) { }
+        public ExposedS3StorageService(IConfiguration cfg) : base(cfg, NullLogger<S3StorageService>.Instance) { }
 
         public GetPreSignedUrlRequest BuildReadRequest(string key, TimeSpan expiry) =>
             new()
