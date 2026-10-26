@@ -61,6 +61,29 @@ public interface IUpstashS3ClientFactory
 /// <c>ResponseChecksumValidation = WHEN_REQUIRED</c> — no checksum headers unless the
 /// operation itself requires one. Wire-level proof: docs/ops/ + the 10.8d report.
 ///
+/// HOTFIX 10.8e (1.A): production logs (10.8d diagnostics live) confirmed the
+/// remaining 403 fires at <c>InitiateMultipartUploadAsync</c> and attributed it to the
+/// SDK signing the streaming payload with SigV4 chunked encoding
+/// (<c>STREAMING-AWS4-HMAC-SHA256-PAYLOAD</c>), which Cloudflare R2 rejects as a
+/// signature mismatch. Wire-verified facts driving the implementation:
+///   1. <c>AmazonS3Config</c> has NO <c>DisablePayloadSigning</c> property on ANY
+///      AWSSDK.S3 3.7-line version (compiler-proven against 3.7.421.10, and v4.0.104.6
+///      likewise) — a config-level switch does not exist;
+///   2. the client-wide <c>BeforeRequestEvent</c> hook fires AFTER the marshaller has
+///      already copied the flag into the internal request, so setting it there is
+///      too late (wire-proven: the payload still went out signed);
+///   3. the ONLY effective mechanism is <c>PutObjectRequest.DisablePayloadSigning =
+///      true</c> / <c>UploadPartRequest.DisablePayloadSigning = true</c> at request
+///      construction — wire-proven over HTTPS to send <c>UNSIGNED-PAYLOAD</c> with no
+///      aws-chunked framing, exactly what R2 accepts.
+/// The lease client minted here issues no payload-carrying SDK requests — multipart
+/// parts are uploaded by the browser through presigned PUTs, and initiate / list /
+/// complete / abort / delete are bodyless or buffered — so there is no request site to
+/// flag here; <see cref="S3StorageService"/> sets the flag on every SDK PUT it issues
+/// (see <c>S3StorageService.BuildPutObjectRequest</c>). Initiate itself is bodyless
+/// (<c>x-amz-content-sha256</c> = SHA-256 of the empty string, wire-verified), so its
+/// wire shape is unchanged by this hotfix.
+///
 /// Configuration keys:
 ///   Upstash:Blob:Token — the UPSTASH_BLOB_TOKEN (secret; never logged).
 ///   Upstash:Blob:S3Endpoint — optional R2 endpoint override, e.g.
@@ -262,6 +285,14 @@ public sealed class UpstashS3ClientFactory : IUpstashS3ClientFactory
                     // actually requires one (none of ours do).
                     RequestChecksumCalculation = RequestChecksumCalculation.WHEN_REQUIRED,
                     ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED
+                    // HOTFIX 10.8e (1.A) note: AmazonS3Config has NO DisablePayloadSigning
+                    // property on any AWSSDK.S3 3.7-line version (compiler-proven against
+                    // 3.7.421.10; v4.0.104.6 likewise) — payload signing can only be disabled
+                    // per request (PutObjectRequest/UploadPartRequest.DisablePayloadSigning).
+                    // This lease client issues no payload-carrying SDK requests (browser
+                    // presigned part PUTs; bodyless/buffered control operations), so there is
+                    // nothing to flag here — see the class doc (HOTFIX 10.8e) and
+                    // S3StorageService.BuildPutObjectRequest for the wire-proven mechanism.
                 });
 
             var expiresAtUnix = root.TryGetProperty("expiresAt", out var expiresElement)

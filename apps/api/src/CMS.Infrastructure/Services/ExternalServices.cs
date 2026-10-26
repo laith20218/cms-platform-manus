@@ -189,23 +189,44 @@ public class S3StorageService : IFileStorageService
             // x-amz-checksum-crc32 headers that Cloudflare R2 answers with 403 Access Denied.
             RequestChecksumCalculation = Amazon.Runtime.RequestChecksumCalculation.WHEN_REQUIRED,
             ResponseChecksumValidation = Amazon.Runtime.ResponseChecksumValidation.WHEN_REQUIRED
+            // HOTFIX 10.8e (1.A) note: AmazonS3Config has NO DisablePayloadSigning property
+            // on any AWSSDK.S3 3.7-line version (compiler-proven against 3.7.421.10;
+            // v4.0.104.6 likewise), so payload signing is disabled per request instead —
+            // see BuildPutObjectRequest below (wire-proven: UNSIGNED-PAYLOAD, no
+            // aws-chunked framing) and the UpstashS3ClientFactory class doc (10.8e).
         };
 
         _client = new Amazon.S3.AmazonS3Client(accessKey, secretKey, config);
     }
 
+    /// <summary>
+    /// Builds the S3 PUT request every SDK-side upload goes through. HOTFIX 10.8e (1.A):
+    /// pins <c>DisablePayloadSigning = true</c> so the SDK signs the request with
+    /// <c>UNSIGNED-PAYLOAD</c> instead of the SigV4 chunked streaming encoding
+    /// (<c>STREAMING-AWS4-HMAC-SHA256-PAYLOAD</c> + aws-chunked framing), which
+    /// Cloudflare R2 rejects as a signature mismatch. Wire-proven over HTTPS against
+    /// AWSSDK.S3 3.7.421.10: this flag removes the streaming signature and the chunk
+    /// framing entirely. AmazonS3Config offers no equivalent switch on the 3.7 line,
+    /// so this construction site is the mechanism. Requires an https ServiceURL —
+    /// guaranteed by the R2 endpoints used in production.
+    /// </summary>
+    internal static Amazon.S3.Model.PutObjectRequest BuildPutObjectRequest(
+        string bucket, string key, Stream content, string contentType) => new()
+    {
+        BucketName = bucket,
+        Key = key,
+        InputStream = content,
+        ContentType = contentType,
+        // HOTFIX 10.8e (1.A) — CRITICAL R2 COMPATIBILITY FIX: unsigned payloads are
+        // what R2 accepts; the signed streaming payload is rejected with 403.
+        DisablePayloadSigning = true
+    };
+
     public async Task<string> UploadAsync(Stream fileStream, string fileName, string contentType, CancellationToken ct = default)
     {
         var key = $"library/{Guid.NewGuid()}/{fileName}";
 
-        var request = new Amazon.S3.Model.PutObjectRequest
-        {
-            BucketName = _bucketName,
-            Key = key,
-            InputStream = fileStream,
-            ContentType = contentType
-        };
-
+        var request = BuildPutObjectRequest(_bucketName, key, fileStream, contentType);
         await _client.PutObjectAsync(request, ct);
         return key;
     }
@@ -259,13 +280,7 @@ public class S3StorageService : IFileStorageService
     /// <summary>Overwrites an object at the given key with a server-side PUT.</summary>
     public async Task PutAsync(string key, Stream content, string contentType, CancellationToken ct = default)
     {
-        var request = new Amazon.S3.Model.PutObjectRequest
-        {
-            BucketName = _bucketName,
-            Key = key,
-            InputStream = content,
-            ContentType = contentType
-        };
+        var request = BuildPutObjectRequest(_bucketName, key, content, contentType);
         await _client.PutObjectAsync(request, ct);
     }
 

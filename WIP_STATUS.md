@@ -1,3 +1,47 @@
+# WIP STATUS — Hotfix 10.8e (R2 Compatibility — Disable Payload Signing)
+
+Branch: `wip/10.8e` (from main @ fd8f50f — deployed 10.8d)
+Scope: **`apps/api` ONLY**. No migration, no schema change, no frontend touch, no package change (3.7.421.10 already on main). NOT merged to main — STOP GATE.
+
+## Incident (from Render production logs, with 10.8d diagnostics live)
+Endpoint verified correct (`*.r2.cloudflarestorage.com`), credentials mint successfully, and the failure is now pinpointed: **HTTP 403 at `InitiateMultipartUploadAsync`**. Supervisor diagnosis: classic AWS SDK v3 + Cloudflare R2 incompatibility — the SDK signs the streaming payload with SigV4 chunked encoding, which R2 rejects as a signature mismatch. Directive: `DisablePayloadSigning = true` on the S3 client configs.
+
+## SDK reality check (all evidence local, against the exact production SDK — AWSSDK.S3 3.7.421.10 / Core 3.7.402.91)
+1. **`AmazonS3Config` has NO `DisablePayloadSigning` property** — compiler-proven (`CS0117`), confirmed by the official XML docs (the member exists only on `Amazon.Runtime.Internal.DefaultRequest`/`IRequest` and on the request models `PutObjectRequest`, `UploadPartRequest`, `TransferUtilityUploadRequest`). Also verified: the 3.7 line ends at 3.7.421.10, and **v4.0.104.6's `AmazonS3Config` has no such property either** — no upgrade path yields a config-level switch.
+2. **Client-wide `BeforeRequestEvent` hook is too late** — wire-proven: the event fires and the handler successfully sets the flag on the original request object, but the marshaller has ALREADY copied the flag into the internal request → the PUT still went out `STREAMING-AWS4-HMAC-SHA256-PAYLOAD`.
+3. **The per-request flag is real and effective** — HTTPS wire proof (self-signed TLS server + SDK `HttpClientFactory` injection, real SDK requests):
+   - Control (10.8d config, i.e. current production): PutObject carries `x-amz-content-sha256: STREAMING-AWS4-HMAC-SHA256-PAYLOAD` + `x-amz-decoded-content-length: N` (aws-chunked framing) — **the R2-rejected mechanism, confirmed live under the current config**.
+   - `PutObjectRequest.DisablePayloadSigning = true` at construction: PutObject carries **`x-amz-content-sha256: UNSIGNED-PAYLOAD`** with **zero aws-chunked framing** — exactly what R2 accepts.
+   - The SDK enforces HTTPS for unsigned payloads (client-side guard fired on http probes; production R2 endpoints are https — satisfied).
+   - Honest note: `InitiateMultipartUpload` is BODYLESS in both variants (`x-amz-content-sha256` = `e3b0c442…`, the empty-string SHA-256; standard clean SigV4, credential scope `…/auto/s3/aws4_request`) — payload signing does not mechanically alter initiate's wire shape.
+
+## Done (10.8e)
+
+### 1.A — Disable payload signing (CRITICAL)
+- [x] **`ExternalServices.cs` (S3StorageService)**: new `internal static BuildPutObjectRequest(bucket, key, content, contentType)` — the SINGLE construction site for every SDK-side S3 PUT — pins `DisablePayloadSigning = true`. `UploadAsync` and `PutAsync` both route through it. Both server-side PUTs now send `UNSIGNED-PAYLOAD` (wire-proven).
+- [x] **`UpstashS3ClientFactory.cs`**: the minted lease client issues **no payload-carrying SDK requests** — multipart parts are uploaded by the browser via presigned PUTs, and initiate/list/complete/abort/delete are bodyless or buffered — so there is no request site to flag on that path. The class doc records the full 10.8e evidence chain (why config-level is impossible, why the event hook is too late, where the flag IS applied) so the next hotfix doesn't re-derive it.
+- [x] No AWSSDK package change (none needed — the request-model flag already exists in 3.7.421.10).
+
+### 1.B — Unit test
+- [x] `S3StorageService_BuildPutObjectRequest_DisablesPayloadSigning_ForR2Compat` — asserts the production request-construction helper pins `DisablePayloadSigning = true` (plus bucket/key/stream/contentType pass-through). `InternalsVisibleTo Include="CMS.Tests"` added to `CMS.Infrastructure.csproj` for the helper's visibility.
+
+## Verification (10.8e)
+- Build: `dotnet build` → **0 errors** (17 warnings, all pre-existing — same count as the 10.8d baseline).
+- Full unit regression: `dotnet test --filter "Category!=PostgresIntegration"` → **435/435 passed** (434 from 10.8d + 1 new). New test also run by name: **1/1 passed**.
+
+## What production will show after deploy
+1. SDK-side server PUTs (the `Storage:S3:*` provider's `UploadAsync`/`PutAsync` path) carry `UNSIGNED-PAYLOAD` — no more signed streaming payloads against R2.
+2. Honest expectation-setting: the production 403 fires at **initiate**, which is bodyless — its wire shape is unchanged by this hotfix (probe-verified). If Access Denied persists there after deploy, read the `S3 multipart initiate rejected: HTTP 403 …` line from 10.8d's logging: the request the SDK sends is standard clean SigV4, which points the remaining suspicion at the **credential scope/policy of the Upstash-minted session token** (e.g. CreateMultipartUpload permission on the bucket) rather than request encoding.
+
+## Commit log (10.8e)
+- (this commit) — fix(api): Hotfix 10.8e — disable SDK payload signing for R2 (UNSIGNED-PAYLOAD) via the per-request flag at the single SDK-side PUT construction site; SDK-surface evidence + HTTPS wire proof recorded in code docs and WIP_STATUS; unit test + InternalsVisibleTo
+
+## Open items (for the supervisor)
+- **STOP GATE**: 10.8e pushed to `wip/10.8e`; do NOT merge to main — supervisor will test in production on their own merge decision.
+- If initiate still 403s after this deploy: the 10.8d diagnostic line names the HTTP status + full R2 message — next suspects are Upstash session-token permissions (CreateMultipartUpload scope) and the presigned part-PUT flow (browser-side, query-string SigV4 — not affected by SDK payload signing).
+
+---
+
 # WIP STATUS — Hotfix 10.8d (AWS SDK R2 Compatibility — Checksums)
 
 Branch: `wip/10.8d` (from main @ 890236d — deployed 10.8c)

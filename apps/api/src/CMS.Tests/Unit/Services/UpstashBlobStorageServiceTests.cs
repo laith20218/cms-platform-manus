@@ -394,6 +394,31 @@ public sealed class UpstashS3ClientFactoryTests
     }
 
     [Fact]
+    public void S3StorageService_BuildPutObjectRequest_DisablesPayloadSigning_ForR2Compat()
+    {
+        // HOTFIX 10.8e: Cloudflare R2 rejects the AWS SDK's SigV4 signed streaming payload
+        // (STREAMING-AWS4-HMAC-SHA256-PAYLOAD + aws-chunked framing) as a signature
+        // mismatch. AmazonS3Config has NO DisablePayloadSigning property on any 3.7-line
+        // AWSSDK.S3 (compiler-proven against 3.7.421.10; v4.0.104.6 likewise) and the
+        // client-wide BeforeRequestEvent hook fires too late (wire-proven), so the ONLY
+        // effective mechanism is the per-request flag — every SDK-side PUT must go
+        // through S3StorageService.BuildPutObjectRequest with DisablePayloadSigning = true.
+        // Wire-proven over HTTPS: the request then carries x-amz-content-sha256 =
+        // UNSIGNED-PAYLOAD with no aws-chunked framing.
+        using var stream = new MemoryStream(new byte[16]);
+
+        var request = CMS.Infrastructure.Services.S3StorageService.BuildPutObjectRequest(
+            "test-bucket", "library/some-key", stream, "video/mp4");
+
+        request.DisablePayloadSigning.Should().BeTrue(
+            "R2 rejects the signed streaming payload; the per-request flag is the only SDK mechanism that sends UNSIGNED-PAYLOAD");
+        request.BucketName.Should().Be("test-bucket");
+        request.Key.Should().Be("library/some-key");
+        request.InputStream.Should().BeSameAs(stream);
+        request.ContentType.Should().Be("video/mp4");
+    }
+
+    [Fact]
     public async Task CreateAsync_CachesLease_UntilNearExpiry()
     {
         var (factory, handler) = BuildFactory(CredentialsJson(4_102_444_800));

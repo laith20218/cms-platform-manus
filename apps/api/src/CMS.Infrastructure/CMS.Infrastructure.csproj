@@ -38,4 +38,11 @@
     <ProjectReference Include="..\CMS.Application\CMS.Application.csproj" />
   </ItemGroup>
 
+  <!-- HOTFIX 10.8e: exposes S3StorageService.BuildPutObjectRequest (the single
+       construction site for SDK-side S3 PUTs, which pins the per-request
+       DisablePayloadSigning flag for R2 compatibility) to the unit-test project. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="CMS.Tests" />
+  </ItemGroup>
+
 </Project>
