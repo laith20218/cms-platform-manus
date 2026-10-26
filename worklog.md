@@ -185,3 +185,27 @@ Stage Summary:
 - UpstashBlobStorageService/UpstashS3ClientFactory remain compiled but unreachable (fail-closed without Upstash:Blob:Token); full deletion deferred to a later cleanup push.
 - Single-PUT (10.8f) verified end-to-end against S3StorageService: presigned PUT with signed content-type+size → browser XHR → HEAD proof at complete.
 - Branch wip/10.9 @ 2c9f9d0 pushed; main NOT touched (STOP GATE). Operator must apply the CORS policy on CMSmedia before production browser upload/playback tests (r2-cors.md).
+
+---
+Task ID: HOTFIX-10.10-B2-CORS
+Agent: GLM (main)
+Task: Fix browser CORS status 0 on B2 uploads — the Backblaze UI cannot express AllowedHeaders wildcard / ExposeHeaders; apply the bucket CORS policy programmatically via the S3 API (PutBucketCors) from S3StorageService, triggered at API startup. Checkpoint wip/10.10 (NO merge).
+
+Work Log:
+- Read worklog.md + WIP_STATUS.md 10.9 section; repo on main @ 44bdd9c, clean.
+- Read Program.cs fully; confirmed Program.Testing.cs is an empty partial class (integration tests execute the full Program.cs top-level statements via WebApplicationFactory).
+- Verified from the installed AWSSDK.S3 3.7.421.10 XML docs: CORSRule properties are AllowedHeaders/AllowedMethods/AllowedOrigins/ExposeHeaders/Id/MaxAgeSeconds — the directive's "MaxAgeInSeconds" does not exist (used the real name); PutCORSConfigurationRequest.BucketName/Configuration and IAmazonS3.PutCORSConfigurationAsync confirmed.
+- Grep-verified all six HTTP integration-test hosts boot with UseEnvironment("Testing") and none inject Storage:S3 config → startup hook must skip the Testing env (no network attempts, no constructor noise beyond the existing lazy-singleton behavior).
+- Created wip/10.10 from main @ 44bdd9c.
+- 1.A: Added S3StorageService.SetBucketCorsAsync() (ExternalServices.cs, after GetSignedUrlViaCredentialsAsync): CORSConfiguration with one rule — GET/PUT/HEAD/POST/DELETE, AllowedOrigins ["*"] (supervisor-approved testing posture; safe for credential-less presigned flows, documented), AllowedHeaders ["*"], ExposeHeaders ETag/Content-Range/Accept-Ranges/Content-Length/Content-Type, MaxAgeSeconds 3600 → PutCORSConfigurationAsync + success log with bucket name. Field is _client (not _s3Client as in the directive sketch). Amazon.S3.Model already imported.
+- 1.B: Program.cs — added usings (CMS.Application.Interfaces, CMS.Infrastructure.Services); inserted the startup hook immediately after var app = builder.Build(): skip when IsEnvironment("Testing"); try { resolve IFileStorageService, pattern-match is S3StorageService s3Storage, await SetBucketCorsAsync(); log Information } else-log-warning; catch → Log.Warning with the manual r2-cors.md fallback (never crashes the API).
+- Verified: dotnet build → 0 errors / 17 warnings (baseline); dotnet test --filter "Category!=PostgresIntegration" → 440/440 passed (2m18s — Testing-env skip proven).
+- Docs: WIP_STATUS.md (full 10.10 section incl. B2 key-capability caveat: scoped keys need setBucketCors/writeBucket, master keys always have it); docs/ops/r2-cors.md (10.10 callout atop the B2 application section — startup now applies the policy; manual surfaces demoted to fallback).
+- Committed b2369ad (4 files, +141/−0); pushed wip/10.10 to origin with PAT; scrubbed PAT (git remote -v + .git/config verified clean).
+
+Stage Summary:
+- SetBucketCorsAsync() implemented on S3StorageService (public, PutCORSConfigurationAsync, full rule incl. wildcard AllowedHeaders + ETag exposure, MaxAgeSeconds 3600 — the real 3.7 property name).
+- Called in Program.cs immediately after builder.Build(): try-catch best-effort, skips the Testing environment (integration tests provably unaffected — 440/440 green), failure logs a warning naming the manual fallback and never crashes the API.
+- Build: 0 errors / 17 warnings (baseline). Branch wip/10.10 @ b2369ad pushed; main NOT touched (STOP GATE).
+- Idempotent + self-healing: every restart re-applies the policy; if the B2 console ever loses it, the next deploy restores it.
+- Operator caveat: the B2 application key on Render must carry the setBucketCors capability (master keys do; scoped keys need it explicitly) — otherwise the startup warning fires and the manual r2-cors.md procedure applies.
