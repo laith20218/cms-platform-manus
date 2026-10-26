@@ -15,6 +15,19 @@ public record PlaybackUrlDto(
     bool SupportsRange
 );
 
+/// <summary>
+/// Push 11.1 — one HLS ladder object streamed through the API proxy. <see cref="Content"/>
+/// is the raw object stream from storage (the API layer owns disposal via the
+/// FileStreamResult); <see cref="ContentType"/> and <see cref="CacheControl"/> follow the
+/// object's role (.m3u8 playlists: application/vnd.apple.mpegurl + private,no-store /
+/// .ts segments: video/mp2t + private,max-age=300).
+/// </summary>
+public record HlsObjectDto(
+    Stream Content,
+    string ContentType,
+    string CacheControl
+);
+
 /// <summary>A labeled time-range bookmark on a media asset, ordered by StartSeconds.</summary>
 public record MediaBookmarkDto(
     Guid Id,

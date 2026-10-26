@@ -126,3 +126,6 @@ dump.rdb
 apps/android/.gradle/
 apps/android/local.properties
 apps/student-web/playwright-report/ 
+
+# E2E HLS ladder (regenerable test artifact — see e2e/player-hls.e2e.mjs header)
+apps/student-web/public/e2e-hls/

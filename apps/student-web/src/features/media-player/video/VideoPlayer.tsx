@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Hls, { type ErrorData } from 'hls.js';
 import { LoaderCircle, MonitorPlay, Play, RotateCcw } from 'lucide-react';
-import { cn } from '@/utils';
+import { cn, getOrCreateInstallationId } from '@/utils';
 import { useMediaLease } from '../hooks/useMediaLease';
 import { mediaApi, type MediaAssetType } from '../services/media-api';
 import { usePlayerShell } from '../shell-context';
@@ -56,6 +56,50 @@ function isHlsUrl(url: string): boolean {
   } catch {
     // Not an absolute URL (blob:/relative) — best-effort substring probe.
     return url.toLowerCase().includes('.m3u8');
+  }
+}
+
+/**
+ * Push 11.1 — true when a request URL targets the API origin. The API base mirrors
+ * api-client.ts (`VITE_API_URL`, defaulting to the same-origin `/api/v1`).
+ */
+function isApiOriginUrl(url: string): boolean {
+  try {
+    const apiBase = new URL(import.meta.env.VITE_API_URL || '/api/v1', window.location.origin);
+    return new URL(url, window.location.origin).origin === apiBase.origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Push 11.1 — hls.js xhrSetup: attach the session's auth headers (the exact set the
+ * axios interceptors + entitlementRequestConfig send on every media API call) to each
+ * manifest/fragment request that targets the API origin.
+ *
+ * HLS playback URLs now come from the API's proxy route
+ * (/api/v1/media/hls/{assetType}/{assetId}/master.m3u8): the relative URIs inside the
+ * playlists resolve back into that route, so EVERY hls.js request — master, variant
+ * playlists, .ts segments — hits the API and must carry Bearer + X-Entitlement +
+ * X-Installation-Id to pass the student gate (the 401 incident was exactly the
+ * ladder's children arriving at storage with no authorization at all).
+ *
+ * Headers are read per-request (not captured once): the lease refresh renews the
+ * access/entitlement tokens on its cadence, and later requests must see the fresh
+ * values. Non-API URLs (legacy presigned storage hosts) get NO headers — an
+ * Authorization header would void an S3 presign signature ("only one auth
+ * mechanism allowed").
+ */
+function attachApiAuthHeaders(xhr: XMLHttpRequest, url: string): void {
+  if (!isApiOriginUrl(url)) return;
+  const token = sessionStorage.getItem('cms-access-token');
+  const entitlement = sessionStorage.getItem('cms-signed-entitlement');
+  const installationId = getOrCreateInstallationId();
+  if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+  if (entitlement) xhr.setRequestHeader('X-Entitlement', entitlement);
+  if (installationId) {
+    xhr.setRequestHeader('X-Installation-Id', installationId);
+    xhr.setRequestHeader('X-Device-Fingerprint', installationId);
   }
 }
 
@@ -261,7 +305,14 @@ export default function VideoPlayer({
       // autoStartLoad stays off: every load (initial + silent swaps) starts
       // explicitly from the captured playhead via startLoad(position), so a
       // lease refresh never re-buffers from zero.
-      hls = new Hls({ enableWorker: true, maxBufferLength: 30, autoStartLoad: false });
+      // Push 11.1 — xhrSetup: proxy-route requests carry the session auth
+      // headers (see attachApiAuthHeaders); presigned storage URLs stay bare.
+      hls = new Hls({
+        enableWorker: true,
+        maxBufferLength: 30,
+        autoStartLoad: false,
+        xhrSetup: attachApiAuthHeaders,
+      });
       hlsRef.current = hls;
       hls.attachMedia(video);
       hls.on(Hls.Events.ERROR, (_event, data: ErrorData) => {
