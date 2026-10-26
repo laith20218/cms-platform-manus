@@ -88,11 +88,13 @@ public record GetMultipartStatusQuery(
 
 public record CompleteEpisodeUploadCommand(
     Guid EpisodeId,
-    List<CompletedPartDto> Parts,
+    // Hotfix 10.8f — no parts: the browser already PUT the whole file in one request.
+    // The handler HEADs the stored object to prove the PUT landed and to verify its
+    // actual size against the ceiling, then finalizes the episode.
     // Push 10.5 — metadata riding the complete-upload body (the 10.4 upload panel
-    // sends title/description/difficulty alongside the parts list). Title/description
-    // are overrides for the values captured at initiate-upload; difficulty defaults
-    // to the entity's stored tier when absent (null = leave unchanged).
+    // sends title/description/difficulty). Title/description are overrides for the
+    // values captured at initiate-upload; difficulty defaults to the entity's stored
+    // tier when absent (null = leave unchanged).
     string? Title = null,
     string? Description = null,
     Difficulty? Difficulty = null,

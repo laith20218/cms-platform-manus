@@ -83,6 +83,17 @@ upload still requires the CORS fix** when the preflight itself is rejected.
 
 ## Triage: server-side 403 ≠ CORS failure (added by HOTFIX 10.8d)
 
+> **HOTFIX 10.8f update — the upload wire changed, the CORS posture did NOT.**
+> Course-episode uploads are now a **single browser XHR PUT of the whole file** against
+> one Upstash-presigned URL (`initiate-upload` → PUT → `complete-upload`, no multipart,
+> no parts). The browser now sends an explicit `Content-Type` header on that PUT (it is
+> signed into the URL) — `AllowedHeaders: "*"` already covers it, and `ExposeHeaders:
+> ETag` is no longer needed to *complete* an upload (no ETags are collected), though it
+> stays harmless. A **403 with `HTTP 403` in the upload error banner near the END of a
+> slow upload** is a different animal: it means the ~10-minute presigned URL expired
+> mid-transfer — that is a URL-lifetime limitation of the single-PUT strategy, not a
+> CORS problem; the panel's guidance (cancel and restart) is correct.
+
 Two distinct upload failure modes must not be conflated:
 
 - **Server-side 403 Access Denied** — the API's own SigV4 call to R2 was rejected
@@ -94,8 +105,9 @@ Two distinct upload failure modes must not be conflated:
   x-amz-checksum-crc32` headers R2 rejects, and the API now logs the exact HTTP status
   code, the full provider message and the ServiceURL on every multipart-initiate
   rejection — check the Render logs for `S3 multipart initiate rejected` before
-  touching CORS.
-- **Browser CORS preflight failure** — the browser-direct part PUTs from admin-web are
+  touching CORS. (10.8f: multipart initiate no longer exists on the course path at all —
+  the presign goes through Upstash `/v1/presign`, the library-proven flow.)
+- **Browser CORS preflight failure** — the browser-direct PUTs from admin-web are
   blocked before ever reaching R2 (upload freezes at 0%, errors in the browser console
   only). That is THIS document's domain: `AllowedHeaders` must include `"*"` and
   `ExposeHeaders` must include `ETag` — see the policy above.

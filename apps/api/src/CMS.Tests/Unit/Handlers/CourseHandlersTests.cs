@@ -246,28 +246,34 @@ public sealed class CourseHandlersTests
     }
 
     [Fact]
-    public async Task InitiateUpload_PresignsParts_With64MbMath()
+    public async Task InitiateUpload_PresignsSinglePutUrl_WithTypeAndSizeBound()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var course = await SeedCourseAsync(db);
         var (handler, storage, _, _, _) = Create(db);
-        storage.Setup(s => s.InitiateMultipartUploadAsync(It.IsAny<string>(), "video/mp4", It.IsAny<CancellationToken>()))
-            .ReturnsAsync("mpu-42");
-        storage.Setup(s => s.PresignUploadPartAsync(It.IsAny<string>(), "mpu-42", It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string key, string uploadId, int partNumber, TimeSpan ttl, CancellationToken _) => $"https://r2/part{partNumber}");
+        storage.Setup(s => s.GetSignedUploadUrlAsync(
+                It.Is<string>(key => key.StartsWith($"courses/{course.Id}/")), "video/mp4",
+                It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://r2/put-whole-file");
 
-        // 130 MB → ceil(130/64) = 3 parts
+        // 130 MB — ONE URL for the whole file; no part math exists anymore.
         var initiate = await handler.Handle(new InitiateEpisodeUploadCommand(
             course.Id, "lesson.mp4", "video/mp4", 130L * 1024 * 1024, "الدرس الأول", 1, Guid.NewGuid()), CancellationToken.None);
 
-        initiate.PartSizeBytes.Should().Be((int)PartSize);
-        initiate.PartCount.Should().Be(3);
-        initiate.PartUrls.Should().HaveCount(3).And.ContainInOrder("https://r2/part1", "https://r2/part2", "https://r2/part3");
-        initiate.UploadId.Should().Be("mpu-42");
+        initiate.UploadUrl.Should().Be("https://r2/put-whole-file",
+            "the browser PUTs the entire file against this single presigned URL");
+        initiate.FileKey.Should().StartWith($"courses/{course.Id}/", "keys are server-generated and course-scoped");
         var episode = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == initiate.EpisodeId);
         episode.FileSize.Should().Be(130L * 1024 * 1024, "declared size is stored until complete-upload verifies the actual size");
-        episode.UploadId.Should().Be("mpu-42");
-        episode.FileKey.Should().StartWith($"courses/{course.Id}/", "keys are server-generated and course-scoped");
+        episode.UploadId.Should().Be(CourseHandlers.SinglePutUploadId,
+            "the sentinel keeps the in-flight lifecycle semantics with zero schema change");
+        // THE 10.8f PROOF: the declared size rides the presign call so storage binds it
+        // into the signature — a differently-sized body is rejected before it is stored.
+        storage.Verify(s => s.GetSignedUploadUrlAsync(
+            It.Is<string>(key => Regex.IsMatch(key, $"^courses/{course.Id}/[0-9a-f]{{32}}/[0-9a-f]{{32}}$")),
+            "video/mp4", It.IsAny<TimeSpan>(), 130L * 1024 * 1024, It.IsAny<CancellationToken>()), Times.Once);
+        storage.Verify(s => s.InitiateMultipartUploadAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never,
+            "no multipart session is ever created — the call R2 keeps rejecting with 403 is gone from the flow");
     }
 
     [Fact]
@@ -347,38 +353,54 @@ public sealed class CourseHandlersTests
     }
 
     [Fact]
-    public async Task CompleteUpload_BlankEtag_RejectedWithInvalidParts()
+    public async Task MultipartStatus_SinglePutEpisode_ReturnsInactiveStatus_WithoutStorageCalls()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var course = await SeedCourseAsync(db);
-        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: "mpu-blank");
+        // 10.8f row — sentinel UploadId; there is no multipart session upstream.
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: CourseHandlers.SinglePutUploadId);
         var (handler, storage, _, _, _) = Create(db);
 
-        // Hotfix 10.6: blank ETags (browser CORS masked the header) must fail fast
-        // with a clear 400 — not an opaque upstream 500 at CompleteMultipartUpload.
-        var act = () => handler.Handle(new CompleteEpisodeUploadCommand(episode.Id,
-            new List<CompletedPartDto> { new(1, " ") }), CancellationToken.None);
+        var status = await handler.Handle(new GetMultipartStatusQuery(episode.Id), CancellationToken.None);
 
-        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("INVALID_PARTS");
+        status.HasActiveUpload.Should().BeFalse("single-PUT episodes have nothing to resume");
+        status.UploadedParts.Should().BeEmpty();
+        status.PendingPartUrls.Should().BeEmpty();
         storage.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public async Task CompleteUpload_VerifiesActualSize_OverLimit_AbortsDeletesRowAndFails()
+    public async Task CompleteUpload_MissingObjectUpstream_RejectedWithBlobNotFound()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: CourseHandlers.SinglePutUploadId);
+        var (handler, storage, _, _, _) = Create(db);
+        // The PUT never landed (or the complete call raced a failed upload) — the S3 HEAD
+        // answers NotFound/NoSuchKey. Must surface as a clean 400 BLOB_NOT_FOUND, not an
+        // opaque upstream 500.
+        storage.Setup(s => s.GetObjectSizeAsync("courses/x/y", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new AmazonS3Exception("The specified key does not exist."));
+
+        var act = () => handler.Handle(new CompleteEpisodeUploadCommand(episode.Id), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("BLOB_NOT_FOUND");
+        db.CourseEpisodes.AsNoTracking().Any(e => e.Id == episode.Id).Should().BeTrue(
+            "the row stays so the admin can retry the PUT while the URL is still valid");
+    }
+
+    [Fact]
+    public async Task CompleteUpload_VerifiesActualSize_OverLimit_DeletesBlobAndRowAndFails()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var course = await SeedCourseAsync(db);
         var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: "mpu-9", fileSize: 100);
         var (handler, storage, _, _, _) = Create(db);
-        storage.Setup(s => s.CompleteMultipartUploadAsync("courses/x/y", "mpu-9", It.IsAny<IReadOnlyList<CompletedPart>>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
         storage.Setup(s => s.GetObjectSizeAsync("courses/x/y", It.IsAny<CancellationToken>()))
             .ReturnsAsync(3000L * 1024 * 1024); // actual object is ~3 GB — exceeds the 2560 MB default ceiling
         storage.Setup(s => s.DeleteAsync("courses/x/y", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        storage.Setup(s => s.AbortMultipartUploadAsync("courses/x/y", "mpu-9", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
-        var act = () => handler.Handle(new CompleteEpisodeUploadCommand(episode.Id,
-            new List<CompletedPartDto> { new(1, "etag-1") }), CancellationToken.None);
+        var act = () => handler.Handle(new CompleteEpisodeUploadCommand(episode.Id), CancellationToken.None);
 
         (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("FILE_TOO_LARGE",
             "the actual assembled object is verified against the ceiling — a lying declared size cannot smuggle an oversized video");
@@ -393,13 +415,10 @@ public sealed class CourseHandlersTests
         var course = await SeedCourseAsync(db);
         var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: "mpu-10", fileSize: 100);
         var (handler, storage, _, _, activity) = Create(db);
-        storage.Setup(s => s.CompleteMultipartUploadAsync("courses/x/y", "mpu-10", It.IsAny<IReadOnlyList<CompletedPart>>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
         storage.Setup(s => s.GetObjectSizeAsync("courses/x/y", It.IsAny<CancellationToken>()))
             .ReturnsAsync(2048L);
 
-        var completed = await handler.Handle(new CompleteEpisodeUploadCommand(episode.Id,
-            new List<CompletedPartDto> { new(1, "etag-1"), new(2, "etag-2") }), CancellationToken.None);
+        var completed = await handler.Handle(new CompleteEpisodeUploadCommand(episode.Id), CancellationToken.None);
 
         completed.UploadCompleted.Should().BeTrue();
         completed.FileSize.Should().Be(2048L, "the verified actual size replaces the declared size");
@@ -415,15 +434,12 @@ public sealed class CourseHandlersTests
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var course = await SeedCourseAsync(db);
-        var episode = await SeedUploadEpisodeAsync(db, course, "courses/meta/y", uploadId: "mpu-meta", fileSize: 100);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/meta/y", uploadId: CourseHandlers.SinglePutUploadId, fileSize: 100);
         var (handler, storage, _, _, _) = Create(db);
-        storage.Setup(s => s.CompleteMultipartUploadAsync("courses/meta/y", "mpu-meta", It.IsAny<IReadOnlyList<CompletedPart>>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
         storage.Setup(s => s.GetObjectSizeAsync("courses/meta/y", It.IsAny<CancellationToken>()))
             .ReturnsAsync(2048L);
 
         var completed = await handler.Handle(new CompleteEpisodeUploadCommand(episode.Id,
-            new List<CompletedPartDto> { new(1, "etag-1") },
             Title: "  الحلقة المعدلة  ",
             Description: "شرح مفصل لمنهج الباطنة",
             Difficulty: Difficulty.Hard), CancellationToken.None);
@@ -445,15 +461,12 @@ public sealed class CourseHandlersTests
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var course = await SeedCourseAsync(db);
-        var episode = await SeedUploadEpisodeAsync(db, course, "courses/keep/y", uploadId: "mpu-keep", fileSize: 100);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/keep/y", uploadId: CourseHandlers.SinglePutUploadId, fileSize: 100);
         var (handler, storage, _, _, _) = Create(db);
-        storage.Setup(s => s.CompleteMultipartUploadAsync("courses/keep/y", "mpu-keep", It.IsAny<IReadOnlyList<CompletedPart>>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
         storage.Setup(s => s.GetObjectSizeAsync("courses/keep/y", It.IsAny<CancellationToken>()))
             .ReturnsAsync(2048L);
 
-        var completed = await handler.Handle(new CompleteEpisodeUploadCommand(episode.Id,
-            new List<CompletedPartDto> { new(1, "etag-1") }), CancellationToken.None);
+        var completed = await handler.Handle(new CompleteEpisodeUploadCommand(episode.Id), CancellationToken.None);
 
         var stored = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == episode.Id);
         stored.Title.Should().Be("الحلقة الأولى", "null keys keep the initiate-time title");
@@ -474,15 +487,12 @@ public sealed class CourseHandlersTests
         // handler side of the fixed chain (controller → command → same-commit persist).
         using var db = TestDbHelper.CreateInMemoryContext();
         var course = await SeedCourseAsync(db);
-        var episode = await SeedUploadEpisodeAsync(db, course, "courses/tq/y", uploadId: "mpu-tq", fileSize: 100);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/tq/y", uploadId: CourseHandlers.SinglePutUploadId, fileSize: 100);
         var (handler, storage, _, _, _) = Create(db);
-        storage.Setup(s => s.CompleteMultipartUploadAsync("courses/tq/y", "mpu-tq", It.IsAny<IReadOnlyList<CompletedPart>>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
         storage.Setup(s => s.GetObjectSizeAsync("courses/tq/y", It.IsAny<CancellationToken>()))
             .ReturnsAsync(2048L);
 
         var completed = await handler.Handle(new CompleteEpisodeUploadCommand(episode.Id,
-            new List<CompletedPartDto> { new(1, "etag-1") },
             TargetQuality: TargetQuality.P360), CancellationToken.None);
 
         completed.TargetQuality.Should().Be(TargetQuality.P360);
@@ -670,17 +680,60 @@ public sealed class CourseHandlersTests
     }
 
     [Fact]
-    public async Task AbortUpload_AbortsStorage_AndDeletesRow()
+    public async Task AbortUpload_LegacyRow_AbortsMultipartBestEffort_DeletesBlob_AndDeletesRow()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var course = await SeedCourseAsync(db);
+        // Pre-10.8f row with a REAL multipart id — the legacy path must still abort it.
         var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: "mpu-11");
         var (handler, storage, _, _, _) = Create(db);
         storage.Setup(s => s.AbortMultipartUploadAsync("courses/x/y", "mpu-11", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        storage.Setup(s => s.DeleteAsync("courses/x/y", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         await handler.Handle(new AbortEpisodeUploadCommand(episode.Id, Guid.NewGuid()), CancellationToken.None);
 
         db.CourseEpisodes.AsNoTracking().Any(e => e.Id == episode.Id).Should().BeFalse("aborted uploads free their episode number");
+        storage.Verify(s => s.AbortMultipartUploadAsync("courses/x/y", "mpu-11", It.IsAny<CancellationToken>()), Times.Once);
+        storage.Verify(s => s.DeleteAsync("courses/x/y", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AbortUpload_SinglePutRow_DeletesBlob_WithoutMultipartAbort()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: CourseHandlers.SinglePutUploadId);
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.DeleteAsync("courses/x/y", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        await handler.Handle(new AbortEpisodeUploadCommand(episode.Id, Guid.NewGuid()), CancellationToken.None);
+
+        // S3 PUT is atomic — no partial object exists for an interrupted single PUT; the
+        // blob delete covers a PUT that landed but was never completed. No multipart
+        // session was ever created, so no abort is attempted.
+        storage.Verify(s => s.AbortMultipartUploadAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        storage.Verify(s => s.DeleteAsync("courses/x/y", It.IsAny<CancellationToken>()), Times.Once);
+        db.CourseEpisodes.AsNoTracking().Any(e => e.Id == episode.Id).Should().BeFalse("the row is removed so the number frees");
+    }
+
+    [Fact]
+    public async Task AbortUpload_LegacyAbortAccessDenied_StillDeletesRow()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        // The exact production reality this hotfix ships against: a legacy multipart row
+        // whose abort answers AmazonS3Exception "Access Denied" — the row must still be
+        // removed or the episode number is trapped forever.
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: "mpu-denied");
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.AbortMultipartUploadAsync("courses/x/y", "mpu-denied", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new AmazonS3Exception("Access Denied"));
+        storage.Setup(s => s.DeleteAsync("courses/x/y", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        await handler.Handle(new AbortEpisodeUploadCommand(episode.Id, Guid.NewGuid()), CancellationToken.None);
+
+        db.CourseEpisodes.AsNoTracking().Any(e => e.Id == episode.Id).Should().BeFalse(
+            "a rejected upstream abort is non-blocking — the row removal frees the number");
     }
 
     // ===== Student access =====
@@ -820,10 +873,8 @@ public sealed class CourseHandlersTests
         using var db = TestDbHelper.CreateInMemoryContext();
         var course = await SeedCourseAsync(db);
         var (handler, storage, _, _, _) = Create(db);
-        storage.Setup(s => s.InitiateMultipartUploadAsync(It.IsAny<string>(), "audio/mpeg", It.IsAny<CancellationToken>()))
-            .ReturnsAsync("mpu-arabic");
-        storage.Setup(s => s.PresignUploadPartAsync(It.IsAny<string>(), "mpu-arabic", It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string key, string uploadId, int partNumber, TimeSpan ttl, CancellationToken _) => $"https://r2/part{partNumber}");
+        storage.Setup(s => s.GetSignedUploadUrlAsync(It.IsAny<string>(), "audio/mpeg", It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://r2/put-arabic");
 
         // The user's real-world case: an MP3 whose name carries Arabic characters.
         var initiate = await handler.Handle(new InitiateEpisodeUploadCommand(
@@ -831,9 +882,9 @@ public sealed class CourseHandlersTests
 
         initiate.FileKey.Should().MatchRegex($"^courses/{course.Id}/[0-9a-f]{{32}}/[0-9a-f]{{32}}$",
             "the Arabic fileName never enters the S3 key — keys are pure server-generated GUIDs");
-        storage.Verify(s => s.InitiateMultipartUploadAsync(
+        storage.Verify(s => s.GetSignedUploadUrlAsync(
             It.Is<string>(key => Regex.IsMatch(key, $"^courses/{course.Id}/[0-9a-f]{{32}}/[0-9a-f]{{32}}$")),
-            "audio/mpeg", It.IsAny<CancellationToken>()), Times.Once,
+            "audio/mpeg", It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()), Times.Once,
             "storage sees only the GUID key and the sniffed content type — no Arabic in any request");
         var episode = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == initiate.EpisodeId);
         episode.ContentType.Should().Be("audio/mpeg");
@@ -849,10 +900,8 @@ public sealed class CourseHandlersTests
         await GhostifyAsync(db, ghost);
         var (handler, storage, _, _, _) = Create(db);
         storage.Setup(s => s.DeleteAsync("courses/ghost/done", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        storage.Setup(s => s.InitiateMultipartUploadAsync(It.IsAny<string>(), "audio/mpeg", It.IsAny<CancellationToken>()))
-            .ReturnsAsync("mpu-42");
-        storage.Setup(s => s.PresignUploadPartAsync(It.IsAny<string>(), "mpu-42", It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string key, string uploadId, int partNumber, TimeSpan ttl, CancellationToken _) => $"https://r2/part{partNumber}");
+        storage.Setup(s => s.GetSignedUploadUrlAsync(It.IsAny<string>(), "audio/mpeg", It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://r2/put-retry");
 
         // The exact production scenario: re-uploading at a number a soft-deleted
         // episode still holds (hard unique index → Postgres 23505 → persistent 500).
@@ -877,10 +926,8 @@ public sealed class CourseHandlersTests
         var (handler, storage, _, _, _) = Create(db);
         storage.Setup(s => s.AbortMultipartUploadAsync("courses/ghost/inflight", "mpu-stuck", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         storage.Setup(s => s.DeleteAsync("courses/ghost/inflight", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        storage.Setup(s => s.InitiateMultipartUploadAsync(It.IsAny<string>(), "video/mp4", It.IsAny<CancellationToken>()))
-            .ReturnsAsync("mpu-new");
-        storage.Setup(s => s.PresignUploadPartAsync(It.IsAny<string>(), "mpu-new", It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string key, string uploadId, int partNumber, TimeSpan ttl, CancellationToken _) => $"https://r2/part{partNumber}");
+        storage.Setup(s => s.GetSignedUploadUrlAsync(It.IsAny<string>(), "video/mp4", It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://r2/put-new");
 
         await handler.Handle(new InitiateEpisodeUploadCommand(
             course.Id, "lesson.mp4", "video/mp4", 1024, "الدرس الثاني", 2, Guid.NewGuid()), CancellationToken.None);
@@ -908,19 +955,16 @@ public sealed class CourseHandlersTests
             .ThrowsAsync(new AmazonS3Exception("Access Denied"));
         storage.Setup(s => s.DeleteAsync("courses/ghost/blocked", It.IsAny<CancellationToken>()))
             .ThrowsAsync(new AmazonS3Exception("Access Denied"));
-        storage.Setup(s => s.InitiateMultipartUploadAsync(It.IsAny<string>(), "video/mp4", It.IsAny<CancellationToken>()))
-            .ReturnsAsync("mpu-new");
-        storage.Setup(s => s.PresignUploadPartAsync(It.IsAny<string>(), "mpu-new", It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string key, string uploadId, int partNumber, TimeSpan ttl, CancellationToken _) => $"https://r2/part{partNumber}");
+        storage.Setup(s => s.GetSignedUploadUrlAsync(It.IsAny<string>(), "video/mp4", It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://r2/put-after-denied");
 
-        // THE 10.8c (1.B) PROOF: the upload initiation must complete even though BOTH
-        // ghost-cleanup storage calls (abort + delete) failed with Access Denied.
+        // THE 10.8c (1.B) PROOF, carried into the 10.8f world: the upload initiation must
+        // complete even though BOTH ghost-cleanup storage calls (abort + delete) failed.
         var initiate = await handler.Handle(new InitiateEpisodeUploadCommand(
             course.Id, "lesson.mp4", "video/mp4", 1024, "الدرس بعد الرفض", 2, Guid.NewGuid()), CancellationToken.None);
 
-        initiate.UploadId.Should().Be("mpu-new",
-            "the new multipart session was initiated despite the failed ghost cleanup");
-        initiate.PartUrls.Should().NotBeEmpty();
+        initiate.UploadUrl.Should().Be("https://r2/put-after-denied",
+            "the single-PUT presign was issued despite the failed ghost cleanup");
         db.CourseEpisodes.AsNoTracking().Any(e => e.Id == ghost.Id).Should().BeFalse(
             "the ghost row is still hard-purged so the unique index frees the number");
         var stored = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == initiate.EpisodeId);
@@ -981,8 +1025,8 @@ public sealed class CourseHandlersTests
                 "An error occurred while saving the entity changes. See the inner exception for details.",
                 new Exception("23505: duplicate key value violates unique constraint \"ix_course_episodes_course_id_episode_number\"")));
         var (handler, storage, _, _, _) = Create(db, unitOfWork: throwing.Object);
-        storage.Setup(s => s.InitiateMultipartUploadAsync(It.IsAny<string>(), "video/mp4", It.IsAny<CancellationToken>()))
-            .ReturnsAsync("mpu-race");
+        storage.Setup(s => s.GetSignedUploadUrlAsync(It.IsAny<string>(), "video/mp4", It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://r2/put-race");
 
         // Two concurrent initiates both passed the availability check; the second
         // INSERT hits the hard unique index. The raw DbUpdateException must surface

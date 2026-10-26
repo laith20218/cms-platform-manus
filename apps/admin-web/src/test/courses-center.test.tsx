@@ -121,8 +121,8 @@ describe('CoursesCenter — Push 7 upload typing', () => {
     fireEvent.change(screen.getByPlaceholderText('عنوان الحلقة'), { target: { value: 'حلقة عربية' } });
 
     apiRequestMock.mockImplementation(async () => ({
-      episodeId: 'ep-9', uploadId: 'mpu-1', fileKey: 'courses/k1/x/y',
-      partSizeBytes: 67108864, partCount: 1, partUrls: ['https://r2/part1'],
+      // Hotfix 10.8f — single-PUT initiate response: ONE presigned URL for the whole file.
+      episodeId: 'ep-9', uploadUrl: 'https://r2/put-whole-file', fileKey: 'courses/k1/x/y',
     }));
     const startButton = await screen.findByRole('button', { name: /بدء الرفع/ });
     fireEvent.click(startButton);
@@ -138,6 +138,85 @@ describe('CoursesCenter — Push 7 upload typing', () => {
     // Sniffed from the .mp3 extension — never invented.
     expect(body.contentType).toBe('audio/mpeg');
     expect(onError).not.toHaveBeenCalledWith(expect.stringContaining('لا يمكن التعرّف'));
+  });
+
+  it('PUTs the whole file once via XHR and calls complete-upload WITHOUT parts (10.8f)', async () => {
+    // Fake XHR: captures open/setRequestHeader/send, resolves the PUT with HTTP 200.
+    const xhrInstances: FakeXHR[] = [];
+    class FakeXHR {
+      status = 0;
+      onload: (() => void) | null = null;
+      upload = { addEventListener: vi.fn() };
+      open = vi.fn();
+      setRequestHeader = vi.fn();
+      send = vi.fn(() => { this.status = 200; queueMicrotask(() => this.onload?.()); });
+      addEventListener = vi.fn((type: string, listener: () => void) => { if (type === 'load') this.onload = listener; });
+      constructor() { xhrInstances.push(this); }
+    }
+    vi.stubGlobal('XMLHttpRequest', FakeXHR);
+
+    // jsdom lacks URL.createObjectURL — the panel's video-resolution probe (10.7)
+    // needs it for MP4 picks; stub it so the probe settles via its timeout path.
+    const createObjectURL = vi.fn(() => 'blob:mock');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true });
+
+    try {
+      apiRequestMock.mockImplementation(async (path: string) => {
+        // NOTE: the initiate/complete checks MUST precede the course-detail prefix
+        // check — `/api/v1/admin/courses/k1/episodes/initiate-upload` starts with
+        // `/api/v1/admin/courses/k1` and would otherwise swallow them.
+        if (String(path).includes('initiate-upload')) {
+          return { episodeId: 'ep-9', uploadUrl: 'https://r2/put-whole-file', fileKey: 'courses/k1/x/y' };
+        }
+        if (String(path).includes('complete-upload')) {
+          return { id: 'ep-9', courseId: 'k1', title: 'حلقة', episodeNumber: 1, sourceType: 'Upload', uploadCompleted: true, viewsCount: 0 };
+        }
+        if (path.startsWith('/api/v1/admin/courses?')) return { items: [COURSE], total: 1, page: 1, pageSize: 20, totalPages: 1 };
+        if (path.startsWith('/api/v1/admin/courses/k1')) return { ...COURSE, description: null, coverImageUrl: null, episodes: [] };
+        return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
+      });
+
+      const { container } = render(
+        <UiPermissionsProvider value={{ phase: 'idle' }}>
+          <CoursesCenter token="test-token" isArabic onError={vi.fn()} onNotice={vi.fn()} subjectId="s1" refreshSignal={0} />
+        </UiPermissionsProvider>
+      );
+
+      const courseButton = await screen.findByRole('button', { name: /كورس تجريبي/ });
+      fireEvent.click(courseButton);
+      const uploadButton = await screen.findByRole('button', { name: /رفع وسائط/ });
+      fireEvent.click(uploadButton);
+
+      const mp4 = new File([new Uint8Array(2048)], 'lesson.mp4', { type: 'video/mp4' });
+      const fileInput = await waitFor(() => container.querySelector('input[type="file"]') as HTMLInputElement);
+      fireEvent.change(fileInput, { target: { files: [mp4] } });
+      fireEvent.change(screen.getByPlaceholderText('عنوان الحلقة'), { target: { value: 'درس الاختبار' } });
+
+      fireEvent.click(await screen.findByRole('button', { name: /بدء الرفع/ }));
+
+      await waitFor(() => {
+        const complete = apiRequestMock.mock.calls.find(([path]) => String(path).includes('complete-upload'));
+        expect(complete).toBeDefined();
+      });
+
+      // THE 10.8f PROOF — one XHR PUT of the whole File against the presigned URL,
+      // with the sniffed Content-Type riding the request (the URL signs it):
+      expect(xhrInstances).toHaveLength(1);
+      expect(xhrInstances[0].open).toHaveBeenCalledWith('PUT', 'https://r2/put-whole-file');
+      expect(xhrInstances[0].setRequestHeader).toHaveBeenCalledWith('Content-Type', 'video/mp4');
+      expect(xhrInstances[0].send).toHaveBeenCalledWith(mp4);
+
+      // complete-upload carries the metadata and NO parts key.
+      const completeCall = apiRequestMock.mock.calls.find(([path]) => String(path).includes('complete-upload'));
+      const body = JSON.parse(String(completeCall?.[2]?.body));
+      expect(body.parts).toBeUndefined();
+      expect(body.title).toBe('درس الاختبار');
+      expect(body.targetQuality).toBe('Auto');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('rejects an unrecognizable file (mp3.رقيق) client-side — initiate is never called', async () => {

@@ -15,11 +15,15 @@ namespace CMS.Application.Handlers.Courses;
 
 /// <summary>
 /// Handles all course and course-episode operations: student catalog + playback access,
-/// admin course CRUD, episode CRUD and the S3 multipart orchestration for videos up to
-/// 2.5 GB (64 MB parts — decision د4; publishing at course level only — د3; ContentStatus
-/// lifecycle — د2). Entitlement reuses the existing content-scope model: playback requires
-/// an active grant over the subject with scope VideoAudio (FullSubject/FullYear pass).
-/// View tracking is deferred (د5) — ViewsCount increments on access issuance.
+/// admin course CRUD and episode CRUD. Episode uploads are SINGLE presigned PUTs
+/// (Hotfix 10.8f — the S3 multipart strategy was abandoned after Upstash's session
+/// credentials proved unable to CreateMultipartUpload on R2; the ceiling stays 2.5 GB,
+/// enforced at initiate on the declared size, bound into the presigned URL, and
+/// re-verified server-side against the stored object at complete; publishing at course
+/// level only — د3; ContentStatus lifecycle — د2). Entitlement reuses the existing
+/// content-scope model: playback requires an active grant over the subject with scope
+/// VideoAudio (FullSubject/FullYear pass). View tracking is deferred (د5) — ViewsCount
+/// increments on access issuance.
 /// </summary>
 public class CourseHandlers :
     IRequestHandler<GetSubjectCoursesQuery, List<CourseListItemDto>>,
@@ -50,9 +54,21 @@ public class CourseHandlers :
     private readonly ITranscodingQueue _transcodingQueue;
     private readonly ITranscodingJobRegistry _transcodingJobRegistry;
 
-    /// <summary>Fixed 64 MB part size (د4): ≤ 40 parts for a 2.5 GB video, far under the 10,000-part S3 cap.</summary>
+    /// <summary>Legacy multipart sizing (pre-10.8f rows only — the GET multipart-status
+    /// resume flow still needs it for uploads initiated before the single-PUT switch).</summary>
     private const long PartSizeBytes = 64L * 1024 * 1024;
-    private const int MaxPartCount = 10_000;
+
+    /// <summary>
+    /// Hotfix 10.8f — sentinel stored in CourseEpisode.UploadId while a SINGLE-PUT upload
+    /// is in flight. Upstash's session credentials cannot CreateMultipartUpload on R2
+    /// (production 403), so course episodes now upload as ONE presigned PUT. The column
+    /// keeps its lifecycle semantics unchanged (non-null = upload in flight, null = blob
+    /// ready for playback) with zero schema change: the sentinel occupies the "in flight"
+    /// slot, and complete-upload clears it exactly like a real multipart id used to.
+    /// Legacy rows carrying REAL multipart ids (created before this hotfix) keep their
+    /// original abort/status behavior.
+    /// </summary>
+    internal const string SinglePutUploadId = "single-put";
 
     /// <summary>Video/audio MIME allow-list for course episodes. Documents belong to the library, not courses.</summary>
     private static readonly HashSet<string> AllowedEpisodeContentTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -386,7 +402,7 @@ public class CourseHandlers :
         return Unit.Value;
     }
 
-    // ===== Admin: multipart orchestration =====
+    // ===== Admin: single-PUT upload orchestration (Hotfix 10.8f) =====
     public async Task<InitiateUploadDto> Handle(InitiateEpisodeUploadCommand req, CancellationToken ct)
     {
         var course = await _db.Courses.FirstOrDefaultAsync(course => course.Id == req.CourseId && course.DeletedAt == null, ct)
@@ -401,10 +417,6 @@ public class CourseHandlers :
                 $"حجم الملف يتجاوز الحد المسموح لفيديوهات الكورسات ({maxBytes / (1024 * 1024)} ميجابايت)",
                 "FILE_TOO_LARGE");
 
-        var partCount = (int)Math.Ceiling(req.FileSize / (double)PartSizeBytes);
-        if (partCount > MaxPartCount)
-            throw new DomainException("عدد الأجزاء المطلوب يتجاوز الحد المسموح", "FILE_TOO_LARGE");
-
         await EnsureEpisodeNumberUsableAsync(req.CourseId, req.EpisodeNumber, null, ct);
 
         // Server-generated key (never user input — prevents path traversal). NOTE (Push 7):
@@ -412,7 +424,17 @@ public class CourseHandlers :
         // enters any S3 request header; only this pure-GUID key and the sniffed content
         // type reach storage. Arabic filenames were proven innocent by production logs.
         var fileKey = $"courses/{req.CourseId}/{Guid.NewGuid():N}/{Guid.NewGuid():N}";
-        var uploadId = await _storage.InitiateMultipartUploadAsync(fileKey, req.ContentType.Trim(), ct);
+
+        // Hotfix 10.8f: ONE presigned PUT URL for the WHOLE file — the native Upstash
+        // /v1/presign flow the library module already uses in production (no S3 session
+        // credentials, no CreateMultipartUpload — the exact call R2 keeps rejecting with
+        // 403 for Upstash's temporary credentials). The declared content type AND size are
+        // bound into the signature, so storage rejects a differently-typed or differently-
+        // sized body before a single byte is stored. Expiry: 10 minutes — the provider's
+        // presign cap (MediaPolicy.UpstashPresignCapSeconds); the entire file must be PUT
+        // within that window, which is the honest limitation of the single-PUT strategy.
+        var uploadUrl = await _storage.GetSignedUploadUrlAsync(
+            fileKey, req.ContentType.Trim(), TimeSpan.FromMinutes(10), req.FileSize, ct);
 
         var episode = new CourseEpisode
         {
@@ -423,26 +445,23 @@ public class CourseHandlers :
             FileKey = fileKey,
             FileSize = req.FileSize, // declared; replaced by the verified actual size at complete
             ContentType = req.ContentType.Trim(),
-            UploadId = uploadId,
+            UploadId = SinglePutUploadId, // sentinel — "upload in flight" marker, cleared at complete
         };
         typeof(CourseEpisode).GetProperty("CreatedBy")?.SetValue(episode, req.CreatedBy);
 
         await _db.CourseEpisodes.AddAsync(episode, ct);
         await SaveEpisodesWithNumberGuardAsync(ct);
 
-        var partUrls = new List<string>();
-        for (var partNumber = 1; partNumber <= partCount; partNumber++)
-            partUrls.Add(await _storage.PresignUploadPartAsync(fileKey, uploadId, partNumber, TimeSpan.FromMinutes(9), ct));
-
-        // Hotfix 10.6 (1.A): one low-noise diagnostics line — presigned host+path with
-        // the query string (signature) redacted, so Render logs alone prove the URLs
-        // target the R2 storage host with the expected path-style bucket addressing.
-        if (Uri.TryCreate(partUrls[0], UriKind.Absolute, out var initiateSample))
+        // Hotfix 10.6 (1.A) pattern, carried into 10.8f: one low-noise diagnostics line —
+        // presigned host+path with the query string (signature) redacted, so Render logs
+        // alone prove the URL targets the R2 storage host with the expected path-style
+        // bucket addressing on the PUT verb.
+        if (Uri.TryCreate(uploadUrl, UriKind.Absolute, out var presigned))
             _logger.LogInformation(
-                "Multipart presign: {PartCount} UploadPart PUT URLs for episode {EpisodeId}; sample (query redacted): {SampleUrl}",
-                partUrls.Count, episode.Id, initiateSample.GetLeftPart(UriPartial.Path));
+                "Single-PUT presign: whole-file UploadUrl for episode {EpisodeId} ({FileSizeBytes} bytes); sample (query redacted): {SampleUrl}",
+                episode.Id, req.FileSize, presigned.GetLeftPart(UriPartial.Path));
 
-        return new InitiateUploadDto(episode.Id, uploadId, fileKey, (int)PartSizeBytes, partCount, partUrls);
+        return new InitiateUploadDto(episode.Id, uploadUrl, fileKey);
     }
 
     public async Task<MultipartStatusDto> Handle(GetMultipartStatusQuery req, CancellationToken ct)
@@ -456,6 +475,14 @@ public class CourseHandlers :
         // old 400 NO_ACTIVE_UPLOAD — the admin UI then resets cleanly instead of
         // freezing mid-upload.
         if (episode is null || string.IsNullOrEmpty(episode.UploadId) || string.IsNullOrEmpty(episode.FileKey))
+            return InactiveMultipartStatus(req.EpisodeId);
+
+        // Hotfix 10.8f: single-PUT episodes carry the sentinel marker — there is no
+        // multipart session upstream by construction, so answering inactive (without
+        // a pointless S3 ListParts round-trip) is the honest answer. New frontends never
+        // call this endpoint; the short-circuit keeps old cached clients degrading
+        // gracefully during the deploy switchover.
+        if (episode.UploadId == SinglePutUploadId)
             return InactiveMultipartStatus(req.EpisodeId);
 
         List<CMS.Application.Interfaces.UploadedPartInfo> storedParts;
@@ -502,6 +529,24 @@ public class CourseHandlers :
         episodeId, string.Empty, string.Empty, (int)PartSizeBytes, 0, [], [], HasActiveUpload: false);
 
     /// <summary>
+    /// Matches the S3 "NotFound"/"NoSuchKey" failure without referencing the AWS SDK:
+    /// the Application layer must stay AWS-free (Infrastructure owns the SDK), so the
+    /// check is name- and payload-based — exact type name, its ErrorCode property (read
+    /// defensively), and the documented message phrasing shared by S3 and R2 for a
+    /// HEAD against a key that was never stored.
+    /// </summary>
+    private static bool IsObjectNotFound(Exception ex)
+    {
+        if (ex.GetType().Name != "AmazonS3Exception")
+            return false;
+        var errorCode = ex.GetType().GetProperty("ErrorCode")?.GetValue(ex) as string;
+        return string.Equals(errorCode, "NotFound", StringComparison.Ordinal)
+            || string.Equals(errorCode, "NoSuchKey", StringComparison.Ordinal)
+            || ex.Message.Contains("does not exist", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("key does not exist", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// Matches the S3 "NoSuchUpload" failure without referencing the AWS SDK: the
     /// Application layer must stay AWS-free (Infrastructure owns the SDK), so the
     /// check is name- and payload-based — exact type name, its ErrorCode property
@@ -524,27 +569,29 @@ public class CourseHandlers :
 
         if (string.IsNullOrEmpty(episode.UploadId) || string.IsNullOrEmpty(episode.FileKey))
             throw new DomainException("لا يوجد رفع نشط لهذه الحلقة", "NO_ACTIVE_UPLOAD");
-        if (req.Parts.Count == 0)
-            throw new DomainException("قائمة الأجزاء فارغة", "INVALID_PARTS");
-        // Hotfix 10.6: blank ETags (browser CORS masked the response header) would
-        // surface as an opaque upstream 500 at CompleteMultipartUpload — reject them
-        // with a clear, actionable 400 instead (the client re-syncs via multipart-status).
-        if (req.Parts.Any(part => string.IsNullOrWhiteSpace(part.ETag)))
-            throw new DomainException("جزء أو أكثر بلا ETag صالح — أعد المزامنة ثم أعد المحاولة", "INVALID_PARTS");
 
-        await _storage.CompleteMultipartUploadAsync(
-            episode.FileKey,
-            episode.UploadId,
-            req.Parts.Select(part => new CompletedPart(part.PartNumber, part.ETag)).ToList(),
-            ct);
+        // Hotfix 10.8f: no parts to assemble — the browser already PUT the whole file in
+        // one request. Trust, but verify server-side: HEAD the stored object to prove the
+        // PUT actually landed (a complete-upload racing a failed PUT gets a clean 400,
+        // not an opaque upstream 500) and read its exact size for the ceiling check.
+        long actualSize;
+        try
+        {
+            actualSize = await _storage.GetObjectSizeAsync(episode.FileKey, ct);
+        }
+        catch (Exception ex) when (IsObjectNotFound(ex))
+        {
+            throw new DomainException(
+                "لم يُعثر على الملف في المخزن — تأكد أن رفع الملف اكتمل ثم أعد المحاولة",
+                "BLOB_NOT_FOUND");
+        }
 
-        // Defense in depth: the ceiling was enforced on the declared size at initiate —
-        // verify the ACTUAL assembled object against it before accepting the upload.
+        // Defense in depth: the ceiling was enforced on the declared size at initiate and
+        // the declared size is bound into the presigned URL's signature — this independent
+        // check verifies the ACTUAL stored object against the ceiling before accepting.
         var maxBytes = await GetVideoLimitBytesAsync(ct);
-        var actualSize = await _storage.GetObjectSizeAsync(episode.FileKey, ct);
         if (actualSize > maxBytes)
         {
-            try { await _storage.AbortMultipartUploadAsync(episode.FileKey, episode.UploadId, ct); } catch { /* object already completed */ }
             try { await _storage.DeleteAsync(episode.FileKey, ct); } catch { /* best effort */ }
             _db.CourseEpisodes.Remove(episode);
             await _unitOfWork.SaveChangesAsync(ct);
@@ -557,8 +604,8 @@ public class CourseHandlers :
         typeof(CourseEpisode).GetProperty("UploadId")?.SetValue(episode, null); // blob ready for playback
 
         // Push 10.5 — metadata from the 10.4 upload panel rides the completion body
-        // (title/description/difficulty alongside the parts list). Null keys keep the
-        // initiate-time values; difficulty applies only when provided.
+        // (title/description/difficulty). Null keys keep the initiate-time values;
+        // difficulty applies only when provided.
         if (!string.IsNullOrWhiteSpace(req.Title))
             episode.Title = req.Title.Trim();
         if (req.Description is not null)
@@ -573,7 +620,8 @@ public class CourseHandlers :
 
         // Push 10.3: video assets enter the FFmpeg HLS pipeline the moment the upload
         // completes (same commit as the blob-ready marker). Audio episodes and YouTube
-        // episodes keep ProcessingStatus NULL — the pipeline never applies to them.
+        // episodes keep ProcessingStatus NULL — the pipeline never applies to them and
+        // null is the established "directly playable" contract (Push 10.5).
         if (episode.ContentType?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true)
             episode.ProcessingStatus = ProcessingStatus.Pending;
 
@@ -601,7 +649,38 @@ public class CourseHandlers :
         if (string.IsNullOrEmpty(episode.UploadId) || string.IsNullOrEmpty(episode.FileKey))
             throw new DomainException("لا يوجد رفع نشط لهذه الحلقة", "NO_ACTIVE_UPLOAD");
 
-        await _storage.AbortMultipartUploadAsync(episode.FileKey, episode.UploadId, ct);
+        // Hotfix 10.8f: legacy rows (created before the single-PUT switch) still carry a
+        // REAL multipart id — abort that session upstream best-effort. The non-blocking
+        // guard matters in production: Upstash's credentials get Access Denied on multipart
+        // calls, and an abort that 500s would trap the row forever (the number never frees).
+        if (episode.UploadId != SinglePutUploadId)
+        {
+            try
+            {
+                await _storage.AbortMultipartUploadAsync(episode.FileKey, episode.UploadId, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Legacy multipart abort failed (non-blocking) during upload abort. EpisodeId={EpisodeId} FileKey={FileKey} UploadId={UploadId}",
+                    episode.Id, episode.FileKey, episode.UploadId);
+            }
+        }
+
+        // Single-PUT rows: S3 PUT is atomic — an interrupted PUT leaves NO partial object.
+        // Delete the key best-effort to cover the case where the PUT fully landed but
+        // complete-upload never ran; DeleteAsync is idempotent upstream (404 swallowed).
+        // Both guards non-blocking: the row removal below is what frees the episode number.
+        try
+        {
+            await _storage.DeleteAsync(episode.FileKey, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Blob delete failed (non-blocking) during upload abort. EpisodeId={EpisodeId} FileKey={FileKey}",
+                episode.Id, episode.FileKey);
+        }
 
         // The episode row describes an upload that will never complete — remove it so the
         // episode number is freed. This is a hard delete (the row was never publishable).
@@ -679,7 +758,12 @@ public class CourseHandlers :
             // failure is logged as a warning, the ghost row is still hard-purged, and the
             // new upload proceeds. Splitting the guard per call also means a failing
             // multipart-abort no longer skips the blob delete attempt.
-            if (!string.IsNullOrEmpty(ghost.UploadId) && !string.IsNullOrEmpty(ghost.FileKey))
+            // Hotfix 10.8f: sentinel rows are single-PUT — there is no multipart session
+            // upstream, so the abort is skipped for them entirely (the DeleteAsync below
+            // already covers the orphaned whole-file object).
+            if (!string.IsNullOrEmpty(ghost.UploadId)
+                && ghost.UploadId != SinglePutUploadId
+                && !string.IsNullOrEmpty(ghost.FileKey))
             {
                 try
                 {

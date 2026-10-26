@@ -73,14 +73,20 @@ public record WatermarkEnvelopeDto(
     string SiteName
 );
 
-// ===== Admin: multipart upload =====
+// ===== Admin: single-PUT upload (Hotfix 10.8f — multipart abandoned) =====
+/// <summary>
+/// Hotfix 10.8f: Upstash's temporary credentials cannot CreateMultipartUpload on R2
+/// (production 403), so the Admin API now issues ONE presigned PUT URL for the whole
+/// file — the same native Upstash /v1/presign flow library uploads use in production.
+/// The browser PUTs the entire file against <paramref name="UploadUrl"/> in a single
+/// XHR, then calls complete-upload. No upload id and no parts exist in this flow.
+/// The URL binds the content type AND the declared size into the signature, so
+/// storage rejects a differently-typed or differently-sized body outright.
+/// </summary>
 public record InitiateUploadDto(
     Guid EpisodeId,
-    string UploadId,
-    string FileKey,
-    int PartSizeBytes,        // 64 MB fixed (decision د4)
-    int PartCount,
-    List<string> PartUrls     // presigned UploadPart PUT URLs, index 0 = part 1
+    string UploadUrl,        // single presigned PUT URL for the ENTIRE file
+    string FileKey           // server-generated destination path
 );
 
 public record MultipartStatusDto(

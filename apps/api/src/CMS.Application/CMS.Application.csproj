@@ -24,4 +24,11 @@
     <ProjectReference Include="..\CMS.Domain\CMS.Domain.csproj" />
   </ItemGroup>
 
+  <!-- HOTFIX 10.8f: exposes CourseHandlers.SinglePutUploadId (the sentinel marker
+       stored in CourseEpisode.UploadId while a single-PUT upload is in flight) to
+       the unit-test project. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="CMS.Tests" />
+  </ItemGroup>
+
 </Project>

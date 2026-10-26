@@ -13,8 +13,10 @@ using Microsoft.EntityFrameworkCore;
 namespace CMS.Api.Controllers;
 
 /// <summary>
-/// Administrative course management: course CRUD, episode CRUD and the S3 multipart
-/// orchestration endpoints (initiate → parts → status/resume → complete | abort).
+/// Administrative course management: course CRUD, episode CRUD and the single-PUT
+/// upload orchestration endpoints (Hotfix 10.8f: initiate → browser XHR PUT of the whole
+/// file against one presigned URL → complete | abort; the multipart strategy was
+/// abandoned — Upstash's session credentials cannot CreateMultipartUpload on R2).
 /// Classic RBAC lives here: every action requires the library permission family plus
 /// an in-scope subject. UI permission keys (tab:library.courses, btn:library.course.*)
 /// are the cosmetic layer only — they never gate this API.
@@ -209,12 +211,13 @@ public sealed class AdminCoursesController : ControllerBase
         return NoContent();
     }
 
-    // ===== Episodes: multipart upload orchestration =====
+    // ===== Episodes: single-PUT upload orchestration (Hotfix 10.8f) =====
 
     /// <summary>
-    /// Starts a multipart upload: validates MIME + size ceiling + episode number, creates the
-    /// episode row and returns presigned UploadPart URLs (64 MB parts). The browser uploads
-    /// parts directly to storage — the API never proxies media bytes.
+    /// Starts a single-PUT upload: validates MIME + size ceiling + episode number, creates
+    /// the episode row and returns ONE presigned PUT URL for the whole file (content type
+    /// and declared size are bound into the signature). The browser PUTs the file directly
+    /// to storage in a single XHR — the API never proxies media bytes.
     /// </summary>
     [HttpPost("{courseId:guid}/episodes/initiate-upload")]
     public async Task<ActionResult<InitiateUploadDto>> InitiateUpload(Guid courseId, [FromBody] InitiateUploadRequestDto dto, CancellationToken ct)
@@ -222,11 +225,12 @@ public sealed class AdminCoursesController : ControllerBase
         var subjectId = await SubjectIdForCourseAsync(courseId, ct);
         if (subjectId is null) return NotFound();
         if (!await CanManageAsync(Actions.Create, subjectId.Value, ct)) return Forbid();
-        // Hotfix 10.8c (1.C): an S3 provider failure (observed in production as
-        // AmazonS3Exception "Access Denied" when the minted client was pointed at a
-        // non-R2 endpoint) must surface as a clean, actionable 503 — NOT a bare 500.
-        // The factory's mint log names the exact ServiceURL; the 503 body tells the
-        // operator what to verify.
+        // Hotfix 10.8c (1.C) guard, retained as defense in depth for any unexpected S3
+        // provider failure (observed in production as AmazonS3Exception "Access Denied"):
+        // must surface as a clean, actionable 503 — NOT a bare 500. NOTE (10.8f): the
+        // initiate path now calls Upstash's /v1/presign REST API (the same flow library
+        // uploads use in production); a presign failure surfaces as InvalidOperationException
+        // through the global middleware. The S3 catches below remain as belt-and-braces.
         try
         {
             return Ok(await _mediator.Send(new InitiateEpisodeUploadCommand(
@@ -270,8 +274,9 @@ public sealed class AdminCoursesController : ControllerBase
         };
 
     /// <summary>
-    /// Resume support: lists the parts already stored and returns fresh presigned URLs for
-    /// the remaining parts (URLs are re-signed because storage credentials rotate).
+    /// Legacy multipart resume support (pre-10.8f rows only): lists the parts already
+    /// stored and returns fresh presigned URLs for the remaining parts. Single-PUT
+    /// episodes answer with an explicit inactive status — there is nothing to resume.
     /// </summary>
     [HttpGet("episodes/{episodeId:guid}/multipart-status")]
     public async Task<ActionResult<MultipartStatusDto>> MultipartStatus(Guid episodeId, CancellationToken ct)
@@ -283,9 +288,10 @@ public sealed class AdminCoursesController : ControllerBase
     }
 
     /// <summary>
-    /// Finalizes a multipart upload with the client-captured (partNumber, ETag) pairs,
-    /// verifies the assembled object's actual size against the ceiling and marks the
-    /// episode ready for playback.
+    /// Finalizes a single-PUT upload (Hotfix 10.8f — no parts): the handler HEADs the
+    /// stored object to prove the browser PUT landed and to verify its actual size
+    /// against the ceiling, then marks the episode ready for playback (video assets
+    /// enter the transcoding pipeline).
     /// </summary>
     [HttpPost("episodes/{episodeId:guid}/complete-upload")]
     public async Task<ActionResult<CourseEpisodeDto>> CompleteUpload(Guid episodeId, [FromBody] CompleteUploadRequestDto dto, CancellationToken ct)
@@ -298,7 +304,7 @@ public sealed class AdminCoursesController : ControllerBase
         // Push 10.8: TargetQuality rides too — THE 10.7 binding gap: the DTO never
         // exposed the key, so the admin's P360/P720/P1080 pick was silently dropped
         // at this boundary and the worker encoded the full Auto ladder.
-        return Ok(await _mediator.Send(new CompleteEpisodeUploadCommand(episodeId, dto.Parts,
+        return Ok(await _mediator.Send(new CompleteEpisodeUploadCommand(episodeId,
             dto.Title, dto.Description, dto.Difficulty, dto.TargetQuality), ct));
     }
 
@@ -345,7 +351,9 @@ public record UpdateEpisodeDto(
 );
 public record InitiateUploadRequestDto(string FileName, string ContentType, long FileSize, string Title, int EpisodeNumber);
 public record CompleteUploadRequestDto(
-    List<CompletedPartDto> Parts,
+    // Hotfix 10.8f — no parts: the browser PUT the whole file in one request before
+    // calling this endpoint. Old clients still sending a "parts" key are simply
+    // ignored by ASP.NET model binding (unknown JSON keys don't bind).
     // Push 10.5 — additive metadata keys sent by the 10.4 upload panel.
     string? Title = null,
     string? Description = null,

@@ -7,12 +7,11 @@
  *   • Courses table: title, subject, episodes count, status badge, created, row actions
  *     (edit · publish · archive · delete — each btn:library.course.* gated)
  *   • Episode manager drawer per course: ordered episodes (Upload | YouTube),
- *     add-YouTube form, multipart video upload (btn:library.course.episode.upload),
+ *     add-YouTube form, media upload (btn:library.course.episode.upload),
  *     delete episode (btn:library.course.episode.delete)
- *   • MultipartUploadPanel: initiate → 64 MB parts via presigned PUTs with per-part
- *     retry (×3), overall progress, pause/resume (resume re-syncs with server-side
- *     ListParts via GET multipart-status so parts already stored are never re-sent),
- *     abort, then complete-upload (server verifies the assembled size).
+ *   • SinglePutUploadPanel (Hotfix 10.8f): initiate → ONE presigned PUT URL for the
+ *     whole file → single XHR PUT (upload.onprogress progress strip) → complete-upload
+ *     (no parts; the server verifies the stored object).
  *
  * The 2.5 GB ceiling is enforced server-side (upload.limit.video_mb); this UI simply
  * surfaces the server's FILE_TOO_LARGE error.
@@ -24,11 +23,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle, Archive, Ban, CheckCircle2, ChevronDown, ChevronUp, Film, GraduationCap,
-  AlertTriangle, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, Upload, X, Youtube, Pause, Play,
+  AlertTriangle, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, Upload, X, Youtube,
 } from 'lucide-react';
 import {
   apiRequest, type ApiError, type PagedResult, type AdminCourseListItem, type CourseDetail,
-  type CourseEpisode, type InitiateUploadResponse, type MultipartStatus,
+  type CourseEpisode, type InitiateUploadResponse,
 } from '../lib/api';
 import {
   difficultyBadgeClass, difficultyLabel, isProcessingActive, normalizeDifficulty,
@@ -189,7 +188,7 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
 
   const dir = isArabic ? 'rtl' : 'ltr';
   const copy = isArabic ? {
-    title: 'الكورسات', desc: 'إنشاء وإدارة كورسات الفيديو وحلقاتها (رفع متعدد الأجزاء حتى 2.5GB أو يوتيوب).',
+    title: 'الكورسات', desc: 'إنشاء وإدارة كورسات الفيديو وحلقاتها (رفع وسائط حتى 2.5GB أو يوتيوب).',
     create: 'إنشاء كورس', refresh: 'تحديث', episodes: 'حلقات', episodesCount: 'الحلقات', views: 'مشاهدات',
     created: 'تاريخ الإنشاء', status: 'الحالة', subject: 'المادة', actions: 'إجراءات',
     publish: 'نشر', archive: 'أرشفة', delete: 'حذف', edit: 'تعديل',
@@ -199,10 +198,10 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
     save: 'حفظ', cancel: 'إلغاء', createCourse: 'إنشاء كورس جديد', editCourse: 'تعديل الكورس',
     addEpisode: 'إضافة حلقة', youtubeId: 'معرّف فيديو يوتيوب', episodeTitle: 'عنوان الحلقة',
     episodeNumber: 'رقم الحلقة', duration: 'المدة (ثانية، اختياري)', add: 'إضافة', uploadVideo: 'رفع وسائط (فيديو/صوت)',
-    uploading: 'جارٍ الرفع…', pause: 'إيقاف مؤقت', resume: 'استئناف', abort: 'إلغاء الرفع',
+    uploading: 'جارٍ الرفع…', abort: 'إلغاء الرفع',
     incomplete: 'لم يكتمل الرفع', ready: 'جاهز', close: 'إغلاق', selectFile: 'اختر ملف الفيديو أو الصوت',
   } : {
-    title: 'Courses', desc: 'Create and manage video courses and their episodes (multipart upload up to 2.5GB, or YouTube).',
+    title: 'Courses', desc: 'Create and manage video courses and their episodes (media upload up to 2.5GB, or YouTube).',
     create: 'Create course', refresh: 'Refresh', episodes: 'Episodes', episodesCount: 'Episodes', views: 'Views',
     created: 'Created', status: 'Status', subject: 'Subject', actions: 'Actions',
     publish: 'Publish', archive: 'Archive', delete: 'Delete', edit: 'Edit',
@@ -212,7 +211,7 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
     save: 'Save', cancel: 'Cancel', createCourse: 'Create new course', editCourse: 'Edit course',
     addEpisode: 'Add episode', youtubeId: 'YouTube video id', episodeTitle: 'Episode title',
     episodeNumber: 'Episode number', duration: 'Duration (seconds, optional)', add: 'Add', uploadVideo: 'Upload media (video/audio)',
-    uploading: 'Uploading…', pause: 'Pause', resume: 'Resume', abort: 'Abort upload',
+    uploading: 'Uploading…', abort: 'Abort upload',
     incomplete: 'Upload incomplete', ready: 'Ready', close: 'Close', selectFile: 'Choose a video or audio file',
   };
 
@@ -390,14 +389,14 @@ function buildCopy(isArabic: boolean) {
   return isArabic ? {
     addEpisode: 'إضافة حلقة', youtubeId: 'معرّف فيديو يوتيوب', episodeTitle: 'عنوان الحلقة',
     episodeNumber: 'رقم الحلقة', duration: 'المدة (ثانية، اختياري)', add: 'إضافة', uploadVideo: 'رفع وسائط (فيديو/صوت)',
-    uploading: 'جارٍ الرفع…', pause: 'إيقاف مؤقت', resume: 'استئناف', abort: 'إلغاء الرفع',
+    uploading: 'جارٍ الرفع…', retry: 'إعادة المحاولة', abort: 'إلغاء الرفع',
     incomplete: 'لم يكتمل الرفع', ready: 'جاهز', close: 'إغلاق', selectFile: 'اختر ملف الفيديو أو الصوت',
     deleteEpisode: 'حذف الحلقة', episodes: 'الحلقات', retrying: 'إعادة المحاولة…',
     editEpisode: 'تعديل بيانات الحلقة', processingChip: 'المعالجة',
   } : {
     addEpisode: 'Add episode', youtubeId: 'YouTube video id', episodeTitle: 'Episode title',
     episodeNumber: 'Episode number', duration: 'Duration (seconds, optional)', add: 'Add', uploadVideo: 'Upload media (video/audio)',
-    uploading: 'Uploading…', pause: 'Pause', resume: 'Resume', abort: 'Abort upload',
+    uploading: 'Uploading…', retry: 'Retry', abort: 'Abort upload',
     incomplete: 'Upload incomplete', ready: 'Ready', close: 'Close', selectFile: 'Choose a video or audio file',
     deleteEpisode: 'Delete episode', episodes: 'Episodes', retrying: 'Retrying…',
     editEpisode: 'Edit episode', processingChip: 'Processing',
@@ -592,9 +591,9 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
         </div>
       )}
 
-      {/* Multipart upload panel */}
+      {/* Single-PUT upload panel (Hotfix 10.8f) */}
       {uploadPanel && can('btn:library.course.episode.upload') && (
-        <MultipartUploadPanel
+        <SinglePutUploadPanel
           token={token} isArabic={isArabic} onError={onError} onNotice={onNotice}
           courseId={course.id} defaultEpisodeNumber={nextEpisodeNumber}
           episodes={detail?.episodes ?? []}
@@ -702,38 +701,38 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
 }
 
 
-// ===== Multipart upload panel (Push 10.4: metadata + processing state machine) =====
+// ===== Single-PUT upload panel (Hotfix 10.8f — multipart abandoned) =====
 
-type UploadState = 'idle' | 'initiating' | 'uploading' | 'paused' | 'completing' | 'processing' | 'ready' | 'failed';
+type UploadState = 'idle' | 'initiating' | 'uploading' | 'completing' | 'processing' | 'ready' | 'failed';
 
 /**
- * MultipartUploadPanel — initiate → 64 MB presigned PUTs (per-part retry ×3,
- * pause/resume with server-side part sync) → complete-upload → 10.4: the
- * processing state machine (uploads stats strip, transcoding ladder, error
- * modal) until the pipeline reports Ready/Failed.
+ * SinglePutUploadPanel — Hotfix 10.8f. Production proved Upstash's temporary
+ * credentials cannot CreateMultipartUpload on R2 (403 at initiate), so the flow is
+ * now: initiate-upload (ONE presigned PUT URL for the whole file — content type and
+ * declared size are bound into the signature, exactly like the library-upload flow)
+ * → a SINGLE XHR PUT of the File with upload.onprogress feeding the progress strip →
+ * complete-upload (no parts; the server HEADs the stored object to prove the PUT
+ * landed and re-verifies the size) → the 10.4 processing state machine (uploads
+ * stats strip, transcoding ladder, error modal) until Ready/Failed.
  *
- * Hotfix 10.6 (production upload CORS): the browser PUTs parts DIRECTLY to the
- * R2 presigned URLs — two storage-CORS failure modes are now handled in code:
- * (a) a 2xx PUT whose ETag is unreadable (bucket CORS lacks
- *     Access-Control-Expose-Headers: ETag) resolves with null and the authoritative
- *     ETags are recovered server-side from multipart-status (ListParts) before
- *     complete-upload — CORS never applies to that server-to-server call;
- * (b) a status poll hitting a dead session (hasActiveUpload=false — completed,
- *     aborted, or expired upstream) resets the panel gracefully instead of a 400.
+ * Honest trade-offs vs the old multipart engine (see WIP_STATUS 10.8f):
+ *  - No pause/resume: a single PUT cannot resume mid-file. S3 PUT is atomic — an
+ *    interrupted PUT stores nothing — so "Retry" safely re-sends the whole file
+ *    against the same URL while it is still valid.
+ *  - The presigned URL lives ≤ 10 minutes (Upstash's presign cap): the entire file
+ *    must be PUT within that window; slower uploads fail with 403 (expired
+ *    signature) and the guidance is to cancel and start over.
+ *  - No part-level stats: ONE progress bar fed by XHR upload.onprogress.
  *
- * Push 10.4 contract:
+ * Push 10.4 contract (carried over):
  *  - 1.A metadata: Title (≤200, required) + Description (≤1000) + Difficulty
- *    (0|1|2) travel in the complete-upload body alongside the parts list.
- *  - 1.B progress: the raw byte counter grew into a human machine —
- *    Uploading (size/speed/ETA/parts) → Transcoding (the 10.3 ladder with
- *    the task book's Arabic sentences + animated bar, polled every 3s) →
- *    Ready. Absent processingStatus (today's API) resolves to Ready: the
- *    source MP4 is already playable.
- *  - 1.C failures: structured dual-language modal (humanMessage +
- *    technicalDetails) with Copy Error + Retry (resume the session / re-poll
- *    the pipeline); the Push 6 inline banner stays as the persistent record.
+ *    (0|1|2) travel in the complete-upload body.
+ *  - 1.B progress: size/speed/ETA strip while uploading → the 10.3 ladder with the
+ *    task book's Arabic sentences (polled every 3s) → Ready.
+ *  - 1.C failures: structured dual-language modal (humanMessage + technicalDetails)
+ *    with Copy Error + Retry; the Push 6 inline banner stays as the persistent record.
  */
-function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, defaultEpisodeNumber, episodes, watchEpisode, unwatchEpisode, pollNow, onDone }: {
+function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, defaultEpisodeNumber, episodes, watchEpisode, unwatchEpisode, pollNow, onDone }: {
   token: string;
   isArabic: boolean;
   onError: (message: string) => void;
@@ -793,57 +792,18 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     return () => window.clearTimeout(id);
   }, [state, episodeId, isArabic, unwatchEpisode]);
 
-  // Mutable upload session — survives pause/resume cycles.
+  // Mutable upload session — the single presigned PUT plus the live XHR (cancellable).
   const sessionRef = useRef<{
     episodeId: string;
-    partSize: number;
-    partCount: number;
-    urls: Map<number, string>;
-    // Hotfix 10.6: null = part stored (2xx) but its ETag was masked by storage CORS —
-    // recovered server-side via multipart-status before complete-upload.
-    etags: Map<number, string | null>;
-    uploadedBytes: Map<number, number>;
+    uploadUrl: string;
+    /** The sniffed content type — MUST ride the PUT as the Content-Type header: the
+     * presigned URL signs it, and file.type may be empty for Arabic-named files. */
+    contentType: string;
     file: File;
-    paused: boolean;
-    cancelled: boolean;
-    startedAt: number;
-    /** Rolling speed window (reset on start/resume so paused time never skews it). */
-    speedWindow: { t: number; bytes: number };
+    xhr: XMLHttpRequest | null;
   } | null>(null);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
-
-  /** Hotfix 10.6: re-syncs etags/bytes/URLs from the server — ListParts (via
-   * multipart-status) is the authoritative part record AND the ETag recovery path
-   * for parts whose ETag the browser could not read cross-origin. Returns 'dead'
-   * when the server reports no live multipart session, 'offline' when the sync
-   * call itself failed (the local part map stays usable for parts with valid URLs). */
-  const syncFromServer = async (session: NonNullable<typeof sessionRef.current>): Promise<'ok' | 'dead' | 'offline'> => {
-    try {
-      const status = await request<MultipartStatus>(`/api/v1/admin/courses/episodes/${session.episodeId}/multipart-status`);
-      if (status.hasActiveUpload === false) return 'dead';
-      session.etags = new Map(status.uploadedParts.map(part => [part.partNumber, part.etag]));
-      session.uploadedBytes = new Map(status.uploadedParts.map(part => [part.partNumber, part.size]));
-      mapPendingUrls(status, session.urls);
-      refreshUploadStats(session);
-      return 'ok';
-    } catch {
-      return 'offline';
-    }
-  };
-
-  /** Hotfix 10.6: the server reports no live multipart session (completed or aborted
-   * upstream) — reset the panel cleanly instead of chasing a dead upload. */
-  const deadSessionReset = () => {
-    sessionRef.current = null;
-    setState('idle');
-    setUploadStats(null);
-    setEpisodeId(null);
-    setFile(null);
-    onError(isArabic
-      ? 'لا يوجد رفع نشط لهذه الحلقة — ربما اكتمل أو أُلغي سابقًا. ابدأ رفعًا جديدًا.'
-      : 'No active upload for this episode — it may have completed or been aborted earlier. Start a new upload.');
-  };
 
   /**
    * Push 6: the API's global 500 handler answers with a generic English detail
@@ -859,167 +819,97 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     return message || fallback;
   };
 
-  /** Maps the server's pendingPartUrls (ascending) onto the missing part numbers (ascending). */
-  const mapPendingUrls = (status: MultipartStatus, urls: Map<number, string>) => {
-    const stored = new Set(status.uploadedParts.map(part => part.partNumber));
-    const missing = Array.from({ length: status.partCount }, (_, i) => i + 1).filter(n => !stored.has(n));
-    status.pendingPartUrls.forEach((url, index) => {
-      if (index < missing.length) urls.set(missing[index], url);
-    });
-  };
+  /** Rolling speed window for the 1.B strip (reset per PUT attempt). */
+  const speedWindowRef = useRef<{ t: number; bytes: number } | null>(null);
 
-  const putPart = (url: string, blob: Blob) => new Promise<string | null>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('PUT', url);
-    xhr.addEventListener('load', () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        // Hotfix 10.6: a 2xx means the part IS stored on R2. The ETag may still be
-        // unreadable when the bucket's CORS policy lacks Access-Control-Expose-Headers:
-        // ETag — resolve with null and let the pre-complete server sync (ListParts via
-        // multipart-status) recover the authoritative ETags, instead of failing the
-        // whole upload on a masked header.
-        const etag = (xhr.getResponseHeader('ETag') ?? '').replace(/"/g, '');
-        resolve(etag || null);
-      } else reject(new Error(`HTTP ${xhr.status}`));
-    });
-    xhr.addEventListener('error', () => reject(new Error(xhr.status === 0
-      ? 'network/CORS error (status 0) — the browser blocked the cross-origin PUT to storage; the bucket CORS policy must allow PUT from this origin'
-      : 'network error')));
-    xhr.send(blob);
-  });
-
-  /** Rolling-window upload stats (size · speed · ETA · parts) for the 1.B strip. */
-  const refreshUploadStats = (session: NonNullable<typeof sessionRef.current>) => {
-    const uploaded = [...session.uploadedBytes.values()].reduce((a, b) => a + b, 0);
+  /** Rolling-window upload stats (size · speed · ETA) fed by XHR upload.onprogress. */
+  const refreshUploadStats = (loadedBytes: number, totalBytes: number) => {
     const now = Date.now();
-    const windowSeconds = Math.max((now - session.speedWindow.t) / 1000, 0.25);
-    const speed = Math.max((uploaded - session.speedWindow.bytes) / windowSeconds, 0);
-    session.speedWindow = { t: now, bytes: uploaded };
-    const remaining = Math.max(session.file.size - uploaded, 0);
+    const window = speedWindowRef.current ?? { t: now, bytes: 0 };
+    const windowSeconds = Math.max((now - window.t) / 1000, 0.25);
+    const speed = Math.max((loadedBytes - window.bytes) / windowSeconds, 0);
+    speedWindowRef.current = { t: now, bytes: loadedBytes };
+    const remaining = Math.max(totalBytes - loadedBytes, 0);
     setUploadStats({
-      uploadedBytes: uploaded,
-      totalBytes: session.file.size,
+      uploadedBytes: loadedBytes,
+      totalBytes,
       speedBps: speed,
       etaSeconds: speed > 0 ? remaining / speed : Number.POSITIVE_INFINITY,
-      completedParts: session.etags.size,
-      totalParts: session.partCount,
     });
   };
 
   const runSession = async () => {
     const session = sessionRef.current;
     if (!session) return;
-    session.paused = false;
-    session.speedWindow = { t: Date.now(), bytes: [...session.uploadedBytes.values()].reduce((a, b) => a + b, 0) };
     setState('uploading');
-
-    for (let partNumber = 1; partNumber <= session.partCount; partNumber++) {
-      if (session.cancelled) return;
-      if (session.paused) { setState('paused'); return; }
-      if (session.etags.has(partNumber)) continue; // already stored (resume)
-
-      let url = session.urls.get(partNumber);
-      if (!url) { // part URL expired (credentials rotate) — re-sync via multipart-status
-        // Hotfix 10.6: a dead session resets the panel; a failed sync pauses with a
-        // clear message instead of throwing mid-loop and freezing the UI.
-        const sync = await syncFromServer(session);
-        if (sync === 'dead') return deadSessionReset();
-        if (sync === 'offline') {
-          session.paused = true;
-          setState('paused');
-          onError(isArabic
-            ? 'تعذّرت مزامنة حالة الرفع مع الخادم — تم الإيقاف المؤقت. تحقق من الاتصال ثم اضغط "استئناف".'
-            : 'Could not re-sync upload state with the server — paused. Check the connection and press Resume.');
-          return;
-        }
-        url = session.urls.get(partNumber);
-        if (!url) {
-          session.paused = true;
-          setState('paused');
-          onError(isArabic
-            ? `تعذّر الحصول على رابط الجزء ${partNumber} — تم الإيقاف المؤقت. اضغط "استئناف" لإعادة المحاولة.`
-            : `Could not obtain the URL for part ${partNumber} — paused. Press Resume to retry.`);
-          return;
-        }
-      }
-
-      const start = (partNumber - 1) * session.partSize;
-      const end = Math.min(partNumber * session.partSize, session.file.size);
-      const blob = session.file.slice(start, end);
-
-      let attempt = 0;
-      // Per-part retry ×3, then pause with an error surface (the user can resume).
-      for (;;) {
-        if (session.cancelled) return;
-        if (session.paused) { setState('paused'); return; }
-        try {
-          const etag = await putPart(url, blob);
-          session.etags.set(partNumber, etag); // null = stored, ETag CORS-masked (recovered pre-complete)
-          session.uploadedBytes.set(partNumber, blob.size);
-          refreshUploadStats(session);
-          break;
-        } catch (error) {
-          attempt++;
-          if (attempt >= 3) {
-            session.paused = true;
-            setState('paused');
-            onError(isArabic
-              ? `تعذّر رفع الجزء ${partNumber} بعد 3 محاولات — تم الإيقاف المؤقت. اضغط "استئناف" للمتابعة. (${error instanceof Error ? error.message : 'خطأ'})`
-              : `Part ${partNumber} failed after 3 attempts — paused. Press Resume to continue. (${error instanceof Error ? error.message : 'error'})`);
-            return;
-          }
-          await new Promise(resolve => setTimeout(resolve, 1500 * attempt));
-        }
-      }
-    }
-
-    // Hotfix 10.6: recover ETags the browser could not read (storage CORS did not
-    // expose the header) from the server's ListParts — CORS never applies to that
-    // server-to-server call. A dead session resets the panel instead of completing.
-    if ([...session.etags.values()].some(etag => !etag)) {
-      const sync = await syncFromServer(session);
-      if (sync === 'dead') return deadSessionReset();
-    }
-    const unresolved = [...session.etags.entries()].filter(([, etag]) => !etag);
-    if (unresolved.length > 0) {
-      session.paused = true;
-      setState('paused');
-      onError(isArabic
-        ? `تعذّر التحقق من ${unresolved.length} جزء مرفوع (ETag غير متاح للقراءة من المتصفح) — اضغط "استئناف" لإعادة المزامنة، وإن استمر الخطأ فتحقق من سياسة CORS لمخزن الملفات (ExposeHeaders: ETag).`
-        : `Could not confirm ${unresolved.length} uploaded part(s) (ETag unreadable by the browser) — press Resume to re-sync; if it persists, check the storage bucket CORS policy (ExposeHeaders: ETag).`);
-      return;
-    }
-
-    // All parts stored → complete (server verifies the assembled size against
-    // the ceiling). 10.4: the metadata fields ride along (additive keys —
-    // forward-compatible with the backend DTO wiring). 10.7: targetQuality too —
-    // the backend persists it with this same commit, BEFORE the transcode job is
-    // enqueued, so the worker encodes exactly what the admin selected.
-    if (session.cancelled) return;
-    setState('completing');
+    speedWindowRef.current = null;
     try {
-      await request(`/api/v1/admin/courses/episodes/${session.episodeId}/complete-upload`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          parts: [...session.etags.entries()].sort((a, b) => a[0] - b[0]).map(([partNumber, etag]) => ({ partNumber, etag })),
-          title: metadata.title.trim(),
-          description: metadata.description.trim() || null,
-          difficulty: metadata.difficulty,
-          targetQuality: metadata.targetQuality,
-        }),
+      // THE 10.8f CORE: one XHR PUT of the whole File against the presigned URL.
+      // Mirrors the production-proven library-upload PUT: the sniffed Content-Type
+      // rides the request (the URL signs it; file.type may be empty for Arabic-named
+      // files) and the browser sets Content-Length from the File — it must equal the
+      // declared size signed into the URL or storage rejects the request.
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        session.xhr = xhr;
+        xhr.open('PUT', session.uploadUrl);
+        xhr.setRequestHeader('Content-Type', session.contentType);
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) refreshUploadStats(event.loaded, event.total);
+        });
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`HTTP ${xhr.status}`));
+        });
+        xhr.addEventListener('error', () => reject(new Error(xhr.status === 0
+          ? 'network/CORS error (status 0) — the browser blocked the cross-origin PUT to storage; the bucket CORS policy must allow PUT from this origin'
+          : 'network error')));
+        xhr.addEventListener('abort', () => reject(new DOMException('Upload cancelled', 'AbortError')));
+        xhr.send(session.file);
       });
-      setLastError(null);
-      // 10.4: the file is committed — hand over to the processing state
-      // machine (the manager's poller feeds this panel the pipeline status).
-      setEpisodeId(session.episodeId);
-      setState('processing');
-      watchEpisode(session.episodeId);
-      await onDone();
+
+      // PUT landed → complete (no parts; the server HEADs the stored object and
+      // verifies the actual size). 10.4: the metadata fields ride along. 10.7:
+      // targetQuality rides the same commit, BEFORE the transcode job is enqueued,
+      // so the worker encodes exactly what the admin selected.
+      if (sessionRef.current !== session) return; // aborted meanwhile
+      setState('completing');
+      try {
+        await request(`/api/v1/admin/courses/episodes/${session.episodeId}/complete-upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: metadata.title.trim(),
+            description: metadata.description.trim() || null,
+            difficulty: metadata.difficulty,
+            targetQuality: metadata.targetQuality,
+          }),
+        });
+        setLastError(null);
+        // 10.4: the file is committed — hand over to the processing state
+        // machine (the manager's poller feeds this panel the pipeline status).
+        setEpisodeId(session.episodeId);
+        setState('processing');
+        watchEpisode(session.episodeId);
+        await onDone();
+      } catch (error) {
+        setState('failed');
+        const apiError = error as ApiError;
+        const message = describeUploadError(error, 'complete-upload failed.');
+        setLastError(message);
+        onError(message);
+        setErrorDialog({
+          humanMessage: apiError?.humanMessage,
+          technicalDetails: apiError?.technicalDetails ?? null,
+        });
+      }
     } catch (error) {
+      // A deliberate cancel (XHR aborted by the Cancel button) — the abort handler
+      // owns the panel reset; stay silent here.
+      if (error instanceof DOMException && error.name === 'AbortError') return;
       setState('failed');
       const apiError = error as ApiError;
-      const message = describeUploadError(error, 'complete-upload failed.');
+      const message = describeUploadError(error, 'Upload failed.');
       setLastError(message);
       onError(message);
       setErrorDialog({
@@ -1061,25 +951,17 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
           episodeNumber: Number(episodeNumber),
         }),
       });
-      const urls = new Map<number, string>();
-      initiated.partUrls.forEach((url, index) => urls.set(index + 1, url));
       sessionRef.current = {
         episodeId: initiated.episodeId,
-        partSize: initiated.partSizeBytes,
-        partCount: initiated.partCount,
-        urls,
-        etags: new Map(),
-        uploadedBytes: new Map(),
+        uploadUrl: initiated.uploadUrl,
+        contentType,
         file,
-        paused: false,
-        cancelled: false,
-        startedAt: Date.now(),
-        speedWindow: { t: Date.now(), bytes: 0 },
+        xhr: null,
       };
       setEpisodeId(initiated.episodeId);
       setUploadStats({
         uploadedBytes: 0, totalBytes: file.size, speedBps: 0,
-        etaSeconds: Number.POSITIVE_INFINITY, completedParts: 0, totalParts: initiated.partCount,
+        etaSeconds: Number.POSITIVE_INFINITY,
       });
       await runSession();
     } catch (error) {
@@ -1095,28 +977,21 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     }
   };
 
-  const resume = async () => {
-    const session = sessionRef.current;
-    if (!session) return;
-    // Re-sync with the server: parts already stored are listed and never re-sent;
-    // fresh presigned URLs are issued for the rest (credentials rotate every ~10 min).
-    // Hotfix 10.6: a 'dead' answer (completed/aborted upstream) resets the panel
-    // gracefully; 'offline' keeps the local part map, as before.
-    const sync = await syncFromServer(session);
-    if (sync === 'dead') return deadSessionReset();
+  /** 10.8f: a failed PUT is retried against the SAME presigned URL (still valid
+   * within its ~10-minute window). S3 PUT is atomic — the failed attempt stored
+   * nothing, so re-sending the whole file is safe and idempotent. A 403 here usually
+   * means the URL expired: cancel and start a fresh upload instead. */
+  const retry = async () => {
+    if (!sessionRef.current) return;
+    setLastError(null);
+    setErrorDialog(null);
     await runSession();
-  };
-
-  const pause = () => {
-    if (sessionRef.current) sessionRef.current.paused = true;
-    setState('paused');
   };
 
   const abort = async () => {
     const session = sessionRef.current;
     if (!session) return;
-    session.cancelled = true;
-    session.paused = true;
+    session.xhr?.abort(); // stop the in-flight PUT (atomic — nothing partial is stored)
     try {
       await request(`/api/v1/admin/courses/episodes/${session.episodeId}/abort-upload`, { method: 'POST' });
       onNotice(isArabic ? 'تم إلغاء الرفع وحذف الحلقة غير المكتملة.' : 'Upload aborted; the incomplete episode was removed.');
@@ -1126,6 +1001,8 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     sessionRef.current = null;
     setState('idle');
     setFile(null);
+    setUploadStats(null);
+    setEpisodeId(null);
     await onDone();
   };
 
@@ -1243,10 +1120,10 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     : 0;
 
   const copy2 = isArabic ? {
-    start: 'بدء الرفع', another: 'رفع وسائط أخرى', paused: 'الرفع متوقف مؤقتاً',
+    start: 'بدء الرفع', another: 'رفع وسائط أخرى',
     details: 'عرض التفاصيل التقنية',
   } : {
-    start: 'Start upload', another: 'Upload another media file', paused: 'Upload paused',
+    start: 'Start upload', another: 'Upload another media file',
     details: 'View technical details',
   };
 
@@ -1262,7 +1139,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
           video's display resolution for the quality-downgrade warning. */}
       <div className="grid gap-2 md:grid-cols-2">
         <input type="file" accept="video/mp4,video/webm,video/quicktime,audio/mpeg,audio/mp4,audio/wav,audio/webm"
-          disabled={busyState || state === 'paused' || state === 'processing'}
+          disabled={busyState || state === 'processing'}
           onChange={(event) => {
             const picked = event.target.files?.[0] ?? null;
             setFile(picked);
@@ -1272,7 +1149,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
             if (picked) void probeVideoResolution(picked).then(setVideoResolution);
           }}
           className="text-sm px-3 py-2 rounded-lg border w-full" style={{ borderColor: 'var(--cms-line-strong)' }} />
-        <input value={episodeNumber} disabled={busyState || state === 'paused' || state === 'processing'} onChange={(e) => setEpisodeNumber(e.target.value)}
+        <input value={episodeNumber} disabled={busyState || state === 'processing'} onChange={(e) => setEpisodeNumber(e.target.value)}
           inputMode="numeric" placeholder={isArabic ? 'رقم الحلقة' : 'Episode number'} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
       </div>
       <EpisodeMetadataFields
@@ -1282,7 +1159,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
           setMetadata((values) => ({ ...values, ...patch }));
         }}
         isArabic={isArabic}
-        disabled={busyState || state === 'paused' || state === 'processing'}
+        disabled={busyState || state === 'processing'}
         titleInvalid={titleInvalid}
         layout="rows"
         testIdPrefix="upload-metadata"
@@ -1304,7 +1181,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
       )}
 
       {/* ===== 1.B — the human state machine ===== */}
-      {(state === 'uploading' || state === 'initiating' || state === 'completing' || (state === 'paused' && uploadStats)) && (
+      {(state === 'uploading' || state === 'initiating' || state === 'completing') && (
         <ProcessingTimeline
           stage="uploading"
           uploadPercent={percent}
@@ -1313,17 +1190,12 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
           testId="upload-processing-timeline"
         />
       )}
-      {state === 'paused' && (
-        <p className="text-xs font-medium" style={{ color: 'var(--cms-amber-600, #b45309)' }}>
-          {copy2.paused} — {copy.resume}
-        </p>
-      )}
       {(state === 'initiating' || state === 'completing') && (
         <p className="inline-flex items-center gap-1.5 text-sm" style={{ color: 'var(--cms-text-soft)' }}>
           <LoaderCircle className="w-4 h-4 animate-spin" />
           {state === 'initiating'
-            ? (isArabic ? 'جارٍ تهيئة جلسة الرفع…' : 'Initializing the upload session…')
-            : (isArabic ? 'جارٍ تجميع الأجزاء والتحقق من الحجم…' : 'Assembling parts & verifying size…')}
+            ? (isArabic ? 'جارٍ تهيئة رابط الرفع…' : 'Requesting the upload URL…')
+            : (isArabic ? 'جارٍ التحقق من الملف المرفوع…' : 'Verifying the uploaded file…')}
         </p>
       )}
       {/* The ladder stays mounted through Ready — the admin sees the full
@@ -1366,8 +1238,8 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
             <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
               {cancelledProcessing
                 ? (isArabic ? 'الحالة على الخادم: «فشلت المعالجة» — إعادة المحاولة تكون برفع جديد أو بعد تعديل الحلقة.' : 'Server status: Processing failed — retry with a new upload or after editing the episode.')
-                : episodeId
-                  ? (isArabic ? 'الأجزاء المرفوعة محفوظة — اضغط «استئناف» للمتابعة دون إعادة إرسالها.' : 'Uploaded parts are kept — press Resume to continue without re-sending them.')
+                : episodeId && sessionRef.current
+                  ? (isArabic ? 'اضغط «إعادة المحاولة» لإعادة إرسال الملف كاملاً — لا توجد أجزاء محفوظة في الرفع الأحادي. إن استمر خطأ 403 فانتهت صلاحية الرابط: ألغِ الرفع وابدأ من جديد.' : 'Press Retry to re-send the entire file — a single PUT keeps no partial parts. A persistent 403 means the URL expired: cancel and start a fresh upload.')
                   : (isArabic ? 'اضغط «بدء الرفع» لإعادة المحاولة.' : 'Press Start upload to try again.')}
             </p>
             {errorDialog && (errorDialog.technicalDetails || errorDialog.humanMessage) && (
@@ -1397,26 +1269,17 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
             <Upload className="w-4 h-4" /> {copy2.another}
           </button>
         )}
-        {state === 'uploading' && (
-          <button type="button" onClick={pause}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border text-sm font-medium" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}>
-            <Pause className="w-4 h-4" /> {copy.pause}
-          </button>
-        )}
-        {state === 'paused' && (
-          <button type="button" onClick={() => void resume()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-medium" style={{ background: 'var(--cms-teal-700)' }}>
-            <Play className="w-4 h-4" /> {copy.resume}
-          </button>
-        )}
-        {/* Push 6: a failed session with a live episode can be resumed (e.g. transient 500 at complete) */}
+        {/* 10.8f: a failed PUT is retried against the SAME presigned URL while it is
+            still valid (S3 PUT is atomic — the failed attempt stored nothing). */}
         {state === 'failed' && episodeId && sessionRef.current && (
-          <button type="button" onClick={() => { setLastError(null); void resume(); }} data-testid="retry-resume-button"
+          <button type="button" onClick={() => void retry()} data-testid="upload-retry-button"
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-medium" style={{ background: 'var(--cms-teal-700)' }}>
-            <Play className="w-4 h-4" /> {copy.resume}
+            <RefreshCw className="w-4 h-4" /> {copy.retry}
           </button>
         )}
-        {(state === 'paused' || state === 'uploading' || (state === 'failed' && episodeId)) && sessionRef.current && (
+        {/* 10.8f: the only in-upload control is Cancel — a single PUT cannot pause.
+            Cancel aborts the XHR (nothing partial is stored) and removes the episode. */}
+        {(state === 'uploading' || (state === 'failed' && episodeId)) && sessionRef.current && (
           <button type="button" onClick={() => void abort()}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border text-sm font-medium text-red-600" style={{ borderColor: 'var(--cms-red-200)' }}>
             <X className="w-4 h-4" /> {copy.abort}
@@ -1448,7 +1311,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
         onRetry={errorDialog?.retryProcessing
           ? () => void retryProcessing()
           : sessionRef.current
-            ? () => { setErrorDialog(null); setLastError(null); void resume(); }
+            ? () => { setErrorDialog(null); setLastError(null); void retry(); }
             : undefined}
         testId="upload-error-modal"
       />

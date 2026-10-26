@@ -304,15 +304,22 @@ export type CourseDetail = {
   episodes: CourseEpisode[];
 };
 
+/**
+ * Hotfix 10.8f — single-PUT upload: the API returns ONE presigned PUT URL for the
+ * whole file (content type + declared size bound into the signature). The browser
+ * PUTs the entire File against `uploadUrl` in a single XHR, then calls
+ * complete-upload. No uploadId, no parts.
+ */
 export type InitiateUploadResponse = {
   episodeId: string;
-  uploadId: string;
+  uploadUrl: string;
   fileKey: string;
-  partSizeBytes: number;
-  partCount: number;
-  partUrls: string[];
 };
 
+/**
+ * Legacy multipart resume status (pre-10.8f rows only). Hotfix 10.8f: new uploads
+ * are single-PUT and never poll this — retained for the API surface only.
+ */
 export type MultipartStatus = {
   episodeId: string;
   uploadId: string;

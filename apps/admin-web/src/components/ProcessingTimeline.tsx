@@ -34,8 +34,10 @@ export interface UploadStats {
   totalBytes: number;
   speedBps: number;
   etaSeconds: number;
-  completedParts: number;
-  totalParts: number;
+  /** Hotfix 10.8f — single-PUT uploads have no parts; the parts line renders only
+   * for multipart-style callers that still provide a total. */
+  completedParts?: number;
+  totalParts?: number;
 }
 
 function formatBytes(bytes?: number | null): string {
@@ -109,11 +111,13 @@ export function ProcessingTimeline({
               {formatEta(uploadStats.etaSeconds)}
             </p>
           </div>
-          <p className="col-span-3 text-xs tabular-nums" style={{ color: 'var(--cms-text-muted)' }} data-testid="upload-stat-parts">
-            {isArabic
-              ? `${formatBytes(uploadStats.uploadedBytes)} من أصل ${formatBytes(uploadStats.totalBytes)} · ${uploadStats.completedParts}/${uploadStats.totalParts} أجزاء`
-              : `${formatBytes(uploadStats.uploadedBytes)} of ${formatBytes(uploadStats.totalBytes)} · ${uploadStats.completedParts}/${uploadStats.totalParts} parts`}
-          </p>
+          {(uploadStats.totalParts != null && uploadStats.totalParts > 0) && (
+            <p className="col-span-3 text-xs tabular-nums" style={{ color: 'var(--cms-text-muted)' }} data-testid="upload-stat-parts">
+              {isArabic
+                ? `${formatBytes(uploadStats.uploadedBytes)} من أصل ${formatBytes(uploadStats.totalBytes)} · ${uploadStats.completedParts ?? 0}/${uploadStats.totalParts} أجزاء`
+                : `${formatBytes(uploadStats.uploadedBytes)} of ${formatBytes(uploadStats.totalBytes)} · ${uploadStats.completedParts ?? 0}/${uploadStats.totalParts} parts`}
+            </p>
+          )}
         </div>
       )}
 

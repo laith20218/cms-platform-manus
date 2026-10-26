@@ -1,3 +1,53 @@
+# WIP STATUS — Hotfix 10.8f (Single PUT Upload — Bypass Multipart)
+
+Branch: `wip/10.8f` (from main @ c9d5d0b — deployed 10.8e)
+Scope: **`apps/api` + `apps/admin-web`**. No migration, **no schema change** (the sentinel reuses the existing `CourseEpisode.UploadId` column), no package change. NOT merged to main — STOP GATE.
+
+## Incident (supervisor directive)
+Production logs and live testing confirm: **Upstash's temporary (session) credentials do not have permission to execute `CreateMultipartUpload` on R2 — HTTP 403 at `InitiateMultipartUploadAsync`**, regardless of the wire-level fixes from 10.8c/10.8d/10.8e. Directive: **abandon the multipart strategy for the Admin API and switch to a Single PUT Presigned URL strategy**, which Upstash natively supports — the exact flow the library module already uses successfully in production (`/v1/presign` REST API, no S3 session credentials involved at all).
+
+## Done (10.8f)
+
+### 1.A — Backend: single presigned PUT at initiate
+- [x] **`CourseHandlers.InitiateEpisodeUploadCommandHandler`**: no longer calls `InitiateMultipartUploadAsync` (the 403 call is GONE from the flow). It now issues ONE `GetSignedUploadUrlAsync(fileKey, contentType, 10min, fileSize)` — the native Upstash `/v1/presign` PUT URL for the WHOLE file, with the **content type AND the declared size bound into the signature** (storage rejects a differently-typed/sized body before storing a byte). Part math (64 MB chunks) deleted.
+- [x] **`InitiateUploadDto`** → `(EpisodeId, UploadUrl, FileKey)` — no `UploadId`, no parts, per the task book.
+- [x] **Sentinel lifecycle, zero schema change**: new episodes store `UploadId = "single-put"` (const `CourseHandlers.SinglePutUploadId`) while the upload is in flight; complete-upload clears it to null exactly like a real multipart id used to. Every existing guard keeps its semantics: `NO_ACTIVE_UPLOAD`, `UploadCompleted` mapping (`string.IsNullOrEmpty(UploadId)`), ghost purge, student access refusal for incomplete uploads.
+- [x] **Legacy rows** (created before this deploy with REAL multipart ids): `multipart-status` still answers them honestly (ListParts path untouched); single-PUT rows short-circuit to `HasActiveUpload=false` without a pointless S3 call. Old cached frontends degrade gracefully during the switchover.
+
+### 1.B — Backend: complete + abort rework
+- [x] **`CompleteEpisodeUploadCommand`** dropped `Parts` entirely. The handler: HEADs the stored object (`GetObjectSizeAsync`) to **prove the PUT actually landed** (a complete racing a failed PUT → clean 400 `BLOB_NOT_FOUND`, not an opaque 500) and to re-verify the actual size against the ceiling (defense in depth on top of the signed size), then sets `ProcessingStatus=Pending` + enqueues transcoding for video exactly as before. Audio keeps `ProcessingStatus=NULL` — the established Push 10.5 contract (null = directly playable; the student app renders it as ready).
+- [x] **`AbortEpisodeUploadCommandHandler`**: single-PUT rows skip the multipart abort (nothing to abort upstream — S3 PUT is atomic, an interrupted PUT stores nothing) and delete the object best-effort (covers a PUT that landed but was never completed; `DeleteAsync` is idempotent upstream). Legacy rows still attempt the multipart abort — now **non-blocking** (Access Denied during abort no longer traps the episode number forever; the row is removed regardless).
+- [x] Ghost purge skips the multipart abort for sentinel rows (the `DeleteAsync` below it already covers the orphaned object).
+- [x] **Controller**: `CompleteUploadRequestDto` has no `Parts` (old clients sending one are ignored by model binding); 10.8c's 503 catches retained as belt-and-braces (the presign path surfaces its own failures via `InvalidOperationException` → global middleware).
+
+### 1.C — Frontend: single XHR PUT (`CoursesCenter.tsx`)
+- [x] Panel renamed `MultipartUploadPanel` → `SinglePutUploadPanel`. Flow: `initiate-upload` → **one XHR PUT of the whole File** against `uploadUrl` (with `setRequestHeader('Content-Type', sniffedType)` — the URL signs it, and `file.type` may be empty for Arabic-named files; mirrors the production-proven library-upload PUT exactly) → `complete-upload` **without parts** → the 10.4 processing state machine unchanged.
+- [x] **Progress bar kept**: `xhr.upload.onprogress` feeds the same size/speed/ETA strip; the parts line renders only for callers that still provide `totalParts` (single-PUT omits it). ONE progress bar, per the task book.
+- [x] **Chunk calculation logic deleted** (part slicing, per-part retry, ETag tracking, multipart-status re-sync, pause/resume engine — all gone).
+- [x] **No pause/resume** (a single PUT cannot resume mid-file): the only in-upload control is **Cancel** (aborts the XHR + `abort-upload`). On failure: **Retry** re-sends the whole file against the SAME still-valid URL (S3 PUT atomicity makes this safe); a persistent 403 means the URL expired → the banner says cancel and start over.
+
+## Verification (10.8f)
+- API: `dotnet build` → **0 errors** (17 warnings — the pre-existing baseline count). `dotnet test --filter "Category!=PostgresIntegration"` → **438/438 passed** (435 from 10.8e − 1 obsolete parts test + 4 new single-PUT tests: presign-with-signed-size, missing-object→BLOB_NOT_FOUND, sentinel multipart-status, single-put abort + legacy abort Access-Denied non-blocking).
+- Admin-web: `tsc -b` clean; `vitest run` → **35/35 passed** (34 baseline + 1 new end-to-end flow test proving ONE XHR PUT to the presigned URL with the sniffed Content-Type, and a parts-free complete-upload body). ESLint: 0 errors / 31 warnings — identical count to pristine main.
+
+## Honest limitations of the single-PUT strategy (the task book asked for these)
+1. **URL lifetime = 10 minutes** (Upstash's presign cap, `MediaPolicy.UpstashPresignCapSeconds=600`): the ENTIRE file must be PUT within that window. A 2.5 GB file needs a sustained ~34 Mbps to make it; slower connections will fail late with 403 (expired signature) → cancel and re-upload. (The old multipart engine re-presigned parts every ~10 min, so slow uploads eventually finished — that resilience is gone.)
+2. **No resume**: a failed/interrupted PUT leaves nothing stored (S3 PUT atomicity) — Retry re-sends the whole file. There is no byte-level resume primitive without multipart.
+3. **No part-level stats**: one progress bar (explicitly accepted by the task book).
+4. **2.5 GB ceiling unchanged**: enforced at initiate (declared), at storage (signed size) and re-verified server-side at complete (HEAD).
+
+## What production will show after deploy
+1. `initiate-upload` returns `{episodeId, uploadUrl, fileKey}` — minted via Upstash `/v1/presign` (the library-proven path; **no S3 session credentials involved**). The Render log line `Single-PUT presign: whole-file UploadUrl for episode …` names the host+path (query redacted).
+2. The browser performs ONE cross-origin PUT with `Content-Type` + `Content-Length` matching the signature. The R2 CORS posture is unchanged (PUT + `AllowedHeaders: *` already cover it — the same requirements the library upload satisfies).
+3. `complete-upload` answers with the episode DTO; video assets enter the FFmpeg pipeline exactly as before.
+
+## Commit log (10.8f)
+- (this commit) — fix(api+admin): Hotfix 10.8f — single presigned PUT upload (bypass multipart): presign-with-signed-size at initiate, parts-free complete with HEAD proof, sentinel UploadId lifecycle (zero schema change), single-XHR panel with onprogress, abort/retry semantics, 438/438 + 35/35 green
+
+## Open items (for the supervisor)
+- **STOP GATE**: 10.8f pushed to `wip/10.8f`; do NOT merge to main — supervisor tests in production on their own merge decision.
+- Legacy in-flight rows stuck at the 403 (created before this deploy): abort them from the admin UI (Cancel) or leave them; either way the number frees on abort, and no new multipart session will ever be created.
+
 # WIP STATUS — Hotfix 10.8e (R2 Compatibility — Disable Payload Signing)
 
 Branch: `wip/10.8e` (from main @ fd8f50f — deployed 10.8d)
