@@ -1,3 +1,44 @@
+# WIP STATUS — Hotfix 10.12 (CSP Update for Backblaze B2 — Fix blocked:csp)
+
+Branch: `wip/10.12` (from main @ 1a5fcb3 — deployed 10.10)
+Scope: **frontend ONLY** (`apps/student-web/vercel.json` + `apps/admin-web/vercel.json`). No backend touch, no source-code change, no package change. NOT merged to main — STOP GATE (production test first).
+
+## Incident (supervisor directive)
+The student video player is stuck on "Renewing link…" (جاري تجديد الرابط). Network tab: `master.m3u8` requests return **`(blocked:csp)`**. The CSP served by Vercel still targets the retired providers (Cloudflare R2 / Upstash) and does not admit the new Backblaze B2 domain (`*.backblazeb2.com`). HLS.js fetches playlists and segments via XHR → the **`connect-src`** directive is the blocking one.
+
+## Done (10.12)
+
+### 1.A — `apps/student-web/vercel.json` (CSP header)
+- [x] `connect-src` += `https://*.backblazeb2.com` — **the critical fix**: HLS.js `.m3u8`/`.ts` fetches go through connect-src; API origins (`cms-api-preview.onrender.com`, `api.cms.example.com`) retained.
+- [x] `media-src` += `https://*.backblazeb2.com` (explicit alongside the existing broad `https:`; `blob:` kept for HLS.js MSE attachment).
+- [x] `img-src` += `https://*.backblazeb2.com` (explicit; broad `https:` already covered B2 thumbnails).
+- [x] `frame-src` += `https://*.backblazeb2.com`; `https://www.youtube.com` kept (DocumentViewer embeds). **Cleanup (1.C): dead `https://*.r2.cloudflarestorage.com` REMOVED** — fully migrated to B2. No Upstash host ever existed in this CSP (nothing to remove there).
+- [x] Everything else (script-src, style-src, font-src, default-src, base-uri, object-src, frame-ancestors, form-action) untouched — purely additive except the sanctioned R2 removal.
+
+### 1.B — `apps/admin-web/vercel.json` (NEW headers block)
+- [x] Admin-web previously had **no security headers at all** (no CSP — nothing blocked B2 previews, but nothing protected the app either). Added the same headers block as student-web: X-Content-Type-Options, X-Frame-Options DENY, X-XSS-Protection, Referrer-Policy, Permissions-Policy, COOP/CORP, X-DNS-Prefetch-Control, HSTS, and the **identical new CSP** (verified byte-identical across both apps) so admins can preview B2 videos/thumbnails.
+- [x] Verified against admin-web reality before adding: API base is `cms-api-preview.onrender.com` (`src/lib/api.ts`), no external fonts in `index.html`, no inline scripts, YouTube only as form labels — the student-web-proven policy is a safe superset.
+
+## Verification (10.12)
+- Both `vercel.json` parse as **valid JSON**; the two CSP strings are **identical** (`cspS === cspA → true`).
+- Directive-level structural check: 9/9 PASS (B2 present in connect/media/img/frame-src; API + blob: + youtube retained; zero `cloudflarestorage` / `upstash` tokens remain).
+- `pnpm --filter @cms/student-web run build` → `tsc -b` clean + `vite build` ✓ built in 11.89s (exit 0).
+- `pnpm --filter @cms/admin-web run build` → `tsc -b` clean + `vite build` ✓ built in 10.14s (exit 0).
+- (Pre-existing chunk-size >500kB warnings unchanged — non-blocking, same as main.)
+
+## What production will show after deploy
+1. `master.m3u8` + `.ts` segment requests to `s3.eu-central-003.backblazeb2.com` leave the browser (no more `blocked:csp`) → the player leaves "Renewing link…" and starts playback.
+2. Admin-web additionally gains the full security-header set (first time it has any).
+3. Note: Vercel applies `vercel.json` headers **per deployment** — the new CSP takes effect as soon as the `wip/10.12` code reaches the deployed branch.
+
+## Open items (for the supervisor)
+- **STOP GATE**: 10.12 pushed to `wip/10.12`; do NOT merge to main — production test first.
+- Optional later hardening: collapse the broad `https:` in media-src/img-src to explicit host lists once the full external-media inventory is confirmed.
+- If a future provider migration happens again, remember BOTH layers must move together: bucket CORS (server-side, now auto-applied by 10.10) AND the Vercel CSP (client-side, this push).
+
+## Commit log (10.12)
+- (this commit) — fix(web): Hotfix 10.12 — add *.backblazeb2.com to student-web CSP (connect/media/img/frame-src; drop dead R2) and introduce identical security headers + CSP to admin-web, fixes (blocked:csp) m3u8 playback
+
 # WIP STATUS — Hotfix 10.10 (B2 CORS via S3 API — Fix Status 0)
 
 Branch: `wip/10.10` (from main @ 44bdd9c — deployed 10.9)

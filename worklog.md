@@ -209,3 +209,28 @@ Stage Summary:
 - Build: 0 errors / 17 warnings (baseline). Branch wip/10.10 @ b2369ad pushed; main NOT touched (STOP GATE).
 - Idempotent + self-healing: every restart re-applies the policy; if the B2 console ever loses it, the next deploy restores it.
 - Operator caveat: the B2 application key on Render must carry the setBucketCors capability (master keys do; scoped keys need it explicitly) — otherwise the startup warning fires and the manual r2-cors.md procedure applies.
+
+---
+Task ID: HOTFIX-10.12-B2-CSP
+Agent: GLM (main)
+Task: Fix the student video player stuck on "Renewing link…" — master.m3u8 requests return (blocked:csp) because the Vercel CSP still targets retired providers (R2/Upstash) and does not admit *.backblazeb2.com. Frontend-only hotfix: update CSP in student-web AND admin-web vercel.json (add B2 to media-src/connect-src/img-src/frame-src; optional cleanup of dead R2 domain). Checkpoint wip/10.12 (NO merge, NO backend touch).
+
+Work Log:
+- Read worklog.md (10.10 record) + WIP_STATUS.md; repo on main @ 1a5fcb3 (10.10 merged & deployed), clean, PAT-free.
+- Located CSP surfaces: student-web CSP lives in apps/student-web/vercel.json headers (line 21); admin-web vercel.json had NO headers at all; neither index.html carries a CSP meta tag.
+- Root-cause confirmation: HLS.js (VideoPlayer.tsx, new Hls({ enableWorker: true })) fetches .m3u8 playlists and .ts segments via XHR → connect-src is the blocking directive; current connect-src only allows the API origins. YouTube iframes confirmed in student-web DocumentViewer (frame-src must keep youtube).
+- Admin-web recon before writing its CSP: API base = cms-api-preview.onrender.com (src/lib/api.ts), index.html has no external fonts/scripts, YouTube appears only as form labels → the student-web-proven policy is a safe superset.
+- Created wip/10.12 from main @ 1a5fcb3.
+- 1.A student-web/vercel.json: connect-src += https://*.backblazeb2.com (THE fix); media-src += https://*.backblazeb2.com (blob: and https: kept); img-src += https://*.backblazeb2.com (broad https: kept); frame-src += https://*.backblazeb2.com, youtube kept, dead https://*.r2.cloudflarestorage.com REMOVED (1.C cleanup — fully migrated to B2; no Upstash host ever existed in this CSP).
+- 1.B admin-web/vercel.json: added the full security headers block (X-Content-Type-Options, X-Frame-Options DENY, X-XSS-Protection, Referrer-Policy, Permissions-Policy, COOP, CORP, X-DNS-Prefetch-Control, HSTS) + CSP byte-identical to student-web's new CSP — admin gains both B2 preview capability and its first-ever security-header set.
+- Validation: both vercel.json parse as valid JSON; CSPs verified identical across apps; directive-level structural check 9/9 PASS (B2 in all four target directives; API/blob:/youtube retained; zero cloudflarestorage or upstash tokens remain).
+- Build proof: pnpm install --frozen-lockfile (47 pkgs) → pnpm --filter @cms/student-web run build → tsc -b clean + vite ✓ 11.89s exit 0; pnpm --filter @cms/admin-web run build → tsc -b clean + vite ✓ 10.14s exit 0 (pre-existing >500kB chunk warnings only).
+- Docs: WIP_STATUS.md 10.12 section prepended (incident, per-directive changes, verification, deploy expectations, hardening notes).
+- Committed; pushed wip/10.12 to origin with PAT; scrubbed PAT (git remote -v + .git/config verified clean).
+
+Stage Summary:
+- apps/student-web/vercel.json: https://*.backblazeb2.com added to connect-src (critical HLS.js fix), media-src, img-src, frame-src; https://*.r2.cloudflarestorage.com removed from frame-src (dead provider cleanup); all other directives untouched.
+- apps/admin-web/vercel.json: new headers block with security headers + CSP identical to student-web — first CSP admin-web has ever had; B2 previews admitted.
+- Both builds green (tsc -b + vite, exit 0); JSON valid; CSPs byte-identical across apps.
+- Branch wip/10.12 pushed; main NOT touched (STOP GATE — production test first). Backend (apps/api) untouched.
+- After deploy: master.m3u8/.ts requests to s3.eu-central-003.backblazeb2.com leave the browser; player exits "Renewing link…". Remember: bucket CORS (10.10, server-side) and Vercel CSP (10.12, client-side) are two halves of the same policy — future provider migrations must move both together.
