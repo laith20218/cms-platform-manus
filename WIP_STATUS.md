@@ -1,3 +1,47 @@
+# WIP STATUS — Hotfix 10.8c (S3 Config & Non-Blocking Cleanup)
+
+Branch: `wip/10.8c` (from main @ 63cdb09 — deployed 10.8)
+Scope: **`apps/api` ONLY**. **No migration, no schema change, no frontend touch, no new packages.** NOT merged to main — STOP GATE.
+
+## Incident (from Render production logs)
+`POST /api/v1/admin/courses/{id}/episodes/initiate-upload` → 500. Root cause chain: `/v1/credentials` returns 200 OK, but the minted `AmazonS3Client` addresses `https://smashing-kiwi-127167.upstash.io/` (an Upstash proxy/API host, NOT `*.r2.cloudflarestorage.com`) → every S3 call answers `AmazonS3Exception: Access Denied`. The official `@upstash/blob` SDK (v0.0.11, verified from source) **refuses** any credentials response whose `endpoint` host is not `*.r2.cloudflarestorage.com` — production was silently proceeding with the invalid endpoint.
+
+## Done (10.8c)
+
+### 1.A — S3 client configuration (CRITICAL) — `UpstashS3ClientFactory.cs`
+- [x] **R2-preference endpoint selection**: the credentials response is now parsed as a raw JSON document; endpoint candidates are scanned across `endpoint` / `s3Endpoint` / `r2Endpoint` / `url` and the **first candidate whose host ends with `.r2.cloudflarestorage.com` wins**. Only when no R2 candidate exists does the legacy `endpoint` field remain (last resort, loudly warned).
+- [x] **Ops escape hatch**: `Upstash:Blob:S3Endpoint` (new optional config key, https-validated, trailing-slash-normalized) forces the correct R2 URL and beats everything — fixes the endpoint **without a code deploy** if the agent's response is wrong.
+- [x] **`ForcePathStyle = true` and `AuthenticationRegion` ("auto" or the response's region)** — explicitly confirmed/kept on the `AmazonS3Config` (matches the official SDK's `{endpoint}/{bucket}/{key}` path-style addressing).
+- [x] **The exact ServiceURL is now logged** on every lease mint (host-only, zero credentials — assert-tested): `Upstash S3 lease minted: ServiceURL=…, Bucket=…, Region=…, EndpointSource=…, ExpiresAt=…`, plus a `NON-R2 endpoint` **Warning** naming the bad URL and the override remedy. `UpstashS3Lease` record now carries `ServiceURL` so the value is observable in code.
+- [x] **Live demo** (console harness against the real factory, production-shaped payloads): incident shape → `ServiceURL=https://smashing-kiwi-127167.upstash.io` + Warning; alternate-field R2 → `https://acc999.r2.cloudflarestorage.com` (source `response.s3Endpoint`); override → R2 (source `config-override`); healthy → R2, no warning.
+
+### 1.B — Non-blocking ghost cleanup — `CourseHandlers.EnsureEpisodeNumberUsableAsync`
+- [x] The `AbortMultipartUploadAsync` and `DeleteAsync` calls are now wrapped in **independent** try-catch blocks: each failure logs a warning (`EpisodeId/FileKey/UploadId` included) and **never throws** — `InitiateEpisodeUploadCommand` proceeds, the ghost row is still hard-purged, and the number is recycled. (A single outer guard has existed since Push 7; 10.8c makes each call independently guarded so a failing abort no longer skips the delete attempt.)
+
+### 1.C — Graceful error handling — `AdminCoursesController.InitiateUpload`
+- [x] `AmazonS3Exception` (and `UpstashS3ClientFactory.UpstashExchangeException`) are caught at the endpoint and converted to **503 ProblemDetails**: `title=Storage Provider Rejected`, `detail="Storage provider rejected credentials. Please verify R2 endpoint configuration."`, `errorCode=storage_provider_rejected` — never a bare 500. The API-side error log records the S3 status code + message.
+
+## Verification (10.8c)
+- Build: `dotnet build CMS.Tests.csproj` → **0 errors** (17 warnings, all pre-existing).
+- Full unit regression: `dotnet test --filter "Category!=PostgresIntegration"` → **433/433 passed**.
+- New tests (9): endpoint selection ×5 (R2-preference over non-R2 `endpoint`; non-R2 last-resort + trailing-slash normalization; override wins; non-https override rejected; exact-ServiceURL-on-lease with no-credential assertion), mint-log ×2 (Information line names the exact ServiceURL + NON-R2 Warning; healthy path emits no warning), ghost-cleanup ×1 (`InitiateUpload_GhostCleanupAccessDenied_StillSucceeds_NeverBlocksUpload` — both storage calls throw `AmazonS3Exception("Access Denied")`, initiate still returns a live upload session, ghost purged, number recycled, both calls proven attempted).
+- Postgres-gated integration suite excluded (no real DB in sandbox — pre-existing, unchanged).
+
+## What production will show after deploy
+1. Every lease mint logs the exact ServiceURL — one line settles the diagnosis: R2 (healthy) vs `response.endpoint(non-R2)` (agent is handing out the proxy URL → set `Upstash:Blob:S3Endpoint` in Render env to the bucket's `https://<account>.r2.cloudflarestorage.com` and restart).
+2. Ghost cleanup can no longer block an upload even when storage answers Access Denied.
+3. initiate-upload answers a clean 503 with the verify-R2 message instead of a 500.
+
+## Commit log (10.8c)
+- (this commit) — fix(api): Hotfix 10.8c — R2-preference S3 endpoint selection + ServiceURL mint logging + Upstash:Blob:S3Endpoint override; independent non-blocking ghost cleanup; 503 ProblemDetails on S3 provider failure at initiate-upload
+
+## Open items (for the supervisor)
+- **STOP GATE**: 10.8c pushed to `wip/10.8c`; do NOT merge to main until approved.
+- After deploy: read one `Upstash S3 lease minted:` line from Render logs. If `EndpointSource=response.endpoint(non-R2)`, set `UPSTASH__BLOB__S3ENDPOINT` (Render env → .NET `Upstash:Blob:S3Endpoint`, same double-underscore convention as `UPSTASH__BLOB__TOKEN`) to the true R2 endpoint — no code change required.
+- If Upstash's response carries the R2 URL in an alternate field, production self-heals on the first mint after deploy.
+
+---
+
 # WIP STATUS — Push 10.8 (Combined: Admin Fixes & Student UI Integration)
 
 Branch: `wip/10.8` (from main @ b093d1a — deployed 10.7)

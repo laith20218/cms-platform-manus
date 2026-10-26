@@ -673,17 +673,37 @@ public class CourseHandlers :
 
         foreach (var ghost in rows.Where(row => row.DeletedAt != null))
         {
-            try
+            // Hotfix 10.8c (1.B): each storage call is INDEPENDENTLY best-effort. An S3
+            // "Access Denied" (or any storage failure) during ghost cleanup must never
+            // block episode-number reuse or the InitiateEpisodeUploadCommand flow — the
+            // failure is logged as a warning, the ghost row is still hard-purged, and the
+            // new upload proceeds. Splitting the guard per call also means a failing
+            // multipart-abort no longer skips the blob delete attempt.
+            if (!string.IsNullOrEmpty(ghost.UploadId) && !string.IsNullOrEmpty(ghost.FileKey))
             {
-                if (!string.IsNullOrEmpty(ghost.UploadId) && !string.IsNullOrEmpty(ghost.FileKey))
+                try
+                {
                     await _storage.AbortMultipartUploadAsync(ghost.FileKey, ghost.UploadId, ct);
-                if (ghost.SourceType == CourseEpisodeSource.Upload && !string.IsNullOrEmpty(ghost.FileKey))
-                    await _storage.DeleteAsync(ghost.FileKey, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Ghost-episode cleanup: AbortMultipartUploadAsync failed (non-blocking). EpisodeId={EpisodeId} FileKey={FileKey} UploadId={UploadId}",
+                        ghost.Id, ghost.FileKey, ghost.UploadId);
+                }
             }
-            catch (Exception ex)
+            if (ghost.SourceType == CourseEpisodeSource.Upload && !string.IsNullOrEmpty(ghost.FileKey))
             {
-                // Best-effort: a storage hiccup must never block number reuse.
-                _logger.LogWarning(ex, "Ghost-episode cleanup failed during episode-number reuse. EpisodeId={EpisodeId} FileKey={FileKey}", ghost.Id, ghost.FileKey);
+                try
+                {
+                    await _storage.DeleteAsync(ghost.FileKey, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Ghost-episode cleanup: DeleteAsync failed (non-blocking). EpisodeId={EpisodeId} FileKey={FileKey}",
+                        ghost.Id, ghost.FileKey);
+                }
             }
             _db.CourseEpisodes.Remove(ghost);
         }

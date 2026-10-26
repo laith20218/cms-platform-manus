@@ -1,3 +1,4 @@
+using Amazon.S3;
 using CMS.Application.BackgroundJobs;
 using System.Text.RegularExpressions;
 using CMS.Application.Commands.Courses;
@@ -888,6 +889,47 @@ public sealed class CourseHandlersTests
             "a lingering multipart session is aborted before the number is reused");
         storage.Verify(s => s.DeleteAsync("courses/ghost/inflight", It.IsAny<CancellationToken>()), Times.Once);
         db.CourseEpisodes.AsNoTracking().Any(e => e.Id == ghost.Id).Should().BeFalse();
+    }
+
+    // ===== Hotfix 10.8c (1.B): ghost cleanup is non-blocking under storage failure =====
+
+    [Fact]
+    public async Task InitiateUpload_GhostCleanupAccessDenied_StillSucceeds_NeverBlocksUpload()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        // A ghost holding the target number with BOTH a lingering multipart session and
+        // a stored blob — the exact production incident shape where every storage call
+        // answers AmazonS3Exception "Access Denied".
+        var ghost = await SeedUploadEpisodeAsync(db, course, "courses/ghost/blocked", uploadId: "mpu-denied", episodeNumber: 2);
+        await GhostifyAsync(db, ghost);
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.AbortMultipartUploadAsync("courses/ghost/blocked", "mpu-denied", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new AmazonS3Exception("Access Denied"));
+        storage.Setup(s => s.DeleteAsync("courses/ghost/blocked", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new AmazonS3Exception("Access Denied"));
+        storage.Setup(s => s.InitiateMultipartUploadAsync(It.IsAny<string>(), "video/mp4", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("mpu-new");
+        storage.Setup(s => s.PresignUploadPartAsync(It.IsAny<string>(), "mpu-new", It.IsAny<int>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string key, string uploadId, int partNumber, TimeSpan ttl, CancellationToken _) => $"https://r2/part{partNumber}");
+
+        // THE 10.8c (1.B) PROOF: the upload initiation must complete even though BOTH
+        // ghost-cleanup storage calls (abort + delete) failed with Access Denied.
+        var initiate = await handler.Handle(new InitiateEpisodeUploadCommand(
+            course.Id, "lesson.mp4", "video/mp4", 1024, "الدرس بعد الرفض", 2, Guid.NewGuid()), CancellationToken.None);
+
+        initiate.UploadId.Should().Be("mpu-new",
+            "the new multipart session was initiated despite the failed ghost cleanup");
+        initiate.PartUrls.Should().NotBeEmpty();
+        db.CourseEpisodes.AsNoTracking().Any(e => e.Id == ghost.Id).Should().BeFalse(
+            "the ghost row is still hard-purged so the unique index frees the number");
+        var stored = db.CourseEpisodes.AsNoTracking().Single(e => e.Id == initiate.EpisodeId);
+        stored.EpisodeNumber.Should().Be(2,
+            "the new episode claimed the recycled number");
+        storage.Verify(s => s.AbortMultipartUploadAsync("courses/ghost/blocked", "mpu-denied", It.IsAny<CancellationToken>()), Times.Once,
+            "the abort was ATTEMPTED (best-effort) before failing non-blockingly");
+        storage.Verify(s => s.DeleteAsync("courses/ghost/blocked", It.IsAny<CancellationToken>()), Times.Once,
+            "the delete was ATTEMPTED even though the abort failed — independent guards");
     }
 
     [Fact]

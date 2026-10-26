@@ -1,9 +1,11 @@
 using System.Security.Claims;
+using Amazon.S3;
 using CMS.Application.Commands.Courses;
 using CMS.Application.DTOs.Courses;
 using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
 using CMS.Domain.Enums;
+using CMS.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -25,12 +27,18 @@ public sealed class AdminCoursesController : ControllerBase
     private readonly MediatR.ISender _mediator;
     private readonly IApplicationDbContext _db;
     private readonly IPermissionService _permissions;
+    private readonly ILogger<AdminCoursesController> _logger;
 
-    public AdminCoursesController(MediatR.ISender mediator, IApplicationDbContext db, IPermissionService permissions)
+    public AdminCoursesController(
+        MediatR.ISender mediator,
+        IApplicationDbContext db,
+        IPermissionService permissions,
+        ILogger<AdminCoursesController> logger)
     {
         _mediator = mediator;
         _db = db;
         _permissions = permissions;
+        _logger = logger;
     }
 
     private Guid GetAdminId() => Guid.Parse(User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
@@ -214,9 +222,52 @@ public sealed class AdminCoursesController : ControllerBase
         var subjectId = await SubjectIdForCourseAsync(courseId, ct);
         if (subjectId is null) return NotFound();
         if (!await CanManageAsync(Actions.Create, subjectId.Value, ct)) return Forbid();
-        return Ok(await _mediator.Send(new InitiateEpisodeUploadCommand(
-            courseId, dto.FileName, dto.ContentType, dto.FileSize, dto.Title, dto.EpisodeNumber, GetAdminId()), ct));
+        // Hotfix 10.8c (1.C): an S3 provider failure (observed in production as
+        // AmazonS3Exception "Access Denied" when the minted client was pointed at a
+        // non-R2 endpoint) must surface as a clean, actionable 503 — NOT a bare 500.
+        // The factory's mint log names the exact ServiceURL; the 503 body tells the
+        // operator what to verify.
+        try
+        {
+            return Ok(await _mediator.Send(new InitiateEpisodeUploadCommand(
+                courseId, dto.FileName, dto.ContentType, dto.FileSize, dto.Title, dto.EpisodeNumber, GetAdminId()), ct));
+        }
+        catch (AmazonS3Exception ex)
+        {
+            _logger.LogError(ex,
+                "initiate-upload rejected by the storage provider for course {CourseId}. S3 StatusCode={S3StatusCode}, Message={S3Message}",
+                courseId, (int)ex.StatusCode, ex.Message);
+            return StorageProviderRejected();
+        }
+        catch (UpstashS3ClientFactory.UpstashExchangeException ex)
+        {
+            // The token was rejected at the credential-exchange step — the same operator
+            // verdict applies (verify the R2 endpoint / storage credentials).
+            _logger.LogError(ex,
+                "initiate-upload could not mint storage credentials for course {CourseId}. Exchange StatusCode={ExchangeStatusCode}",
+                courseId, (int)ex.StatusCode);
+            return StorageProviderRejected();
+        }
     }
+
+    /// <summary>
+    /// Hotfix 10.8c (1.C): RFC 7807 body for storage-provider failures on the upload path —
+    /// 503 (retryable downstream) instead of a bare 500, with an actionable message. Shape
+    /// matches the global ExceptionHandlingMiddleware (errorCode extension + problem+json).
+    /// </summary>
+    private ObjectResult StorageProviderRejected() =>
+        new(new ProblemDetails
+        {
+            Type = "https://cms.example.com/errors/storage_provider_rejected",
+            Title = "Storage Provider Rejected",
+            Status = StatusCodes.Status503ServiceUnavailable,
+            Detail = "Storage provider rejected credentials. Please verify R2 endpoint configuration.",
+            Extensions = { ["errorCode"] = "STORAGE_PROVIDER_REJECTED" }
+        })
+        {
+            StatusCode = StatusCodes.Status503ServiceUnavailable,
+            ContentTypes = { "application/problem+json" }
+        };
 
     /// <summary>
     /// Resume support: lists the parts already stored and returns fresh presigned URLs for

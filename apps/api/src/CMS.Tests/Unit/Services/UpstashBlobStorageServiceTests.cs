@@ -4,6 +4,7 @@ using Amazon.S3.Model;
 using CMS.Infrastructure.Services;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace CMS.Tests.Unit.Services;
@@ -250,7 +251,7 @@ public sealed class UpstashBlobStorageServiceConfigurationTests
         var s3 = new Mock<IAmazonS3>();
         setup?.Invoke(s3);
         var factory = new StubS3Factory(() =>
-            new UpstashS3Lease(s3.Object, "test-bucket", DateTimeOffset.UtcNow.AddHours(4)));
+            new UpstashS3Lease(s3.Object, "test-bucket", "https://account.r2.cloudflarestorage.com", DateTimeOffset.UtcNow.AddHours(4)));
         return (s3, factory);
     }
 
@@ -335,7 +336,8 @@ public sealed class UpstashS3ClientFactoryTests
         public HttpClient CreateClient(string name) => _client;
     }
 
-    private static (UpstashS3ClientFactory factory, FakeHandler handler) BuildFactory(string? response = null)
+    private static (UpstashS3ClientFactory factory, FakeHandler handler) BuildFactory(
+        string? response = null, string? endpointOverride = null)
     {
         var handler = new FakeHandler();
         if (response is not null)
@@ -343,15 +345,23 @@ public sealed class UpstashS3ClientFactoryTests
         var httpClient = new HttpClient(handler);
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["Upstash:Blob:Token"] = "test-token"
+            ["Upstash:Blob:Token"] = "test-token",
+            ["Upstash:Blob:S3Endpoint"] = endpointOverride
         }).Build();
-        return (new UpstashS3ClientFactory(new SimpleFactory(httpClient), configuration), handler);
+        return (new UpstashS3ClientFactory(new SimpleFactory(httpClient), configuration,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<UpstashS3ClientFactory>.Instance), handler);
     }
 
     private static string CredentialsJson(long expiresAtUnix) =>
         "{\"accessKeyId\":\"AKID-TEST\",\"secretAccessKey\":\"secret-test\",\"sessionToken\":\"session-test\"," +
         $"\"endpoint\":\"https://account.r2.cloudflarestorage.com\",\"bucket\":\"test-bucket-1\",\"region\":\"auto\"," +
         $"\"expiresAt\":{expiresAtUnix},\"visibility\":\"private\",\"permission\":\"object-read-write\"}}";
+
+    /// <summary>Hotfix 10.8c reproduction: the agent hands back a non-R2 proxy URL in `endpoint` (the observed production payload shape).</summary>
+    private static string NonR2EndpointCredentialsJson(long expiresAtUnix) =>
+        "{\"accessKeyId\":\"AKID-TEST\",\"secretAccessKey\":\"secret-test\",\"sessionToken\":\"session-test\"," +
+        $"\"endpoint\":\"https://smashing-kiwi-127167.upstash.io/\",\"bucket\":\"test-bucket-1\",\"region\":\"auto\"," +
+        $"\"expiresAt\":{expiresAtUnix}}}";
 
     [Fact]
     public async Task CreateAsync_ParsesCredentialPayload_AndBuildsLease()
@@ -457,5 +467,150 @@ public sealed class UpstashS3ClientFactoryTests
         var act = async () => await factory.CreateAsync();
         await act.Should().ThrowAsync<UpstashS3ClientFactory.UpstashExchangeException>();
         handler.RequestCount.Should().Be(2, "the retry budget is exactly one — no endless retries");
+    }
+
+    // ===== Hotfix 10.8c (1.A): R2-preference endpoint selection on the minted S3 client =====
+
+    [Fact]
+    public async Task CreateAsync_WhenEndpointFieldIsNonR2_ButAlternateFieldCarriesR2_PrefersR2()
+    {
+        // The production incident shape: `endpoint` carries the upstash.io proxy URL while
+        // another field still names the true R2 endpoint — the R2 one must win.
+        var json = "{\"accessKeyId\":\"AKID-TEST\",\"secretAccessKey\":\"secret-test\",\"sessionToken\":\"session-test\"," +
+            "\"endpoint\":\"https://smashing-kiwi-127167.upstash.io\",\"s3Endpoint\":\"https://acc123.r2.cloudflarestorage.com\"," +
+            "\"bucket\":\"test-bucket-1\",\"region\":\"auto\",\"expiresAt\":4102444800}";
+        var (factory, _) = BuildFactory(json);
+
+        var lease = await factory.CreateAsync();
+
+        lease.ServiceURL.Should().Be("https://acc123.r2.cloudflarestorage.com",
+            "an R2 endpoint found in any response field must beat a non-R2 proxy URL in the legacy field");
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenOnlyNonR2EndpointExists_UsesItAsLastResort_AndTrimsTrailingSlash()
+    {
+        // No R2 candidate anywhere: the legacy endpoint is still used (last resort, loudly
+        // warned in logs) so behavior degrades to the current production state instead of
+        // hard-failing at mint time — the API boundary then answers the clean 503.
+        var (factory, _) = BuildFactory(NonR2EndpointCredentialsJson(4_102_444_800));
+
+        var lease = await factory.CreateAsync();
+
+        lease.ServiceURL.Should().Be("https://smashing-kiwi-127167.upstash.io",
+            "the non-R2 endpoint is used as a last resort, normalized (trailing slash stripped)");
+        lease.Bucket.Should().Be("test-bucket-1");
+    }
+
+    [Fact]
+    public async Task CreateAsync_ConfiguredOverride_WinsOverEverything()
+    {
+        // Ops escape hatch: Upstash:Blob:S3Endpoint forces the correct R2 URL regardless of
+        // what the agent's response carries.
+        var (factory, _) = BuildFactory(NonR2EndpointCredentialsJson(4_102_444_800),
+            endpointOverride: "https://forced-account.r2.cloudflarestorage.com/");
+
+        var lease = await factory.CreateAsync();
+
+        lease.ServiceURL.Should().Be("https://forced-account.r2.cloudflarestorage.com",
+            "the explicit override must win and be normalized");
+    }
+
+    [Fact]
+    public void CreateAsync_RejectsNonHttpsOverride_AtConstruction()
+    {
+        var act = () => BuildFactory(NonR2EndpointCredentialsJson(4_102_444_800),
+            endpointOverride: "http://insecure.r2.cloudflarestorage.com");
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*absolute https URL*");
+    }
+
+    [Fact]
+    public async Task CreateAsync_R2EndpointCarriesExactServiceURL_OnLease()
+    {
+        // The deliverable proof: the lease exposes the exact ServiceURL the client addresses,
+        // host-only, no credentials — the same value the mint log emits.
+        var (factory, _) = BuildFactory(CredentialsJson(4_102_444_800));
+
+        var lease = await factory.CreateAsync();
+
+        lease.ServiceURL.Should().Be("https://account.r2.cloudflarestorage.com");
+        lease.ServiceURL.Should().NotContainAny("AKID-TEST", "secret-test", "session-test", "test-token",
+            "the ServiceURL must never carry credentials or the blob token");
+    }
+
+    /// <summary>Minimal recording logger — captures formatted log lines for assertions.</summary>
+    private sealed class RecordingLogger : ILogger<UpstashS3ClientFactory>
+    {
+        public List<(LogLevel Level, string Line)> Entries { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            Entries.Add((logLevel, formatter(state, exception)));
+        }
+    }
+
+    private static (UpstashS3ClientFactory factory, FakeHandler handler) BuildFactoryWithLogger(
+        string response, ILogger<UpstashS3ClientFactory> logger)
+    {
+        var handler = new FakeHandler { ResponseBody = response };
+        var httpClient = new HttpClient(handler);
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Upstash:Blob:Token"] = "test-token"
+        }).Build();
+        return (new UpstashS3ClientFactory(new SimpleFactory(httpClient), configuration, logger), handler);
+    }
+
+    [Fact]
+    public async Task CreateAsync_MintLog_NamesExactServiceURL_AndWarnsOnNonR2()
+    {
+        // The production incident payload: a non-R2 proxy endpoint. The mint log must
+        // name the EXACT ServiceURL in use (1.A deliverable) and warn that it is not R2.
+        var logger = new RecordingLogger();
+        var (factory, _) = BuildFactoryWithLogger(NonR2EndpointCredentialsJson(4_102_444_800), logger);
+
+        await factory.CreateAsync();
+
+        var mint = logger.Entries.Should().ContainSingle(entry =>
+                entry.Level == LogLevel.Information && entry.Line.StartsWith("Upstash S3 lease minted:"))
+            .Subject;
+        mint.Line.Should().Contain("ServiceURL=https://smashing-kiwi-127167.upstash.io",
+            "the log names the exact ServiceURL the client now addresses");
+        mint.Line.Should().Contain("Bucket=test-bucket-1");
+        mint.Line.Should().Contain("Region=auto");
+        mint.Line.Should().Contain("EndpointSource=response.endpoint(non-R2)");
+
+        var warning = logger.Entries.Should().ContainSingle(entry =>
+                entry.Level == LogLevel.Warning && entry.Line.Contains("NON-R2 endpoint"))
+            .Subject;
+        warning.Line.Should().Contain("https://smashing-kiwi-127167.upstash.io");
+
+        string.Join("\n", logger.Entries.Select(entry => entry.Line)).Should().NotContainAny(
+            "AKID-TEST", "secret-test", "session-test", "test-token",
+            "no credential material may ever appear in log output");
+    }
+
+    [Fact]
+    public async Task CreateAsync_MintLog_NoWarning_WhenEndpointIsR2()
+    {
+        // The healthy path: a clean R2 endpoint → one Information line, no warning.
+        var logger = new RecordingLogger();
+        var (factory, _) = BuildFactoryWithLogger(CredentialsJson(4_102_444_800), logger);
+
+        await factory.CreateAsync();
+
+        var mint = logger.Entries.Should().ContainSingle(entry =>
+                entry.Level == LogLevel.Information && entry.Line.StartsWith("Upstash S3 lease minted:"))
+            .Subject;
+        mint.Line.Should().Contain("ServiceURL=https://account.r2.cloudflarestorage.com");
+        mint.Line.Should().Contain("EndpointSource=response.endpoint");
+        logger.Entries.Should().NotContain(entry => entry.Level == LogLevel.Warning,
+            "an R2 endpoint is the healthy path — no warning noise");
     }
 }
