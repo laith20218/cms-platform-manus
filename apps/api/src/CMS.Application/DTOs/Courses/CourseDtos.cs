@@ -53,7 +53,10 @@ public record CourseEpisodeDto(
     Difficulty Difficulty = Difficulty.Easy,
     ProcessingStatus? ProcessingStatus = null,
     string? ProcessingError = null,
-    string? HlsKey = null
+    string? HlsKey = null,
+    // Push 10.7 — admin-selected transcoding target ("Auto"|"P360"|"P720"|"P1080");
+    // feeds the edit modal's quality dropdown. Auto is the stored default.
+    TargetQuality TargetQuality = TargetQuality.Auto
 );
 
 /// <summary>Mirror of the library FileAccessDto contract: playback URL + watermark envelope.</summary>

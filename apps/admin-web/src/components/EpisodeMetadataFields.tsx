@@ -1,5 +1,5 @@
-import type { DifficultyValue } from '../lib/mediaProcessing';
-import { DIFFICULTY_OPTIONS } from '../lib/mediaProcessing';
+import type { DifficultyValue, TargetQuality } from '../lib/mediaProcessing';
+import { DIFFICULTY_OPTIONS, TARGET_QUALITY_OPTIONS } from '../lib/mediaProcessing';
 
 /**
  * Push 10.4 (1.A) — the episode metadata form block, shared by the multipart
@@ -20,12 +20,19 @@ import { DIFFICULTY_OPTIONS } from '../lib/mediaProcessing';
  * input in the center. (admin-web carries no Radix Select and the 10.4
  * lockfile exception is hls.js-only — the native select is the faithful
  * stand-in, keyboard/screen-reader accessible by construction.)
+ *
+ * Push 10.7 — the block gained the transcoding target dropdown (جودة المعالجة:
+ * تلقائي / عالية 1080p / متوسطة 720p / منخفضة 360p) in the same native-select
+ * pattern. `showQuality` hides it where it is meaningless (audio uploads,
+ * YouTube episodes); the resolution-downgrade warning is the CALLER's concern
+ * (only the upload panel knows the file's probed resolution).
  */
 
 export interface EpisodeMetadataValues {
   title: string;
   description: string;
   difficulty: DifficultyValue;
+  targetQuality: TargetQuality;
 }
 
 export interface EpisodeMetadataFieldsProps {
@@ -38,6 +45,9 @@ export interface EpisodeMetadataFieldsProps {
   /** Compact row variant for the upload panel grid (title + difficulty one row). */
   layout?: 'stacked' | 'rows';
   testIdPrefix?: string;
+  /** Push 10.7 — render the transcoding-target dropdown (hidden for audio/
+   * YouTube assets where the pipeline never applies). Default: true. */
+  showQuality?: boolean;
 }
 
 export const EPISODE_TITLE_MAX = 200;
@@ -51,12 +61,14 @@ export function EpisodeMetadataFields({
   titleInvalid = false,
   layout = 'stacked',
   testIdPrefix = 'episode-metadata',
+  showQuality = true,
 }: EpisodeMetadataFieldsProps) {
   const copy = isArabic ? {
     titleLabel: 'عنوان الحلقة',
     titleLabelEn: 'Episode title',
     descriptionLabel: 'الوصف (اختياري)',
     difficultyLabel: 'مستوى الصعوبة',
+    qualityLabel: 'جودة المعالجة',
     titleRequired: 'العنوان مطلوب',
     counter: (n: number, max: number) => `${n}/${max}`,
   } : {
@@ -64,6 +76,7 @@ export function EpisodeMetadataFields({
     titleLabelEn: 'Episode title',
     descriptionLabel: 'Description (optional)',
     difficultyLabel: 'Difficulty',
+    qualityLabel: 'Processing quality',
     titleRequired: 'Title is required',
     counter: (n: number, max: number) => `${n}/${max}`,
   };
@@ -71,6 +84,7 @@ export function EpisodeMetadataFields({
   const titleId = `${testIdPrefix}-title`;
   const descriptionId = `${testIdPrefix}-description`;
   const difficultyId = `${testIdPrefix}-difficulty`;
+  const qualityId = `${testIdPrefix}-target-quality`;
 
   return (
     <div className={layout === 'rows' ? 'grid gap-2 md:grid-cols-2' : 'space-y-2'}>
@@ -122,6 +136,29 @@ export function EpisodeMetadataFields({
           ))}
         </select>
       </div>
+
+      {showQuality && (
+        <div className={layout === 'rows' ? 'md:col-span-2' : undefined}>
+          <label htmlFor={qualityId} className="mb-1 block text-xs font-medium" style={{ color: 'var(--cms-text-soft)' }}>
+            {copy.qualityLabel}
+          </label>
+          <select
+            id={qualityId}
+            value={values.targetQuality}
+            disabled={disabled}
+            onChange={(e) => onChange({ targetQuality: e.target.value as TargetQuality })}
+            data-testid={qualityId}
+            className="w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none transition-colors focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+            style={{ borderColor: 'var(--cms-line-strong)' }}
+          >
+            {TARGET_QUALITY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {isArabic ? option.labelAr : option.labelEn}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className={layout === 'rows' ? 'md:col-span-2' : undefined}>
         <label htmlFor={descriptionId} className="mb-1 flex items-center justify-between text-xs font-medium" style={{ color: 'var(--cms-text-soft)' }}>

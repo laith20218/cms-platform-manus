@@ -50,7 +50,10 @@ public record CompleteUploadCommand(
     // upload-url time); difficulty is new on library files and defaults to Easy.
     string? Title = null,
     string? Description = null,
-    Difficulty? Difficulty = null
+    Difficulty? Difficulty = null,
+    // Push 10.7 — admin-selected transcoding target for video files (absent = keep
+    // the stored value, which defaults to Auto).
+    TargetQuality? TargetQuality = null
 ) : IRequest<LibraryFileDto>;
 
 // ===== Admin: Update/Delete =====
@@ -58,7 +61,9 @@ public record UpdateLibraryFileCommand(
     Guid Id, string Title, string? Description,
     List<string> Tags, Guid? LectureId,
     // Push 10.5 — PATCH-optional difficulty: null leaves the stored tier untouched.
-    Difficulty? Difficulty = null
+    Difficulty? Difficulty = null,
+    // Push 10.7 — PATCH-optional transcoding target: null keeps the stored quality.
+    TargetQuality? TargetQuality = null
 ) : IRequest<LibraryFileDto>;
 
 public record PublishLibraryFileCommand(Guid Id, Guid PublishedBy) : IRequest<LibraryFileDto>;

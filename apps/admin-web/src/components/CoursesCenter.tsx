@@ -33,6 +33,8 @@ import {
 import {
   difficultyBadgeClass, difficultyLabel, isProcessingActive, normalizeDifficulty,
   processingChipLabel, type ProcessingStatus,
+  probeVideoResolution, targetQualityHeight,
+  TARGET_QUALITY_DOWNGRADE_WARNING_AR, TARGET_QUALITY_DOWNGRADE_WARNING_EN,
 } from '../lib/mediaProcessing';
 import { sniffEpisodeMediaType } from '../lib/mediaType';
 import { useUiPermissions } from '../hooks/useUiPermissions';
@@ -748,8 +750,11 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
   const copy = buildCopy(isArabic);
   const [file, setFile] = useState<File | null>(null);
   const [episodeNumber, setEpisodeNumber] = useState(String(defaultEpisodeNumber));
-  const [metadata, setMetadata] = useState<EpisodeMetadataValues>({ title: '', description: '', difficulty: 0 });
+  const [metadata, setMetadata] = useState<EpisodeMetadataValues>({ title: '', description: '', difficulty: 0, targetQuality: 'Auto' });
   const [titleInvalid, setTitleInvalid] = useState(false);
+  /* Push 10.7 (2.C) — best-effort probed DISPLAY resolution of the chosen file
+   * (null while probing / not a video / unreadable). Drives the downgrade warning. */
+  const [videoResolution, setVideoResolution] = useState<{ width: number; height: number } | null>(null);
   const [state, setState] = useState<UploadState>('idle');
   const [uploadStats, setUploadStats] = useState<UploadStats | null>(null);
   const [episodeId, setEpisodeId] = useState<string | null>(null);
@@ -983,7 +988,9 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
 
     // All parts stored → complete (server verifies the assembled size against
     // the ceiling). 10.4: the metadata fields ride along (additive keys —
-    // forward-compatible with the backend DTO wiring).
+    // forward-compatible with the backend DTO wiring). 10.7: targetQuality too —
+    // the backend persists it with this same commit, BEFORE the transcode job is
+    // enqueued, so the worker encodes exactly what the admin selected.
     if (session.cancelled) return;
     setState('completing');
     try {
@@ -995,6 +1002,7 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
           title: metadata.title.trim(),
           description: metadata.description.trim() || null,
           difficulty: metadata.difficulty,
+          targetQuality: metadata.targetQuality,
         }),
       });
       setLastError(null);
@@ -1181,6 +1189,17 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
   };
 
   const busyState = state === 'initiating' || state === 'uploading' || state === 'completing';
+
+  /* Push 10.7 (2.C) — the quality dropdown applies to video picks only (the picker
+   * accepts audio too; audio never enters the transcoding pipeline). */
+  const fileIsVideo = !!file
+    && (file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|m4v|avi)$/i.test(file.name));
+  /* Advisory downgrade condition: the probed display resolution sits below the
+   * selected target — the backend will encode the closest LOWER rung (never upscale). */
+  const qualityCeiling = targetQualityHeight(metadata.targetQuality);
+  const qualityExceedsSource = qualityCeiling != null
+    && videoResolution != null && qualityCeiling > videoResolution.height;
+
   const percent = uploadStats && uploadStats.totalBytes > 0
     ? Math.min(100, Math.round((uploadStats.uploadedBytes / uploadStats.totalBytes) * 100))
     : 0;
@@ -1201,11 +1220,19 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
       </div>
 
       {/* File + episode number, then the 1.A metadata block (title/difficulty
-          on one row, description below). */}
+          on one row, description below). 10.7: the file picker also probes the
+          video's display resolution for the quality-downgrade warning. */}
       <div className="grid gap-2 md:grid-cols-2">
         <input type="file" accept="video/mp4,video/webm,video/quicktime,audio/mpeg,audio/mp4,audio/wav,audio/webm"
           disabled={busyState || state === 'paused' || state === 'processing'}
-          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          onChange={(event) => {
+            const picked = event.target.files?.[0] ?? null;
+            setFile(picked);
+            // Push 10.7 (2.C): probe the display resolution of the picked video
+            // (video/audio share this picker; audio resolves null and never warns).
+            setVideoResolution(null);
+            if (picked) void probeVideoResolution(picked).then(setVideoResolution);
+          }}
           className="text-sm px-3 py-2 rounded-lg border w-full" style={{ borderColor: 'var(--cms-line-strong)' }} />
         <input value={episodeNumber} disabled={busyState || state === 'paused' || state === 'processing'} onChange={(e) => setEpisodeNumber(e.target.value)}
           inputMode="numeric" placeholder={isArabic ? 'رقم الحلقة' : 'Episode number'} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
@@ -1221,7 +1248,22 @@ function MultipartUploadPanel({ token, isArabic, onError, onNotice, courseId, de
         titleInvalid={titleInvalid}
         layout="rows"
         testIdPrefix="upload-metadata"
+        /* Push 10.7 — the quality dropdown is meaningless for audio picks. */
+        showQuality={fileIsVideo}
       />
+
+      {/* Push 10.7 (2.C) — downgrade warning: the picked video's probed display
+          resolution sits below the selected target; the backend will encode the
+          closest LOWER rung (never upscale). Advisory only — the selection stays
+          as chosen, exactly like the backend contract. */}
+      {qualityExceedsSource && (
+        <p role="alert" data-testid="upload-quality-downgrade-warning"
+          className="flex items-start gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium"
+          style={{ borderColor: 'var(--cms-amber-300, #fcd34d)', color: 'var(--cms-amber-600, #b45309)', background: 'var(--cms-amber-50, #fffbeb)' }}>
+          <AlertTriangle className="mt-0.5 w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />
+          <span>{isArabic ? TARGET_QUALITY_DOWNGRADE_WARNING_AR : TARGET_QUALITY_DOWNGRADE_WARNING_EN}</span>
+        </p>
+      )}
 
       {/* ===== 1.B — the human state machine ===== */}
       {(state === 'uploading' || state === 'initiating' || state === 'completing' || (state === 'paused' && uploadStats)) && (

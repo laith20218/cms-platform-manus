@@ -62,7 +62,11 @@ public record UpdateEpisodeCommand(
     // Push 10.5 — PATCH-optional metadata: null leaves the stored value untouched
     // (the 10.4 edit modal always sends them; older callers keep compiling).
     string? Description = null,
-    Difficulty? Difficulty = null
+    Difficulty? Difficulty = null,
+    // Push 10.7 — PATCH-optional transcoding target: null keeps the stored quality.
+    // Applies on the next encode (recovery sweep re-run or future re-queue); an
+    // already-Ready episode keeps its existing HLS tree until re-encoded.
+    TargetQuality? TargetQuality = null
 ) : IRequest<CourseEpisodeDto>;
 
 public record DeleteEpisodeCommand(Guid Id, Guid DeletedBy) : IRequest<Unit>;
@@ -91,7 +95,10 @@ public record CompleteEpisodeUploadCommand(
     // to the entity's stored tier when absent (null = leave unchanged).
     string? Title = null,
     string? Description = null,
-    Difficulty? Difficulty = null
+    Difficulty? Difficulty = null,
+    // Push 10.7 — admin-selected transcoding target riding the same body (absent on
+    // older clients = keep the stored value, which defaults to Auto).
+    TargetQuality? TargetQuality = null
 ) : IRequest<CourseEpisodeDto>;
 
 public record AbortEpisodeUploadCommand(Guid EpisodeId, Guid DeletedBy) : IRequest<Unit>;

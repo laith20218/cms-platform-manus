@@ -28,7 +28,9 @@ public record LibraryFileDto(
     Difficulty Difficulty = Difficulty.Easy,
     ProcessingStatus? ProcessingStatus = null,
     string? ProcessingError = null,
-    string? HlsKey = null
+    string? HlsKey = null,
+    // Push 10.7 — admin-selected transcoding target ("Auto"|"P360"|"P720"|"P1080").
+    TargetQuality TargetQuality = TargetQuality.Auto
 );
 
 public record LibraryFileListItemDto(

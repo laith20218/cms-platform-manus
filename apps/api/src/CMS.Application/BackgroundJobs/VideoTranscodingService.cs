@@ -140,6 +140,7 @@ public sealed class VideoTranscodingService : BackgroundService
         string sourceKey;
         Func<ProcessingStatus?, Task> saveStatus;
         Func<string?, Task> saveReady;
+        TargetQuality targetQuality;
 
         if (job.AssetType == MediaAssetType.CourseEpisode)
         {
@@ -147,6 +148,7 @@ public sealed class VideoTranscodingService : BackgroundService
             if (episode is null || episode.ProcessingStatus != ProcessingStatus.Pending || string.IsNullOrEmpty(episode.FileKey))
                 return;
             sourceKey = episode.FileKey;
+            targetQuality = episode.TargetQuality;
             saveStatus = async status => { episode.ProcessingStatus = status; await db.SaveChangesAsync(ct); };
             saveReady = async hlsKey => { episode.HlsKey = hlsKey; episode.ProcessingStatus = ProcessingStatus.Ready; await db.SaveChangesAsync(ct); };
         }
@@ -156,6 +158,7 @@ public sealed class VideoTranscodingService : BackgroundService
             if (file is null || file.ProcessingStatus != ProcessingStatus.Pending || string.IsNullOrEmpty(file.FileUrl))
                 return;
             sourceKey = file.FileUrl;
+            targetQuality = file.TargetQuality;
             saveStatus = async status => { file.ProcessingStatus = status; await db.SaveChangesAsync(ct); };
             saveReady = async hlsKey => { file.HlsKey = hlsKey; file.ProcessingStatus = ProcessingStatus.Ready; await db.SaveChangesAsync(ct); };
         }
@@ -185,7 +188,9 @@ public sealed class VideoTranscodingService : BackgroundService
                     technicalDetails: $"ffprobe could not read the source object (key: {sourceKey}). The file may be corrupt or not a media container.");
 
             // ---- 3. run the ladder (statuses advance inside onProgress) ----
-            var ffmpegArgs = FfmpegLadder.BuildHlsLadderArgs(sourcePath, outputDir, probe.Height, probe.Width, probe.HasAudio);
+            // Push 10.7 — the admin's stored target drives the rung set: Auto = the
+            // source-driven ladder; a concrete rung = exactly one rendition.
+            var ffmpegArgs = FfmpegLadder.BuildHlsLadderArgs(sourcePath, outputDir, probe.Height, probe.Width, probe.HasAudio, targetQuality);
 
             // Hotfix 10.6-2 (1.B): the phase ladder mirrors the rungs ACTUALLY generated —
             // a 480p source drops 720p/1080p, so its single 360p rung must hold the status
@@ -512,8 +517,14 @@ public static class FfmpegLadder
     /// <paramref name="sourcePath"/> is the downloaded temp source; the output tree
     /// lands under <paramref name="outputDirectory"/> (master.m3u8 + one dir per rung).
     /// <paramref name="sourceHeight"/>/<paramref name="sourceWidth"/> are the DISPLAY
-    /// (rotation-corrected) dimensions from the probe.</summary>
-    public static LadderPlan BuildHlsLadderArgs(string sourcePath, string outputDirectory, int sourceHeight, int sourceWidth, bool hasAudio)
+    /// (rotation-corrected) dimensions from the probe.
+    /// Push 10.7 — <paramref name="targetQuality"/>: <see cref="TargetQuality.Auto"/>
+    /// keeps the source-driven ladder (every rung ≤ source); a concrete rung pins the
+    /// ladder to EXACTLY ONE rendition — the requested rung, or the closest LOWER rung
+    /// when the source is smaller (never upscale: P720 + a 480p source encodes 360p).
+    /// One x264 encoder instead of up to three is a direct memory saving on the host.</summary>
+    public static LadderPlan BuildHlsLadderArgs(string sourcePath, string outputDirectory, int sourceHeight, int sourceWidth, bool hasAudio,
+        TargetQuality targetQuality = TargetQuality.Auto)
     {
         // Never upscale (Hotfix 10.6-2 1.A): a rung survives only when BOTH canvas
         // dimensions fit the source's DISPLAY dimensions. A 480p source yields 360p
@@ -522,7 +533,23 @@ public static class FfmpegLadder
         // a 512MB container). The width guard keeps native-portrait sources (e.g.
         // 480×854) from emitting absurd pillarboxed 1280×720 canvases. 360p is the
         // floor so every input still produces an HLS output.
-        var rungs = FullLadder.Where(r => r.Height <= sourceHeight && r.Width <= sourceWidth).ToList();
+        List<Rung> rungs;
+        if (targetQuality == TargetQuality.Auto)
+        {
+            rungs = FullLadder.Where(r => r.Height <= sourceHeight && r.Width <= sourceWidth).ToList();
+        }
+        else
+        {
+            // Push 10.7 (manual quality): the ceiling is the LOWER of the request and
+            // the source; among the rungs under it, take the single tallest. P720 on a
+            // 1080p source → 720p; P720 on a 480p source → 360p (closest lower rung);
+            // P1080 on a 720p source → 720p. Exactly one rung is generated either way.
+            var ceiling = Math.Min(TargetCeilingHeight(targetQuality), sourceHeight);
+            rungs = [FullLadder
+                .Where(r => r.Height <= ceiling && r.Width <= sourceWidth)
+                .OrderByDescending(r => r.Height)
+                .FirstOrDefault() ?? FullLadder[0]];
+        }
         if (rungs.Count == 0) rungs = [FullLadder[0]];
 
         var args = new List<string>
@@ -597,6 +624,16 @@ public static class FfmpegLadder
 
         return new LadderPlan(args, rungs.Select(r => r.Name).ToList());
     }
+
+    /// <summary>Push 10.7 — the height ceiling a concrete quality target imposes.
+    /// Auto is handled by the source-driven branch and never reaches here.</summary>
+    private static int TargetCeilingHeight(TargetQuality quality) => quality switch
+    {
+        TargetQuality.P1080 => 1080,
+        TargetQuality.P720 => 720,
+        TargetQuality.P360 => 360,
+        _ => int.MaxValue,
+    };
 
     /// <summary>Probes DISPLAY width/height (rotation-corrected), duration and audio
     /// presence. Null = ffprobe failed. Rotation matters (Hotfix 10.6-2 1.A): a portrait

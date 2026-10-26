@@ -674,6 +674,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("source_type");
 
+                    b.Property<int>("TargetQuality")
+                        .HasColumnType("integer")
+                        .HasColumnName("target_quality");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasColumnType("text")
@@ -1524,6 +1528,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text[]")
                         .HasColumnName("tags");
+
+                    b.Property<int>("TargetQuality")
+                        .HasColumnType("integer")
+                        .HasColumnName("target_quality");
 
                     b.Property<string>("ThumbnailUrl")
                         .HasColumnType("text")

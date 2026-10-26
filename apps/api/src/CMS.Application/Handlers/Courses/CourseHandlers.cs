@@ -344,6 +344,11 @@ public class CourseHandlers :
             episode.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim();
         if (req.Difficulty is not null)
             episode.Difficulty = req.Difficulty.Value;
+        // Push 10.7 — PATCH-optional transcoding target (the edit modal's quality
+        // dropdown): applies on the next encode; an already-Ready episode keeps its
+        // existing HLS tree until re-encoded.
+        if (req.TargetQuality is not null)
+            episode.TargetQuality = req.TargetQuality.Value;
 
         await SaveEpisodesWithNumberGuardAsync(ct);
         return MapToEpisodeDto(episode);
@@ -555,6 +560,11 @@ public class CourseHandlers :
             episode.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim();
         if (req.Difficulty is not null)
             episode.Difficulty = req.Difficulty.Value;
+        // Push 10.7 — the admin-selected transcoding target is persisted with the same
+        // commit the upload completes in, BEFORE the enqueue below, so the worker reads
+        // the final value when the job starts. Absent key = keep the stored target.
+        if (req.TargetQuality is not null)
+            episode.TargetQuality = req.TargetQuality.Value;
 
         // Push 10.3: video assets enter the FFmpeg HLS pipeline the moment the upload
         // completes (same commit as the blob-ready marker). Audio episodes and YouTube
@@ -710,5 +720,7 @@ public class CourseHandlers :
         episode.Difficulty,
         episode.ProcessingStatus,
         episode.ProcessingStatus == ProcessingStatus.Failed ? MediaProcessingFailure.TechnicalDetails : null,
-        episode.HlsKey);
+        episode.HlsKey,
+        // Push 10.7 — stored transcoding target (feeds the edit modal's dropdown).
+        episode.TargetQuality);
 }

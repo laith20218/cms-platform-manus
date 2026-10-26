@@ -388,6 +388,11 @@ public class LibraryHandlers :
             file.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim();
         if (req.Difficulty is not null)
             file.Difficulty = req.Difficulty.Value;
+        // Push 10.7 — admin-selected transcoding target for video files, persisted with
+        // the same completion commit (BEFORE the enqueue below) so the worker reads the
+        // final value. Absent key = keep the stored target (Auto by default).
+        if (req.TargetQuality is not null)
+            file.TargetQuality = req.TargetQuality.Value;
 
         // Push 10.3: video library files enter the FFmpeg HLS pipeline at complete-upload
         // (same commit as the metadata). Non-video files keep ProcessingStatus NULL.
@@ -429,6 +434,9 @@ public class LibraryHandlers :
         // Push 10.5 — PATCH-optional difficulty: null leaves the stored tier untouched.
         if (req.Difficulty is not null)
             file.Difficulty = req.Difficulty.Value;
+        // Push 10.7 — PATCH-optional transcoding target: applies on the next encode.
+        if (req.TargetQuality is not null)
+            file.TargetQuality = req.TargetQuality.Value;
 
         await _unitOfWork.SaveChangesAsync(ct);
         return MapToDto(file);
@@ -510,6 +518,8 @@ public class LibraryHandlers :
         f.Difficulty,
         f.ProcessingStatus,
         f.ProcessingStatus == ProcessingStatus.Failed ? MediaProcessingFailure.TechnicalDetails : null,
-        f.HlsKey
+        f.HlsKey,
+        // Push 10.7 — stored transcoding target.
+        f.TargetQuality
     );
 }

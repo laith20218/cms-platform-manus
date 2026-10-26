@@ -106,6 +106,11 @@ public class LibraryFile : AuditableEntity
     /// keeps using FileUrl until a later push switches the player to HLS.</summary>
     public string? HlsKey { get; set; }
 
+    /// <summary>Push 10.7 — admin-selected transcoding target (Auto = source-driven
+    /// ladder; a concrete rung encodes exactly one rendition). Non-video files carry
+    /// the column too (Auto) but the pipeline never reads it for them.</summary>
+    public TargetQuality TargetQuality { get; set; } = TargetQuality.Auto;
+
     public Subject Subject { get; set; } = null!;
     public Lecture? Lecture { get; set; }
     public ICollection<LibraryView> Views { get; set; } = new List<LibraryView>();

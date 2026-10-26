@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { LoaderCircle, Save } from 'lucide-react';
 import { apiRequest, type CourseEpisode } from '../lib/api';
-import { normalizeDifficulty } from '../lib/mediaProcessing';
+import { normalizeDifficulty, normalizeTargetQuality } from '../lib/mediaProcessing';
 import { AccessibleModal } from './AccessibleModal';
 import { EpisodeMetadataFields, type EpisodeMetadataValues } from './EpisodeMetadataFields';
 
@@ -13,12 +13,15 @@ import { EpisodeMetadataFields, type EpisodeMetadataValues } from './EpisodeMeta
  *    metadata surface
  *  - Episode number + duration seconds — the fields today's update endpoint
  *    already accepts
+ *  - Transcoding target (Auto/P360/P720/P1080) — Push 10.7: applies on the
+ *    NEXT encode (recovery-sweep re-run or future re-queue); an already-Ready
+ *    episode keeps its existing HLS tree until re-encoded
  *
  * Submit → PUT /api/v1/admin/courses/episodes/{id} with the full payload
- * (title, episodeNumber, durationSeconds, description, difficulty). The
- * metadata keys are additive: the current API ignores unknown JSON members,
- * so the request is forward-compatible with the backend DTO wiring without
- * changing any behavior today.
+ * (title, episodeNumber, durationSeconds, description, difficulty,
+ * targetQuality). The metadata keys are additive: the current API ignores
+ * unknown JSON members, so the request is forward-compatible with the backend
+ * DTO wiring without changing any behavior today.
  */
 
 export interface EpisodeEditModalProps {
@@ -36,11 +39,16 @@ export function EpisodeEditModal({ episode, token, isArabic, onClose, onSaved, o
     title: episode.title ?? '',
     description: episode.description ?? '',
     difficulty: normalizeDifficulty(episode.difficulty) ?? 0,
+    targetQuality: normalizeTargetQuality(episode.targetQuality),
   });
   const [episodeNumber, setEpisodeNumber] = useState(String(episode.episodeNumber ?? 1));
   const [duration, setDuration] = useState(episode.durationSeconds != null ? String(episode.durationSeconds) : '');
   const [titleInvalid, setTitleInvalid] = useState(false);
   const [busy, setBusy] = useState(false);
+  /* Push 10.7 — the target dropdown only applies to uploaded video episodes
+   * (the pipeline never runs for YouTube embeds or audio uploads). */
+  const isVideoEpisode = episode.sourceType === 'Upload'
+    && !!episode.contentType?.toLowerCase().startsWith('video/');
 
   const patch = (p: Partial<EpisodeMetadataValues>) => {
     if ('title' in p && p.title !== undefined && p.title.trim().length > 0) setTitleInvalid(false);
@@ -64,6 +72,7 @@ export function EpisodeEditModal({ episode, token, isArabic, onClose, onSaved, o
           durationSeconds: duration.trim() ? Number(duration) : null,
           description: values.description.trim() || null,
           difficulty: values.difficulty,
+          targetQuality: values.targetQuality,
         }),
       });
       onSaved(isArabic ? 'تم حفظ بيانات الحلقة.' : 'Episode updated.');
@@ -118,6 +127,7 @@ export function EpisodeEditModal({ episode, token, isArabic, onClose, onSaved, o
           titleInvalid={titleInvalid}
           layout="rows"
           testIdPrefix="episode-edit"
+          showQuality={isVideoEpisode}
         />
 
         <div className="grid gap-2 sm:grid-cols-2">

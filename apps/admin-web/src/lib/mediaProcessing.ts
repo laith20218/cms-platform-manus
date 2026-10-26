@@ -80,6 +80,78 @@ export function processingChipLabel(status: ProcessingStatus | null | undefined,
   return isArabic ? `المعالجة: ${rung}` : `Processing: ${rung}`;
 }
 
+/* ============ target quality (Push 10.7 — Auto/P360/P720/P1080) ============ */
+
+/** The backend enum's raw member names (JsonStringEnumConverter, no policy). */
+export type TargetQuality = 'Auto' | 'P360' | 'P720' | 'P1080';
+
+export const TARGET_QUALITY_OPTIONS: readonly { value: TargetQuality; labelAr: string; labelEn: string }[] = [
+  // Task-book labels verbatim: Auto is recommended; the concrete rungs are one
+  // rendition each (memory-friendly on the transcoding host).
+  { value: 'Auto', labelAr: 'تلقائي (موصى به)', labelEn: 'Auto (recommended)' },
+  { value: 'P1080', labelAr: 'عالية (1080p)', labelEn: 'High (1080p)' },
+  { value: 'P720', labelAr: 'متوسطة (720p)', labelEn: 'Medium (720p)' },
+  { value: 'P360', labelAr: 'منخفضة (360p)', labelEn: 'Low (360p)' },
+];
+
+/**
+ * Accepts the API's enum strings ("Auto"|"P360"|"P720"|"P1080") or an unknown
+ * value; anything unrecognised (or null/absent — legacy rows) reads as Auto.
+ */
+export function normalizeTargetQuality(raw: string | number | null | undefined): TargetQuality {
+  if (raw === null || raw === undefined) return 'Auto';
+  const key = String(raw);
+  return key === 'P360' || key === 'P720' || key === 'P1080' ? key : 'Auto';
+}
+
+/** The rung height a quality target implies (Auto imposes no ceiling). */
+export function targetQualityHeight(quality: TargetQuality): number | null {
+  if (quality === 'P1080') return 1080;
+  if (quality === 'P720') return 720;
+  if (quality === 'P360') return 360;
+  return null;
+}
+
+/** Push 10.7 (2.C) — the task-book warning sentence (exact). */
+export const TARGET_QUALITY_DOWNGRADE_WARNING_AR =
+  'الفيديو المرفوع دقته أقل، سيتم اعتماد الدقة الأقل تلقائياً لتجنب التكبير.';
+export const TARGET_QUALITY_DOWNGRADE_WARNING_EN =
+  'The uploaded video has a lower resolution; the closest lower quality will be applied automatically to avoid upscaling.';
+
+/**
+ * Push 10.7 (2.C) — best-effort client-side resolution probe: loads the file's
+ * metadata in a detached <video> element and reports the DISPLAY dimensions
+ * (the browser applies rotation — the same semantics the backend probe uses).
+ * null = not a video / metadata unreadable; the backend handles those gracefully.
+ */
+export function probeVideoResolution(file: File): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith('video/') && !/\.(mp4|webm|mov|mkv|m4v|avi)$/i.test(file.name)) {
+      resolve(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    let settled = false;
+    const done = (result: { width: number; height: number } | null) => {
+      if (settled) return;
+      settled = true;
+      URL.revokeObjectURL(url);
+      video.removeAttribute('src');
+      resolve(result);
+    };
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      const { videoWidth, videoHeight } = video;
+      done(videoWidth > 0 && videoHeight > 0 ? { width: videoWidth, height: videoHeight } : null);
+    };
+    video.onerror = () => done(null);
+    // Safety net: some container/codec combos never fire metadata events.
+    window.setTimeout(() => done(null), 8000);
+    video.src = url;
+  });
+}
+
 /* ============ difficulty (Easy=0 / Medium=1 / Hard=2) ============ */
 
 export type DifficultyValue = 0 | 1 | 2;

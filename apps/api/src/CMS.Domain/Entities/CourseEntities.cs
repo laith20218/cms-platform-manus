@@ -79,5 +79,10 @@ public class CourseEpisode : AuditableEntity
     /// keeps using FileKey until a later push switches the player to HLS.</summary>
     public string? HlsKey { get; set; }
 
+    /// <summary>Push 10.7 — admin-selected transcoding target (Auto = source-driven
+    /// ladder; a concrete rung encodes exactly one rendition). Audio/YouTube episodes
+    /// carry the column too (Auto) but the pipeline never reads it for them.</summary>
+    public TargetQuality TargetQuality { get; set; } = TargetQuality.Auto;
+
     public Course Course { get; set; } = null!;
 }

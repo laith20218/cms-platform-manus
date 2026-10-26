@@ -287,6 +287,9 @@ export type CourseEpisode = {
   /** English technical failure details (FFmpeg logs) — future field; feeds
    * the collapsible section of the processing error modal. */
   processingError?: string | null;
+  /** Push 10.7 — admin-selected transcoding target ("Auto"|"P360"|"P720"|"P1080").
+   * Absent on legacy rows → treat as Auto. */
+  targetQuality?: string | null;
 };
 
 export type CourseDetail = {
