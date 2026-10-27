@@ -1,7 +1,7 @@
 import { forwardRef, useMemo, useState } from 'react';
 import * as SliderPrimitive from '@radix-ui/react-slider';
 import * as SelectPrimitive from '@radix-ui/react-select';
-import { Bookmark, Check, ChevronUp, Maximize, Minimize, Pause, Play, Volume2, VolumeX } from 'lucide-react';
+import { Bookmark, Check, ChevronUp, Maximize, Minimize, Pause, Play, Star, Volume2, VolumeX } from 'lucide-react';
 import { cn } from '@/utils';
 import { formatMediaDuration, formatRate, PLAYBACK_RATES, seekValueText } from './time';
 
@@ -32,6 +32,11 @@ export interface ControlsBarProps {
   onRateChange: (rate: number) => void;
   onToggleFullscreen: () => void;
   onOpenBookmark: () => void;
+  /** Push 11.3 — whole-episode favorite (star). False for library-file assets. */
+  showFavoriteButton?: boolean;
+  isFavorite?: boolean;
+  favoritePending?: boolean;
+  onToggleFavorite: () => void;
 }
 
 export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function ControlsBar(
@@ -52,6 +57,10 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
     onRateChange,
     onToggleFullscreen,
     onOpenBookmark,
+    showFavoriteButton = false,
+    isFavorite = false,
+    favoritePending = false,
+    onToggleFavorite,
   },
   ref,
 ) {
@@ -190,6 +199,25 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
             </SelectPrimitive.Content>
           </SelectPrimitive.Portal>
         </SelectPrimitive.Root>
+
+        {/* Favorite (whole episode — Push 11.3, product decision #1: the star and the
+            timeline-bookmark coexist as SEPARATE concepts). */}
+        {showFavoriteButton && (
+          <button
+            type="button"
+            onClick={onToggleFavorite}
+            disabled={favoritePending}
+            aria-label={isFavorite ? 'إزالة من المفضلة' : 'إضافة للمفضلة'}
+            aria-pressed={isFavorite}
+            data-testid="video-favorite-button"
+            className={cn(
+              'press flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 disabled:opacity-60',
+              isFavorite && 'text-amber-400',
+            )}
+          >
+            <Star className="h-5 w-5" strokeWidth={2} fill={isFavorite ? 'currentColor' : 'none'} />
+          </button>
+        )}
 
         {/* Bookmark (clip save) */}
         <button

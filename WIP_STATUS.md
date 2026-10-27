@@ -80,3 +80,23 @@ CRITICAL: migration file generated but NOT applied to any DB (STOP GATE §2/§3)
 - tsc -b clean; eslint 0 errors on changed files; vitest 117/117 (no regressions).
 - Known honest limitation: question cards carry no فتح deep link (question routes are subject-SLUG
   based and the DTO carries ids only) — questions keep delete-only actions in 11.3.
+
+## PART D — Player star + QuestionPage cache fix + ?episode= deep link (COMPLETE)
+- VideoPlayer.tsx: showFavoriteButton = assetType === 'course-episode'; isFavorite derives from
+  lease info (PlaybackUrlInfo.isFavorite — NEW optional field) with an optimistic override that
+  clears on every lease refresh (silent refreshes re-sync server truth); toggle calls
+  favoritesApi create/delete, rolls back + toasts «تعذّر تحديث المفضلة، حاول مجددًا» on error,
+  invalidates ['favorites'] on success. (Fixed a TDZ slip during authoring — favorite block moved
+  AFTER the useMediaLease destructure; verified by tsc.)
+- ControlsBar.tsx: ⭐ Star button (44px, aria-label «إضافة للمفضلة»/«إزالة من المفضلة»,
+  aria-pressed, amber-filled when active, disabled while pending, data-testid=video-favorite-button)
+  mounted NEXT TO the existing 🔖 bookmark button — product decision #1 (two separate concepts).
+- CoursePlayerPage.tsx: EpisodeStage reads ?episode={id} ONCE on mount (deep-link target of the
+  favorites card's «متابعة» navigation; falls back to the first playable episode; later in-page
+  selections win over the stale URL param).
+- QuestionPage.tsx (the 11.2-DIAG H1 fix): favoriteMutation rebuilt — onMutate flips the question's
+  cached copies (['questions'] list shapes AND ['question-detail', id]) + a local override map;
+  onSuccess invalidates ['favorites'] + toast (direction derived from mutation variables — no stale
+  closure); onError removes the override + invalidates the question surfaces + error toast; button
+  renders the computed state, aria-pressed, disabled while pending.
+- tsc -b clean; eslint 0 errors; vitest 117/117.

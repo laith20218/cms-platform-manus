@@ -172,7 +172,16 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
   fallbackPhone: string;
 }) {
   const [searchParams] = useSearchParams();
-  const [selectedId, setSelectedId] = useState<string>(episodes[0]?.id ?? '');
+
+  // Push 11.3 — deep-link target: ?episode={id} (the favorites card's «متابعة» navigation).
+  // Falls back to the first episode when absent or not in the playable set. Read ONCE on
+  // mount so later in-page selections are not fought over by a stale URL param.
+  const [selectedId, setSelectedId] = useState<string>(() => {
+    const requested = searchParams.get('episode');
+    return requested && episodes.some((episode) => episode.id === requested)
+      ? requested
+      : episodes[0]?.id ?? '';
+  });
   const [access, setAccess] = useState<EpisodeAccess | null>(null);
   const [accessLoading, setAccessLoading] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);

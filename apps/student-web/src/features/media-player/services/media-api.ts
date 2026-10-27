@@ -21,6 +21,9 @@ export interface PlaybackUrlInfo {
   expiresAt: string;
   contentType: string;
   supportsRange: boolean;
+  /** Push 11.3 — episode favorite state (player star button initial state). False for
+   *  library files (their favorite state rides the library list DTO instead). */
+  isFavorite?: boolean;
 }
 
 export interface MediaBookmark {
