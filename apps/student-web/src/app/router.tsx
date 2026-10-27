@@ -16,7 +16,7 @@ const SubjectsPage = lazy(() => import('@/features/subjects/SubjectsPage'));
 const SubjectDetailPage = lazy(() => import('@/features/subjects/SubjectDetailPage'));
 const LecturePage = lazy(() => import('@/features/subjects/LecturePage'));
 const QuestionPage = lazy(() => import('@/features/questions/QuestionPage'));
-const FavoritesPage = lazy(() => import('@/features/questions/FavoritesPage'));
+const FavoritesPage = lazy(() => import('@/features/favorites/FavoritesPage'));
 const ExamPage = lazy(() => import('@/features/exams/pages/ExamPage'));
 const ExamReviewPage = lazy(() => import('@/features/exams/pages/ExamReviewPage'));
 const LibraryPage = lazy(() => import('@/features/library/LibraryPage'));

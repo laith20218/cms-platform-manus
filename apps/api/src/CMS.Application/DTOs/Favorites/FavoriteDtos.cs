@@ -17,6 +17,8 @@ public sealed record FavoriteItemDto(
     Guid Id,
     string TargetType,          // "question" | "file" | "episode"
     Guid TargetId,
+    Guid SubjectId,             // every target's subject — context for navigation/labels
+    Guid? CourseId,             // episodes only — the course the continue/open action navigates to
     string Title,               // question text (clamped) | file title | episode title
     string? Subtitle,           // lecture name (question) | category label (file) | course title (episode)
     string? ThumbnailUrl,       // file → own thumbnail; episode → course cover image; question → null

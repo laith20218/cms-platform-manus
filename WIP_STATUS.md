@@ -59,3 +59,24 @@ CRITICAL: migration file generated but NOT applied to any DB (STOP GATE §2/§3)
   + single-segment question route). CreateFavoriteRequest stays (API body model).
 - Verified: dotnet build 0 errors; EXISTING unit suite 380/380 passed (no regressions from MediaHandlers /
   EntitlementService / controller changes). New favorites unit tests land in PART E.
+
+## PART C — features/favorites/ folder (COMPLETE)
+- NEW files (apps/student-web/src/features/favorites/): types.ts (mirrors backend DTO + courseId/subjectId
+  added — see PART B note: REQUIRED for the prompt's own متابعة/فتح navigation; the B.1 shape lacked them),
+  api.ts (listFavorites/createEpisodeFavorite/deleteFavorite via apiClient + entitlementRequestConfig),
+  hooks.ts (useFavoritesList ['favorites','list',params] w/ placeholderData; useCreateEpisodeFavorite;
+  useDeleteFavorite with optimistic removal + snapshot rollback + ['favorites'] prefix invalidation —
+  kills the 11.2-DIAG H1 stale-cache class), components/FavoritesToolbar.tsx (native ARIA tablist =
+  MyStudiesPage convention — @radix-ui/react-tabs NOT installed and lockfile frozen §3; sort via
+  @radix-ui/react-select), components/FavoriteCard.tsx (thumbnail/course-cover fallback, type chip,
+  duration, processing badge, progress bar w/ role=progressbar, متابعة (episode+progress only, decision #3),
+  فتح الحلقة / فتح في المكتبة, 44px delete), components/FavoritesSkeleton.tsx (6 cards, aria-busy),
+  components/FavoritesEmptyState.tsx (per-tab copy + CTA), FavoritesPage.tsx (URL-param state
+  ?type=&sort=&page=, canonicalization, error retry, pagination controls, AnimatePresence grid).
+- DELETED: src/features/questions/FavoritesPage.tsx (replaced); question-api.ts lost its dead
+  getFavorites/FavoriteItem (toggleFavorite kept — QuestionPage still uses it).
+- router.tsx: import updated to features/favorites. Sidebar/BottomNav/DashboardPage link to the
+  unchanged /favorites route (verified — no edits needed).
+- tsc -b clean; eslint 0 errors on changed files; vitest 117/117 (no regressions).
+- Known honest limitation: question cards carry no فتح deep link (question routes are subject-SLUG
+  based and the DTO carries ids only) — questions keep delete-only actions in 11.3.
