@@ -1,10 +1,114 @@
-# WIP_STATUS — wip/11.5
+# WIP_STATUS — wip/11.5.1
 
 ## Base
-Branch: wip/11.5
-Parent: ca3ef39fcbada428ac126eed9da3b553a715b68f (main, Push 11.3.1 merged + deployed)
-Status: Push 11.5 — CI TRUST. ALL PARTS (A–E) COMPLETE + live-CI-verified.
-No app code, no migrations, no production changes (CI infrastructure only).
+Branch: wip/11.5.1
+Parent: 544c00a479fb13f72f0b5933e110507ab00206b8 (main, Push 11.5 merged — CI Trust)
+Status: Push 11.5.1 — FIX N1 (migration chain replayability). PART A diagnostic COMPLETE;
+PAUSED at A.5 awaiting supervisor's production-schema SQL output + Phase57 Up() modification
+approval (see PART A decision below). NO files modified except WIP_STATUS.md so far.
+Scope gate: ONLY N1. N2-N6 untouched (STOP GATE §12).
+
+## PART A — N1 diagnostic findings (read-only, 2026-10-27)
+
+### A.1 — Catalog (corrects N1's premise)
+- Total migration .cs files on disk: **26** (NOT 27 — N1's "27" was a miscount; the
+  previous session's "script emits 22 of 27" should read "22 of 26").
+- 19 migrations WITH .Designer.cs; **7 WITHOUT**: Phase50, Phase51, Phase52,
+  Phase54, Phase55, Phase56, Phase57 (N1 named 5 / listed 4 names; reality = 7 files
+  lacking Designer, of which only 4 are actually undiscovered — see A.2).
+
+### A.2 — Discovery attribute audit (the REAL root cause)
+- EF Core discovers a migration only if its class carries BOTH
+  [DbContext(typeof(ApplicationDbContext))] AND [Migration("<id>")] (normally both
+  live in Designer.cs).
+- Phase50/51/52: Designer.cs absent but attributes are INLINE in the .cs files
+  (Phase50 added by commit 24bd427 "fix(migrations): register lecture metadata
+  migration" — the repo's own precedent fix for this exact problem). → DISCOVERED.
+- Phase54/55/56/57: NO attributes anywhere (neither in .cs nor Designer) →
+  NOT DISCOVERED. This is the N1 root cause: not "missing Designer.cs" per se,
+  but missing discovery attributes.
+- Verified empirically: `dotnet ef migrations list` (design-time, CMS_EF_CONNECTION
+  dummy) prints exactly 22 migrations — Phase54/55/56/57 absent from the list.
+- Up() summary of the 4 undiscovered migrations (all hand-written, never EF-generated):
+  - Phase54: CREATE TABLE system_settings (pk, ix_key UNIQUE, ix_category,
+    fk_system_settings_admins_updated_by) + 11-row Arabic seed INSERT (ON CONFLICT DO NOTHING).
+  - Phase55: 3 nullable columns on error_reports (assigned_to, reviewed_by,
+    reviewed_at) + composite index ix_error_reports_status_assigned_to.
+  - Phase56: 1 nullable column notifications.expires_at.
+  - Phase57: raw-SQL DO-blocks (drop fk_notifications_admins_sender_id IF EXISTS,
+    drop sender_id IF EXISTS, add fk_notifications_admins_sent_by) **+ a manual
+    INSERT INTO __EFMigrationsHistory (ON CONFLICT DO NOTHING) — see A.4 risk.**
+
+### A.3 — Git history
+- `git log --all --diff-filter=D` on `*<PhaseName>*Designer*` for all 7: ZERO
+  deletion records → **Designer.cs files NEVER existed** for any of them.
+- Each migration added by its own feat commit (Phase54: 858bfc2; Phase55: 39bed16/
+  1aa5694; Phase56: 3a531f8/2fb3b51; Phase57: 4a5b7ff/34e2d54; Phase50: 3d8178d +
+  attribute fix 24bd427; Phase51: ad860ae; Phase52: 48a147c).
+- → CHOICE 1 (restore from history) is NOT AVAILABLE.
+
+### A.4 — ModelSnapshot + script verification
+- ApplicationDbContextModelSnapshot.cs: [DbContext(typeof(ApplicationDbContext))],
+  ProductVersion 9.0.0. Contains system_settings (pk + ix_key + ix_category +
+  ix_updated_by + FK), error_reports.assigned_to/reviewed_by/reviewed_at,
+  notifications.expires_at/sent_by + ix_notifications_sent_by → snapshot INCLUDES
+  all Phase54-57 schema.
+- `dotnet ef migrations has-pending-model-changes` → "No changes have been made to
+  the model since the last migration." → **snapshot IS in sync with the current
+  AppDbContext model** (B.2 VERIFY_NO_OP is expected to be clean).
+- `dotnet ef migrations script --idempotent` (current state): 22 INSERT INTO
+  "__EFMigrationsHistory" statements, 2326 lines — matches discovery count.
+- Chain-vs-model drift (DB-level enforcement only; runtime/tests unaffected):
+  snapshot expects fk_error_reports_admins_assigned_to/reviewed_by +
+  ix_error_reports_assigned_to/reviewed_by which NO migration Up() ever creates;
+  conversely Phase55's composite ix_error_reports_status_assigned_to is NOT in the
+  model. A chain-replayed DB will lack the 2 FKs + 2 indexes (and carry 1 extra
+  composite index). Acceptable for DR (EF runtime does not require DB-level FKs);
+  flagged honestly.
+- **CRITICAL RISK FOUND — Phase57 self-recording INSERT**: Phase57.Up() manually
+  INSERTs its own row into __EFMigrationsHistory. Runtime MigrateAsync inserts the
+  history row with a PLAIN insert after applying each migration (the idempotent
+  script's IF NOT EXISTS guards are script-only). On a fresh DB replay, the manual
+  insert creates the row first → EF's plain insert then fails with 23505 duplicate
+  key → MigrateAsync FAILS at Phase57 even after attributes are added. The 4-line
+  manual INSERT block must be REMOVED from Phase57.Up() for fresh replay to succeed
+  (it was only ever needed for manually-run SQL on production; EF records the row
+  itself when it applies the migration). Modifying Up() requires supervisor
+  approval per STOP GATE §7 → requested, awaiting decision together with A.5.
+- Prerequisites OK: admins/error_reports/notifications all created by Phase34 (the
+  first migration); nothing before Phase54 references system_settings; Push4Courses
+  and AddLibraryFileCategory seeds/indexes reference system_settings only AFTER
+  Phase54 in the chain order. Production API does NOT call MigrateAsync/EnsureCreated
+  at startup (only CMS.Tests PostgresFixture does) → merging this fix deploys safely.
+
+### A.6 — Fix approach decision (provisional; A.5 pending)
+- CHOICE 1 (restore Designer.cs from git): UNAVAILABLE — files never existed (A.3).
+- CHOICE 2 (regenerate on scratch branch): UNSAFE per its own A.6-d safety check —
+  the hand-written Up()s contain content a model-diff regeneration cannot produce
+  (Phase54's 11-row seed INSERT, Phase55's composite index that is not in the model,
+  Phase57's DO-blocks + manual history INSERT) → generated Up() ≠ existing Up() for
+  all 4 → falls through to CHOICE 3.
+- CHOICE 3 (hand-write): the minimal, lowest-risk form is INLINE DISCOVERY
+  ATTRIBUTES — add `[DbContext(typeof(ApplicationDbContext))]` +
+  `[Migration("<id>")]` + `using Microsoft.EntityFrameworkCore.Infrastructure;` to
+  each of the 4 .cs files — exactly the pattern this repo already uses for
+  Phase50/51/52 (commit 24bd427) and that is proven applied-on-Neon (the 22
+  discovered include Phase50-52). TargetModel/Designer.cs is NOT consulted by
+  runtime MigrateAsync or script generation (tooling-only: `migrations remove` edge
+  cases — pre-existing condition for Phase50-52 already). Fabricating full
+  Designer.cs TargetModels for historical model states would be strictly riskier.
+- DECISION: CHOICE 3-minimal (inline attributes, repo precedent 24bd427) for
+  Phase54/55/56/57 + REMOVE Phase57's manual history INSERT block (pending approval).
+  After fix: discovered = 26/26, script INSERTs = 26, MigrateAsync replays the full
+  chain on an empty DB (modulo Phase57 insert removal).
+
+### A.5 — Production schema reference (PENDING — awaiting supervisor)
+Emitted for supervisor to run read-only on Neon:
+  1) SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name;
+  2) SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name='system_settings' ORDER BY ordinal_position;
+  3) SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY 1;
+Awaiting output to confirm production schema matches what the missing migrations
+produce (mismatch = MAJOR issue → STOP per A.5).
 
 ## PART A — Diagnostic findings (read-only survey, 2026-10-27)
 - CI workflows EXIST (5 files in .github/workflows/): ci.yml ("CI/CD Pipeline" — the file this
