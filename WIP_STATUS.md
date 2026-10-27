@@ -95,6 +95,37 @@ No app code, no migrations, no production changes (CI infrastructure only).
   not a flag; "1" would be used AS a connection string). Docker is preinstalled on
   ubuntu-latest → fixture auto-starts the container.
 
+## PART C — Playwright + wip-trigger in ci.yml (COMPLETE)
+- C.3 LOCAL VALIDATION FIRST (CI-faithful: chromium-1208 via chromium.executablePath() — the
+  build playwright 1.58.2 expects and `playwright install` provides; assets DELETED then
+  regenerated with the exact CI commands; dev server 127.0.0.1:5173):
+  * favorites-advanced 30/30 — RSS 931MB — 13.6s
+  * player-video 17/17 on rerun (16/17 first run: the KNOWN flaky keepalive-beacon check
+    "posts 2→2" — pre-existing flake class per 11.3 log; flagged for supervisor, NOT touched)
+  * player-favorite-toggle 14/14 — RSS 988MB — 9.3s
+  * player-hls 19/19 — RSS 1032MB — 11.0s — PROVES the CI per-rung ffmpeg ladder generation
+    (freshly generated, not the old var_stream_map artifact)
+  * player-hls-option-c 13/13 — RSS 1195MB — 49.6s (self-generated its 120s ladder)
+  * TOTAL wall ≈ 102s for all 5 specs (well under any CI budget); peak RSS 1195MB < 1600MB.
+  * Scope note: the prompt listed 4 specs; player-hls-option-c (Option C regression guard,
+    merged to main in 11.1-REWRITE) is included as a 5th — all green locally.
+- ci.yml changes (minimal extension per C.2; YAML re-validated with a parser):
+  * push branches += 'wip/**' (per the C.1 template) — CI trust becomes verifiable on work
+    branches pre-merge; docker-build gated `if: push && (main || develop)` so wip pushes do NOT
+    publish throwaway ghcr images (required guard for the trigger extension).
+  * frontend-test: pnpm/action-setup version input REMOVED (fixes the live "Multiple versions
+    of pnpm specified" job-killer — packageManager pnpm@9.12.0 is authoritative); 4 new steps
+    after "Run tests": Install Playwright Chromium (--with-deps), Resolve Chromium executable
+    (dynamic — the specs' default path is sandbox-specific), Generate e2e media assets
+    (ffmpeg: MP4 + per-rung HLS ladder + verbatim master.m3u8 — all commands validated above),
+    Run Playwright e2e (dev server on 127.0.0.1:5173 + curl wait loop + 5 specs + cleanup).
+  * lighthouse job: same pnpm/action-setup fix (same one-line defect, second site).
+  * backend-test job: INTENTIONALLY unchanged — Docker is preinstalled on ubuntu-latest so the
+    PART B fixture auto-starts; the full-suite `dotnet test` already covers unit+integration.
+    Known pre-existing red on backend: FavoritesHttp JsonException (§12 report-only).
+  * security-scan job: left verbatim (pre-existing trivy-action@0.28.0 unresolvable → job-setup
+    failure; §12) — wip runs will show this job red; per-job results are the signal.
+
 ## 11.3 PART A — Migration AddEpisodeFavorites (FILE ONLY — NOT APPLIED)
 - Entity: Favorite gains `Guid? CourseEpisodeId` + `CourseEpisode?` nav
   (apps/api/src/CMS.Domain/Entities/OperationalEntities.cs:172-193).
