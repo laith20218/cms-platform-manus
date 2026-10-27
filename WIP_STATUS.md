@@ -1,60 +1,173 @@
-# WIP_STATUS — wip/11.1-rewrite
+# WIP_STATUS — wip/11.3
 
 ## Base
-Branch: wip/11.1-rewrite
-Parent: 3a14857ab7b9b1e80c3c3acef16aacaaa0b7570e (Push 11.1, full proxy)
-Status: PART C (Option C implementation) COMPLETE — awaiting supervisor review. NOT merged to main (STOP GATE).
+Branch: wip/11.3
+Parent: 20f4bf65a45cd04021b155f636f42b99e2c9f9c8 (main, Push 11.1 merged; 11.2-DIAG design APPROVED)
+Status: PART A COMPLETE. PARTS B–E in progress.
+CRITICAL: migration file generated but NOT applied to any DB (STOP GATE §2/§3).
 
-## PART A — done
-Pushed e525f09 (diagnostic commit) to origin; PAT scrubbed and verified after every push.
-
-## PART B — done, VERDICT: PASS
-- T2-c GetBucketCorsAsync dump: MATCH with the code-derived startup rule (AllowedOrigins ["*"], AllowedHeaders ["*"], GET/PUT/HEAD/POST/DELETE, ExposeHeaders etag/content-range/accept-ranges/content-length/content-type, MaxAge 3600; live dump lowercases ExposeHeaders — HTTP headers are case-insensitive).
-- T2-b presigned GET of a REAL production ladder (courses/64f45bfc…/03aa51a91d134d4296f998bda408aee4/hls/) with student-web Origin: master.m3u8 / 360p/index.m3u8 / 360p/segment_000.ts ALL 200 + exact origin echo + accept-ranges + expose-headers. (Episode selected via read-only ListObjectsV2 — no DB credentials were supplied this session.)
-- T1-Step2 wildcard presign: 6 derived URLs → 403 SignatureDoesNotMatch; 2 raw `*`-key URLs → 404 NoSuchKey. Wildcard support = NO (Option C necessary; no escalation finding).
-- B2 credentials used only as transient env vars for the scratch probe; nothing persisted.
-
-## PART C — Option C implementation (gate passed → implemented)
-Backend (apps/api):
-- MediaHandlers.Handle(GetHlsObjectQuery) — ROLE dispatch after the UNCHANGED gates (path whitelist, visibility, entitlement, transcoding state):
-  * root master.m3u8 → raw stream, no-store (behavior UNCHANGED);
-  * any other .m3u8 → RewriteVariantPlaylistAsync: download text, replace every bare .ts/.m4s line with an object-scoped presigned GET URL (TTL 540s = MediaPolicy), tags/comments/unknown lines preserved VERBATIM, CR endings preserved, presign in Task.WhenAll batches of 50, ONE log line per variant ("HLS variant rewritten: episode={id} variant={rung} segments={N} ttl=540s"), serves application/vnd.apple.mpegurl + private,max-age=60;
-  * .ts/.m4s → RETIRED: 404 before ANY storage access + deprecation warning log;
-  * mid-rewrite presign failure → BadGatewayException (new, CMS.Domain/Exceptions) → HTTP 502 via ExceptionHandlingMiddleware (new catch ABOVE the DomainException/400 catch) — never a partial playlist.
-- MediaController: NO CHANGES (per C.2). GetPlaybackUrlQuery: NO CHANGES (proxy master route + TTL 540 kept). MP4/audio/YouTube paths: untouched.
-Frontend (apps/student-web):
-- VideoPlayer.tsx: hls.js fatal NETWORK_ERROR → triggerSilentRefresh() (status-agnostic — B2 401/403 carries no CORS headers, measured in PART B); MEDIA_ERROR → recoverMediaError(); 5s anti-hammer guard shared with the native path; the hls attach/load effect is now ALSO keyed on the lease `generation` (the proxy master URL is a stable string — without the generation key a silent refresh would never re-run loadSource, and the variant would never re-mint presigned segments); overlay text set to «جاري تجديد الرابط…»; xhrSetup UNCHANGED + Option C documentation comment (headers attach ONLY to API-origin URLs; B2 presigned GETs are bare — no preflight).
-Tests:
-- Unit: MediaHandlersTests — variant rewrite (tags/unknown lines/order/TTL/key derivation), empty playlist (zero presigns), single-segment, retired .ts 404 (×2 rows), non-rung .m3u8 treated as variant, presign failure → 502. Suite: 380/380 passed (was 376). The two old ".ts streams through proxy" Theory rows were UPDATED to the retired-404 contract (deliberate behavior removal — net suite count still grew).
-- e2e: NEW player-hls-option-c.e2e.mjs — 13/13 passed, peak Chromium RSS 1130 MB, unexpected console errors 0 (8 injected-403 messages are the spec's own expiry simulation); verifies master+variant → API origin with auth headers, segments → B2 origin DIRECT with NO auth headers, ZERO API-origin segment requests, playback > 5s, TTL-compressed silent refresh with variant re-fetch + fresh-generation segments, and NETWORK_ERROR recovery (timer parked via long TTL; seek past buffer; expired 403s → fatal → refresh → resume at seek position).
-- e2e legacy regression player-hls.e2e.mjs: 19/19 passed, RSS 1021 MB (untouched presigned-master path).
-- Build: dotnet build 0 errors; tsc -b clean; eslint 0 errors on changed files (2 pre-existing `any` warnings in untouched files remain, out of scope); vitest 117/117.
-- Superseded artifacts REMOVED: player-hls-proxy.e2e.mjs + its screenshot (asserted the deprecated segment-through-proxy architecture; full rollback copy intact on branch wip/11.1). .eslintrc.cjs ignores the e2e binary ladder dirs (parsing errors on .ts artifacts); .gitignore adds public/e2e-hls-optionc/.
-
-## Deliberate non-implementations (per C.6)
-- No fallback to the segment proxy (removed cleanly, 404).
-- No backwards compatibility for cached old clients (fail fast → variant re-fetch).
-- No conditional switch / feature flag / env var — clean cut.
-- No Redis cache (T3: 900 signings ≈ 246 ms).
-
-## Blockers / notes
-- The controller's GetHlsObject doc comment still says "no manifest rewriting needed" — MediaController.cs left UNTOUCHED per C.2; the authoritative semantics live in GetHlsObjectQuery's doc (updated).
-- Known edge (reported, not fixed): the variant's 60s browser cache can serve a ≤60s-old playlist whose presigned URLs are near expiry if a refresh lands within that window; recovery converges via the 404/403 → NETWORK_ERROR loop. Production cadence (refresh at ttl−60 = 480s ≫ 60s cache) makes the overlap rare.
-- PAT + B2 credentials were supplied inline for this push and used transiently; both scrubbed (remote URL clean; creds never written anywhere).
+## PART A — Migration AddEpisodeFavorites (FILE ONLY — NOT APPLIED)
+- Entity: Favorite gains `Guid? CourseEpisodeId` + `CourseEpisode?` nav
+  (apps/api/src/CMS.Domain/Entities/OperationalEntities.cs:172-193).
+- DbContext (apps/api/src/CMS.Infrastructure/Persistence/ApplicationDbContext.cs:287-312):
+  * CHECK ck_favorites_exactly_one_target → ternary (question|file|episode exactly-one);
+  * NEW unique partial index ix_favorites_student_id_course_episode_id
+    (filter "course_episode_id IS NOT NULL") — matches the two existing siblings;
+  * FK favorites.course_episode_id → course_episodes.id ON DELETE RESTRICT (documented
+    rationale in code: deleting an episode must not silently delete students' favorites).
+- Migration file: apps/api/src/CMS.Infrastructure/Persistence/Migrations/
+  20261027013220_AddEpisodeFavorites.cs (+ .Designer.cs) — generated via
+  `dotnet ef migrations add` (design-time factory + placeholder CMS_EF_CONNECTION; no DB touched).
+- SQL extracted to /tmp/add_episode_favorites.sql (`dotnet ef migrations script
+  20261026014837_AddTargetQuality AddEpisodeFavorites …`) — full script included in the
+  push report for supervisor review.
+- Pre-flight: every existing row has course_episode_id NULL → satisfies ternary CHECK
+  branches 1/2 → constraint swap is safe on live data. EF also auto-adds the conventional
+  non-unique FK-support index ix_favorites_course_episode_id (expected, mirrors the
+  question/library FK indexes from Phase34).
+- `dotnet ef database update` NOT run. No DB touched anywhere.
 
 ## RESUME_FROM
-RESUME_FROM: <post-merge main SHA> — production verification step (supervisor will instruct; Render auto-deploys on this main push)
+(after each part) — PART A done; PART B (backend MediatR) next.
 
-## Post-merge debts (recorded by supervisor at merge time)
-- MediaController.cs docstring still says "no manifest
-  rewriting needed" — now stale (Option C rewrites
-  variant playlists). Deferred to cleanup push.
-  See Push 11.1-REWRITE report §8.
-- Deleted apps/student-web/e2e/player-hls-proxy.e2e.mjs —
-  represented deprecated segment-proxy architecture. Full
-  previous version preserved on wip/11.1 (3a14857) for
-  rollback. Removal justified at merge time.
-- Variant playlist cache (60s) may serve stale presigned
-  URLs during refresh window — self-heals via
-  NETWORK_ERROR → silent refresh. Track for future
-  improvement.
+## PART B — Backend MediatR + enriched DTO + paged endpoint + playback-url IsFavorite (COMPLETE)
+- NEW DTOs (CMS.Application/DTOs/Favorites/FavoriteDtos.cs): FavoriteItemDto (11-field enriched shape),
+  FavoriteProgressDto (LastPositionSeconds + nullable DurationSeconds/CompletionPercent — honest to the
+  entity: completion stays NULL while duration unknown; «متابعة» still works from LastPositionSeconds),
+  CreateFavoriteResult(Mutation, IsNew), FavoriteMutationDto (moved from controller file).
+- NEW commands (CMS.Application/Commands/Favorites/FavoritesCommands.cs): GetFavoritesQuery,
+  CreateEpisodeFavoriteCommand, CreateQuestionOrFileFavoriteCommand (legacy body route),
+  DeleteFavoriteCommand (unified). PagedResult<T> REUSED from CMS.Application.Commands.Questions
+  (one of 5 existing per-domain copies — NOT duplicated, cited in report).
+- NEW handlers (CMS.Application/Handlers/Favorites/FavoritesHandlers.cs): all four handlers in one class
+  (codebase convention). List pipeline: favorites+targets fetch w/ Includes (Q1) → batched entitlement map
+  (Q2-Q4: student/subjects/subscriptions via NEW IEntitlementService.GetAccessibleSubjectMapAsync) →
+  in-memory sort/pagination → progress join (Q5, skipped for question-only pages). Full-set fetch instead
+  of DB-side Skip/Take is DELIBERATE: keeps ≤5 budget incl. entitlement security checks + "alpha" is a
+  cross-table sort impossible in single SQL; client payload stays paginated. Create/Delete preserve the
+  pre-11.3 semantics exactly (signed-entitlement-with-subject + scope gate inside handlers via injected
+  ISignedEntitlementService; dedup 200/201; idempotent 204 deletes; 409/422 playback-identical
+  transcoding gates for episode create — NULL status legacy MP4 stays favoritable).
+- EntitlementService: GetAccessibleSubjectMapAsync added (batched twin of CanAccessSubjectContentAsync,
+  same MatchesAcademicScope/GrantsContent statics — zero logic duplication; single-subject method untouched).
+- PlaybackUrlDto: + IsFavorite (default false — non-breaking for existing constructors). GetPlaybackUrlQuery
+  episode path: ONE Favorites EXISTS query after the entitlement gate (covers Ready HLS + legacy NULL-status
+  MP4 episodes — deviation from B.5's literal "Ready" condition, justified: star button shows for ALL episode
+  playback URLs; a Ready-only check would misreport legacy MP4 episodes as unfavorited).
+- FavoritesController: rewritten to thin IMediator dispatch (5 routes: GET list w/ query params, POST
+  episodes/{id}, POST legacy body, DELETE unified {targetType}/{targetId}, DELETE legacy questions//files/
+  + single-segment question route). CreateFavoriteRequest stays (API body model).
+- Verified: dotnet build 0 errors; EXISTING unit suite 380/380 passed (no regressions from MediaHandlers /
+  EntitlementService / controller changes). New favorites unit tests land in PART E.
+
+## PART C — features/favorites/ folder (COMPLETE)
+- NEW files (apps/student-web/src/features/favorites/): types.ts (mirrors backend DTO + courseId/subjectId
+  added — see PART B note: REQUIRED for the prompt's own متابعة/فتح navigation; the B.1 shape lacked them),
+  api.ts (listFavorites/createEpisodeFavorite/deleteFavorite via apiClient + entitlementRequestConfig),
+  hooks.ts (useFavoritesList ['favorites','list',params] w/ placeholderData; useCreateEpisodeFavorite;
+  useDeleteFavorite with optimistic removal + snapshot rollback + ['favorites'] prefix invalidation —
+  kills the 11.2-DIAG H1 stale-cache class), components/FavoritesToolbar.tsx (native ARIA tablist =
+  MyStudiesPage convention — @radix-ui/react-tabs NOT installed and lockfile frozen §3; sort via
+  @radix-ui/react-select), components/FavoriteCard.tsx (thumbnail/course-cover fallback, type chip,
+  duration, processing badge, progress bar w/ role=progressbar, متابعة (episode+progress only, decision #3),
+  فتح الحلقة / فتح في المكتبة, 44px delete), components/FavoritesSkeleton.tsx (6 cards, aria-busy),
+  components/FavoritesEmptyState.tsx (per-tab copy + CTA), FavoritesPage.tsx (URL-param state
+  ?type=&sort=&page=, canonicalization, error retry, pagination controls, AnimatePresence grid).
+- DELETED: src/features/questions/FavoritesPage.tsx (replaced); question-api.ts lost its dead
+  getFavorites/FavoriteItem (toggleFavorite kept — QuestionPage still uses it).
+- router.tsx: import updated to features/favorites. Sidebar/BottomNav/DashboardPage link to the
+  unchanged /favorites route (verified — no edits needed).
+- tsc -b clean; eslint 0 errors on changed files; vitest 117/117 (no regressions).
+- Known honest limitation: question cards carry no فتح deep link (question routes are subject-SLUG
+  based and the DTO carries ids only) — questions keep delete-only actions in 11.3.
+
+## PART D — Player star + QuestionPage cache fix + ?episode= deep link (COMPLETE)
+- VideoPlayer.tsx: showFavoriteButton = assetType === 'course-episode'; isFavorite derives from
+  lease info (PlaybackUrlInfo.isFavorite — NEW optional field) with an optimistic override that
+  clears on every lease refresh (silent refreshes re-sync server truth); toggle calls
+  favoritesApi create/delete, rolls back + toasts «تعذّر تحديث المفضلة، حاول مجددًا» on error,
+  invalidates ['favorites'] on success. (Fixed a TDZ slip during authoring — favorite block moved
+  AFTER the useMediaLease destructure; verified by tsc.)
+- ControlsBar.tsx: ⭐ Star button (44px, aria-label «إضافة للمفضلة»/«إزالة من المفضلة»,
+  aria-pressed, amber-filled when active, disabled while pending, data-testid=video-favorite-button)
+  mounted NEXT TO the existing 🔖 bookmark button — product decision #1 (two separate concepts).
+- CoursePlayerPage.tsx: EpisodeStage reads ?episode={id} ONCE on mount (deep-link target of the
+  favorites card's «متابعة» navigation; falls back to the first playable episode; later in-page
+  selections win over the stale URL param).
+- QuestionPage.tsx (the 11.2-DIAG H1 fix): favoriteMutation rebuilt — onMutate flips the question's
+  cached copies (['questions'] list shapes AND ['question-detail', id]) + a local override map;
+  onSuccess invalidates ['favorites'] + toast (direction derived from mutation variables — no stale
+  closure); onError removes the override + invalidates the question surfaces + error toast; button
+  renders the computed state, aria-pressed, disabled while pending.
+- tsc -b clean; eslint 0 errors; vitest 117/117.
+
+## PART E — Tests (COMPLETE)
+- Backend unit (apps/api/src/CMS.Tests/Unit/Handlers/FavoritesHandlersTests.cs — 32 tests):
+  filter (mixed/3 types/invalid-type), sort (recent/oldest/alpha), pagination (slice+totals,
+  pageSize clamp 100, page clamp), enrichment (episode: course title + cover + duration + Ready +
+  progress; file: own thumb + type + category + progress; question: 160-char clamp + lecture
+  subtitle + never progress), entitlement-revoked hiding, unpublished-course hiding, episode create
+  (success/dedup-200/Pending-409/Failed-422/legacy-NULL-favoritable/invalid-signed-403/outside-scope-403),
+  unified delete (episode/idempotent/ownership-security/missing-404), legacy question-file create
+  (200-vs-201 parity + exactly-one rejection).
+  THE ≤5-QUERY CONTRACT (SQLite in-memory + command-counting interceptor + REAL EntitlementService
+  + FullSubject grant): measured EXACTLY 5 commands (favorites+targets fetch, student, subjects,
+  subscriptions, progress) at pageSize=20 AND pageSize=100 — assertion pinned to ==5 for
+  regression loudness. TRAP FIXED during authoring: interceptor overrides must be the ASYNC pair
+  (ReaderExecutingAsync/ScalarExecutingAsync) — the sync-only pair counts ZERO on EF async APIs
+  (a false-positive this suite explicitly guards against). Microsoft.EntityFrameworkCore.Sqlite
+  9.0.0 added to CMS.Tests.csproj (test project only — required by the prompt's "counting
+  DbContext" verification).
+- MediaHandlersTests: +4 PlaybackUrlDto.IsFavorite tests (favorited episode true / unfavorited
+  false / library video false even when favorited / library audio false).
+- Frontend unit (src/features/favorites/tests/hooks.test.tsx — 9 tests): list fetch params
+  (typed + type omitted), optimistic delete (pending-promise window) + rollback + toast, episode
+  create (POST URL + ['favorites'] invalidation) + error toast, FavoritesPage URL-param
+  normalization (bogus type/sort/page → canonical defaults), per-tab empty copy, enriched render +
+  متابعة matrix + duration badge.
+- e2e NEW favorites-advanced.e2e.mjs — 30/30 passed, console errors 0, PEAK CHROME RSS 906 MB
+  (ceiling 1600): per-tab empty states + CTA, 20-card grid + thumbnails + chips, متابعة matrix
+  (2/6 episodes; files → open-in-library; questions → none), non-Ready badge + disabled action,
+  Episodes tab filtering, alpha + oldest sorts (DOM order), pagination (2/2 indicator + back),
+  optimistic delete (specific card detaches + total label 22→21 + DELETE once), متابعة deep link
+  → /my-studies/courses/:id?episode=episode-18, mobile 375px (no h-scroll, 44px tabs) + screenshot.
+  Spec-only fixes during authoring: glob patterns must include the query string (**/favorites**),
+  stateful delete mock (the onSettled refetch must serve consistent data), full-page delete count
+  assertion replaced by card+total assertions (a full page refills from page 2 — correct pagination).
+- e2e NEW player-favorite-toggle.e2e.mjs — 14/14 passed, console errors 0 (injected 500 excluded
+  per the 11.1 convention), PEAK CHROME RSS 966 MB: star presence + initial aria state + Arabic
+  labels, optimistic fill + POST once + success toast, optimistic unfill + DELETE once,
+  isFavorite=true initial state from playback-url, delayed-500 → fill → revert (rollback) + error
+  toast. Route-mock lesson recorded: DELETE goes to the SINGULAR /favorites/episode/{id} (unified
+  {targetType} route) while POST is PLURAL /favorites/episodes/{id} — both backend-correct; the
+  rollback behavior was verified working even when the mock initially missed the route.
+- Regressions: dotnet build 0 errors/warnings; backend unit 416/416 (was 380; +36); tsc clean;
+  eslint 0 errors; vitest 126/126 (was 117; +9); player-video.e2e.mjs 17/17 (2 consecutive runs;
+  1 keepalive-beacon abort console line at page unload — navigation artifact, pre-existing
+  mechanism, not an app error); player-hls.e2e.mjs 19/19 (ladder regenerated with ffmpeg 7's
+  name:360p colon syntax), console errors 0, peak RSS 1015 MB.
+
+## FINAL — commit map + verifications
+- Commits on wip/11.3 (in order): ddbc883 (A: entity + migration FILE) → bfef93e (B: MediatR
+  backend) → 98df808 (C: features/favorites/) → 25914d6 (D: player star + QuestionPage fix) →
+  e05bbc2 (E: tests) → 0588f32 (chore: untrack regenerable e2e MP4 artifact + .gitignore) →
+  THIS (final WIP_STATUS + RESUME_FROM).
+- Full verification matrix at final state: dotnet build 0 errors/0 warnings; backend unit
+  416/416; tsc -b clean; eslint 0 errors on changed files; vitest 126/126;
+  e2e favorites-advanced 30/30 (RSS 906MB); e2e player-favorite-toggle 14/14 (RSS 966MB);
+  e2e player-hls regression 19/19 (RSS 1015MB, console 0); e2e player-video regression 17/17
+  ×2 consecutive runs (1 keepalive-beacon abort console line at page unload — navigation
+  artifact of the beacon mechanism, pre-existing, not an app error).
+- Honest limitations: integration tests (FavoritesHttpIntegrationTests + full integration suite)
+  NOT executed — the sandbox has no Postgres (unchanged since 11.1). The controller's
+  HTTP-surface changes (query-param list + new routes) are covered by unit-level handler tests +
+  the two e2e suites at the network layer; the Postgres integration suite must run in 11.3-MERGE
+  CI or on the supervisor's machine before production apply. pnpm-lock.yaml untouched. No DB
+  touched anywhere. admin-web untouched.
+
+## RESUME_FROM
+RESUME_FROM: <this commit> (wip/11.3) — ALL FIVE PARTS COMPLETE. Migration FILE generated and
+SQL extracted for supervisor review (see PART A + the full script in the push report); NOT
+applied to any DB. Awaiting supervisor SQL review → 11.3-MERGE (Neon safety branch → verify →
+production → merge to main → Render/Vercel auto-deploy). main untouched at
+20f4bf65a45cd04021b155f636f42b99e2c9f9c8.

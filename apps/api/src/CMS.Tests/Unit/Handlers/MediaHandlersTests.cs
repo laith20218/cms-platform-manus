@@ -1259,4 +1259,72 @@ public sealed class MediaHandlersTests
         result!.LastPositionSeconds.Should().Be(600);
         result.CompletionPercent.Should().Be(50);
     }
+
+    // ===== Push 11.3 — PlaybackUrlDto.IsFavorite (episode favorite state) =====
+
+    [Fact]
+    public async Task GetPlaybackUrl_FavoritedEpisode_IsFavoriteTrue()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedEpisodeAsync(db);
+        db.Favorites.Add(new Favorite { StudentId = student.Id, CourseEpisodeId = episode.Id });
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+        storage.Setup(service => service.GetSignedUrlAsync("courses/test/episode", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://example.r2.cloudflarestorage.com/courses/test/episode?X-Amz-Signature=redacted");
+
+        var result = await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
+
+        result.IsFavorite.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GetPlaybackUrl_UnfavoritedEpisode_IsFavoriteFalse()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedEpisodeAsync(db);
+        var (handler, storage, _) = Create(db);
+        storage.Setup(service => service.GetSignedUrlAsync("courses/test/episode", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://example.r2.cloudflarestorage.com/courses/test/episode?X-Amz-Signature=redacted");
+
+        var result = await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
+
+        result.IsFavorite.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetPlaybackUrl_LibraryFileVideo_IsFavoriteAlwaysFalse()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var file = await SeedVideoFileAsync(db);
+        // Even a favorited library file must NOT flip the playback URL field — its
+        // favorite state rides the library list DTO, not this endpoint (11.3 scope).
+        db.Favorites.Add(new Favorite { StudentId = student.Id, LibraryFileId = file.Id });
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+        storage.Setup(service => service.GetSignedUrlAsync("library/test/video", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://example.r2.cloudflarestorage.com/library/test/video?X-Amz-Signature=redacted");
+
+        var result = await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
+
+        result.IsFavorite.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetPlaybackUrl_LibraryFileAudio_IsFavoriteAlwaysFalse()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var file = await SeedVideoFileAsync(db, type: LibraryFileType.Audio);
+        var (handler, storage, _) = Create(db);
+        storage.Setup(service => service.GetSignedUrlAsync("library/test/video", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://example.r2.cloudflarestorage.com/library/test/video?X-Amz-Signature=redacted");
+
+        var result = await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
+
+        result.IsFavorite.Should().BeFalse();
+    }
 }

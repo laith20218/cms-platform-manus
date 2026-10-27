@@ -211,6 +211,19 @@ public interface IEntitlementService
     Task<bool> CanAccessQuestionAsync(Guid studentId, Guid questionId, string action, CancellationToken ct = default);
     Task<bool> CanAccessExamAsync(Guid studentId, Guid examId, string action, CancellationToken ct = default);
     Task<bool> CanAccessLectureAsync(Guid studentId, Guid lectureId, string action, CancellationToken ct = default);
+
+    /// <summary>
+    /// Push 11.3 — batched content-scope check for list endpoints. Answers, per required
+    /// scope, which of the CANDIDATE subjects the student may currently access — one student
+    /// query, one subjects query, one subscriptions query total, regardless of candidate
+    /// count. Per-pair evaluation reuses the exact MatchesAcademicScope/GrantsContent rules
+    /// of <see cref="CanAccessSubjectContentAsync"/> (real-time subscription state, never
+    /// the signed token's cached snapshot — revocation hides content immediately).
+    /// </summary>
+    Task<IReadOnlyDictionary<SubscriptionContentScope, HashSet<Guid>>> GetAccessibleSubjectMapAsync(
+        Guid studentId,
+        IReadOnlyCollection<(Guid SubjectId, SubscriptionContentScope Scope)> candidates,
+        CancellationToken ct = default);
 }
 
 /// <summary>Short-lived entitlement issued from verified server-side academic grants.</summary>

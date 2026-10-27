@@ -132,3 +132,6 @@ apps/student-web/public/e2e-hls/
 
 # Push 11.1-REWRITE — Option C e2e ladder (regenerable ffmpeg artifact)
 apps/student-web/public/e2e-hls-optionc/
+
+# Push 11.3 — e2e MP4 test asset (regenerable — see e2e/player-video.e2e.mjs header)
+apps/student-web/public/e2e-test-video.mp4

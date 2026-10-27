@@ -170,7 +170,11 @@ public class DeviceBinding : BaseEntity
 }
 
 /// <summary>
-/// A student bookmark for a question or library asset. At least one target identifier is required by application logic.
+/// A student bookmark for a question, library asset, or course episode. At least one target
+/// identifier is required by application logic (enforced by ck_favorites_exactly_one_target).
+/// Push 11.3: CourseEpisodeId extends the polymorphic target set — a whole EPISODE can be
+/// favorited from the player's star button. Timeline clips remain a separate concept
+/// (MediaBookmark points INSIDE a video timeline; Favorite marks a whole asset).
 /// </summary>
 public class Favorite : BaseEntity
 {
@@ -178,9 +182,14 @@ public class Favorite : BaseEntity
     public Guid? QuestionId { get; set; }
     public Guid? LibraryFileId { get; set; }
 
+    /// <summary>Push 11.3 — whole-episode favorite (player star button). Mutually exclusive
+    /// with QuestionId/LibraryFileId via the ternary CHECK constraint.</summary>
+    public Guid? CourseEpisodeId { get; set; }
+
     public Student Student { get; set; } = null!;
     public Question? Question { get; set; }
     public LibraryFile? LibraryFile { get; set; }
+    public CourseEpisode? CourseEpisode { get; set; }
 }
 
 /// <summary>

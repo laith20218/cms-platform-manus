@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import Hls, { type ErrorData } from 'hls.js';
+import { toast } from 'sonner';
 import { LoaderCircle, MonitorPlay, Play, RotateCcw } from 'lucide-react';
 import { cn, getOrCreateInstallationId } from '@/utils';
 import { useMediaLease } from '../hooks/useMediaLease';
 import { mediaApi, type MediaAssetType } from '../services/media-api';
+import { favoritesApi } from '@/features/favorites/api';
 import { usePlayerShell } from '../shell-context';
 import { BookmarkDialog } from './BookmarkDialog';
 import { ControlsBar } from './ControlsBar';
@@ -146,6 +149,7 @@ export default function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const shell = usePlayerShell();
+  const queryClient = useQueryClient();
 
   const {
     info,
@@ -158,6 +162,40 @@ export default function VideoPlayer({
     wasPlayingRef,
     resetPending,
   } = useMediaLease({ assetType, assetId, mediaRef: videoRef });
+
+  // Push 11.3 — whole-episode favorite (player star button, product decision #1).
+  // Server truth arrives on the lease info (PlaybackUrlInfo.isFavorite); the override
+  // holds the optimistic state between a toggle and the next lease refresh, then clears
+  // so silent refreshes re-sync from the server. Library-file assets never show the star.
+  const showFavoriteButton = assetType === 'course-episode';
+  const [favoriteOverride, setFavoriteOverride] = useState<boolean | null>(null);
+  const [favoritePending, setFavoritePending] = useState(false);
+  const isFavorite = favoriteOverride ?? info?.isFavorite ?? false;
+  useEffect(() => {
+    setFavoriteOverride(null);
+  }, [info]);
+
+  const toggleFavorite = useCallback(async () => {
+    if (!showFavoriteButton || favoritePending) return;
+    const next = !isFavorite;
+    setFavoriteOverride(next);
+    setFavoritePending(true);
+    try {
+      if (next) {
+        await favoritesApi.createEpisodeFavorite(assetId);
+        toast.success('أُضيفت الحلقة إلى المفضلة');
+      } else {
+        await favoritesApi.deleteFavorite('episode', assetId);
+        toast.success('أُزيلت الحلقة من المفضلة');
+      }
+      queryClient.invalidateQueries({ queryKey: ['favorites'] });
+    } catch {
+      setFavoriteOverride(!next); // rollback
+      toast.error('تعذّر تحديث المفضلة، حاول مجددًا');
+    } finally {
+      setFavoritePending(false);
+    }
+  }, [assetId, favoritePending, isFavorite, queryClient, showFavoriteButton]);
 
   /* ============ engine selection (native MP4 vs hls.js MSE) ============ */
 
@@ -777,6 +815,10 @@ export default function VideoPlayer({
           onRateChange={(value) => { setRate(value); rateRef.current = value; if (videoRef.current) videoRef.current.playbackRate = value; }}
           onToggleFullscreen={() => void toggleFullscreen()}
           onOpenBookmark={() => setBookmarkOpen(true)}
+          showFavoriteButton={showFavoriteButton}
+          isFavorite={isFavorite}
+          favoritePending={favoritePending}
+          onToggleFavorite={() => void toggleFavorite()}
         />
       )}
 

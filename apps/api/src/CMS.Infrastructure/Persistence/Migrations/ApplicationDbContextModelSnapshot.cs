@@ -1280,6 +1280,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<Guid?>("CourseEpisodeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("course_episode_id");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -1303,11 +1307,19 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_favorites");
 
+                    b.HasIndex("CourseEpisodeId")
+                        .HasDatabaseName("ix_favorites_course_episode_id");
+
                     b.HasIndex("LibraryFileId")
                         .HasDatabaseName("ix_favorites_library_file_id");
 
                     b.HasIndex("QuestionId")
                         .HasDatabaseName("ix_favorites_question_id");
+
+                    b.HasIndex("StudentId", "CourseEpisodeId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_favorites_student_id_course_episode_id")
+                        .HasFilter("course_episode_id IS NOT NULL");
 
                     b.HasIndex("StudentId", "LibraryFileId")
                         .IsUnique()
@@ -1321,7 +1333,7 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
                     b.ToTable("favorites", t =>
                         {
-                            t.HasCheckConstraint("ck_favorites_exactly_one_target", "(question_id IS NOT NULL AND library_file_id IS NULL) OR (question_id IS NULL AND library_file_id IS NOT NULL)");
+                            t.HasCheckConstraint("ck_favorites_exactly_one_target", "(question_id IS NOT NULL AND library_file_id IS NULL AND course_episode_id IS NULL) OR (question_id IS NULL AND library_file_id IS NOT NULL AND course_episode_id IS NULL) OR (question_id IS NULL AND library_file_id IS NULL AND course_episode_id IS NOT NULL)");
                         });
                 });
 
@@ -3323,6 +3335,12 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("CMS.Domain.Entities.Favorite", b =>
                 {
+                    b.HasOne("CMS.Domain.Entities.CourseEpisode", "CourseEpisode")
+                        .WithMany()
+                        .HasForeignKey("CourseEpisodeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_favorites_course_episodes_course_episode_id");
+
                     b.HasOne("CMS.Domain.Entities.LibraryFile", "LibraryFile")
                         .WithMany("Favorites")
                         .HasForeignKey("LibraryFileId")
@@ -3339,6 +3357,8 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_favorites_students_student_id");
+
+                    b.Navigation("CourseEpisode");
 
                     b.Navigation("LibraryFile");
 

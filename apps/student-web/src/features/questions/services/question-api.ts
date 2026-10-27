@@ -1,16 +1,8 @@
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
 
-export interface FavoriteItem {
-  favoriteId: string;
-  targetType: 'question' | 'file';
-  targetId: string;
-  subjectId: string;
-  title: string;
-  subtitle?: string | null;
-  meta: string;
-  createdAt: string;
-}
+// Push 11.3: the favorites LIST surface moved to features/favorites (typed + paged);
+// this client keeps only the question-side save/remove toggle used by QuestionPage.
 
 export const questionApi = {
   getByLecture: async (lectureId: string) => {
@@ -36,11 +28,6 @@ export const questionApi = {
 
   report: async (questionId: string, reasonType: string, description: string) => {
     await apiClient.post(`/questions/${questionId}/report`, { reasonType, description }, await entitlementRequestConfig());
-  },
-
-  getFavorites: async (): Promise<FavoriteItem[]> => {
-    const res = await apiClient.get('/favorites', await entitlementRequestConfig());
-    return res.data;
   },
 
   toggleFavorite: async (questionId: string, isFavorite: boolean) => {
