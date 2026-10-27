@@ -183,6 +183,13 @@ CRITICAL: migration file generated but NOT applied to any DB (STOP GATE §2/§3)
 - e2e MP4 fixture at apps/student-web/e2e/fixtures/*.mp4 should be .gitignore'd
   (remove-if-needed).
 
+## Post-merge debts (Push 11.3.1)
+- B7: Npgsql dependency added to CMS.Application.csproj
+      (architectural debt, tracked for Wave 12).
+- D6-b: AbortEpisodeUploadCommand + CompleteEpisodeUploadCommand
+        (size-limit path) not guarded — rows aren't favoritable
+        today (Ready gate); revisit if Ready gate relaxes.
+
 ## Push 11.3.1 — FK RESTRICT graceful handling on episode delete (wip/11.3.1)
 - Handler map (all episode-row delete paths, single file CourseHandlers.cs):
   DeleteEpisodeCommand (:379) SOFT; DeleteCourseCommand (:297) SOFT; ghost purge in
@@ -217,4 +224,9 @@ present) → merged to main --no-ff (28dc416) + debts recorded → pushed (auto-
 Supervisor will coordinate production verification with user.
 Push 11.3.1 delivered on wip/11.3.1 (from main 699beff): 23503-on-favorites-episode-FK →
 409 ConflictException with Arabic guidance, both save sites guarded, 3 unit tests added
-(419/419 green). Awaiting merge review + deploy + production verify.
+(419/419 green).
+Push 11.3.1-MERGE completed: wip/11.3.1 (c376907) merged to main --no-ff (64dc8b8);
+post-merge debts B7 + D6-b recorded in this file; docs commit pushed to origin/main →
+Render + Vercel auto-deploy triggered. RESUME_FROM: final main HEAD (this docs commit,
+SHA in the 11.3.1-MERGE report) — production verification (supervisor coordinates;
+golden path: favorited-episode ghost-purge renumber → 409 + Arabic toast in admin-web).
