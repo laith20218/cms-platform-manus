@@ -129,3 +129,6 @@ apps/student-web/playwright-report/
 
 # E2E HLS ladder (regenerable test artifact — see e2e/player-hls.e2e.mjs header)
 apps/student-web/public/e2e-hls/
+
+# Push 11.1-REWRITE — Option C e2e ladder (regenerable ffmpeg artifact)
+apps/student-web/public/e2e-hls-optionc/

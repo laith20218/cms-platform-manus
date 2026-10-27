@@ -35,6 +35,15 @@ namespace CMS.Tests.Unit.Handlers;
 ///     rejected before ANY db/storage call), HlsKey-root key derivation, playlist vs
 ///     segment content-type + cache-control mapping, per-request entitlement gate,
 ///     processing-state semantics, and a real 404 for pinned-but-absent trees.
+///
+/// Push 11.1-REWRITE (Option C):
+///   • variant playlists are REWRITTEN — bare segment lines become presigned
+///     direct-to-B2 URLs (TTL from MediaPolicy) while tags/unknown lines stay
+///     verbatim; empty and single-segment edge cases hold;
+///   • the segment proxy is RETIRED: .ts paths answer 404 before any storage call;
+///   • a non-rung .m3u8 is conservatively treated as a variant;
+///   • a mid-rewrite presign failure fails fast (BadGatewayException → HTTP 502)
+///     — a partial playlist is never served.
 /// </summary>
 public sealed class MediaHandlersTests
 {
@@ -386,33 +395,224 @@ public sealed class MediaHandlersTests
         storage.Verify(service => service.DownloadAsync("courses/test/episode/hls/master.m3u8", It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    /// <summary>The FFmpeg layout: {rung}/index.m3u8 and {rung}/segment_NNN.ts — the
-    /// requested path must land UNDER the HlsKey's directory, exactly the base the
-    /// playlists' relative URIs resolve against in the browser.</summary>
-    [Theory]
-    [InlineData("360p/index.m3u8", "application/vnd.apple.mpegurl", "private, no-store")]
-    [InlineData("720p/segment_000.ts", "video/mp2t", "private, max-age=300")]
-    [InlineData("360p/segment_041.ts", "video/mp2t", "private, max-age=300")]
-    public async Task GetHlsObject_LadderChildren_ResolveUnderTheHlsKeyRoot(
-        string requestedPath, string expectedContentType, string expectedCacheControl)
+    // ===== Push 11.1-REWRITE (Option C): variant rewrite + retired segment proxy =====
+
+    /// <summary>
+    /// Option C core contract: a variant playlist is downloaded and REWRITTEN — every bare
+    /// segment line becomes the presigned URL for its derived storage key (TTL from
+    /// MediaPolicy), while tags (#EXTM3U/#EXTINF/#EXT-X-ENDLIST), comments and unknown
+    /// non-segment lines are preserved VERBATIM and in order.
+    /// </summary>
+    [Fact]
+    public async Task GetHlsObject_VariantPlaylist_RewritesSegmentsToPresignedUrls_PreservesTagsVerbatim()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var student = db.Students.First();
         var episode = await SeedReadyEpisodeWithLadderAsync(db);
         var (handler, storage, _) = Create(db);
 
-        var expectedKey = $"courses/test/episode/hls/{requestedPath}";
-        storage.Setup(service => service.ExistsAsync(expectedKey, It.IsAny<CancellationToken>()))
+        storage.Setup(service => service.ExistsAsync("courses/test/episode/hls/360p/index.m3u8", It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
-        storage.Setup(service => service.DownloadAsync(expectedKey, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new MemoryStream(new byte[] { 0x47 }));
+        storage.Setup(service => service.DownloadAsync("courses/test/episode/hls/360p/index.m3u8", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Playlist(
+                "#EXT-X-VERSION:6",
+                "#EXT-X-TARGETDURATION:5",
+                "#EXT-X-INDEPENDENT-SEGMENTS",
+                "#EXTINF:4.800000,",
+                "segment_000.ts",
+                "#EXTINF:3.200000,",
+                "segment_001.ts",
+                "#CUSTOM-UNKNOWN-TAG:kept",
+                "not-a-segment.txt",
+                "#EXT-X-ENDLIST"));
+        var ttl = TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds);
+        storage.Setup(service => service.GetSignedUrlAsync("courses/test/episode/hls/360p/segment_000.ts", ttl, It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://s3.eu-central-003.backblazeb2.com/CMSmedia/courses/test/episode/hls/360p/segment_000.ts?X-Amz-Signature=e2e-sig-000");
+        storage.Setup(service => service.GetSignedUrlAsync("courses/test/episode/hls/360p/segment_001.ts", ttl, It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://s3.eu-central-003.backblazeb2.com/CMSmedia/courses/test/episode/hls/360p/segment_001.ts?X-Amz-Signature=e2e-sig-001");
 
         var result = await handler.Handle(
-            new GetHlsObjectQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id, requestedPath), CancellationToken.None);
+            new GetHlsObjectQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id, "360p/index.m3u8"), CancellationToken.None);
 
-        result.ContentType.Should().Be(expectedContentType);
-        result.CacheControl.Should().Be(expectedCacheControl);
-        storage.Verify(service => service.DownloadAsync(expectedKey, It.IsAny<CancellationToken>()), Times.Once);
+        result.ContentType.Should().Be("application/vnd.apple.mpegurl");
+        result.CacheControl.Should().Be("private, max-age=60");
+        using var reader = new StreamReader(result.Content);
+        var rewrittenLines = (await reader.ReadToEndAsync()).Split('\n').ToList();
+
+        // Segment lines → ABSOLUTE presigned URLs (B2 host) at their original positions.
+        const string url000 = "https://s3.eu-central-003.backblazeb2.com/CMSmedia/courses/test/episode/hls/360p/segment_000.ts?X-Amz-Signature=e2e-sig-000";
+        const string url001 = "https://s3.eu-central-003.backblazeb2.com/CMSmedia/courses/test/episode/hls/360p/segment_001.ts?X-Amz-Signature=e2e-sig-001";
+        rewrittenLines.Should().Contain(url000);
+        rewrittenLines.Should().Contain(url001);
+        rewrittenLines.Should().NotContain("segment_000.ts", "the bare filename was replaced, not kept alongside");
+        rewrittenLines.Should().NotContain("segment_001.ts");
+        // Tags and unknown lines preserved VERBATIM.
+        rewrittenLines.Should().Contain("#EXTM3U");
+        rewrittenLines.Should().Contain("#EXT-X-VERSION:6");
+        rewrittenLines.Should().Contain("#EXT-X-TARGETDURATION:5");
+        rewrittenLines.Should().Contain("#EXT-X-INDEPENDENT-SEGMENTS");
+        rewrittenLines.Should().Contain("#EXTINF:4.800000,");
+        rewrittenLines.Should().Contain("#EXTINF:3.200000,");
+        rewrittenLines.Should().Contain("#CUSTOM-UNKNOWN-TAG:kept");
+        rewrittenLines.Should().Contain("not-a-segment.txt");
+        rewrittenLines.Should().Contain("#EXT-X-ENDLIST");
+        // Order: each presigned URL sits DIRECTLY after its EXTINF tag.
+        rewrittenLines[rewrittenLines.IndexOf("#EXTINF:4.800000,") + 1].Should().Be(url000);
+        rewrittenLines[rewrittenLines.IndexOf("#EXTINF:3.200000,") + 1].Should().Be(url001);
+
+        storage.Verify(service => service.GetSignedUrlAsync(
+            "courses/test/episode/hls/360p/segment_000.ts",
+            TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds),
+            It.IsAny<CancellationToken>()), Times.Once);
+        storage.Verify(service => service.GetSignedUrlAsync(
+            "courses/test/episode/hls/360p/segment_001.ts",
+            TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds),
+            It.IsAny<CancellationToken>()), Times.Once);
+        storage.Verify(service => service.DownloadAsync("courses/test/episode/hls/360p/index.m3u8", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>Edge case: a playlist with no segment lines is served unchanged — the
+    /// strict mock + VerifyNoOtherCalls prove NO presign call ever happened.</summary>
+    [Fact]
+    public async Task GetHlsObject_EmptyVariantPlaylist_IsServedUnchanged_WithoutPresigns()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedReadyEpisodeWithLadderAsync(db);
+        var (handler, storage, _) = Create(db);
+
+        storage.Setup(service => service.ExistsAsync("courses/test/episode/hls/720p/index.m3u8", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        storage.Setup(service => service.DownloadAsync("courses/test/episode/hls/720p/index.m3u8", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Playlist()); // #EXTM3U only — no segments
+
+        var result = await handler.Handle(
+            new GetHlsObjectQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id, "720p/index.m3u8"), CancellationToken.None);
+
+        result.ContentType.Should().Be("application/vnd.apple.mpegurl");
+        result.CacheControl.Should().Be("private, max-age=60");
+        using var reader = new StreamReader(result.Content);
+        (await reader.ReadToEndAsync()).Should().Be("#EXTM3U");
+        storage.Verify(service => service.ExistsAsync("courses/test/episode/hls/720p/index.m3u8", It.IsAny<CancellationToken>()), Times.Once);
+        storage.Verify(service => service.DownloadAsync("courses/test/episode/hls/720p/index.m3u8", It.IsAny<CancellationToken>()), Times.Once);
+        storage.VerifyNoOtherCalls(); // no GetSignedUrlAsync was ever issued
+    }
+
+    /// <summary>Edge case: a single-segment variant rewrites and serves normally.</summary>
+    [Fact]
+    public async Task GetHlsObject_SingleSegmentVariant_RewritesAndServes()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedReadyEpisodeWithLadderAsync(db);
+        var (handler, storage, _) = Create(db);
+
+        storage.Setup(service => service.ExistsAsync("courses/test/episode/hls/360p/index.m3u8", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        storage.Setup(service => service.DownloadAsync("courses/test/episode/hls/360p/index.m3u8", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Playlist("#EXTINF:12.000000,", "segment_000.ts", "#EXT-X-ENDLIST"));
+        storage.Setup(service => service.GetSignedUrlAsync(
+                "courses/test/episode/hls/360p/segment_000.ts",
+                TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://s3.eu-central-003.backblazeb2.com/CMSmedia/courses/test/episode/hls/360p/segment_000.ts?X-Amz-Signature=e2e-single");
+
+        var result = await handler.Handle(
+            new GetHlsObjectQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id, "360p/index.m3u8"), CancellationToken.None);
+
+        using var reader = new StreamReader(result.Content);
+        var rewrittenLines = (await reader.ReadToEndAsync()).Split('\n').ToList();
+        rewrittenLines.Should().Contain("https://s3.eu-central-003.backblazeb2.com/CMSmedia/courses/test/episode/hls/360p/segment_000.ts?X-Amz-Signature=e2e-single");
+        rewrittenLines.Should().Contain("#EXTINF:12.000000,");
+        rewrittenLines.Should().Contain("#EXT-X-ENDLIST");
+        storage.Verify(service => service.GetSignedUrlAsync(
+            "courses/test/episode/hls/360p/segment_000.ts",
+            TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// Option C compatibility break: the segment proxy is RETIRED — .ts paths answer 404
+    /// BEFORE any storage access (the strict mock's VerifyNoOtherCalls proves nothing ran).
+    /// A cached old client gets the fast failure that drives it back to the variant for
+    /// fresh presigned URLs.
+    /// </summary>
+    [Theory]
+    [InlineData("720p/segment_000.ts")]
+    [InlineData("360p/segment_041.ts")]
+    public async Task GetHlsObject_SegmentPath_IsRetired404_NeverTouchesStorage(string path)
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedReadyEpisodeWithLadderAsync(db);
+        var (handler, storage, _) = Create(db);
+
+        var act = async () => await handler.Handle(
+            new GetHlsObjectQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id, path), CancellationToken.None);
+
+        await act.Should().ThrowAsync<NotFoundException>();
+        storage.VerifyNoOtherCalls(); // deprecated: no HEAD, no download — nothing
+    }
+
+    /// <summary>
+    /// Conservative dispatch: a .m3u8 outside the canonical rungs (360p/720p/1080p) is
+    /// still treated as a VARIANT — its bare segment lines are the only things rewritten.
+    /// </summary>
+    [Fact]
+    public async Task GetHlsObject_NonRungVariantM3u8_IsTreatedAsVariant()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedReadyEpisodeWithLadderAsync(db);
+        var (handler, storage, _) = Create(db);
+
+        storage.Setup(service => service.ExistsAsync("courses/test/episode/hls/240p/index.m3u8", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        storage.Setup(service => service.DownloadAsync("courses/test/episode/hls/240p/index.m3u8", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Playlist("#EXTINF:2.000000,", "segment_000.ts", "#EXT-X-ENDLIST"));
+        storage.Setup(service => service.GetSignedUrlAsync(
+                "courses/test/episode/hls/240p/segment_000.ts",
+                TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://s3.eu-central-003.backblazeb2.com/CMSmedia/courses/test/episode/hls/240p/segment_000.ts?X-Amz-Signature=e2e-nonrung");
+
+        var result = await handler.Handle(
+            new GetHlsObjectQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id, "240p/index.m3u8"), CancellationToken.None);
+
+        result.ContentType.Should().Be("application/vnd.apple.mpegurl");
+        result.CacheControl.Should().Be("private, max-age=60");
+        using var reader = new StreamReader(result.Content);
+        (await reader.ReadToEndAsync()).Should().Contain(
+            "https://s3.eu-central-003.backblazeb2.com/CMSmedia/courses/test/episode/hls/240p/segment_000.ts?X-Amz-Signature=e2e-nonrung");
+    }
+
+    /// <summary>
+    /// Fail-fast: ONE presign generation failure aborts the whole rewrite with
+    /// BadGatewayException (→ HTTP 502 via ExceptionHandlingMiddleware) — a partial
+    /// playlist mixing live and dead URLs is never served.
+    /// </summary>
+    [Fact]
+    public async Task GetHlsObject_PresignFailureMidRewrite_FailsFastWith502_NeverServesPartial()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedReadyEpisodeWithLadderAsync(db);
+        var (handler, storage, _) = Create(db);
+
+        storage.Setup(service => service.ExistsAsync("courses/test/episode/hls/360p/index.m3u8", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        storage.Setup(service => service.DownloadAsync("courses/test/episode/hls/360p/index.m3u8", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Playlist("#EXTINF:4.8,", "segment_000.ts", "#EXTINF:3.2,", "segment_001.ts"));
+        var ttl = TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds);
+        storage.Setup(service => service.GetSignedUrlAsync("courses/test/episode/hls/360p/segment_000.ts", ttl, It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://s3.eu-central-003.backblazeb2.com/CMSmedia/courses/test/episode/hls/360p/segment_000.ts?X-Amz-Signature=e2e-ok");
+        storage.Setup(service => service.GetSignedUrlAsync("courses/test/episode/hls/360p/segment_001.ts", ttl, It.IsAny<CancellationToken>()))
+            .Throws(new InvalidOperationException("presign exploded mid-rewrite"));
+
+        var act = async () => await handler.Handle(
+            new GetHlsObjectQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id, "360p/index.m3u8"), CancellationToken.None);
+
+        var failure = (await act.Should().ThrowAsync<BadGatewayException>()).Which;
+        failure.ErrorCode.Should().Be("HLS_PRESIGN_FAILED");
+        failure.InnerException.Should().BeOfType<InvalidOperationException>();
     }
 
     [Fact]
@@ -431,11 +631,18 @@ public sealed class MediaHandlersTests
             .ReturnsAsync(true);
         storage.Setup(service => service.DownloadAsync("library/test/video/hls/360p/index.m3u8", It.IsAny<CancellationToken>()))
             .ReturnsAsync(Playlist("#EXTINF:4.0,", "segment_000.ts"));
+        storage.Setup(service => service.GetSignedUrlAsync(
+                "library/test/video/hls/360p/segment_000.ts",
+                TimeSpan.FromSeconds(MediaPolicy.PlaybackUrlTtlSeconds), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://s3.eu-central-003.backblazeb2.com/CMSmedia/library/test/video/hls/360p/segment_000.ts?X-Amz-Signature=e2e-lib");
 
         var result = await handler.Handle(
             new GetHlsObjectQuery(student.Id, MediaAssetType.LibraryFile, file.Id, "360p/index.m3u8"), CancellationToken.None);
 
         result.ContentType.Should().Be("application/vnd.apple.mpegurl");
+        using var reader = new StreamReader(result.Content);
+        (await reader.ReadToEndAsync()).Should().Contain(
+            "https://s3.eu-central-003.backblazeb2.com/CMSmedia/library/test/video/hls/360p/segment_000.ts?X-Amz-Signature=e2e-lib");
         storage.Verify(service => service.DownloadAsync("library/test/video/hls/360p/index.m3u8", It.IsAny<CancellationToken>()), Times.Once);
     }
 

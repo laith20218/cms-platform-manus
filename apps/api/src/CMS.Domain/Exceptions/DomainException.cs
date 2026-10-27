@@ -63,3 +63,23 @@ public class ConflictException : DomainException
     {
     }
 }
+
+/// <summary>
+/// Push 11.1-REWRITE — raised when an upstream dependency (object storage) fails
+/// mid-operation and the request must FAIL FAST instead of serving partial content
+/// (e.g. a presign generation failure during the HLS variant-rewrite). Maps to
+/// HTTP 502 Bad Gateway (see ExceptionHandlingMiddleware — must stay ABOVE the
+/// generic <see cref="DomainException"/> catch, which maps to 400).
+/// </summary>
+public class BadGatewayException : DomainException
+{
+    public BadGatewayException(string message, string errorCode = "BAD_GATEWAY")
+        : base(message, errorCode)
+    {
+    }
+
+    public BadGatewayException(string message, Exception innerException, string errorCode = "BAD_GATEWAY")
+        : base(message, innerException, errorCode)
+    {
+    }
+}

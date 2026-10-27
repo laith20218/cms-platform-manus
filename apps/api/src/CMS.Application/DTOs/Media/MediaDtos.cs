@@ -16,11 +16,14 @@ public record PlaybackUrlDto(
 );
 
 /// <summary>
-/// Push 11.1 — one HLS ladder object streamed through the API proxy. <see cref="Content"/>
-/// is the raw object stream from storage (the API layer owns disposal via the
+/// Push 11.1 — one HLS ladder object served through the API proxy. <see cref="Content"/>
+/// is the object stream from storage (the API layer owns disposal via the
 /// FileStreamResult); <see cref="ContentType"/> and <see cref="CacheControl"/> follow the
-/// object's role (.m3u8 playlists: application/vnd.apple.mpegurl + private,no-store /
-/// .ts segments: video/mp2t + private,max-age=300).
+/// object's role.
+/// Push 11.1-REWRITE (Option C): the master playlist streams raw (private,no-store);
+/// VARIANT playlists arrive already REWRITTEN — segment lines replaced with presigned
+/// direct-to-B2 URLs (private,max-age=60). Segment objects are never streamed anymore
+/// (the route answers 404 for them).
 /// </summary>
 public record HlsObjectDto(
     Stream Content,

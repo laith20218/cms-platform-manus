@@ -52,6 +52,14 @@ public class ExceptionHandlingMiddleware
         {
             await HandleDomainException(context, ex, HttpStatusCode.Conflict);
         }
+        catch (BadGatewayException ex)
+        {
+            // Push 11.1-REWRITE: upstream object-storage failure mid-operation (e.g. a
+            // presign generation failure during the HLS variant rewrite) — fail fast
+            // with 502, never serve partial content. Must stay ABOVE the generic
+            // catch (DomainException) because BadGatewayException derives from it.
+            await HandleDomainException(context, ex, HttpStatusCode.BadGateway);
+        }
         catch (BusinessRuleViolationException ex)
         {
             await HandleDomainException(context, ex, HttpStatusCode.BadRequest);

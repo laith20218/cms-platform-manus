@@ -20,20 +20,20 @@ public record GetPlaybackUrlQuery(
 /// <summary>
 /// Push 11.1 — HLS proxy object fetch. One file of a Ready asset's HLS ladder
 /// (master.m3u8, {rung}/index.m3u8, {rung}/segment_NNN.ts), addressed RELATIVE to the
-/// asset's pinned HlsKey directory and streamed from object storage through the API.
+/// asset's pinned HlsKey directory.
 ///
-/// Why a proxy at all: S3-style presigned URLs are object-scoped — one signature covers
-/// exactly one key. An HLS ladder is a TREE of playlists and segments referenced by
-/// RELATIVE URIs, so a presigned master.m3u8 cannot authorize its children: the player
-/// resolves {rung}/index.m3u8 against the presigned URL and requests it from the bucket
-/// WITHOUT any signature, which a private bucket rejects with 401 (the Wave 10
-/// production incident). The proxy keeps the base URL on the API (same authorization
-/// surface as every other student endpoint) and fetches each object server-side with
-/// the storage credentials. The relative URIs inside the FFmpeg-generated playlists
-/// then resolve against the proxy route, so no playlist rewriting is needed.
+/// Why the API is in this path at all: S3-style presigned URLs are object-scoped —
+/// one signature covers exactly one key. An HLS ladder is a TREE of playlists and
+/// segments referenced by RELATIVE URIs, so a presigned master.m3u8 cannot authorize
+/// its children (the Wave 10 401 incident), and B2 has no wildcard presigns (verified
+/// live, PART B T1-Step2: 403 SignatureDoesNotMatch).
 ///
-/// The handler answers a DTO carrying the object stream; the API layer wraps it in a
-/// FileStreamResult with the mapped Content-Type and Cache-Control.
+/// Push 11.1-REWRITE (Option C): only the PLAYLISTS stay on the API — the master is
+/// streamed raw; every VARIANT playlist is downloaded and REWRITTEN so its segment
+/// lines become object-scoped presigned URLs the player fetches DIRECTLY from B2
+/// (browser CORS verified live, PART B T2-b). Segment (.ts/.m4s) requests against the
+/// API are RETIRED and answer 404 before any storage access — the fast failure that
+/// drives stale clients back to the variant for fresh presigned URLs.
 /// </summary>
 public record GetHlsObjectQuery(
     Guid StudentId,
