@@ -143,5 +143,152 @@ stale (> 5 min old) — this is what makes the missing QuestionPage invalidation
 - PAT used inline for the branch push only; scrubbed immediately (remote -v clean; 0 matches in
   .git/config).
 
+## T5 — Advanced design proposal (PROPOSAL ONLY — §2 stop gate; no code written)
+
+### D1 — Data model
+Migration REQUIRED: exactly ONE (`AddEpisodeFavorites`). The Favorite table cannot represent
+episodes today (T1/H2) — the whole bug. Design follows the ESTABLISHED favorites integrity pattern
+(typed nullable FK + CHECK exactly-one + filtered unique index), NOT the polymorphic no-FK
+MediaBookmark pattern (episode favorites deserve FK integrity, consistent with question/file rows):
+
+```sql
+ALTER TABLE favorites ADD COLUMN course_episode_id UUID NULL
+  REFERENCES course_episodes(id);                       -- matches question/library FK behavior (no cascade)
+ALTER TABLE favorites DROP CONSTRAINT ck_favorites_exactly_one_target;
+ALTER TABLE favorites ADD CONSTRAINT ck_favorites_exactly_one_target CHECK (
+  (question_id IS NOT NULL AND library_file_id IS NULL AND course_episode_id IS NULL)
+  OR (question_id IS NULL AND library_file_id IS NOT NULL AND course_episode_id IS NULL)
+  OR (question_id IS NULL AND library_file_id IS NULL AND course_episode_id IS NOT NULL));
+CREATE UNIQUE INDEX ix_favorites_student_id_course_episode_id
+  ON favorites(student_id, course_episode_id) WHERE course_episode_id IS NOT NULL;
+```
+Before: 2 nullable target FKs, 2-way CHECK. After: 3 nullable target FKs, 3-way CHECK, 3 filtered
+unique indexes. All existing rows satisfy the new CHECK (course_episode_id IS NULL → branches 1/2).
+Entity change: Favorite gains `Guid? CourseEpisodeId` + nav (OperationalEntities.cs:175-184 area).
+PlaybackProgress and MediaBookmark: NO schema change (progress already covers both asset types).
+
+### D2 — Proposed backend DTO ("enriched favorite") — TypeScript contract
+```ts
+interface FavoriteItem {                    // sources (all server-side, one call)
+  favoriteId: string;                       // favorites.id
+  targetType: 'question' | 'file' | 'episode'; // derived from which FK is set
+  targetId: string;                         // question_id | library_file_id | course_episode_id
+  subjectId: string;                        // question.subject_id | library_file.subject_id | course.subject_id
+  savedAt: string;                          // favorites.created_at (ISO-8601 UTC)
+  title: string;                            // question.text (clamped ~120 chars) | library_file.title | episode.title
+  subtitle: string | null;                  // lecture.name_ar | library_file.description | course.title
+  typeMeta: string;                         // 'easy'|'medium'|'hard' | file type lowercased | 'video'|'audio'
+  thumbnailUrl: string | null;              // library_file.thumbnail_url | course.cover_image_url | null (questions → icon fallback)
+  durationSeconds: number | null;           // episode.duration_seconds | library_file.duration_seconds | null
+  fileSizeBytes: number | null;             // library_file.file_size | episode.file_size | null
+  pagesCount: number | null;                // library_file.pages_count | null
+  episodeNumber: number | null;             // episode.episode_number | null
+  courseId: string | null;                  // episode.course_id | null
+  processingStatus: string | null;          // episode/library_file.processing_status ('ready'…) | null
+  progress: { lastPositionSeconds: number; durationSeconds: number | null; completionPercent: number | null } | null;
+                                            // playback_progress row (video/audio assets) — absent for questions/texts
+}
+```
+Nullable-vs-required mirrors the entities exactly (T4 sources cited). processingStatus lets the card
+disable "continue" for pending/failed transcodes (existing locked-card semantics, CoursePlayerPage).
+
+### D3 — Proposed endpoints
+- GET /api/v1/favorites?type=all|question|file|episode&sort=savedAt_desc|savedAt_asc|title_asc|title_desc&page=1&pageSize=20
+  → PagedResult envelope { items: FavoriteItem[], total, page, pageSize, totalPages } — same envelope
+  as /library/subject/{id} and /questions (PagedResult<T> convention). ONE list endpoint (not per-type):
+  the UI is a mixed feed with type tabs; per-type endpoints would force client-side merging and break
+  the one-round-trip goal. Server-side filter+sort+pagination; default savedAt_desc.
+- POST /api/v1/favorites — CreateFavoriteRequest(QuestionId?, LibraryFileId?, EpisodeId?) with
+  exactly-one-of-three validation; idempotent semantics preserved (200 existing / 201 new).
+- DELETE /api/v1/favorites/episodes/{episodeId} (NEW; mirrors existing questions/ + files/ routes).
+- Auth/rate-limit UNCHANGED: student role + signed entitlement + "favorites" 30/min.
+- Recommended (implementation choice): move handlers into MediatR (GetFavoritesQuery / Create/Delete
+  commands in CMS.Application/Handlers/Favorites/) — restores the CQRS pipeline consistency the
+  controller currently bypasses (T2 anomaly) and enables the standard HandlerTests pattern.
+- Enrichment with NO N+1: page query → collect DISTINCT subject ids of the page (≤ pageSize) → ONE
+  batched entitlement scope check → in-memory filter; progress enrichment = ONE PlaybackProgress
+  query for the page's video/audio asset ids (dictionary join); Include chains for question→lecture,
+  file, episode→course→subject. Total fixed query count ≈ 5 per page regardless of page size.
+
+### D4 — Proposed frontend architecture
+Component tree (new feature folder features/favorites/):
+```
+FavoritesPage (/favorites)
+├── FavoritesToolbar: TypeFilterTabs (all/questions/files/episodes) + SortSelect — state in URL search params (?type=&sort=&page=)
+├── FavoritesList → FavoriteCard×N (type variants: question/file/episode)
+│    card: thumbnail-or-icon | type chip | title | subtitle(course/lecture) | meta row (duration/size/pages/difficulty)
+│          | progress bar when progress ≠ null | Continue (video/audio, disabled when processingStatus ≠ ready)
+│          | Open (question→LecturePage, file→LibraryPage+DocumentViewer, episode→CoursePlayerPage) | Remove (optimistic)
+├── SkeletonGrid (loading) | EmptyState PER active tab (per-filter copy) | ErrorState (retry)
+```
+- State ownership: URL search params (shareable, back-button-safe) + React Query
+  ['favorites', {type,sort,page}] ; local state only for transient UI.
+- Optimistic delete: onMutate (cancel + snapshot + remove from cache) → onError rollback + toast →
+  onSettled invalidate ['favorites'] (prefix — invalidates all parameterizations).
+- Save fixes riding the same push (they are part of the bug): QuestionPage favoriteMutation gets
+  onSuccess/onError (toast + icon flip + invalidate ['favorites'] AND the questions-list key);
+  CoursePlayerPage gains an "add to favorites" toggle for episodes (new — the missing affordance);
+  LibraryPage path unchanged (already correct).
+- Continue behavior: navigate /my-studies/courses/:courseId (+ optional ~5-line enhancement reading
+  ?episode= into the page's initial selection); auto-resume already lives inside VideoPlayer
+  (CoursePlayerPage doc :24 — resume-from-last-position). For library video/audio: open the file in
+  DocumentViewer (no position restore there today — honest limitation; flagged in T6).
+- WCAG 2.2 AA: aria-pressed tabs, ≥44px targets, focus-visible rings, aria-busy skeletons, Arabic
+  aria-labels; mobile-first single-column → sm: 2-col → lg: 3-col grid; native RTL (app dir=rtl).
+
+### D5 — Interconnection
+- One-call list: YES — GET /favorites with params returns every field the cards render; ZERO client
+  joins, ZERO two-phase fetches, ZERO per-card follow-up calls (progress included server-side).
+- Payload: enriched item ≈ 0.4 KB JSON → 20-item page ≈ 8 KB; a 50-favorite user (3 pages) ≈ 20 KB
+  total. Acceptable; pagination keeps the ceiling bounded.
+
+### D6 — Complexity estimate
+- Files to CREATE (~9): prisma n/a — EF: Migrations/*_AddEpisodeFavorites.cs (+auto Designer);
+  CMS.Application/DTOs/Favorites/FavoriteDtos.cs; CMS.Application/Handlers/Favorites/FavoritesHandlers.cs;
+  student-web: features/favorites/pages/FavoritesPage.tsx, features/favorites/services/favorites-api.ts,
+  features/favorites/components/FavoriteCard.tsx, FavoritesToolbar.tsx, FavoriteSkeleton.tsx.
+- Files to MODIFY (~7): OperationalEntities.cs (Favorite entity); ApplicationDbContext.cs (config);
+  FavoritesController.cs (thin MediatR dispatch + episode delete route + request DTO);
+  QuestionPage.tsx (mutation feedback/invalidation fix); CoursePlayerPage.tsx (episode favorite
+  button + ?episode= param); router.tsx (import path); question-api.ts/library-api.ts (favorites
+  wrappers migrate to favorites-api.ts).
+- Migrations: exactly 1 — AddEpisodeFavorites.
+- Tests: unit handler tests (~12 cases: enrichment shape, type filter, sorts, pagination, episode
+  target, idempotent create); integration extension of FavoritesHttpIntegrationTests (~6 facts:
+  episode create/list/delete, file favorite round-trip, pagination/sort envelope); vitest page tests
+  (~8: tabs, per-tab empty states, optimistic rollback, skeleton); NEW e2e favorites.e2e.mjs (~6:
+  save episode from player → appears under Episodes tab → continue navigates → optimistic remove).
+- Estimated pushes: ONE atomic push (11.3) — the GET envelope change (array → PagedResult) breaks the
+  CURRENT page, so API + web must merge to main together (Render + Vercel auto-deploy from the same
+  commit). Splitting into 2 pushes would require a temporary compat shim judged not worth the debt;
+  if the supervisor prefers smaller review surfaces, the split point is backend+migration+integration
+  tests (11.3-a, envelope kept array-compatible by ALSO returning items at top level — not
+  recommended) then frontend (11.3-b).
+
+## T6 — Risks and open questions
+1. CHECK-constraint swap on a live table: safe by construction (all existing rows keep satisfying
+   the 3-way CHECK — course_episode_id is NULL for them), but the migration MUST apply before the
+   API starts accepting episode favorites (standard EF migration ordering; Render deploy gate).
+2. Payload growth for heavy users (500+ favorites): pagination mandatory from day one (default 20,
+   cap 100); the current unbounded array becomes a page.
+3. Entitlement scope checks are per-item today (N+1 pattern, same as LibraryHandlers.cs:85-93 with
+   its documented EF concurrency constraint) — the 11.3 handler MUST batch by the page's distinct
+   subject set or latency regresses with favorite count.
+4. Episode thumbnails do NOT exist server-side (T4) — cards fall back to Course.CoverImageUrl;
+   questions fall back to a type icon. Needs user sign-off on the visual.
+5. Continue button on audio favorites (and on library video/audio files): data fully exists
+   (PlaybackProgress covers both asset types) but DocumentViewer has no position restore — user
+   decision: episodes-only in 11.3, or library media included (restore needs a small player swap)?
+6. Saved timeline CLIPS (media_bookmarks) remain invisible on the favorites page after 11.3 — the
+   user's mental model may still expect them. Surfacing clips is out of 11.3 scope (§12) — Wave 12
+   candidate; needs an explicit supervisor/user decision.
+7. Deploy skew: for seconds, old cached Vercel bundles may hit the new PagedResult envelope
+   (FavoritesPage would render "empty" until the new bundle loads). Blast radius tiny (the page is
+   already broken-empty per T1); atomic merge mitigates.
+8. Stats favoriteCount (StatsHandlers.cs:64 — raw row count, no scope/published filter) will diverge
+   further from the visible list once episodes count. Minor; propose aligning in a later push.
+
 ## RESUME_FROM
-(in progress — T5 design + T6 risks follow on this branch in the next commit)
+RESUME_FROM: f7fbf1d + <this commit> (wip/11.2-diag) — DIAGNOSTIC + DESIGN COMPLETE. Awaiting
+supervisor AND user approval of the T5 design before Push 11.3 (implementation). No production code
+exists on this branch; main untouched at 20f4bf65a45cd04021b155f636f42b99e2c9f9c8.
