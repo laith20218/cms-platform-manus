@@ -1,12 +1,14 @@
 # ============================================================
 # CMS Platform — CI/CD Pipeline
-# Triggers: push to main / develop + PRs to main
+# Triggers: push to main / develop / wip/** + PRs to main
 # ============================================================
 name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    # Push 11.5: 'wip/**' added so CI trust (integration tests, admin-web tests, Playwright
+    # e2e) is verifiable on work branches BEFORE merge to main.
+    branches: [main, develop, 'wip/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -91,11 +93,100 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
+        # Push 11.5: no `version` input — the pinned packageManager (pnpm@9.12.0) in the root
+        # package.json is the single source of truth. Specifying BOTH made action-setup v4
+        # fail the job ("Multiple versions of pnpm specified").
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # =====================================================================
+      # Push 11.5 — the NEW test surfaces run BEFORE the pre-existing "Lint"
+      # gate: Lint is red from PRE-EXISTING no-explicit-any warnings in
+      # student-web source (SettingsPage.tsx:34, ActivateCodePage.tsx:47 —
+      # surfaced by the pnpm setup fix; fixing them is app code, out of 11.5
+      # scope). Keeping these steps ahead of Lint keeps the new CI-trust
+      # surfaces executable and verifiable; the pre-existing gates below
+      # (Lint → student vitest → Audit → Build → SBOM) keep their own order.
+      # =====================================================================
+
+      # ===== Push 11.5 / PART D: admin-web unit tests (38-test suite, jsdom) =====
+      # NOTE: the script is "test": "vitest run" — invoking `test run` would pass "run" to
+      # vitest as a filename filter ("No test files found"); `pnpm --filter @cms/admin-web test`
+      # is the correct invocation. admin-web lint is intentionally NOT added: the package's
+      # pre-existing warnings make `pnpm lint` red (out of 11.5 scope).
+
+      - name: admin-web tests
+        run: pnpm --filter @cms/admin-web test
+
+      # ===== Push 11.5 / PART C: Playwright e2e (network-mocked specs; no backend needed) =====
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @cms/student-web exec playwright install --with-deps chromium
+
+      - name: Resolve Playwright Chromium executable
+        id: pw-chromium
+        run: |
+          p="$(pnpm --filter @cms/student-web exec node -e "const {chromium}=require('@playwright/test');process.stdout.write(chromium.executablePath())")"
+          echo "path=$p" >> "$GITHUB_OUTPUT"
+          echo "Playwright Chromium: $p"
+
+      - name: Install ffmpeg (not present on ubuntu-24.04 runners)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version | head -1
+
+      - name: Generate e2e media assets (git-ignored, regenerable)
+        run: |
+          cd apps/student-web
+          mkdir -p public/e2e-hls/stream_360p public/e2e-hls/stream_720p
+          # 90s MP4 — used by player-video + player-favorite-toggle (spec-header command).
+          ffmpeg -y -loglevel error -threads 2 \
+            -f lavfi -i testsrc=duration=90:size=640x360:rate=15 \
+            -f lavfi -i sine=frequency=440:duration=90 -pix_fmt yuv420p \
+            -movflags +faststart -c:v libx264 -preset veryfast -crf 30 \
+            -c:a aac -b:a 48k -shortest public/e2e-test-video.mp4
+          # 2-rung HLS ladder for player-hls — per-rung generation (robust across ffmpeg
+          # versions; ubuntu-24.04 ships 6.1). player-hls-option-c self-generates its own.
+          ffmpeg -y -loglevel error -threads 2 \
+            -f lavfi -i testsrc=duration=12:size=640x360:rate=10 \
+            -f lavfi -i sine=frequency=440:duration=12 -pix_fmt yuv420p \
+            -c:v libx264 -preset ultrafast -crf 35 -c:a aac -b:a 32k -ac 1 -shortest \
+            -f hls -hls_time 4 -hls_playlist_type vod \
+            -hls_segment_filename "public/e2e-hls/stream_360p/seg%03d.ts" \
+            "public/e2e-hls/stream_360p/playlist.m3u8"
+          ffmpeg -y -loglevel error -threads 2 \
+            -f lavfi -i testsrc=duration=12:size=1280x720:rate=10 \
+            -f lavfi -i sine=frequency=440:duration=12 -pix_fmt yuv420p \
+            -c:v libx264 -preset ultrafast -crf 34 -c:a aac -b:a 32k -ac 1 -shortest \
+            -f hls -hls_time 4 -hls_playlist_type vod \
+            -hls_segment_filename "public/e2e-hls/stream_720p/seg%03d.ts" \
+            "public/e2e-hls/stream_720p/playlist.m3u8"
+          printf '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=107034,AVERAGE-BANDWIDTH=107034,RESOLUTION=640x360,CODECS="avc1.42c016,mp4a.40.2"\nstream_360p/playlist.m3u8\n\n#EXT-X-STREAM-INF:BANDWIDTH=137616,AVERAGE-BANDWIDTH=137616,RESOLUTION=1280x720,CODECS="avc1.42c01f,mp4a.40.2"\nstream_720p/playlist.m3u8\n' > public/e2e-hls/master.m3u8
+
+      - name: Run Playwright e2e specs (vite dev server + mocked API)
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE: ${{ steps.pw-chromium.outputs.path }}
+          E2E_WEB_URL: http://127.0.0.1:5173
+        run: |
+          pnpm --filter @cms/student-web dev --host 127.0.0.1 &
+          DEV_PID=$!
+          for i in $(seq 1 30); do
+            curl -s -o /dev/null http://127.0.0.1:5173/ && break
+            sleep 1
+          done
+          curl -s -o /dev/null -w "dev server up: HTTP %{http_code}\n" http://127.0.0.1:5173/
+          cd apps/student-web
+          node e2e/favorites-advanced.e2e.mjs
+          node e2e/player-video.e2e.mjs
+          node e2e/player-favorite-toggle.e2e.mjs
+          node e2e/player-hls.e2e.mjs
+          node e2e/player-hls-option-c.e2e.mjs
+          kill $DEV_PID 2>/dev/null || true
+          pkill -f vite 2>/dev/null || true
+
+      # ===== Pre-existing quality gates (original order preserved) =====
 
       - name: Lint
         run: pnpm --filter @cms/student-web lint
@@ -188,8 +279,7 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
+        # Push 11.5: same fix as the frontend-test job — packageManager is authoritative.
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -211,7 +301,9 @@ jobs:
     name: Build & Push Docker Images
     runs-on: ubuntu-latest
     needs: [backend-test, frontend-test]
-    if: github.event_name == 'push'
+    # Push 11.5: gated to the long-lived branches — the new 'wip/**' push trigger must not
+    # publish throwaway ghcr images for every work branch.
+    if: github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'develop')
     permissions:
       contents: read
       packages: write

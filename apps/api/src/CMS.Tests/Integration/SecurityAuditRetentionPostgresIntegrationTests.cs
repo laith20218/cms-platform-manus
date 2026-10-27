@@ -7,6 +7,8 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
+using CMS.Tests.Infrastructure;
+
 namespace CMS.Tests.Integration;
 
 [Trait("Category", "PostgresIntegration")]
@@ -15,7 +17,7 @@ public sealed class SecurityAuditRetentionPostgresIntegrationTests
 {
     private const string ConnectionVariable = "CMS_PHASE34_TEST_POSTGRES";
 
-    [Fact]
+    [PostgresFact]
     public async Task Retention_DeletesOnlyAuditEventsOlderThanConfiguredWindow()
     {
         var connectionString = Environment.GetEnvironmentVariable(ConnectionVariable);

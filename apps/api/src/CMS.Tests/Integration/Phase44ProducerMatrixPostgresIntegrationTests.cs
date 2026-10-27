@@ -18,6 +18,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
+using CMS.Tests.Infrastructure;
+
 namespace CMS.Tests.Integration;
 
 [Trait("Category", "PostgresIntegration")]
@@ -26,7 +28,7 @@ public sealed class Phase44ProducerMatrixPostgresIntegrationTests
 {
     private const string ConnectionVariable = "CMS_PHASE34_TEST_POSTGRES";
 
-    [Fact]
+    [PostgresFact]
     public async Task RolePermissionAndSubscriptionChanges_PersistActorTargetSeverityAndCorrelation()
     {
         var connectionString = RequireConnectionString();
@@ -101,7 +103,7 @@ public sealed class Phase44ProducerMatrixPostgresIntegrationTests
         events.Should().OnlyContain(log => log.CreatedAt > DateTime.UtcNow.AddMinutes(-2));
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task SuspiciousActivityThreshold_PersistsCriticalSecurityAlertWithCorrelation()
     {
         var connectionString = RequireConnectionString();
@@ -143,7 +145,7 @@ public sealed class Phase44ProducerMatrixPostgresIntegrationTests
         alert.CreatedAt.Should().BeOnOrAfter(DateTime.UtcNow.AddMinutes(-2));
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task EnableAndFailedMfa_RealAdminTriggersPersistSafeAuditEvents()
     {
         var connectionString = RequireConnectionString();

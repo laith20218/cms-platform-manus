@@ -10,6 +10,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
+using CMS.Tests.Infrastructure;
+
 namespace CMS.Tests.Integration;
 
 [Trait("Category", "PostgresIntegration")]
@@ -18,7 +20,7 @@ public sealed class SecurityAuditPostgresIntegrationTests
 {
     private const string ConnectionVariable = "CMS_PHASE34_TEST_POSTGRES";
 
-    [Fact]
+    [PostgresFact]
     public async Task BatchedAuditEvent_PersistsActorEventTimestampAndRedactsSensitiveValues()
     {
         var connectionString = Environment.GetEnvironmentVariable(ConnectionVariable);

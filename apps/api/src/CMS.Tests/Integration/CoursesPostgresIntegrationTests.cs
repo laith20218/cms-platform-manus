@@ -14,6 +14,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
+using CMS.Tests.Infrastructure;
+
 namespace CMS.Tests.Integration;
 
 /// <summary>
@@ -60,7 +62,7 @@ public sealed class CoursesPostgresIntegrationTests
         new TranscodingChannelQueue(), // Push 10.3: inert queue — nothing consumes jobs in tests
         new TranscodingJobRegistry()); // Push 10.8: inert abort registry — no live jobs in tests
 
-    [Fact]
+    [PostgresFact]
     public async Task MigrationContract_CoursesTablesExist_WithConstraints()
     {
         var (db, subject, _) = await PrepareAsync();
@@ -106,7 +108,7 @@ public sealed class CoursesPostgresIntegrationTests
         }
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task HandlerRoundTrip_OnRealPostgres_CreateEpisodePublishAccess()
     {
         var (db, subject, student) = await PrepareAsync();

@@ -14,6 +14,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
+using CMS.Tests.Infrastructure;
+
 namespace CMS.Tests.Integration;
 
 [Trait("Category", "PostgresIntegration")]
@@ -22,7 +24,7 @@ public sealed class PasswordAuditPostgresIntegrationTests
 {
     private const string ConnectionVariable = "CMS_PHASE34_TEST_POSTGRES";
 
-    [Fact]
+    [PostgresFact]
     public async Task PasswordResetRequested_RealHandlerPersistsSafeAuditEvent()
     {
         await using var fixture = await CreateFixtureAsync();
@@ -38,7 +40,7 @@ public sealed class PasswordAuditPostgresIntegrationTests
         AssertSafe(log.Description, fixture.Password, "123456");
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task PasswordResetCompleted_RealHandlerPersistsPasswordChangedWithoutSensitiveValues()
     {
         await using var fixture = await CreateFixtureAsync();
@@ -55,7 +57,7 @@ public sealed class PasswordAuditPostgresIntegrationTests
         AssertSafe(log.Description, fixture.Password, "123456", "ResetAudit!2026");
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task PasswordChanged_RealHandlerPersistsSafeAuditEvent()
     {
         await using var fixture = await CreateFixtureAsync();

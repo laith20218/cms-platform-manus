@@ -13,6 +13,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
+using CMS.Tests.Infrastructure;
+
 namespace CMS.Tests.Integration;
 
 [Trait("Category", "PostgresIntegration")]
@@ -21,7 +23,7 @@ public sealed class SessionAuditPostgresIntegrationTests
 {
     private const string ConnectionVariable = "CMS_PHASE34_TEST_POSTGRES";
 
-    [Fact]
+    [PostgresFact]
     public async Task SessionLifecycle_PersistsActorEventsAndOneCorrelationId()
     {
         var connectionString = Environment.GetEnvironmentVariable(ConnectionVariable);
@@ -70,7 +72,7 @@ public sealed class SessionAuditPostgresIntegrationTests
         events.Select(log => log.Description.ToLowerInvariant()).Should().OnlyContain(description => !description.Contains("token") && !description.Contains("secret") && !description.Contains("password"));
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task RefreshAndReuse_RealCommandTriggersPersistActorSeverityCorrelationAndRedaction()
     {
         var connectionString = Environment.GetEnvironmentVariable(ConnectionVariable)
