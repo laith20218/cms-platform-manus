@@ -131,6 +131,12 @@ jobs:
           echo "path=$p" >> "$GITHUB_OUTPUT"
           echo "Playwright Chromium: $p"
 
+      - name: Install ffmpeg (not present on ubuntu-24.04 runners)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version | head -1
+
       - name: Generate e2e media assets (git-ignored, regenerable)
         run: |
           cd apps/student-web
