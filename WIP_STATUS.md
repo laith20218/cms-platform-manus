@@ -110,6 +110,77 @@ Emitted for supervisor to run read-only on Neon:
 Awaiting output to confirm production schema matches what the missing migrations
 produce (mismatch = MAJOR issue → STOP per A.5).
 
+## PART B — FIX (COMPLETE; supervisor approved Phase57 Up() modification + proceed without A.5 output)
+
+### B.1 — Implementation (CHOICE 3-minimal, repo precedent 24bd427)
+- 4 files edited, net +17/−6 lines, NO other files touched:
+  - Phase54SystemSettings.cs / Phase55ReportsModeration.cs /
+    Phase56NotificationExpiresAt.cs / Phase57FixNotificationSenderFk.cs:
+    added `using Microsoft.EntityFrameworkCore.Infrastructure;` +
+    `[DbContext(typeof(ApplicationDbContext))]` + `[Migration("<exact id>")]`
+    above each class (same inline-attribute pattern as Phase50/51/52).
+  - Phase57FixNotificationSenderFk.cs: REMOVED the manual
+    `INSERT INTO "__EFMigrationsHistory" ... ON CONFLICT DO NOTHING` block
+    (supervisor-approved) — replaced with an explanatory NOTE comment. EF Core
+    records the history row itself after applying the migration; the manual
+    insert collided (23505) with EF's plain runtime insert on fresh replay.
+- NO Designer.cs files were fabricated (per A.6 rationale: runtime MigrateAsync
+  and script generation never consult TargetModel; inline attributes are the
+  proven repo pattern). NO ModelSnapshot change (verified untouched via git status).
+- `dotnet build CMS.sln`: 0 errors, 18 pre-existing warnings (unrelated).
+
+### B.2 — VERIFY_NO_OP: PASS
+- `dotnet ef migrations add VERIFY_NO_OP -o /tmp/verify_migrations` → generated
+  migration has EMPTY Up() and EMPTY Down() → model in sync with snapshot.
+- ApplicationDbContextModelSnapshot.cs NOT modified (git status showed only the
+  4 intended files). /tmp/verify_migrations deleted after inspection.
+
+### B.3 — Full script verification: PASS
+- `dotnet ef migrations script -o /tmp/full_script.sql`:
+  **26** INSERT INTO "__EFMigrationsHistory" statements (was 22), 1297 lines.
+  (The original instruction expected "27" — that was N1's miscount; true total
+  chain = 26. Reported honestly.)
+- `dotnet ef migrations list`: **26/26 discovered** — Phase54/55/56/57 appear in
+  correct chain position (after Phase53ExamAnalyticsTracking, before
+  AddLibraryFileCategory).
+- Extracted verbatim DDL of the 4 previously-missing migrations (script lines
+  1019-1094): Phase54 CREATE TABLE system_settings + pk + FK + unique ix_key +
+  ix_category + 11-row seed (ON CONFLICT (key) DO NOTHING); Phase55 3 ALTER
+  TABLE ADD columns + composite ix_error_reports_status_assigned_to; Phase56
+  ALTER TABLE notifications ADD expires_at; Phase57 3 guarded DO-blocks +
+  EF's own standard history INSERT (manual self-INSERT gone — only occurrence
+  of Phase57 id in script is line 1094, EF's standard insert).
+- Replay-conflict audit: only Phase57 ever self-inserted history (rg across all
+  migrations); later system_settings seeds (AddLibraryFileCategory …101-105,
+  Push4Courses …106) use distinct keys/UUIDs + ON CONFLICT (key) DO NOTHING →
+  no pk/unique collision with Phase54's …001-011 seed rows.
+
+### B.4 — Caveats + production-safety notes (honest)
+- A.5 production schema output was NOT provided; supervisor instructed to
+  proceed. Production __EFMigrationsHistory content for Phase54-57 remains
+  UNVERIFIED. Before anyone manually runs the migrate.yml "apply" action (or
+  `dotnet ef database update`) against PRODUCTION, the supervisor MUST first
+  confirm/repair the history rows (guarded INSERTs from the --idempotent
+  script) — otherwise EF would attempt to re-apply Phase54-57 and fail on
+  already-existing objects (42P07). This push itself changes NO production
+  state (attributes + one removed manual insert; API never auto-migrates;
+  migrate.yml is workflow_dispatch-only).
+- Chain-vs-model drift (pre-existing, unchanged, DB-level only): replayed DB
+  lacks fk_error_reports_admins_assigned_to/reviewed_by + their 2 indexes, and
+  carries the extra composite ix_error_reports_status_assigned_to.
+- Local live replay (MigrateAsync on fresh Postgres) NOT possible — sandbox has
+  no Docker. CI's Testcontainers job is the replay proof (PART C reports
+  trigger; supervisor checks completion).
+- Expected CI on wip/11.5.1: Backend "Run tests" should now pass the
+  Testcontainers MigrateAsync step (26 migrations applied on fresh
+  postgres:16-alpine) → the 27 Postgres integration tests RUN (previously
+  BLOCKED); N2 (FavoritesHttp JsonException) still fails — out of scope.
+
+## RESUME_FROM (Push 11.5.1)
+RESUME_FROM: <final wip/11.5.1 SHA — see PART B commit> — CI verification + merge
+decision pending supervisor (STOP GATE: no merge, no deploy, no production DB
+changes, no 11.5.2/11.6, N2-N6 untouched).
+
 ## PART A — Diagnostic findings (read-only survey, 2026-10-27)
 - CI workflows EXIST (5 files in .github/workflows/): ci.yml ("CI/CD Pipeline" — the file this
   push extends), health-check.yml (5-min prod cron), launch.yml (one-time manual), migrate.yml

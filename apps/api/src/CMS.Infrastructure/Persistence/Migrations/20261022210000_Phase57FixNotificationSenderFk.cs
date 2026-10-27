@@ -1,4 +1,5 @@
 using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -14,6 +15,8 @@ namespace CMS.Infrastructure.Persistence.Migrations
     /// 3. Creates FK on sent_by → admins.id
     /// Safe on empty tables (production has 0 notifications).
     /// </summary>
+    [DbContext(typeof(ApplicationDbContext))]
+    [Migration("20261022210000_Phase57FixNotificationSenderFk")]
     public partial class Phase57FixNotificationSenderFk : Migration
     {
         /// <inheritdoc />
@@ -42,12 +45,11 @@ namespace CMS.Infrastructure.Persistence.Migrations
                 EXCEPTION WHEN OTHERS THEN NULL; END $$;
             ");
 
-            // Record migration
-            migrationBuilder.Sql(@"
-                INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
-                VALUES ('20261022210000_Phase57FixNotificationSenderFk', '9.0.0')
-                ON CONFLICT (""MigrationId"") DO NOTHING;
-            ");
+            // NOTE (Push 11.5.1, N1 fix): the manual INSERT INTO __EFMigrationsHistory that
+            // used to live here was removed (supervisor-approved). EF Core records the
+            // history row itself after applying this migration; the manual insert collided
+            // with EF's plain runtime insert (duplicate key 23505) when replaying the chain
+            // on an empty database via MigrateAsync.
         }
 
         /// <inheritdoc />
