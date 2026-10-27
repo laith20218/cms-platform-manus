@@ -1,4 +1,5 @@
 using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -11,6 +12,8 @@ namespace CMS.Infrastructure.Persistence.Migrations
     /// Separated from secrets (env vars). Used for: platform_name, watermark_text,
     /// max_upload_size_mb, content_review_policy, etc.
     /// </summary>
+    [DbContext(typeof(ApplicationDbContext))]
+    [Migration("20261022000000_Phase54SystemSettings")]
     public partial class Phase54SystemSettings : Migration
     {
         /// <inheritdoc />

@@ -1,4 +1,5 @@
 using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -12,6 +13,8 @@ namespace CMS.Infrastructure.Persistence.Migrations
     /// The ErrorReportStatus enum gets a new value (Closed=4) — no schema change needed
     /// since the column is already int.
     /// </summary>
+    [DbContext(typeof(ApplicationDbContext))]
+    [Migration("20261022100000_Phase55ReportsModeration")]
     public partial class Phase55ReportsModeration : Migration
     {
         /// <inheritdoc />
