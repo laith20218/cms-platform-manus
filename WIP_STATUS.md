@@ -3,7 +3,7 @@
 ## Base
 Branch: wip/11.5
 Parent: ca3ef39fcbada428ac126eed9da3b553a715b68f (main, Push 11.3.1 merged + deployed)
-Status: Push 11.5 — CI TRUST (Testcontainers + Playwright + admin-web). PART A COMPLETE.
+Status: Push 11.5 — CI TRUST. ALL PARTS (A–E) COMPLETE + live-CI-verified.
 No app code, no migrations, no production changes (CI infrastructure only).
 
 ## PART A — Diagnostic findings (read-only survey, 2026-10-27)
@@ -146,6 +146,64 @@ No app code, no migrations, no production changes (CI infrastructure only).
   original CI never linted admin-web) — admin-web lint step intentionally NOT added (§12).
 - D.5 CI: frontend-test job gained "admin-web tests: pnpm --filter @cms/admin-web test" right
   after the student-web vitest step (with a comment documenting the invocation correction).
+
+## PART E — Final validation + LIVE CI verification (COMPLETE)
+- Follow-up commits during CI observation (each pushed, PAT-scrubbed):
+  * 3565efb "ci(11.5): run new test surfaces before pre-existing lint gate + actionable
+    fixture failure" — the C-run revealed Lint (step) failing from 2 PRE-EXISTING
+    no-explicit-any warnings in student-web source (SettingsPage.tsx:34,
+    ActivateCodePage.tsx:47; --max-warnings=0 → exit 1; previously MASKED by the pnpm
+    bug killing the job earlier). Fixing them = app code (out of scope) → the 5 NEW steps
+    were moved BEFORE the Lint gate so CI-trust surfaces stay executable; the pre-existing
+    gates (Lint → student vitest → Audit → Build → SBOM) keep their original order at the
+    tail. PostgresFixture.MigrateAsync failures now rethrow with an actionable message.
+  * 40566f2 "ci(11.5): install ffmpeg on runner (ubuntu-24.04 images ship none)" — premise
+    correction: ubuntu-24.04 runner images do NOT include ffmpeg (exit 127 in the C-run);
+    an apt-get step installs it (6.1.1 confirmed in the log) — the per-rung ladder
+    generation was designed for exactly this version spread and PASSED.
+- E.1 LOCAL matrix (sandbox): dotnet build 0 errors; Unit 419/419 (14s); Integration
+  88 passed + 27 skipped + 1 failed (FavoritesHttp — pre-existing, §12 report-only) 2m9s;
+  pnpm install --frozen-lockfile OK; student-web build ✓ 19.3s (PWA precache); admin-web
+  build ✓ 9.7s; student vitest 126/126 ✓ 19.4s; admin vitest 38/38 ✓ 6.7s; all 5 e2e specs
+  ✓ locally (asset regen + chromium-1208, total ≈102s).
+- E.1 LIVE CI matrix (run 40451816149 on wip/11.5 @ 40566f2, ubuntu-24.04, ffmpeg 6.1.1):
+  * Frontend job: Setup pnpm ✓ (fix verified live) → Install ✓ → admin-web tests ✓
+    (38/38, debt C1 CLOSED with live evidence) → Playwright Chromium ✓ → executable
+    resolved ✓ → ffmpeg installed ✓ → assets generated ✓ → **ALL 5 E2E SPECS ✓**
+    (favorites 30/30 RSS 1012MB · player-video 17/17 FIRST-TRY (the keepalive flake did
+    not bite; 1 known beacon-abort console line) · favorite-toggle 14/14 RSS 1098MB ·
+    player-hls 19/19 · option-c 13/13) → Lint ✗ (pre-existing, report-only) → tail skipped.
+  * Backend job: Testcontainers CONNECTED (unix:///var/run/docker.sock; ryuk + postgres:16-
+    alpine container started ~8s) → fixture's MigrateAsync FAILED with the actionable
+    message → 27 tests fail at fixture level + 1 FavoritesHttp fail (28 total).
+  * Workflow conclusion: failure — driven by the three PRE-EXISTING defects below.
+- CI-TRUST DEBT STATUS: C1 admin-web-in-CI = CLOSED (live green). C2 Playwright-in-CI =
+  CLOSED (live green, 93 checks). D4/I6 27-Postgres-tests-in-CI = INFRASTRUCTURE DELIVERED
+  (Testcontainers wired, container starts, fixture + skip semantics work) BUT the tests
+  cannot pass until the migration-chain defect is remediated — see NEW DEBTS.
+- NEW DEBTS DISCOVERED (all report-only per §12 — fixes are separate pushes):
+  * N1 (CRITICAL): the EF migration chain is NOT replayable from an empty database —
+    20261022000000_Phase54SystemSettings / Phase55ReportsModeration / Phase56Notification-
+    ExpiresAt / Phase57FixNotificationSenderFk have NO Designer.cs files → EF never
+    discovers them (dotnet ef migrations script emits only 22 of the 27 files) → on a fresh
+    DB system_settings is never created → AddLibraryFileCategory's CREATE INDEX +
+    INSERT INTO system_settings fail 42P01. These 4 migrations also never ran on Neon via
+    database update (the table there was created manually — seed-production.sql era).
+    Remediation: add the four Designer.cs files (or a consolidated baseline migration) —
+    a MIGRATIONS push. This also means Neon disaster-recovery via migrations alone would
+    hit the same wall — worth an explicit supervisor decision.
+  * N2: FavoritesHttpIntegrationTests.Favorite_WithValidBoundEntitlement_… — JsonException
+    at :35 (test deserializes List<FavoriteItem>; the Push-11.3 list endpoint returns the
+    PAGED shape) — pre-existing 11.3 contract regression; 5-line test fix.
+  * N3: student-web lint — 2 pre-explicit-any warnings (SettingsPage.tsx:34,
+    ActivateCodePage.tsx:47) make the Lint gate red (was masked by the pnpm bug).
+  * N4: security-scan job — aquasecurity/trivy-action@0.28.0 unresolvable (job-setup fail).
+  * N5: android-offline-runtime.yml — malformed `branches: ain, develop]` filter line (typo)
+    + the job fails on every push (incl. wip/*).
+  * N6: lighthouse job is now UNBLOCKED by the pnpm fix but unexercised (needs frontend-test
+    to pass first; LHCI_GITHUB_APP_TOKEN unknown) — expect new failures there once N3 is
+    fixed; not touched per §12.
+- pnpm-lock.yaml: UNTOUCHED (§3 authorization unused — all test deps pre-existed).
 
 ## 11.3 PART A — Migration AddEpisodeFavorites (FILE ONLY — NOT APPLIED)
 - Entity: Favorite gains `Guid? CourseEpisodeId` + `CourseEpisode?` nav
@@ -371,3 +429,16 @@ post-merge debts B7 + D6-b recorded in this file; docs commit pushed to origin/m
 Render + Vercel auto-deploy triggered. RESUME_FROM: final main HEAD (this docs commit,
 SHA in the 11.3.1-MERGE report) — production verification (supervisor coordinates;
 golden path: favorited-episode ghost-purge renumber → 409 + Arabic toast in admin-web).
+
+## RESUME_FROM (Push 11.5)
+RESUME_FROM: <final wip/11.5 SHA — see below> — awaiting merge review (STOP GATE §2:
+no merge, no deploy, no 11.6).
+Delivered: Testcontainers.PostgreSql 4.16.0 fixture + [PostgresFact] runtime-skip (27
+tests); admin-web tests in CI (38/38 live-green); Playwright e2e in CI (5 specs, 93
+checks live-green on ubuntu-24.04/ffmpeg 6.1.1); pnpm/action-setup conflict fixed
+(frontend pipeline resurrected); wip/** CI trigger + docker-build gated to main/develop.
+Known-red (pre-existing, report-only): N1 migration chain not replayable from empty
+(Phase54-57 lack Designer.cs → blocks the 27 tests passing + a Neon DR risk), N2
+FavoritesHttp paged-shape JsonException, N3 student-web lint warnings, N4 trivy-action
+unresolvable, N5 android workflow typo, N6 lighthouse unexercised. Supervisor decides
+which remediation pushes follow (N1 first — it gates D4/I6 closure).
