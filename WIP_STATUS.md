@@ -100,3 +100,49 @@ CRITICAL: migration file generated but NOT applied to any DB (STOP GATE §2/§3)
   closure); onError removes the override + invalidates the question surfaces + error toast; button
   renders the computed state, aria-pressed, disabled while pending.
 - tsc -b clean; eslint 0 errors; vitest 117/117.
+
+## PART E — Tests (COMPLETE)
+- Backend unit (apps/api/src/CMS.Tests/Unit/Handlers/FavoritesHandlersTests.cs — 32 tests):
+  filter (mixed/3 types/invalid-type), sort (recent/oldest/alpha), pagination (slice+totals,
+  pageSize clamp 100, page clamp), enrichment (episode: course title + cover + duration + Ready +
+  progress; file: own thumb + type + category + progress; question: 160-char clamp + lecture
+  subtitle + never progress), entitlement-revoked hiding, unpublished-course hiding, episode create
+  (success/dedup-200/Pending-409/Failed-422/legacy-NULL-favoritable/invalid-signed-403/outside-scope-403),
+  unified delete (episode/idempotent/ownership-security/missing-404), legacy question-file create
+  (200-vs-201 parity + exactly-one rejection).
+  THE ≤5-QUERY CONTRACT (SQLite in-memory + command-counting interceptor + REAL EntitlementService
+  + FullSubject grant): measured EXACTLY 5 commands (favorites+targets fetch, student, subjects,
+  subscriptions, progress) at pageSize=20 AND pageSize=100 — assertion pinned to ==5 for
+  regression loudness. TRAP FIXED during authoring: interceptor overrides must be the ASYNC pair
+  (ReaderExecutingAsync/ScalarExecutingAsync) — the sync-only pair counts ZERO on EF async APIs
+  (a false-positive this suite explicitly guards against). Microsoft.EntityFrameworkCore.Sqlite
+  9.0.0 added to CMS.Tests.csproj (test project only — required by the prompt's "counting
+  DbContext" verification).
+- MediaHandlersTests: +4 PlaybackUrlDto.IsFavorite tests (favorited episode true / unfavorited
+  false / library video false even when favorited / library audio false).
+- Frontend unit (src/features/favorites/tests/hooks.test.tsx — 9 tests): list fetch params
+  (typed + type omitted), optimistic delete (pending-promise window) + rollback + toast, episode
+  create (POST URL + ['favorites'] invalidation) + error toast, FavoritesPage URL-param
+  normalization (bogus type/sort/page → canonical defaults), per-tab empty copy, enriched render +
+  متابعة matrix + duration badge.
+- e2e NEW favorites-advanced.e2e.mjs — 30/30 passed, console errors 0, PEAK CHROME RSS 906 MB
+  (ceiling 1600): per-tab empty states + CTA, 20-card grid + thumbnails + chips, متابعة matrix
+  (2/6 episodes; files → open-in-library; questions → none), non-Ready badge + disabled action,
+  Episodes tab filtering, alpha + oldest sorts (DOM order), pagination (2/2 indicator + back),
+  optimistic delete (specific card detaches + total label 22→21 + DELETE once), متابعة deep link
+  → /my-studies/courses/:id?episode=episode-18, mobile 375px (no h-scroll, 44px tabs) + screenshot.
+  Spec-only fixes during authoring: glob patterns must include the query string (**/favorites**),
+  stateful delete mock (the onSettled refetch must serve consistent data), full-page delete count
+  assertion replaced by card+total assertions (a full page refills from page 2 — correct pagination).
+- e2e NEW player-favorite-toggle.e2e.mjs — 14/14 passed, console errors 0 (injected 500 excluded
+  per the 11.1 convention), PEAK CHROME RSS 966 MB: star presence + initial aria state + Arabic
+  labels, optimistic fill + POST once + success toast, optimistic unfill + DELETE once,
+  isFavorite=true initial state from playback-url, delayed-500 → fill → revert (rollback) + error
+  toast. Route-mock lesson recorded: DELETE goes to the SINGULAR /favorites/episode/{id} (unified
+  {targetType} route) while POST is PLURAL /favorites/episodes/{id} — both backend-correct; the
+  rollback behavior was verified working even when the mock initially missed the route.
+- Regressions: dotnet build 0 errors/warnings; backend unit 416/416 (was 380; +36); tsc clean;
+  eslint 0 errors; vitest 126/126 (was 117; +9); player-video.e2e.mjs 17/17 (2 consecutive runs;
+  1 keepalive-beacon abort console line at page unload — navigation artifact, pre-existing
+  mechanism, not an app error); player-hls.e2e.mjs 19/19 (ladder regenerated with ffmpeg 7's
+  name:360p colon syntax), console errors 0, peak RSS 1015 MB.
