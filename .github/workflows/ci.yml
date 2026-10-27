@@ -106,6 +106,15 @@ jobs:
       - name: Run tests
         run: pnpm --filter @cms/student-web exec vitest run
 
+      # ===== Push 11.5 / PART D: admin-web unit tests (38-test suite, jsdom) =====
+      # NOTE: the script is "test": "vitest run" — invoking `test run` would pass "run" to
+      # vitest as a filename filter ("No test files found"); `pnpm --filter @cms/admin-web test`
+      # is the correct invocation. admin-web lint is intentionally NOT added: the package's
+      # pre-existing warnings make `pnpm lint` red (out of 11.5 scope).
+
+      - name: admin-web tests
+        run: pnpm --filter @cms/admin-web test
+
       # ===== Push 11.5 / PART C: Playwright e2e (network-mocked specs; no backend needed) =====
 
       - name: Install Playwright Chromium

@@ -126,6 +126,27 @@ No app code, no migrations, no production changes (CI infrastructure only).
   * security-scan job: left verbatim (pre-existing trivy-action@0.28.0 unresolvable → job-setup
     failure; §12) — wip runs will show this job red; per-job results are the signal.
 
+## PART D — admin-web tests in CI (COMPLETE; premise-corrected)
+- PREMISE CORRECTION: admin-web already had 6 test files (35 tests) + setup.ts +
+  vitest.config.ts + ALL test devDeps (vitest@^2, jsdom@^25, @testing-library/react@^16,
+  jest-dom@^6, user-event@^14) in package.json AND pnpm-lock.yaml → debt C1 was CI-only.
+  §3's vitest authorization was NOT needed — ZERO new packages, ZERO lockfile change.
+- D.3 complement (per the prompt's smoke list): NEW src/test/app-boot.test.tsx — 3 tests:
+  boot-to-login (email+password placeholders + Arabic copy), failed sign-in error surface,
+  successful sign-in (session persisted + authenticated shell + a data failure surfaces via a
+  REAL sonner [data-sonner-toast] node — the Toaster wiring proof; the welcome toast itself is
+  lost across the login→app Toaster swap in jsdom — app-code observation, flagged, NOT fixed).
+  Existing 35 already covered the API client (ApiError status/message/fallback), the
+  mediaType utility, and 4 component suites. Total: 7 files / 38 tests.
+- D.4 local: `pnpm --filter @cms/admin-web test` → 38/38 passed, 6.7s. (Invocation premise
+  correction: the script is "test": "vitest run" — `test run` passes "run" as a filename
+  filter → "No test files found"; CI uses `pnpm --filter @cms/admin-web test`.)
+- tsc -b clean; eslint on the NEW file clean (--max-warnings=0). admin-web FULL `pnpm lint`
+  is red from PRE-EXISTING no-explicit-any/exhaustive-deps warnings in source files (why the
+  original CI never linted admin-web) — admin-web lint step intentionally NOT added (§12).
+- D.5 CI: frontend-test job gained "admin-web tests: pnpm --filter @cms/admin-web test" right
+  after the student-web vitest step (with a comment documenting the invocation correction).
+
 ## 11.3 PART A — Migration AddEpisodeFavorites (FILE ONLY — NOT APPLIED)
 - Entity: Favorite gains `Guid? CourseEpisodeId` + `CourseEpisode?` nav
   (apps/api/src/CMS.Domain/Entities/OperationalEntities.cs:172-193).
