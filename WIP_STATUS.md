@@ -165,9 +165,22 @@ CRITICAL: migration file generated but NOT applied to any DB (STOP GATE §2/§3)
   CI or on the supervisor's machine before production apply. pnpm-lock.yaml untouched. No DB
   touched anywhere. admin-web untouched.
 
+## Post-merge debts (Push 11.3)
+- admin-web hard-delete (DELETE → 204) on episodes will trigger FK RESTRICT violation once a
+  student favorites an episode. Needed: DeleteEpisodeHandler should catch NpgsqlException with
+  code 23503 on fk_favorites_course_episodes and return 409 Conflict with message directing to
+  Archive instead. Tracked for 11.3.1 or 11.4.
+- In-memory pagination in GetFavoritesQuery: fine for <200 favorites/user. Switch to SQL
+  Skip/Take when usage grows.
+- favoriteCount in StatsHandlers still counts only questions + files; episodes not included.
+  Wave 12.
+- e2e MP4 fixture at apps/student-web/e2e/fixtures/*.mp4 should be .gitignore'd
+  (remove-if-needed).
+
 ## RESUME_FROM
-RESUME_FROM: <this commit> (wip/11.3) — ALL FIVE PARTS COMPLETE. Migration FILE generated and
-SQL extracted for supervisor review (see PART A + the full script in the push report); NOT
-applied to any DB. Awaiting supervisor SQL review → 11.3-MERGE (Neon safety branch → verify →
-production → merge to main → Render/Vercel auto-deploy). main untouched at
-20f4bf65a45cd04021b155f636f42b99e2c9f9c8.
+RESUME_FROM: pending production verification. Push 11.3-MERGE completed: AddEpisodeFavorites
+applied to Neon safety branch (user-confirmed) → production main/neondb (user-confirmed) →
+schema verified (column/course_episode_id uuid YES; history row 20261027013220_AddEpisodeFavorites;
+constraints ck_favorites_exactly_one_target + fk_favorites_course_episodes_course_episode_id
+present) → merged to main --no-ff (28dc416) + debts recorded → pushed (auto-deploy triggered).
+Supervisor will coordinate production verification with user.
