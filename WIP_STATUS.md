@@ -648,3 +648,42 @@ which remediation pushes follow (N1 first — it gates D4/I6 closure).
 
 - N6 [Low]: Lighthouse job never exercised (needs successful 
   frontend + LHCI token).
+
+## Post-merge debts (Push 11.5.1)
+
+- N1 [CLOSED]: Migration chain can now replay from empty DB. 
+  26 migrations discovered, 26 applied. Disaster Recovery 
+  from code is now possible for schema. CI-verified via 
+  Testcontainers on postgres:16-alpine.
+
+- N2 [Medium, unchanged]: FavoritesHttpIntegrationTests 
+  deserializes List<FavoriteItem> but 11.3 changed the endpoint 
+  to PagedResult shape → JsonException at line 35. 5-line 
+  fix. Tracked for 11.5.2.
+
+- N3 [Medium, unchanged]: 2 no-explicit-any warnings in 
+  student-web block Lint gate (SettingsPage.tsx:34, 
+  ActivateCodePage.tsx:47). Tracked for 11.5.2.
+
+- N7 [Medium, NEW from 11.5.1-A]: Schema drift in error_reports. 
+  Production has fk_error_reports_admins_assigned_to/reviewed_by 
+  + indexes; migration chain does NOT create them. Also 
+  Phase55 creates ix_error_reports_status_assigned_to which 
+  is not in the model. Tracked for 11.5.2 (migration Phase58).
+
+- N8 [CRITICAL, NEW from A.5 on production]: 
+  Phase53ExamAttemptPolicy (20260822160000) is applied on 
+  production (exists in __EFMigrationsHistory) but its .cs 
+  file is ABSENT on disk. Meaning: rebuild-from-empty will 
+  MISS the DDL for is_first_attempt/counts_against_limit/
+  *_snapshot columns (they exist on production). These columns 
+  are currently added by an unknown hand-edit or an equivalent 
+  migration. DR from code alone is therefore INCOMPLETE for 
+  exam-attempt-policy schema. Tracked for 11.5.2 (restore 
+  file from git history OR add Phase58RestoreExamAttemptPolicy).
+
+- NEW [Medium]: CoursesPostgresIntegrationTests.
+  HandlerRoundTrip_OnRealPostgres_CreateEpisodePublishAccess 
+  fails with ForbiddenException. First real execution (was 
+  BLOCKED before 11.5.1). May be test-authoring issue OR 
+  EntitlementService drift. Tracked for 11.5.2 investigation.
