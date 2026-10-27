@@ -50,8 +50,26 @@ public sealed class PostgresFixture : IAsyncLifetime
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseNpgsql(ConnectionString)
             .Options;
-        await using var db = new ApplicationDbContext(options);
-        await db.Database.MigrateAsync();
+        try
+        {
+            await using var db = new ApplicationDbContext(options);
+            await db.Database.MigrateAsync();
+        }
+        catch (Exception ex)
+        {
+            // Fail with context instead of letting a raw 42P01 propagate into all 27 tests.
+            // Known finding (Push 11.5 diagnostic): the migration chain is NOT replayable from
+            // an empty database — Phase54SystemSettings/Phase55/Phase56/Phase57 have no
+            // Designer.cs files, so EF never discovers them; AddLibraryFileCategory's
+            // ix_system_settings_updated_by + seed INSERT then fail with
+            // 42P01 "relation system_settings does not exist". Remediation (adding the four
+            // Designer files or a baseline migration) is a MIGRATIONS push — outside 11.5.
+            throw new InvalidOperationException(
+                "PostgresFixture: Database.MigrateAsync() failed on a fresh database — the EF " +
+                "migration chain is not replayable from empty (see Push 11.5 report: Phase54-57 " +
+                "migrations are not discoverable — missing Designer.cs). Inner exception: " +
+                ex.Message, ex);
+        }
 
         // Publish for the existing Environment.GetEnvironmentVariable(...) reads inside the
         // 27 guarded test methods (their bodies are intentionally untouched).

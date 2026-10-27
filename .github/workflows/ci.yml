@@ -100,11 +100,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm --filter @cms/student-web lint
-
-      - name: Run tests
-        run: pnpm --filter @cms/student-web exec vitest run
+      # =====================================================================
+      # Push 11.5 — the NEW test surfaces run BEFORE the pre-existing "Lint"
+      # gate: Lint is red from PRE-EXISTING no-explicit-any warnings in
+      # student-web source (SettingsPage.tsx:34, ActivateCodePage.tsx:47 —
+      # surfaced by the pnpm setup fix; fixing them is app code, out of 11.5
+      # scope). Keeping these steps ahead of Lint keeps the new CI-trust
+      # surfaces executable and verifiable; the pre-existing gates below
+      # (Lint → student vitest → Audit → Build → SBOM) keep their own order.
+      # =====================================================================
 
       # ===== Push 11.5 / PART D: admin-web unit tests (38-test suite, jsdom) =====
       # NOTE: the script is "test": "vitest run" — invoking `test run` would pass "run" to
@@ -175,6 +179,14 @@ jobs:
           node e2e/player-hls-option-c.e2e.mjs
           kill $DEV_PID 2>/dev/null || true
           pkill -f vite 2>/dev/null || true
+
+      # ===== Pre-existing quality gates (original order preserved) =====
+
+      - name: Lint
+        run: pnpm --filter @cms/student-web lint
+
+      - name: Run tests
+        run: pnpm --filter @cms/student-web exec vitest run
 
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level high
