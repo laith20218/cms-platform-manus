@@ -43,4 +43,18 @@ Tests:
 - PAT + B2 credentials were supplied inline for this push and used transiently; both scrubbed (remote URL clean; creds never written anywhere).
 
 ## RESUME_FROM
-RESUME_FROM: <sha of this commit> — supervisor review → merge decision → production verify (Render auto-deploy + test student 0936185126)
+RESUME_FROM: <post-merge main SHA> — production verification step (supervisor will instruct; Render auto-deploys on this main push)
+
+## Post-merge debts (recorded by supervisor at merge time)
+- MediaController.cs docstring still says "no manifest
+  rewriting needed" — now stale (Option C rewrites
+  variant playlists). Deferred to cleanup push.
+  See Push 11.1-REWRITE report §8.
+- Deleted apps/student-web/e2e/player-hls-proxy.e2e.mjs —
+  represented deprecated segment-proxy architecture. Full
+  previous version preserved on wip/11.1 (3a14857) for
+  rollback. Removal justified at merge time.
+- Variant playlist cache (60s) may serve stale presigned
+  URLs during refresh window — self-heals via
+  NETWORK_ERROR → silent refresh. Track for future
+  improvement.
