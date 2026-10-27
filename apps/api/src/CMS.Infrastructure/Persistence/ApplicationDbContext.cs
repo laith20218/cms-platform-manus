@@ -286,8 +286,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         });
         modelBuilder.Entity<Favorite>(entity =>
         {
+            // Push 11.3 — ternary CHECK: exactly one of question/file/episode must be set.
             entity.ToTable(table => table.HasCheckConstraint("ck_favorites_exactly_one_target",
-                "(question_id IS NOT NULL AND library_file_id IS NULL) OR (question_id IS NULL AND library_file_id IS NOT NULL)"));
+                "(question_id IS NOT NULL AND library_file_id IS NULL AND course_episode_id IS NULL) OR (question_id IS NULL AND library_file_id IS NOT NULL AND course_episode_id IS NULL) OR (question_id IS NULL AND library_file_id IS NULL AND course_episode_id IS NOT NULL)"));
             entity.HasIndex(x => new { x.StudentId, x.QuestionId })
                 .HasDatabaseName("ix_favorites_student_id_question_id")
                 .IsUnique()
@@ -296,6 +297,18 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
                 .HasDatabaseName("ix_favorites_student_id_library_file_id")
                 .IsUnique()
                 .HasFilter("library_file_id IS NOT NULL");
+            // Push 11.3 — episode favorites: one row per (student, episode).
+            entity.HasIndex(x => new { x.StudentId, x.CourseEpisodeId })
+                .HasDatabaseName("ix_favorites_student_id_course_episode_id")
+                .IsUnique()
+                .HasFilter("course_episode_id IS NOT NULL");
+            // Restrict (NOT cascade) on purpose: deleting an episode must NOT silently
+            // delete students' favorites (data-loss risk). Cleanup of orphan favorites is
+            // a separate administrative concern, deliberately not bundled here.
+            entity.HasOne(x => x.CourseEpisode)
+                .WithMany()
+                .HasForeignKey(x => x.CourseEpisodeId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<MediaBookmark>(entity =>
