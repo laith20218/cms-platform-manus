@@ -146,3 +146,28 @@ CRITICAL: migration file generated but NOT applied to any DB (STOP GATE §2/§3)
   1 keepalive-beacon abort console line at page unload — navigation artifact, pre-existing
   mechanism, not an app error); player-hls.e2e.mjs 19/19 (ladder regenerated with ffmpeg 7's
   name:360p colon syntax), console errors 0, peak RSS 1015 MB.
+
+## FINAL — commit map + verifications
+- Commits on wip/11.3 (in order): ddbc883 (A: entity + migration FILE) → bfef93e (B: MediatR
+  backend) → 98df808 (C: features/favorites/) → 25914d6 (D: player star + QuestionPage fix) →
+  e05bbc2 (E: tests) → 0588f32 (chore: untrack regenerable e2e MP4 artifact + .gitignore) →
+  THIS (final WIP_STATUS + RESUME_FROM).
+- Full verification matrix at final state: dotnet build 0 errors/0 warnings; backend unit
+  416/416; tsc -b clean; eslint 0 errors on changed files; vitest 126/126;
+  e2e favorites-advanced 30/30 (RSS 906MB); e2e player-favorite-toggle 14/14 (RSS 966MB);
+  e2e player-hls regression 19/19 (RSS 1015MB, console 0); e2e player-video regression 17/17
+  ×2 consecutive runs (1 keepalive-beacon abort console line at page unload — navigation
+  artifact of the beacon mechanism, pre-existing, not an app error).
+- Honest limitations: integration tests (FavoritesHttpIntegrationTests + full integration suite)
+  NOT executed — the sandbox has no Postgres (unchanged since 11.1). The controller's
+  HTTP-surface changes (query-param list + new routes) are covered by unit-level handler tests +
+  the two e2e suites at the network layer; the Postgres integration suite must run in 11.3-MERGE
+  CI or on the supervisor's machine before production apply. pnpm-lock.yaml untouched. No DB
+  touched anywhere. admin-web untouched.
+
+## RESUME_FROM
+RESUME_FROM: <this commit> (wip/11.3) — ALL FIVE PARTS COMPLETE. Migration FILE generated and
+SQL extracted for supervisor review (see PART A + the full script in the push report); NOT
+applied to any DB. Awaiting supervisor SQL review → 11.3-MERGE (Neon safety branch → verify →
+production → merge to main → Render/Vercel auto-deploy). main untouched at
+20f4bf65a45cd04021b155f636f42b99e2c9f9c8.
