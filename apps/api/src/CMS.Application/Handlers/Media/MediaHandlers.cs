@@ -113,6 +113,7 @@ public class MediaHandlers :
         string fileKey;
         string contentType;
         string? hlsKey;
+        var isFavorite = false;
 
         if (req.AssetType == MediaAssetType.LibraryFile)
         {
@@ -172,6 +173,14 @@ public class MediaHandlers :
             fileKey = resolvedHlsKey ?? episode.Episode.FileKey!;
             contentType = resolvedHlsKey is not null ? HlsContentType
                 : string.IsNullOrWhiteSpace(episode.Episode.ContentType) ? "video/mp4" : episode.Episode.ContentType!;
+
+            // Push 11.3 — episode favorite state for the player star button: exactly ONE
+            // EXISTS query, issued only on the episode path, AFTER the entitlement gate
+            // (favorite existence is never leaked to unentitled callers). Covers Ready HLS
+            // and legacy NULL-status MP4 episodes alike — both are playable episodes whose
+            // star button needs the same initial state.
+            isFavorite = await _db.Favorites.AsNoTracking()
+                .AnyAsync(favorite => favorite.StudentId == req.StudentId && favorite.CourseEpisodeId == req.AssetId, ct);
         }
 
         // Push 11.1 — HLS ladders stop handing out presigned URLs. An S3 presign is
@@ -193,7 +202,8 @@ public class MediaHandlers :
                 MediaPolicy.PlaybackUrlTtlSeconds,
                 DateTime.UtcNow.Add(ttl),
                 contentType,
-                SupportsRange: false);
+                SupportsRange: false,
+                IsFavorite: isFavorite);
         }
 
         // Object-scoped presign via the Upstash agent (/v1/presign) — Push 10.0c security
@@ -209,7 +219,8 @@ public class MediaHandlers :
             MediaPolicy.PlaybackUrlTtlSeconds,
             DateTime.UtcNow.Add(ttl),
             contentType,
-            SupportsRange: true);
+            SupportsRange: true,
+            IsFavorite: isFavorite);
     }
 
     // ===== §1.A′: Push 11.1 — HLS proxy object streaming =====

@@ -1,18 +1,23 @@
 using System.Security.Claims;
+using CMS.Application.Commands.Favorites;
+using CMS.Application.DTOs.Favorites;
 using CMS.Application.Interfaces;
-using CMS.Domain.Entities;
-using CMS.Domain.Enums;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.EntityFrameworkCore;
 
 namespace CMS.Api.Controllers;
 
 /// <summary>
-/// Student-owned bookmarks for questions and library assets. Every operation requires
-/// a signed entitlement bound to the authenticated student and installation, followed
-/// by a server-side check of the exact content scope.
+/// Student-owned bookmarks for questions, library assets, and course episodes. Every
+/// operation requires a signed entitlement bound to the authenticated student and
+/// installation, followed by server-side checks of the exact content scope.
+///
+/// Push 11.3 — the controller is now a THIN MediatR dispatcher: all data access and
+/// business rules live in CMS.Application.Handlers.Favorites (the 11.2-DIAG T2 anomaly —
+/// direct IApplicationDbContext usage in the controller — is gone). HTTP-level concerns
+/// stay here: student identity, entitlement headers, response shaping (201 vs 200 vs 204).
 /// </summary>
 [ApiController]
 [Route("api/v1/favorites")]
@@ -20,22 +25,27 @@ namespace CMS.Api.Controllers;
 [EnableRateLimiting("favorites")]
 public sealed class FavoritesController : ControllerBase
 {
-    private readonly IApplicationDbContext _db;
+    private readonly IMediator _mediator;
     private readonly ISignedEntitlementService _signedEntitlements;
-    private readonly IEntitlementService _entitlements;
 
-    public FavoritesController(
-        IApplicationDbContext db,
-        ISignedEntitlementService signedEntitlements,
-        IEntitlementService entitlements)
+    public FavoritesController(IMediator mediator, ISignedEntitlementService signedEntitlements)
     {
-        _db = db;
+        _mediator = mediator;
         _signedEntitlements = signedEntitlements;
-        _entitlements = entitlements;
     }
 
+    /// <summary>
+    /// The enriched favorites list — filter (type), sort, and pagination server-side; one
+    /// round-trip returns everything the favorites cards render (targets, course names,
+    /// thumbnails, durations, processing state, playback progress).
+    /// </summary>
     [HttpGet]
-    public async Task<IActionResult> List(CancellationToken ct)
+    public async Task<IActionResult> List(
+        [FromQuery] string? type,
+        [FromQuery] string? sort,
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
+        CancellationToken ct)
     {
         var studentId = StudentId();
         if (!studentId.HasValue) return Unauthorized();
@@ -43,104 +53,74 @@ public sealed class FavoritesController : ControllerBase
         var entitlement = await ValidateEntitlementAsync(studentId.Value, null, ct);
         if (entitlement.Rejection is not null) return entitlement.Rejection;
 
-        var favorites = await _db.Favorites.AsNoTracking()
-            .Where(favorite => favorite.StudentId == studentId.Value)
-            .Include(favorite => favorite.Question)
-                .ThenInclude(question => question!.Lecture)
-            .Include(favorite => favorite.LibraryFile)
-            .OrderByDescending(favorite => favorite.CreatedAt)
-            .ToListAsync(ct);
-
-        var items = new List<FavoriteItemDto>();
-        foreach (var favorite in favorites)
-        {
-            if (favorite.Question is { Status: ContentStatus.Published } question
-                && await _entitlements.CanAccessSubjectContentAsync(
-                    studentId.Value, question.SubjectId, SubscriptionContentScope.QuestionsExams, ct))
-            {
-                items.Add(new FavoriteItemDto(
-                    favorite.Id,
-                    "question",
-                    question.Id,
-                    question.SubjectId,
-                    question.Text,
-                    question.Lecture?.NameAr,
-                    question.Difficulty.ToString().ToLowerInvariant(),
-                    favorite.CreatedAt));
-            }
-            else if (favorite.LibraryFile is { Status: ContentStatus.Published } file
-                && await _entitlements.CanAccessSubjectContentAsync(
-                    studentId.Value, file.SubjectId, RequiredContentScope(file.Type), ct))
-            {
-                items.Add(new FavoriteItemDto(
-                    favorite.Id,
-                    "file",
-                    file.Id,
-                    file.SubjectId,
-                    file.Title,
-                    file.Description,
-                    file.Type.ToString().ToLowerInvariant(),
-                    favorite.CreatedAt));
-            }
-        }
-
-        return Ok(items);
+        var result = await _mediator.Send(
+            new GetFavoritesQuery(studentId.Value, type, sort ?? "recent", page ?? 1, pageSize ?? 20), ct);
+        return Ok(result);
     }
 
+    /// <summary>
+    /// Player star button (product decision #1): saves a WHOLE EPISODE as a favorite —
+    /// a separate concept from the timeline 🔖 bookmark. Idempotent: 201 Created on the
+    /// first save, 200 OK when the row already exists.
+    /// </summary>
+    [HttpPost("episodes/{episodeId:guid}")]
+    public async Task<IActionResult> CreateEpisodeFavorite(Guid episodeId, CancellationToken ct)
+    {
+        var studentId = StudentId();
+        if (!studentId.HasValue) return Unauthorized();
+
+        var headers = ReadEntitlementHeaders();
+        if (headers is null) return Unauthorized();
+
+        var result = await _mediator.Send(
+            new CreateEpisodeFavoriteCommand(studentId.Value, episodeId, headers.Token, headers.InstallationId), ct);
+
+        return result.IsNew
+            ? CreatedAtAction(nameof(List), result.Mutation)
+            : Ok(result.Mutation);
+    }
+
+    /// <summary>
+    /// Legacy create (question | library file exactly-one body) — the pre-11.3 contract
+    /// kept verbatim for deployed bundles; dispatches through the same handler pipeline.
+    /// </summary>
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateFavoriteRequest request, CancellationToken ct)
     {
         var studentId = StudentId();
         if (!studentId.HasValue) return Unauthorized();
 
-        var hasQuestion = request.QuestionId is { } questionId && questionId != Guid.Empty;
-        var hasFile = request.LibraryFileId is { } fileId && fileId != Guid.Empty;
-        if (hasQuestion == hasFile)
-            return BadRequest(new { error = "exactly one favorite target is required" });
+        var headers = ReadEntitlementHeaders();
+        if (headers is null) return Unauthorized();
 
-        if (hasQuestion)
-        {
-            var question = await _db.Questions.AsNoTracking()
-                .Where(item => item.Id == request.QuestionId && item.Status == ContentStatus.Published)
-                .Select(item => new { item.Id, item.SubjectId })
-                .SingleOrDefaultAsync(ct);
-            if (question is null) return NotFound();
+        var result = await _mediator.Send(
+            new CreateQuestionOrFileFavoriteCommand(
+                studentId.Value, request.QuestionId, request.LibraryFileId, headers.Token, headers.InstallationId), ct);
 
-            var rejection = await ValidateContentAccessAsync(
-                studentId.Value, question.SubjectId, SubscriptionContentScope.QuestionsExams, ct);
-            if (rejection is not null) return rejection;
-
-            var existing = await _db.Favorites
-                .SingleOrDefaultAsync(favorite => favorite.StudentId == studentId.Value && favorite.QuestionId == question.Id, ct);
-            if (existing is not null)
-                return Ok(new FavoriteMutationDto(existing.Id, question.Id, "question", true));
-
-            var favorite = new Favorite { StudentId = studentId.Value, QuestionId = question.Id };
-            _db.Favorites.Add(favorite);
-            await _db.SaveChangesAsync(ct);
-            return CreatedAtAction(nameof(List), new FavoriteMutationDto(favorite.Id, question.Id, "question", true));
-        }
-
-        var file = await _db.LibraryFiles.AsNoTracking()
-            .Where(item => item.Id == request.LibraryFileId && item.Status == ContentStatus.Published && item.DeletedAt == null)
-            .Select(item => new { item.Id, item.SubjectId, item.Type })
-            .SingleOrDefaultAsync(ct);
-        if (file is null) return NotFound();
-
-        var fileRejection = await ValidateContentAccessAsync(
-            studentId.Value, file.SubjectId, RequiredContentScope(file.Type), ct);
-        if (fileRejection is not null) return fileRejection;
-
-        var existingFileFavorite = await _db.Favorites
-            .SingleOrDefaultAsync(favorite => favorite.StudentId == studentId.Value && favorite.LibraryFileId == file.Id, ct);
-        if (existingFileFavorite is not null)
-            return Ok(new FavoriteMutationDto(existingFileFavorite.Id, file.Id, "file", true));
-
-        var newFileFavorite = new Favorite { StudentId = studentId.Value, LibraryFileId = file.Id };
-        _db.Favorites.Add(newFileFavorite);
-        await _db.SaveChangesAsync(ct);
-        return CreatedAtAction(nameof(List), new FavoriteMutationDto(newFileFavorite.Id, file.Id, "file", true));
+        return result.IsNew
+            ? CreatedAtAction(nameof(List), result.Mutation)
+            : Ok(result.Mutation);
     }
+
+    // Unified delete — DELETE /api/v1/favorites/{targetType}/{targetId}. The literal
+    // question/file routes below win route precedence for their plural spellings; this
+    // parameterized route serves episodes (and any future target type) with the same
+    // idempotent 204 semantics.
+    [HttpDelete("{targetType}/{targetId:guid}")]
+    public async Task<IActionResult> Delete(string targetType, Guid targetId, CancellationToken ct)
+    {
+        var studentId = StudentId();
+        if (!studentId.HasValue) return Unauthorized();
+
+        var headers = ReadEntitlementHeaders();
+        if (headers is null) return Unauthorized();
+
+        await _mediator.Send(
+            new DeleteFavoriteCommand(studentId.Value, targetType, targetId, headers.Token, headers.InstallationId), ct);
+        return NoContent();
+    }
+
+    // ===== Legacy delete routes (backward compat — old bundles call these plural forms) =====
 
     [HttpDelete("{questionId:guid}")]
     [HttpDelete("questions/{questionId:guid}")]
@@ -149,20 +129,11 @@ public sealed class FavoritesController : ControllerBase
         var studentId = StudentId();
         if (!studentId.HasValue) return Unauthorized();
 
-        var subjectId = await SubjectIdForQuestionAsync(questionId, ct);
-        if (!subjectId.HasValue) return NotFound();
-        var rejection = await ValidateContentAccessAsync(
-            studentId.Value, subjectId.Value, SubscriptionContentScope.QuestionsExams, ct);
-        if (rejection is not null) return rejection;
+        var headers = ReadEntitlementHeaders();
+        if (headers is null) return Unauthorized();
 
-        var favorite = await _db.Favorites
-            .SingleOrDefaultAsync(item => item.StudentId == studentId.Value && item.QuestionId == questionId, ct);
-        if (favorite is not null)
-        {
-            _db.Favorites.Remove(favorite);
-            await _db.SaveChangesAsync(ct);
-        }
-
+        await _mediator.Send(
+            new DeleteFavoriteCommand(studentId.Value, "question", questionId, headers.Token, headers.InstallationId), ct);
         return NoContent();
     }
 
@@ -172,65 +143,39 @@ public sealed class FavoritesController : ControllerBase
         var studentId = StudentId();
         if (!studentId.HasValue) return Unauthorized();
 
-        var file = await _db.LibraryFiles.AsNoTracking()
-            .Where(item => item.Id == fileId && item.DeletedAt == null)
-            .Select(item => new { item.SubjectId, item.Type })
-            .SingleOrDefaultAsync(ct);
-        if (file is null) return NotFound();
+        var headers = ReadEntitlementHeaders();
+        if (headers is null) return Unauthorized();
 
-        var rejection = await ValidateContentAccessAsync(
-            studentId.Value, file.SubjectId, RequiredContentScope(file.Type), ct);
-        if (rejection is not null) return rejection;
-
-        var favorite = await _db.Favorites
-            .SingleOrDefaultAsync(item => item.StudentId == studentId.Value && item.LibraryFileId == fileId, ct);
-        if (favorite is not null)
-        {
-            _db.Favorites.Remove(favorite);
-            await _db.SaveChangesAsync(ct);
-        }
-
+        await _mediator.Send(
+            new DeleteFavoriteCommand(studentId.Value, "file", fileId, headers.Token, headers.InstallationId), ct);
         return NoContent();
     }
+
+    // ===== HTTP-level helpers =====
 
     private Guid? StudentId() => Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value, out var id)
         ? id
         : null;
 
-    private async Task<Guid?> SubjectIdForQuestionAsync(Guid questionId, CancellationToken ct) =>
-        await _db.Questions.AsNoTracking()
-            .Where(question => question.Id == questionId && question.Status == ContentStatus.Published)
-            .Select(question => (Guid?)question.SubjectId)
-            .SingleOrDefaultAsync(ct);
+    private sealed record EntitlementHeaders(string Token, string InstallationId);
 
-    private async Task<IActionResult?> ValidateContentAccessAsync(
-        Guid studentId,
-        Guid subjectId,
-        SubscriptionContentScope contentScope,
-        CancellationToken ct)
-    {
-        var entitlement = await ValidateEntitlementAsync(studentId, subjectId, ct);
-        if (entitlement.Rejection is not null) return entitlement.Rejection;
-
-        return await _entitlements.CanAccessSubjectContentAsync(studentId, subjectId, contentScope, ct)
-            ? null
-            : Forbid();
-    }
-
-    private static SubscriptionContentScope RequiredContentScope(LibraryFileType type) =>
-        type is LibraryFileType.Video or LibraryFileType.Audio
-            ? SubscriptionContentScope.VideoAudio
-            : SubscriptionContentScope.LecturesText;
-
-    private async Task<(IActionResult? Rejection, IReadOnlyList<Guid> AllowedSubjects)> ValidateEntitlementAsync(Guid studentId, Guid? requiredSubjectId, CancellationToken ct)
+    private EntitlementHeaders? ReadEntitlementHeaders()
     {
         var token = Request.Headers["X-Entitlement"].FirstOrDefault();
         var installationId = Request.Headers["X-Installation-Id"].FirstOrDefault()
             ?? Request.Headers["X-Device-Fingerprint"].FirstOrDefault();
         if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(installationId))
+            return null;
+        return new EntitlementHeaders(token, installationId);
+    }
+
+    private async Task<(IActionResult? Rejection, IReadOnlyList<Guid> AllowedSubjects)> ValidateEntitlementAsync(Guid studentId, Guid? requiredSubjectId, CancellationToken ct)
+    {
+        var headers = ReadEntitlementHeaders();
+        if (headers is null)
             return (Unauthorized(), Array.Empty<Guid>());
 
-        var validation = await _signedEntitlements.ValidateAsync(token, studentId, installationId, requiredSubjectId, ct);
+        var validation = await _signedEntitlements.ValidateAsync(headers.Token, studentId, headers.InstallationId, requiredSubjectId, ct);
         if (!validation.IsValid || validation.Entitlement is null)
             return (Forbid(), Array.Empty<Guid>());
 
@@ -238,14 +183,5 @@ public sealed class FavoritesController : ControllerBase
     }
 }
 
+/// <summary>Legacy POST body — exactly one of questionId / libraryFileId.</summary>
 public sealed record CreateFavoriteRequest(Guid? QuestionId, Guid? LibraryFileId);
-public sealed record FavoriteMutationDto(Guid FavoriteId, Guid TargetId, string TargetType, bool IsFavorite);
-public sealed record FavoriteItemDto(
-    Guid FavoriteId,
-    string TargetType,
-    Guid TargetId,
-    Guid SubjectId,
-    string Title,
-    string? Subtitle,
-    string Meta,
-    DateTime CreatedAt);

@@ -6,13 +6,17 @@ namespace CMS.Application.DTOs.Media;
 /// A direct playback URL for one video/audio asset. The URL targets the object-storage
 /// host (R2), is a GET presign (Range-capable), and expires after TtlSeconds — the player
 /// must refresh it on error/stall for media longer than the TTL.
+/// Push 11.3: IsFavorite reports the episode-favorite state (player star button initial
+/// state) — computed ONLY for course episodes via one EXISTS query; always false for
+/// library files (their favorite state rides the library list DTO instead).
 /// </summary>
 public record PlaybackUrlDto(
     string Url,
     int TtlSeconds,
     DateTime ExpiresAt,
     string ContentType,
-    bool SupportsRange
+    bool SupportsRange,
+    bool IsFavorite = false
 );
 
 /// <summary>

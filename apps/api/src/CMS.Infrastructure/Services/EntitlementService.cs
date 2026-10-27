@@ -52,6 +52,59 @@ public sealed class EntitlementService : IEntitlementService
     public Task<bool> CanAccessSubjectContentAsync(Guid studentId, Guid subjectId, SubscriptionContentScope requiredContentScope, CancellationToken ct = default) =>
         HasActiveGrantForSubjectAsync(studentId, subjectId, requiredContentScope, ct);
 
+    public async Task<IReadOnlyDictionary<SubscriptionContentScope, HashSet<Guid>>> GetAccessibleSubjectMapAsync(
+        Guid studentId,
+        IReadOnlyCollection<(Guid SubjectId, SubscriptionContentScope Scope)> candidates,
+        CancellationToken ct = default)
+    {
+        var map = candidates
+            .Select(candidate => candidate.Scope)
+            .Distinct()
+            .ToDictionary(scope => scope, _ => new HashSet<Guid>());
+        if (map.Count == 0)
+            return map;
+
+        // Same three real-time checks as HasActiveGrantForSubjectAsync — student standing,
+        // subject standing, active grants — issued ONCE for the whole candidate batch.
+        var student = await _db.Students.AsNoTracking().FirstOrDefaultAsync(candidate => candidate.Id == studentId, ct);
+        if (student is null || student.IsBanned() || student.DeletedAt is not null)
+            return map;
+
+        var subjectIds = candidates.Select(candidate => candidate.SubjectId).Distinct().ToList();
+        var subjects = await _db.Subjects.AsNoTracking()
+            .Include(candidate => candidate.Semester)
+                .ThenInclude(semester => semester.AcademicYear)
+                    .ThenInclude(year => year.College)
+            .Where(candidate => subjectIds.Contains(candidate.Id))
+            .ToListAsync(ct);
+        var activeSubjects = subjects
+            .Where(subject => subject.Status == "active" && subject.DeletedAt is null)
+            .ToDictionary(subject => subject.Id);
+
+        var now = DateTime.UtcNow;
+        var grants = await _db.StudentSubscriptions.AsNoTracking()
+            .Where(subscription => subscription.StudentId == studentId
+                && subscription.Status == SubscriptionStatus.Active
+                && subscription.RevokedAt == null
+                && subscription.StartsAt <= now
+                && subscription.ExpiresAt > now)
+            .ToListAsync(ct);
+
+        foreach (var (candidateSubjectId, requiredScope) in candidates.Distinct())
+        {
+            if (!activeSubjects.TryGetValue(candidateSubjectId, out var subject))
+                continue;
+            var year = subject.Semester.AcademicYear;
+            if (grants.Any(grant => MatchesAcademicScope(grant, subject, year)
+                && GrantsContent(grant.ContentScope, requiredScope)))
+            {
+                map[requiredScope].Add(candidateSubjectId);
+            }
+        }
+
+        return map;
+    }
+
     private async Task<bool> HasActiveGrantForSubjectAsync(Guid studentId, Guid subjectId, SubscriptionContentScope? requiredContentScope, CancellationToken ct)
     {
         var student = await _db.Students.AsNoTracking().FirstOrDefaultAsync(candidate => candidate.Id == studentId, ct);
