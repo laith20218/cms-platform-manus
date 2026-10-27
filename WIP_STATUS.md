@@ -442,3 +442,34 @@ Known-red (pre-existing, report-only): N1 migration chain not replayable from em
 FavoritesHttp paged-shape JsonException, N3 student-web lint warnings, N4 trivy-action
 unresolvable, N5 android workflow typo, N6 lighthouse unexercised. Supervisor decides
 which remediation pushes follow (N1 first — it gates D4/I6 closure).
+
+## Post-merge debts (Push 11.5)
+
+- N1 [CRITICAL, tracked for 11.5.1]: Migration chain cannot 
+  replay from empty DB. 5 migrations (Phase54SystemSettings, 
+  Phase55, Phase56, Phase57) lack Designer.cs files → EF 
+  cannot discover them → MigrateAsync from scratch fails 
+  with 42P01 (relation system_settings does not exist). 
+  These 4-5 migrations were never applied via database update 
+  on Neon (system_settings was created manually at some 
+  earlier point). Disaster-recovery risk: if neondb is lost, 
+  it cannot be rebuilt from code alone. FIX: add missing 
+  Designer.cs files + verify MigrateAsync on empty Postgres 
+  succeeds with all 27 migrations applied.
+
+- N2 [Medium]: FavoritesHttpIntegrationTests deserializes 
+  List<FavoriteItem> but 11.3 changed endpoint to paged 
+  shape → JsonException at line 35. 5-line fix.
+
+- N3 [Medium]: 2 pre-existing `no-explicit-any` warnings 
+  in student-web (SettingsPage.tsx:34, 
+  ActivateCodePage.tsx:47) block Lint gate.
+
+- N4 [Medium]: trivy-action@0.28.0 unresolvable → Security 
+  Scan job broken.
+
+- N5 [Low]: Workflow typo `branches: ain, develop]` + 
+  android-offline fails on every push.
+
+- N6 [Low]: Lighthouse job never exercised (needs successful 
+  frontend + LHCI token).
