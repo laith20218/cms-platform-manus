@@ -20,6 +20,8 @@ using CMS.Domain.Enums;
 using CMS.Infrastructure.Persistence;
 using Moq;
 
+using CMS.Tests.Infrastructure;
+
 namespace CMS.Tests.Integration;
 
 /// <summary>
@@ -35,7 +37,7 @@ public sealed class UiPermissionsPostgresIntegrationTests
 {
     private const string ConnectionVariable = "CMS_PHASE34_TEST_POSTGRES";
 
-    [Fact]
+    [PostgresFact]
     public async Task AdminRoles_UiPermissionsColumn_IsJsonbAndNullable()
     {
         var connectionString = RequireConnection();
@@ -59,7 +61,7 @@ public sealed class UiPermissionsPostgresIntegrationTests
         rows[0].Nullable.Should().Be("YES", "NULL = unconfigured = full access (Q1)");
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task UiPermissions_RoundTrip_NullToFull_SetToCustom_OverHttp()
     {
         var connectionString = RequireConnection();
@@ -98,7 +100,7 @@ public sealed class UiPermissionsPostgresIntegrationTests
         }
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task UiPermissions_WrongShapeJsonb_NeverWidensToFull()
     {
         var connectionString = RequireConnection();
@@ -136,7 +138,7 @@ public sealed class UiPermissionsPostgresIntegrationTests
     /// must return allowedKeys == allKeys (all 70 keys) with mode == "unconfigured".
     /// Proves zero behavioral change for existing roles.
     /// </summary>
-    [Fact]
+    [PostgresFact]
     public async Task UnconfiguredRoles_AllAdminsHaveFullAccess()
     {
         var connectionString = RequireConnection();

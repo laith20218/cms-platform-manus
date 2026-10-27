@@ -16,13 +16,15 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
+using CMS.Tests.Infrastructure;
+
 namespace CMS.Tests.Integration;
 
 [Trait("Category", "PostgresIntegration")]
 [Collection("PostgresIntegration")]
 public sealed class LibraryAuditPostgresIntegrationTests
 {
-    [Fact]
+    [PostgresFact]
     public async Task TamperedEntitlement_RealLibraryAccessTriggerPersistsDeniedEvents()
     {
         var connectionString = Environment.GetEnvironmentVariable("CMS_PHASE34_TEST_POSTGRES") ?? throw new InvalidOperationException("BLOCKED: set CMS_PHASE34_TEST_POSTGRES.");
@@ -71,7 +73,7 @@ public sealed class LibraryAuditPostgresIntegrationTests
         events.Select(log => log.Description.ToLowerInvariant()).Should().OnlyContain(description => !description.Contains("tampered.entitlement") && !description.Contains("token") && !description.Contains("secret"));
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task ValidEntitlement_RealControllerAndLibraryHandlerPersistFileAccess()
     {
         var connectionString = Environment.GetEnvironmentVariable("CMS_PHASE34_TEST_POSTGRES") ?? throw new InvalidOperationException("BLOCKED: set CMS_PHASE34_TEST_POSTGRES.");

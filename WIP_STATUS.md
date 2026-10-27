@@ -64,6 +64,37 @@ No app code, no migrations, no production changes (CI infrastructure only).
 - pnpm filter names: workspace packages are @cms/student-web / @cms/admin-web (the prompt's
   `--filter student-web` does not match; existing ci.yml already uses the @cms/* form).
 
+## PART B — Testcontainers.PostgreSql fixture + graceful skip (COMPLETE)
+- Package: Testcontainers.PostgreSql PINNED to 4.16.0 in CMS.Tests.csproj (transitives:
+  Testcontainers 4.16.0, Npgsql 9.0.2 — matches Infrastructure's pinned Npgsql, no drift).
+- NEW apps/api/src/CMS.Tests/Infrastructure/PostgresFixture.cs (namespace CMS.Tests.Infrastructure):
+  PostgresFixture : IAsyncLifetime — env var set → EXTERNAL connection string used verbatim
+  (Neon branch flow preserved); else PostgreSqlBuilder().WithImage("postgres:16-alpine").Build()
+  → StartAsync → GetConnectionString; then ApplicationDbContext.UseNpgsql(cs).
+  Database.MigrateAsync() (schema pre-exists for MigrationContract; the TRUNCATE test runs on a
+  throwaway DB); connection string PUBLISHED via Environment.SetEnvironmentVariable so the 27
+  guarded test bodies are UNTOUCHED (they already read the env var). PostgresFactAttribute :
+  FactAttribute overrides Skip via static ProbeSkipReason() — env var set OR /var/run/docker.sock
+  OR DOCKER_HOST → run; else skip with clear reason (replaces fail-fast BLOCKED).
+- PostgresIntegrationCollection.cs: [CollectionDefinition] now ALSO ICollectionFixture
+  <PostgresFixture> — initializes once before the first test of the collection (collection is
+  DisableParallelization; skipped tests never instantiate the fixture → no Testcontainers error
+  when Docker is absent).
+- The 12 guarded files: [Fact] → [PostgresFact] (27/27 swapped, 0 [Fact] remaining, 0 [Theory]
+  present) + `using CMS.Tests.Infrastructure;` (12 files). Zero changes to test bodies.
+- LOCAL VERIFICATION (sandbox has NO Docker — honest limitation; real-Postgres proof lands in
+  CI after PART C's wip/** trigger, observed via the GitHub API):
+  * dotnet build CMS.sln → 0 errors (18 pre-existing warnings).
+  * dotnet test --filter Integration → Failed: 1, Passed: 88, Skipped: 27, Total: 116, 2m9s.
+    The 27 = ALL PostgresIntegration tests SKIP with the probe reason (mechanism validated);
+    the 1 failure = FavoritesHttpIntegrationTests.Favorite_WithValidBoundEntitlement_… — the
+    PRE-EXISTING Push-11.3 contract regression (JsonException at :35, list endpoint now paged),
+    reproduced IDENTICALLY in CI (run 40446432090) → §12 report-only, NOT fixed here.
+  * dotnet test --filter Unit → 419/419 Passed (14s) — zero regressions.
+- CI semantic correction: CI does NOT set CMS_PHASE34_TEST_POSTGRES (it is a connection string,
+  not a flag; "1" would be used AS a connection string). Docker is preinstalled on
+  ubuntu-latest → fixture auto-starts the container.
+
 ## 11.3 PART A — Migration AddEpisodeFavorites (FILE ONLY — NOT APPLIED)
 - Entity: Favorite gains `Guid? CourseEpisodeId` + `CourseEpisode?` nav
   (apps/api/src/CMS.Domain/Entities/OperationalEntities.cs:172-193).

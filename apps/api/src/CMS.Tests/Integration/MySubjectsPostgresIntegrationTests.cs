@@ -19,6 +19,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 
+using CMS.Tests.Infrastructure;
+
 namespace CMS.Tests.Integration;
 
 /// <summary>
@@ -33,7 +35,7 @@ public sealed class MySubjectsPostgresIntegrationTests
 {
     private const string ConnectionVariable = "CMS_PHASE34_TEST_POSTGRES";
 
-    [Fact]
+    [PostgresFact]
     public async Task MySubjects_StudentClaim_ListsOnlyEntitledSubjects_AndUnentitledGetsEmptyList()
     {
         var connectionString = Environment.GetEnvironmentVariable(ConnectionVariable);

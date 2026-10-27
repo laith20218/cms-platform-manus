@@ -8,6 +8,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Moq;
 
+using CMS.Tests.Infrastructure;
+
 namespace CMS.Tests.Integration;
 
 [Trait("Category", "PostgresIntegration")]
@@ -16,7 +18,7 @@ public class SessionServicePostgresIntegrationTests
 {
     private const string ConnectionVariable = "CMS_PHASE34_TEST_POSTGRES";
 
-    [Fact]
+    [PostgresFact]
     public async Task SessionLifecycle_RotationReuseAndRevocation_AreEnforcedByPostgres()
     {
         var connectionString = Environment.GetEnvironmentVariable(ConnectionVariable);
@@ -77,7 +79,7 @@ public class SessionServicePostgresIntegrationTests
         (await service.IsActiveAsync(explicitSession.SessionId, 1, installationId)).Should().BeFalse();
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task SessionLifecycle_ExpiredRefreshToken_IsRejectedByPostgres()
     {
         var connectionString = Environment.GetEnvironmentVariable(ConnectionVariable);
@@ -121,7 +123,7 @@ public class SessionServicePostgresIntegrationTests
         (await service.IsActiveAsync(session.SessionId, persisted.TokenVersion, installationId)).Should().BeFalse();
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task SuperAdminSession_DoesNotCreateOrRequireAStudentDeviceBinding()
     {
         var connectionString = Environment.GetEnvironmentVariable(ConnectionVariable);
@@ -178,7 +180,7 @@ public class SessionServicePostgresIntegrationTests
 
     // ===== Push 2 / Track 2: activity-monitor enrichment + throttled heartbeat =====
 
-    [Fact]
+    [PostgresFact]
     public async Task CreateAsync_WithIpAddressAndUserAgent_PersistsSessionEnrichment()
     {
         var connectionString = Environment.GetEnvironmentVariable(ConnectionVariable);
@@ -242,7 +244,7 @@ public class SessionServicePostgresIntegrationTests
         storedStudent.DeviceDetails.Should().BeNull();
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task TouchActivityAsync_RefreshesOnlyWhenOlderThanThrottleWindow()
     {
         var connectionString = Environment.GetEnvironmentVariable(ConnectionVariable);

@@ -14,6 +14,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
+using CMS.Tests.Infrastructure;
+
 namespace CMS.Tests.Integration;
 
 [Trait("Category", "PostgresIntegration")]
@@ -22,7 +24,7 @@ public sealed class AuthAuditPostgresIntegrationTests
 {
     private const string ConnectionVariable = "CMS_PHASE34_TEST_POSTGRES";
 
-    [Fact]
+    [PostgresFact]
     public async Task Login_RealCommandPersistsLoginAndSessionCreatedWithSafeCorrelation()
     {
         await using var fixture = await CreateFixtureAsync();
@@ -44,7 +46,7 @@ public sealed class AuthAuditPostgresIntegrationTests
             !description.Contains("secret", StringComparison.OrdinalIgnoreCase));
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task LoginFailed_RealCommandPersistsActorAndSafeDescription()
     {
         await using var fixture = await CreateFixtureAsync();
