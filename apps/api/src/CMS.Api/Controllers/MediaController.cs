@@ -45,6 +45,10 @@ public class MediaController : ControllerBase
     /// Issues a short-lived presigned GET URL against the object-storage host for a stored
     /// video/audio asset (Range-capable — the player seek/stall-refreshes it on expiry).
     /// YouTube-hosted media and non-video/audio assets are rejected with 400.
+    /// Push 11.1 — Ready HLS assets answer the same-API PROXY route instead (see
+    /// <see cref="GetHlsObject"/>): the handler returns it relative and this action
+    /// absolutizes it against the request host, so hls.js resolves the ladder's relative
+    /// URIs back into the proxy (auth headers attached player-side via xhrSetup).
     /// </summary>
     [HttpPost("{assetType}/{assetId:guid}/playback-url")]
     public async Task<IActionResult> GetPlaybackUrl(string assetType, Guid assetId, CancellationToken ct)
@@ -57,7 +61,54 @@ public class MediaController : ControllerBase
         if (rejection is not null) return rejection;
 
         var result = await _mediator.Send(new GetPlaybackUrlQuery(studentId.Value, type, assetId), ct);
+
+        // Push 11.1 — the HLS proxy URL is minted relative (handler stays
+        // HttpContext-free and unit-testable); absolutize it here. ForwardedHeaders
+        // (X-Forwarded-Proto) is applied in Program.cs, so Scheme/Host are the public
+        // values behind Render's proxy.
+        if (result.Url.StartsWith('/'))
+            result = result with { Url = $"{Request.Scheme}://{Request.Host}{Request.PathBase}{result.Url}" };
+
         return Ok(result);
+    }
+
+    // ===== §1.A′: Push 11.1 — HLS proxy object streaming =====
+
+    /// <summary>
+    /// Streams one file of a Ready asset's HLS ladder (master.m3u8 / {rung}/index.m3u8 /
+    /// {rung}/segment_NNN.ts) from object storage through the API.
+    ///
+    /// Why this exists: S3 presigned URLs are object-scoped — one signature authorizes
+    /// exactly ONE key. The FFmpeg ladder's playlists reference their children by
+    /// RELATIVE URI, so a presigned master.m3u8 cannot authorize {rung}/index.m3u8 or the
+    /// .ts segments: the player resolves them against the presigned URL and requests
+    /// them from the bucket with no signature at all, which the private B2 bucket
+    /// rejects with 401 — the Wave 10 incident («جاري تجديد الرابط…» forever).
+    ///
+    /// The proxy keeps every ladder request on the API's authorization surface (the
+    /// same student role + signed-entitlement gate as playback-url, re-validated per
+    /// request) and fetches the object server-side with the storage credentials.
+    /// Because the base URL stays on this API, the playlists' RELATIVE URIs resolve
+    /// back into this route — no manifest rewriting needed.
+    ///
+    /// Authorization headers arrive via the player's hls.js xhrSetup (Bearer +
+    /// X-Entitlement + X-Installation-Id). Playlists answer application/vnd.apple.mpegurl
+    /// with private,no-store; segments answer video/mp2t with private,max-age=300.
+    /// </summary>
+    [HttpGet("hls/{assetType}/{assetId:guid}/{*path}")]
+    public async Task<IActionResult> GetHlsObject(string assetType, Guid assetId, string? path, CancellationToken ct)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+        if (!TryParseAssetType(assetType, out var type)) return BadRequest(InvalidAssetType(assetType));
+
+        var rejection = await EntitlementRejectionAsync(studentId.Value, type, assetId, ct);
+        if (rejection is not null) return rejection;
+
+        var result = await _mediator.Send(new GetHlsObjectQuery(studentId.Value, type, assetId, path ?? string.Empty), ct);
+
+        Response.Headers.CacheControl = result.CacheControl;
+        return new FileStreamResult(result.Content, result.ContentType);
     }
 
     // ===== §1.B: bookmarks =====

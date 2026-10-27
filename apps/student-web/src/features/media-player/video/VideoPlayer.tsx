@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Hls, { type ErrorData } from 'hls.js';
 import { LoaderCircle, MonitorPlay, Play, RotateCcw } from 'lucide-react';
-import { cn } from '@/utils';
+import { cn, getOrCreateInstallationId } from '@/utils';
 import { useMediaLease } from '../hooks/useMediaLease';
 import { mediaApi, type MediaAssetType } from '../services/media-api';
 import { usePlayerShell } from '../shell-context';
@@ -14,15 +14,30 @@ import { ControlsBar } from './ControlsBar';
  *
  *  - MP4/object-storage URLs → native <video src> (Range-capable files,
  *    exactly as 10.2 shipped).
- *  - `.m3u8` URLs (the Push 10.3 transcoding ladder's master playlist) →
- *    hls.js + MSE. Safari/iOS builds without MSE fall back to the element's
- *    native HLS support via the same `src` path.
+ *  - `.m3u8` URLs (the transcoding ladder's master playlist) → hls.js + MSE.
+ *    Safari/iOS builds without MSE fall back to the element's native HLS support
+ *    via the same `src` path.
  *
- * The silent lease refresh works for BOTH engines: the native path swaps the
- * `src` prop, the HLS path calls `hls.loadSource(newUrl)` — each with the
- * captured timestamp + play state restored in onLoadedMetadata (hls.js also
- * gets `startPosition` so the fresh manifest buffers straight at the playhead
- * instead of re-downloading from zero).
+ * Push 11.1 — the master playlist comes from the API PROXY route, so every ladder
+ * request carries the session auth headers via xhrSetup.
+ *
+ * Push 11.1-REWRITE (Option C) — only the PLAYLISTS flow through the API: variant
+ * playlists are served REWRITTEN (their segment lines are absolute presigned B2
+ * URLs), so hls.js fetches .ts bytes DIRECT from object storage with no custom
+ * headers (no CORS preflight). Two consequences drive this file's error handling:
+ *   1. The proxy master URL is a STABLE string — a silent lease refresh would never
+ *      re-run the loadSource effect on URL identity alone, yet the variant MUST be
+ *      re-fetched to mint fresh presigned segments before the old ones lapse. The
+ *      hls effect is therefore keyed on the lease `generation` as well.
+ *   2. B2 answers an expired presign with 401/403 and NO CORS headers (measured
+ *      live, PART B) — the browser surfaces that to hls.js as an opaque
+ *      NETWORK_ERROR, so recovery is status-agnostic: any fatal network error
+ *      triggers the silent refresh (see triggerSilentRefresh).
+ *
+ * The silent lease refresh works for BOTH engines: the native path swaps the `src`
+ * prop, the HLS path re-runs `hls.loadSource` — each with the captured timestamp +
+ * play state restored in onLoadedMetadata (hls.js also gets `startPosition` so the
+ * fresh manifest buffers straight at the playhead instead of re-downloading from zero).
  *
  * Lifecycle:
  *  - useMediaLease fetches the playback URL and silently refreshes it at
@@ -56,6 +71,50 @@ function isHlsUrl(url: string): boolean {
   } catch {
     // Not an absolute URL (blob:/relative) — best-effort substring probe.
     return url.toLowerCase().includes('.m3u8');
+  }
+}
+
+/**
+ * Push 11.1 — true when a request URL targets the API origin. The API base mirrors
+ * api-client.ts (`VITE_API_URL`, defaulting to the same-origin `/api/v1`).
+ */
+function isApiOriginUrl(url: string): boolean {
+  try {
+    const apiBase = new URL(import.meta.env.VITE_API_URL || '/api/v1', window.location.origin);
+    return new URL(url, window.location.origin).origin === apiBase.origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Push 11.1 — hls.js xhrSetup: attach the session's auth headers (the exact set the
+ * axios interceptors + entitlementRequestConfig send on every media API call) to each
+ * manifest/fragment request that targets the API origin.
+ *
+ * Push 11.1-REWRITE (Option C) — the split is now architectural: the master and
+ * VARIANT PLAYLISTS come from the API proxy route (auth headers required — the
+ * student gate re-validates them per request), while .ts SEGMENTS are absolute
+ * presigned B2 URLs fetched DIRECTLY by hls.js. Presigned URLs must carry NO
+ * custom headers: an Authorization header would void the SigV4 signature
+ * ("only one auth mechanism allowed"), and custom headers would force a CORS
+ * preflight — bare GETs need none. isApiOriginUrl keeps the split exact: headers
+ * attach ONLY to API-origin URLs; B2-origin requests go out bare by design.
+ *
+ * Headers are read per-request (not captured once): the lease refresh renews the
+ * access/entitlement tokens on its cadence, and later requests must see the fresh
+ * values.
+ */
+function attachApiAuthHeaders(xhr: XMLHttpRequest, url: string): void {
+  if (!isApiOriginUrl(url)) return;
+  const token = sessionStorage.getItem('cms-access-token');
+  const entitlement = sessionStorage.getItem('cms-signed-entitlement');
+  const installationId = getOrCreateInstallationId();
+  if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+  if (entitlement) xhr.setRequestHeader('X-Entitlement', entitlement);
+  if (installationId) {
+    xhr.setRequestHeader('X-Installation-Id', installationId);
+    xhr.setRequestHeader('X-Device-Fingerprint', installationId);
   }
 }
 
@@ -242,11 +301,50 @@ export default function VideoPlayer({
     handleMediaErrorRef.current = handleMediaError;
   }, [handleMediaError]);
 
+  /**
+   * Push 11.1-REWRITE (Option C) — the hls.js silent-refresh trigger.
+   *
+   * PART B measured live that B2 answers an expired presigned URL with 401/403
+   * and NO CORS headers — the browser surfaces that to hls.js as an opaque
+   * NETWORK_ERROR (status 0), so there is no readable HTTP status to branch on.
+   * Recovery is therefore status-agnostic: reload the ladder from a fresh
+   * playback-url swap. fetchUrl({preserveTime}) captures currentTime + play
+   * state, calls playback-url (auth headers ride the axios interceptors), and
+   * bumps the lease generation — the generation-keyed hls effect below re-runs
+   * loadSource(master) → MANIFEST_PARSED → startLoad(savedTime) → the fresh
+   * variant mints new presigned segment URLs, and onLoadedMetadata restores the
+   * playhead + play state. The «جاري تجديد الرابط…» overlay rides `refreshing`.
+   *
+   * The 5s anti-hammer guard (shared with the native path's throttle) keeps a
+   * persistently-failing ladder from looping: a second failure within 5s of the
+   * last one surfaces the error UI instead of another refresh.
+   */
+  const triggerSilentRefresh = useCallback(() => {
+    const now = Date.now();
+    if (now - lastMediaErrorAtRef.current < 5000) {
+      setFatalError('تعذّر تشغيل البث. حاول إعادة التحميل.');
+      return;
+    }
+    lastMediaErrorAtRef.current = now;
+    void fetchUrl({ preserveTime: true, reason: 'error' });
+  }, [fetchUrl]);
+
+  // Same identity-stability pattern as handleMediaErrorRef: the hls instance is
+  // created once, its error listener must call the LATEST refresh trigger.
+  const triggerSilentRefreshRef = useRef(triggerSilentRefresh);
+  useEffect(() => {
+    triggerSilentRefreshRef.current = triggerSilentRefresh;
+  }, [triggerSilentRefresh]);
+
   /* ============ hls.js engine (`.m3u8` playback URLs only) ============ */
 
-  // attach/load — runs on every playback URL change (initial + every silent
-  // refresh). Native mode keeps the plain `src` prop path and never spins up
-  // an instance; an engine flip (never expected for one asset) destroys it.
+  // attach/load — runs on every playback URL change AND every silent lease swap
+  // (the generation key). Option C depends on the generation key: the proxy master
+  // URL is a STABLE string, so URL identity alone would never re-run this effect —
+  // yet every refresh must re-fetch the variant playlist to mint fresh presigned
+  // segment URLs before the old ones lapse (TTL 540s). Native mode keeps the plain
+  // `src` prop path and never spins up an instance; an engine flip (never expected
+  // for one asset) destroys it.
   useEffect(() => {
     if (!useHlsEngine) {
       hlsRef.current?.destroy();
@@ -261,7 +359,14 @@ export default function VideoPlayer({
       // autoStartLoad stays off: every load (initial + silent swaps) starts
       // explicitly from the captured playhead via startLoad(position), so a
       // lease refresh never re-buffers from zero.
-      hls = new Hls({ enableWorker: true, maxBufferLength: 30, autoStartLoad: false });
+      // Push 11.1 — xhrSetup: proxy-route requests carry the session auth
+      // headers (see attachApiAuthHeaders); presigned storage URLs stay bare.
+      hls = new Hls({
+        enableWorker: true,
+        maxBufferLength: 30,
+        autoStartLoad: false,
+        xhrSetup: attachApiAuthHeaders,
+      });
       hlsRef.current = hls;
       hls.attachMedia(video);
       hls.on(Hls.Events.ERROR, (_event, data: ErrorData) => {
@@ -271,9 +376,13 @@ export default function VideoPlayer({
           return;
         }
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          // Expired presigned manifest/fragment — the same throttled
-          // preserve-time refresh the native path uses for 403'd files.
-          handleMediaErrorRef.current();
+          // Push 11.1-REWRITE (Option C): segments stream direct from B2 via
+          // presigned URLs, and an expired signature answers 401/403 WITHOUT
+          // CORS headers — hls.js reports an opaque network failure with no
+          // readable status. The refresh trigger is therefore status-agnostic
+          // (never 401-specific): reload the ladder, re-fetch the variant,
+          // resume at the preserved playhead.
+          triggerSilentRefreshRef.current();
           return;
         }
         hlsRef.current?.destroy();
@@ -290,10 +399,11 @@ export default function VideoPlayer({
       hlsRef.current?.startLoad(resumeAt);
     });
     hls.loadSource(playbackUrl);
-    // refs-only contract: pendingTimeRef/videoRef are stable; handleMediaError
-    // is read through its ref — re-running on identity churn would double-load.
+    // refs-only contract: pendingTimeRef/videoRef are stable; the refresh
+    // triggers are read through their refs — re-running on identity churn
+    // would double-load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playbackUrl, useHlsEngine]);
+  }, [playbackUrl, useHlsEngine, generation]);
 
   // Unmount → release the MSE instance (and its SourceBuffers).
   useEffect(() => () => {
@@ -643,7 +753,7 @@ export default function VideoPlayer({
             className="pointer-events-none absolute top-3 z-20 flex items-center gap-2 rounded-full bg-black/50 px-3 py-1.5 text-[11px] font-medium text-white/80 backdrop-blur-sm"
           >
             <LoaderCircle className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-            تجديد الرابط…
+            جاري تجديد الرابط…
           </motion.div>
         )}
       </AnimatePresence>

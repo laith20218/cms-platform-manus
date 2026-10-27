@@ -17,6 +17,34 @@ public record GetPlaybackUrlQuery(
     Guid AssetId
 ) : IRequest<PlaybackUrlDto>;
 
+/// <summary>
+/// Push 11.1 — HLS proxy object fetch. One file of a Ready asset's HLS ladder
+/// (master.m3u8, {rung}/index.m3u8, {rung}/segment_NNN.ts), addressed RELATIVE to the
+/// asset's pinned HlsKey directory.
+///
+/// Why the API is in this path at all: S3-style presigned URLs are object-scoped —
+/// one signature covers exactly one key. An HLS ladder is a TREE of playlists and
+/// segments referenced by RELATIVE URIs, so a presigned master.m3u8 cannot authorize
+/// its children (the Wave 10 401 incident), and B2 has no wildcard presigns (verified
+/// live, PART B T1-Step2: 403 SignatureDoesNotMatch).
+///
+/// Push 11.1-REWRITE (Option C): only the PLAYLISTS stay on the API — the master is
+/// streamed raw; every VARIANT playlist is downloaded and REWRITTEN so its segment
+/// lines become object-scoped presigned URLs the player fetches DIRECTLY from B2
+/// (browser CORS verified live, PART B T2-b). Segment (.ts/.m4s) requests against the
+/// API are RETIRED and answer 404 before any storage access — the fast failure that
+/// drives stale clients back to the variant for fresh presigned URLs.
+/// </summary>
+public record GetHlsObjectQuery(
+    Guid StudentId,
+    MediaAssetType AssetType,
+    Guid AssetId,
+    /// <summary>Slash-joined path below the asset's HlsKey directory, e.g.
+    /// "master.m3u8" or "360p/segment_000.ts". Validated against a strict whitelist
+    /// (see MediaHandlers.ValidateHlsRelativePath) before any storage access.</summary>
+    string Path
+) : IRequest<HlsObjectDto>;
+
 // ===== §1.B: media bookmarks =====
 
 public record CreateMediaBookmarkCommand(
