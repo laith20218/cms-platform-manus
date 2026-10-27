@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using CMS.Application.BackgroundJobs;
 using CMS.Application.Commands.Courses;
 using CMS.Application.DTOs.Courses;
@@ -383,9 +384,24 @@ public class CourseHandlers :
         string? fileKey = episode.FileKey;
         string? uploadId = episode.UploadId;
 
+        // Push 11.3.1 — DeletedAt/DeletedBy is a SOFT delete: the row survives (only the
+        // stored blob below is hard-removed), so this save is guarded defensively — with
+        // favorites.course_episode_id ON DELETE RESTRICT, any future switch of this flow
+        // to a hard row removal must surface the Arabic 409 (ExceptionHandlingMiddleware
+        // maps ConflictException → HttpStatusCode.Conflict), never the raw 500.
         typeof(CourseEpisode).GetProperty("DeletedAt")?.SetValue(episode, DateTime.UtcNow);
         typeof(CourseEpisode).GetProperty("DeletedBy")?.SetValue(episode, req.DeletedBy);
-        await _unitOfWork.SaveChangesAsync(ct);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsFavoritesEpisodeRestrict(ex))
+        {
+            _logger.LogWarning(
+                "Episode delete blocked by favorites FK. EpisodeId={EpisodeId}", episode.Id);
+            throw new ConflictException(
+                "لا يمكن حذف الحلقة — بعض الطلاب أضافوها إلى المفضلة. استخدم زر الأرشفة بدلًا من الحذف.");
+        }
 
         try
         {
@@ -806,10 +822,46 @@ public class CourseHandlers :
         {
             await _unitOfWork.SaveChangesAsync(ct);
         }
+        catch (DbUpdateException ex) when (IsFavoritesEpisodeRestrict(ex))
+        {
+            // Push 11.3.1 — the REACHABLE RESTRICT path. EnsureEpisodeNumberUsableAsync
+            // hard-purges soft-deleted "ghost" rows when their number is reused (AddYouTube
+            // / InitiateUpload / UpdateEpisode renumbering), and a ghost can still be
+            // referenced by student favorites (favorited while live, then admin-deleted).
+            // The DELETE of such a ghost dies at the DB with 23503 — surface as 409 with
+            // the actionable remedy (pick another number), never the raw 500.
+            _logger.LogWarning(
+                "Episode-number reuse blocked by favorites FK (ghost purge). GhostEpisodeId={GhostEpisodeId}",
+                ex.InnerException is PostgresException pgEx ? pgEx.MessageText : ex.Message);
+            throw new ConflictException(
+                "تعذّر تحرير رقم الحلقة — الحلقة المحذوفة التي تحمل هذا الرقم ما زالت في المفضلة لدى بعض الطلاب. اختر رقمًا آخر.");
+        }
         catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
         {
             throw new DomainException("رقم الحلقة مستخدم داخل هذا الكورس (حاول برقم آخر)", "EPISODE_NUMBER_TAKEN");
         }
+    }
+
+    /// <summary>
+    /// Push 11.3.1 — favorites→episode FK RESTRICT guard. favorites.course_episode_id is
+    /// ON DELETE RESTRICT (migration AddEpisodeFavorites): any hard removal of a
+    /// course_episodes row referenced by a student favorite dies at the database with
+    /// SQLSTATE 23503 on fk_favorites_course_episodes_course_episode_id. The constraint
+    /// name is matched explicitly so unrelated FK violations pass through untouched.
+    /// Scans the whole inner-exception chain (same robustness as
+    /// <see cref="IsUniqueConstraintViolation"/> — EF may wrap the provider exception).
+    /// </summary>
+    private const string FavoritesEpisodeFkName = "fk_favorites_course_episodes_course_episode_id";
+
+    private static bool IsFavoritesEpisodeRestrict(DbUpdateException exception)
+    {
+        for (var scan = (Exception?)exception; scan is not null; scan = scan.InnerException)
+        {
+            if (scan is PostgresException { SqlState: "23503" } pgEx
+                && string.Equals(pgEx.ConstraintName, FavoritesEpisodeFkName, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
     }
 
     private static bool IsUniqueConstraintViolation(DbUpdateException exception)

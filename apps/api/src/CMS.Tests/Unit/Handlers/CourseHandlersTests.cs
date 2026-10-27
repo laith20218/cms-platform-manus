@@ -15,6 +15,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using Npgsql;
 
 namespace CMS.Tests.Unit.Handlers;
 
@@ -1036,6 +1037,100 @@ public sealed class CourseHandlersTests
 
         (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("EPISODE_NUMBER_TAKEN");
     }
+
+    // ===== Push 11.3.1 — favorites FK RESTRICT (23503) graceful handling =====
+
+    /// <summary>
+    /// The production shape of a blocked episode delete: EF Core wraps the provider's
+    /// SQLSTATE 23503 foreign_key_violation (fk_favorites_course_episodes_course_episode_id)
+    /// in a DbUpdateException. InMemory never throws it, so the unit test synthesizes the
+    /// EXACT provider pair — DbUpdateException wrapping a real PostgresException constructed
+    /// with the matching SqlState + ConstraintName — and asserts the translation to
+    /// ConflictException (HTTP 409 via ExceptionHandlingMiddleware) with the Arabic message
+    /// directing the admin to Archive.
+    /// NOTE: DeleteEpisodeCommand is a SOFT delete today (sets DeletedAt — the row survives),
+    /// so on the real database this save cannot fire the FK; the guard is defensive for any
+    /// future switch to hard row removal. The REACHABLE path is the ghost purge asserted
+    /// in InitiateUpload_NumberHeldByFavoritedGhost_FkRestrict_TranslatedToConflict409 below.
+    /// </summary>
+    [Fact]
+    public async Task DeleteEpisode_FavoritesFkRestrict_TranslatedToConflict409()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: null);
+        var throwing = new Mock<IUnitOfWork>();
+        throwing.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(FkRestrictUpdateException());
+        var (handler, _, _, _, _) = Create(db, unitOfWork: throwing.Object);
+
+        var act = () => handler.Handle(new DeleteEpisodeCommand(episode.Id, Guid.NewGuid()), CancellationToken.None);
+
+        var assertion = await act.Should().ThrowAsync<ConflictException>();
+        assertion.Which.Message.Should().Contain("المفضلة");
+        assertion.Which.Message.Should().Contain("الأرشفة");
+    }
+
+    [Fact]
+    public async Task DeleteEpisode_WithoutFavorites_SoftDeletesEpisodeAndCleansBlob()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: null);
+        var (handler, storage, _, _, _) = Create(db);
+        storage.Setup(s => s.DeleteAsync("courses/x/y", It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        await handler.Handle(new DeleteEpisodeCommand(episode.Id, Guid.NewGuid()), CancellationToken.None);
+
+        // Soft delete: the row survives with DeletedAt set (Archive semantics), blob removed.
+        db.CourseEpisodes.AsNoTracking().Single(stored => stored.Id == episode.Id).DeletedAt.Should().NotBeNull();
+        storage.Verify(s => s.DeleteAsync("courses/x/y", It.IsAny<CancellationToken>()), Times.Once,
+            "the stored blob is hard-removed even though the row is soft-deleted");
+        storage.VerifyNoOtherCalls();
+    }
+
+    /// <summary>
+    /// The REACHABLE RESTRICT path in production: a student favorites an episode while it
+    /// is live (Ready + published course), the admin later soft-deletes it (row survives as
+    /// a "ghost" holding its number in the hard unique index), and then a new upload asks
+    /// for the same number — EnsureEpisodeNumberUsableAsync hard-purges the ghost, whose
+    /// DELETE dies at the DB with 23503 on the favorites FK. Must surface as 409 with the
+    /// pick-another-number remedy, never the raw 500 the admin would otherwise see.
+    /// </summary>
+    [Fact]
+    public async Task InitiateUpload_NumberHeldByFavoritedGhost_FkRestrict_TranslatedToConflict409()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var course = await SeedCourseAsync(db);
+        var ghost = await SeedUploadEpisodeAsync(db, course, "courses/ghost/y", uploadId: null, episodeNumber: 2);
+        await GhostifyAsync(db, ghost);
+        var throwing = new Mock<IUnitOfWork>();
+        throwing.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(FkRestrictUpdateException());
+        var (handler, storage, _, _, _) = Create(db, unitOfWork: throwing.Object);
+        storage.Setup(s => s.GetSignedUploadUrlAsync(It.IsAny<string>(), "video/mp4", It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://r2/put-fk");
+        storage.Setup(s => s.DeleteAsync("courses/ghost/y", It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var act = () => handler.Handle(new InitiateEpisodeUploadCommand(
+            course.Id, "new.mp4", "video/mp4", 1024, "حلقة جديدة", 2, Guid.NewGuid()), CancellationToken.None);
+
+        var assertion = await act.Should().ThrowAsync<ConflictException>();
+        assertion.Which.Message.Should().Contain("المفضلة");
+        assertion.Which.Message.Should().Contain("رقمًا آخر");
+    }
+
+    /// <summary>EF's production wrapping of a favorites-FK RESTRICT failure: DbUpdateException
+    /// whose InnerException is the provider's PostgresException with SqlState 23503 and the
+    /// favorites→episodes constraint name (typed matcher contract of IsFavoritesEpisodeRestrict).</summary>
+    private static DbUpdateException FkRestrictUpdateException() => new(
+        "An error occurred while saving the entity changes. See the inner exception for details.",
+        new PostgresException(
+            "update or delete on table \"course_episodes\" violates foreign key constraint \"fk_favorites_course_episodes_course_episode_id\" on table \"favorites\"",
+            "ERROR", "ERROR", "23503",
+            constraintName: "fk_favorites_course_episodes_course_episode_id"));
 
     /// <summary>Activity writer that records entries in memory for assertions.</summary>
     private sealed class RecordingActivityWriter : IAdminActivityWriter
