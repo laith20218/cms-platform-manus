@@ -166,16 +166,47 @@ CRITICAL: migration file generated but NOT applied to any DB (STOP GATE §2/§3)
   touched anywhere. admin-web untouched.
 
 ## Post-merge debts (Push 11.3)
-- admin-web hard-delete (DELETE → 204) on episodes will trigger FK RESTRICT violation once a
-  student favorites an episode. Needed: DeleteEpisodeHandler should catch NpgsqlException with
-  code 23503 on fk_favorites_course_episodes and return 409 Conflict with message directing to
-  Archive instead. Tracked for 11.3.1 or 11.4.
+- ~~admin-web hard-delete (DELETE → 204) on episodes will trigger FK RESTRICT violation once a
+  student favorites an episode.~~ RESOLVED by Push 11.3.1 (branch wip/11.3.1). PREMISE CORRECTED
+  during implementation: DeleteEpisodeCommand is a SOFT delete (sets DeletedAt — the row survives,
+  so the FK can never fire on its save); the REACHABLE 23503 path is the ghost purge in
+  EnsureEpisodeNumberUsableAsync (hard-purges soft-deleted episodes on number reuse — a ghost can
+  still be referenced by student favorites). Both save sites in CourseHandlers.cs now translate
+  23503-on-fk_favorites_course_episodes_course_episode_id to ConflictException → 409 with Arabic
+  guidance (Archive advice on the delete guard; pick-another-number advice on the ghost purge).
+  Sibling hard-delete sites (AbortEpisodeUpload, CompleteUpload-oversize) were deliberately left
+  unguarded per §12: their rows are pre-Ready uploads, which CreateEpisodeFavoriteCommand rejects.
 - In-memory pagination in GetFavoritesQuery: fine for <200 favorites/user. Switch to SQL
   Skip/Take when usage grows.
 - favoriteCount in StatsHandlers still counts only questions + files; episodes not included.
   Wave 12.
 - e2e MP4 fixture at apps/student-web/e2e/fixtures/*.mp4 should be .gitignore'd
   (remove-if-needed).
+
+## Push 11.3.1 — FK RESTRICT graceful handling on episode delete (wip/11.3.1)
+- Handler map (all episode-row delete paths, single file CourseHandlers.cs):
+  DeleteEpisodeCommand (:379) SOFT; DeleteCourseCommand (:297) SOFT; ghost purge in
+  EnsureEpisodeNumberUsableAsync riding SaveEpisodesWithNumberGuardAsync (:807) — HARD and
+  REACHABLE via AddYouTubeEpisode/InitiateEpisodeUpload/UpdateEpisode renumber;
+  AbortEpisodeUploadCommand + CompleteEpisodeUploadCommand-oversize — HARD but rows are
+  pre-Ready (unfavoritable today), left unguarded per §12.
+- Implementation (Option A, race-free): typed matcher IsFavoritesEpisodeRestrict — scans the
+  DbUpdateException inner chain for PostgresException { SqlState == "23503" && ConstraintName ==
+  "fk_favorites_course_episodes_course_episode_id" }; catch blocks at DeleteEpisodeCommand's save
+  (defensive — soft delete today) and SaveEpisodesWithNumberGuardAsync (the reachable path);
+  ConflictException (CMS.Domain) → ExceptionHandlingMiddleware:51-54 → 409 ProblemDetails with
+  Arabic Detail. Message propagation verified end-to-end read-only: middleware Detail →
+  admin-web lib/api.ts readProblem (detail ?? message ?? title) → ApiError.message →
+  CoursesCenter.tsx:558 onError → App.tsx:214 toast.error. No admin-web changes needed.
+- Dependency: Npgsql 9.0.2 direct reference added to CMS.Application.csproj (pinned to
+  Infrastructure's transitive version — no drift) for typed PostgresException access.
+- Tests (CourseHandlersTests.cs, +3): DeleteEpisode_FavoritesFkRestrict_TranslatedToConflict409
+  (synthetic DbUpdateException wrapping a real PostgresException built with SqlState 23503 +
+  constraintName — the extended public ctor; asserts ConflictException + المفضلة + الأرشفة),
+  DeleteEpisode_WithoutFavorites_SoftDeletesEpisodeAndCleansBlob (regression),
+  InitiateUpload_NumberHeldByFavoritedGhost_FkRestrict_TranslatedToConflict409 (the reachable
+  path; asserts المفضلة + رقمًا آخر). Suite: CourseHandlersTests 51/51; full unit 419/419
+  (416 baseline + 3). Build 0 errors. No migration, no admin-web/pnpm-lock changes.
 
 ## RESUME_FROM
 RESUME_FROM: pending production verification. Push 11.3-MERGE completed: AddEpisodeFavorites
@@ -184,3 +215,6 @@ schema verified (column/course_episode_id uuid YES; history row 20261027013220_A
 constraints ck_favorites_exactly_one_target + fk_favorites_course_episodes_course_episode_id
 present) → merged to main --no-ff (28dc416) + debts recorded → pushed (auto-deploy triggered).
 Supervisor will coordinate production verification with user.
+Push 11.3.1 delivered on wip/11.3.1 (from main 699beff): 23503-on-favorites-episode-FK →
+409 ConflictException with Arabic guidance, both save sites guarded, 3 unit tests added
+(419/419 green). Awaiting merge review + deploy + production verify.
