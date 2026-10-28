@@ -27,7 +27,8 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.0",
     "sonner": "^1.5.0",
-    "tailwind-merge": "^2.5.0"
+    "tailwind-merge": "^2.5.0",
+    "wavesurfer.js": "7.12.12"
   },
   "devDependencies": {
     "@playwright/test": "1.58.2",

@@ -18,6 +18,21 @@ audio upload allow-list (CoursePlayerPage/AudioStage OUT).
 - V0-B confirmed: CoursePlayerPage.tsx:559-568 is a decorative pseudo-waveform
   (deterministic Math.sin bars seeded from the title).
 
+### COMMIT 2 — wavesurfer.js install (DONE)
+- pnpm 9.12.0 (matches root packageManager + lockfileVersion 9.0).
+- `pnpm add wavesurfer.js@7.12.12 --save-exact` inside apps/student-web.
+  NOTE: the npm package NAME is "wavesurfer.js" — the bare "wavesurfer" name
+  is a different deprecated package (latest 1.3.4) and has no 7.x line.
+- package.json: "wavesurfer.js": "7.12.12" (exact, no caret).
+- pnpm-lock.yaml: exactly +8 lines, wavesurfer.js entries ONLY — zero churn
+  elsewhere (verified via git diff of the lockfile).
+- `pnpm list wavesurfer.js --depth=0` → wavesurfer.js 7.12.12.
+- Integration contract verified from the installed dist source:
+  setPlaybackRate(rate, preservePitch?) sets media.preservesPitch (default true);
+  create({media, url}) uses the external element + fetches the blob for peaks
+  (CORS applies — production check PASSED above); silent lease refresh =
+  swap media.src only, decodedData peaks persist.
+
 ### CORS CHECK (BLOCKING gate for commit 3): PASS
 - Method: student login stale (AUTH_INVALID_CREDENTIALS x2 — stopped to avoid
   lockout), so the presigned audio/mpeg URL was minted OUT-OF-BAND with the same
