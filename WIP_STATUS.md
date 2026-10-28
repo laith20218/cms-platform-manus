@@ -1201,3 +1201,67 @@ awaiting supervisor review of Phase58 SQL before any production application
 
 - Wave 11.5 status: 14/14 closed. Only 11.5.8 (CodeQL triage) 
   remains. First FULL GREEN CI achieved on this merge.
+
+## Push 11.5.8 status
+
+- CodeQL triage completed:
+
+| Alert | Type | Disposition |
+|---|---|---|
+| #150 js/xss-through-dom | HIGH | Dismissed (false positive, API + source comment) |
+| #151 js/regex/missing-regexp-anchor | HIGH | Fixed (anchor added) |
+| #21-23 cs/loss-of-precision | ERROR ×3 | Fixed (literals promoted to double) |
+| #1-6 cs/log-forging | MEDIUM ×6 | Deferred to Wave 12 (N17) |
+| 146 note/warning | Backlog | Documented, no fix |
+
+- Open alert count: 157 → 152 (wip/11.5.8 @ 2cd4a1b ref,
+  analyses 2047156798/2047158832 ingested 17:12Z; API-verified
+  2026-10-28T17:27Z: state=open on ref = 152 = 6 log-forging +
+  146 backlog; regex/loss-of-precision/xss all absent).
+  Default-branch (main) view: 156 — #21-23 + #151 remain open
+  there until merge triggers fresh main analysis (pre-fix
+  analysis 2042847628 from 8e796608 still latest on main);
+  #150 dismissal is API-driven and immediate.
+
+- Verification on 2cd4a1b (CI run 40732721837, full green):
+  Backend 535/535; Frontend e2e 5/5 specs (30/30, 17/17,
+  14/14, 19/19, 13/13 — option-c green with anchored regex);
+  local: dotnet build 0 errors, 419/419 unit, e2e 13/13 × 3,
+  student lint clean, both web builds green.
+
+- N17 [NEW, Wave 12 target]: log-forging ×6 (medium)
+  - Sites: SecurityMiddleware.cs:95/118/125,
+    CorrelationIdMiddleware.cs:31 (×2 alerts),
+    PerformanceMiddleware.cs:228
+  - Issue: Console() sink writes raw values (no escaping);
+    potential newline injection in aggregated logs
+  - Fix: WriteTo.Console(new CompactJsonFormatter()) in
+    Program.cs — changes production log format globally
+  - Impact: requires ops review (Render log parsing, alerting)
+  - Deferred to Wave 12
+
+- Backlog breakdown (146 total, API-verified from wip ref):
+  - 46 × cs/catch-of-all-exceptions
+  - 20 × cs/useless-upcast
+  - 19 × cs/useless-assignment-to-local
+  - 12 × cs/complex-condition
+  - 10 × cs/constant-condition
+  - 9 × cs/local-not-disposed
+  - 8 × cs/linq/missed-where
+  - 5 × cs/path-combine
+  - remaining 17 across 10 rules (3× js/trivial-conditional,
+    3× cs/useless-cast-to-self, 2× js/superfluous-trailing-
+    arguments, 2× cs/missed-ternary-operator, 2×
+    cs/linq/missed-select, and 5 singletons)
+  - Policy: opportunistic cleanup in future waves;
+    CI non-blocking; no dedicated push scheduled
+
+- Wave 11.5 status: **CLOSED**.
+  - 14/14 debts closed (N1-N15, N16 deferred post-wave)
+  - CodeQL triage complete (5 fixed/dismissed, 6 deferred
+    to Wave 12 as N17, 146 backlog documented)
+  - First full-green CI achieved (11.5.7)
+  - Next: Wave 12 (Android Offline)
+
+- RESUME_FROM: wip/11.5.8 HEAD (2cd4a1b code fixes + this
+  docs commit) — awaiting merge approval into main @ 8e79660.
