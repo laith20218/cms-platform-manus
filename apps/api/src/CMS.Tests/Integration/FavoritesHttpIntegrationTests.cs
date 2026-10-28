@@ -32,8 +32,10 @@ public sealed class FavoritesHttpIntegrationTests : IClassFixture<SignedEntitlem
 
         var list = await _factory.Client.SendAsync(_factory.FavoriteRequest(HttpMethod.Get, token));
         list.StatusCode.Should().Be(HttpStatusCode.OK, await list.Content.ReadAsStringAsync());
-        var items = await list.Content.ReadFromJsonAsync<List<FavoriteItem>>();
-        items.Should().ContainSingle(item => item.TargetType == "question" && item.TargetId == _factory.FavoriteQuestionId);
+        // 11.5.2 (N2): GET /api/v1/favorites returns PagedResult<FavoriteItemDto>
+        // ({"items":[…],"total",…"totalPages"}), not a bare array.
+        var page = await list.Content.ReadFromJsonAsync<FavoritePage>();
+        page!.Items.Should().ContainSingle(item => item.TargetType == "question" && item.TargetId == _factory.FavoriteQuestionId);
 
         var deleted = await _factory.Client.SendAsync(_factory.FavoriteRequest(HttpMethod.Delete, token, _factory.FavoriteQuestionId));
         deleted.StatusCode.Should().Be(HttpStatusCode.NoContent, await deleted.Content.ReadAsStringAsync());
@@ -69,5 +71,10 @@ public sealed class FavoritesHttpIntegrationTests : IClassFixture<SignedEntitlem
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden, await response.Content.ReadAsStringAsync());
     }
 
-    private sealed record FavoriteItem(Guid FavoriteId, string TargetType, Guid TargetId, Guid SubjectId, string Title, string? Subtitle, string Meta, DateTime CreatedAt);
+    // 11.5.2 (N2): response envelope for GET /api/v1/favorites.
+    private sealed record FavoritePage(
+        List<FavoriteItem> Items, int Total, int Page, int PageSize, int TotalPages);
+
+    // 11.5.2 (N2): refreshed to match FavoriteItemDto field names (Id, no Meta).
+    private sealed record FavoriteItem(Guid Id, string TargetType, Guid TargetId, Guid SubjectId, string Title, string? Subtitle, DateTime CreatedAt);
 }

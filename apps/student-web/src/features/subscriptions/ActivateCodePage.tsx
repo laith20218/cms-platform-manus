@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Link, useNavigate } from 'react-router-dom';
 import { Ticket, Loader2, CheckCircle2, AlertCircle, ChevronLeft } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
+import { getApiErrorMessage } from '@/utils/api-error';
 
 export default function ActivateCodePage() {
   const navigate = useNavigate();
@@ -44,9 +45,8 @@ export default function ActivateCodePage() {
       queryClient.invalidateQueries({ queryKey: ['stats'] });
       setTimeout(() => navigate('/dashboard'), 1500);
     },
-    onError: (error: any) => {
-      const msg = error?.response?.data?.detail || 'فشل تفعيل الكود';
-      toast.error(msg);
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'فشل تفعيل الكود'));
     },
   });
 

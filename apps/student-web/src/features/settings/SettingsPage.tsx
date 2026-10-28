@@ -6,6 +6,7 @@ import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Settings as SettingsIcon, Moon, Bell, Lock, Loader2 } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
+import { getApiErrorMessage } from '@/utils/api-error';
 
 export default function SettingsPage() {
   // ThemeProvider persists the choice under 'cms-theme' — the key must match exactly
@@ -31,8 +32,8 @@ export default function SettingsPage() {
       toast.success('تم تغيير كلمة المرور');
       setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
     },
-    onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'فشل');
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'فشل'));
     },
   });
 

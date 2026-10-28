@@ -196,6 +196,12 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasIndex(x => new { x.StudentId, x.ExamId }).IsUnique().HasFilter("status = 0");
             entity.HasIndex(x => new { x.ExamId, x.Status, x.CompletedAt });
             entity.HasIndex(x => x.ExpiresAt);
+            // Push 11.5.2 (N8): register the production-only column so the model snapshot
+            // matches prod 1:1. Added by Phase58RestoreCountsAgainstLimit (guarded SQL).
+            entity.Property(e => e.CountsAgainstLimit)
+                .HasColumnName("counts_against_limit")
+                .HasDefaultValue(true)
+                .IsRequired();
         });
         modelBuilder.Entity<AttemptLog>(entity =>
         {

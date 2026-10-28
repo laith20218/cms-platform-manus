@@ -687,3 +687,98 @@ which remediation pushes follow (N1 first — it gates D4/I6 closure).
   fails with ForbiddenException. First real execution (was 
   BLOCKED before 11.5.1). May be test-authoring issue OR 
   EntitlementService drift. Tracked for 11.5.2 investigation.
+
+---
+
+# WIP_STATUS — wip/11.5.2
+
+## Base
+Branch: wip/11.5.2 (created from main @ 83c40216333a973f0049dbfcfc2e15399fc2299b — 11.5.1 merged)
+Status: Push 11.5.2 — IMPLEMENT N8 + N2 + N3. COMPLETE (Parts B/C/D/E).
+Commits: 998067e (B) → 4c7bff9 (C) → 8063b4f (D) → this docs commit (E).
+Scope gate: N8/N2/N3 ONLY. N7, CoursesPostgres, N4, N5, N6 untouched (STOP GATE).
+
+## PART B — N8 CLOSED: counts_against_limit via guarded Phase58
+
+- Entity: `ExamSession.CountsAgainstLimit` added (bool, default true) —
+  OperationalEntities.cs:65 (doc comment 62-64 marks it dead-column, schema fidelity only).
+- DbContext: property mapping (HasColumnName counts_against_limit, default true, required) —
+  ApplicationDbContext.cs:201-204.
+- Migration: `20261028003241_Phase58RestoreCountsAgainstLimit` (27th in chain).
+  Up() = guarded DO $$ block (idempotent: adds column only if missing — production
+  already has it, so prod application only inserts the history row).
+  Down() = intentional no-op (column predates this migration on prod; dropping breaks prod).
+  Designer.cs + ApplicationDbContextModelSnapshot.cs regenerated → model now includes
+  the column → future migrations will NOT drift.
+- Chain on disk: 27 migrations (was 26).
+- Verification: dotnet build 0 errors; `migrations list` shows Phase58 latest;
+  /tmp/phase58.sql = DO $$ block + history INSERT only (supervisor applies manually —
+  STOP GATE respected, production NOT touched).
+
+## PART C — N2 CLOSED: FavoritesHttp PagedResult shape
+
+- FavoritesHttpIntegrationTests.cs:37-38 now deserializes `FavoritePage`
+  (record: Items/Total/Page/PageSize/TotalPages, line 75-76) and asserts `.Items`.
+- Local `FavoriteItem` record refreshed (line 79): Id (was FavoriteId), Meta dropped —
+  matches FavoriteItemDto (FavoriteDtos.cs:16-28).
+- CI: ALL 3 FavoritesHttp tests PASSED (incl. the previously JsonException-failing
+  Favorite_WithValidBoundEntitlement_CreatesListsAndDeletesOnlyOwnBookmark).
+  Backend job: 534/535 passed; the single failure is CoursesPostgres (known, out of scope).
+
+## PART D — N3 CLOSED: no-explicit-any × 2
+
+- SettingsPage.tsx: onError (error: unknown) + getApiErrorMessage(error, 'فشل') — lines 35-37.
+- ActivateCodePage.tsx: same pattern, fallback 'فشل تفعيل الكود' — lines 48-50.
+- Import '@/utils/api-error' added in both files (established pattern, 8 existing call sites).
+- Local: `eslint . --ext ts,tsx --max-warnings=0` → exit 0, 0 warnings.
+- CI: cannot re-verify this push — see infra note below.
+
+## PART E — Verification matrix
+
+Local:
+- dotnet build apps/api/CMS.sln → 0 errors (18 pre-existing warnings, all in test code).
+- dotnet test --filter Unit → 419/419 passed.
+- pnpm --filter @cms/student-web build → tsc -b exit 0; vite build complete (45 assets,
+  all index.html refs resolve). NOTE: pnpm wrapper exits 137 (sandbox OOM) AFTER vite
+  finishes writing dist — artifacts intact, environment-only artifact.
+- pnpm --filter @cms/student-web lint → exit 0, 0 warnings.
+- pnpm --filter @cms/admin-web test → 38/38 passed (7 files).
+
+CI (run 40609897238 on 8063b4f):
+- Security Artifact Gate: success.
+- Backend Tests: 534/535 passed. ONLY failure = CoursesPostgres round-trip
+  (ForbiddenException at CourseHandlers.cs:123 — known test-authoring debt, out of scope).
+  Testcontainers Postgres started+ready ×2; MigrationContract test passed →
+  full 27-migration chain (incl. Phase58) applied cleanly on fresh Postgres.
+- Frontend Tests: FAILED at "Install Playwright Chromium" — NEW infra drift,
+  NOT caused by this push: GitHub's ubuntu-latest now resolves to ubuntu26.04-x64 and
+  pinned Playwright 1.58.2 refuses chromium install on it. Same failure on 998067e
+  (backend-only commit) and absent on main's run 40456894350 (2026-10-27T05:43) where
+  lint itself failed — drift began between those timestamps. Lint step never ran this push.
+- Security Scan: failure (N4 trivy — known, out of scope).
+- android-offline-runtime: failure (N5 branches typo — known, out of scope).
+- On main @ 83c4021 lint failed with EXACTLY the 2 N3 warnings
+  (SettingsPage.tsx:34:22, ActivateCodePage.tsx:47:22 — verbatim from CI log);
+  both are now fixed locally (0 warnings). CI re-verification blocked by the
+  Playwright/runner drift above → N3 CLOSED on local evidence + main-log diff.
+
+## Debt ledger after 11.5.2
+
+- N8 [CLOSED]: replay=prod 1:1 (27 migrations). counts_against_limit is a known-dead
+  column (zero code references) kept for schema fidelity. Phase53ExamAttemptPolicy
+  (20260822160000) remains a prod-history-only row; Phase58 reconciles the chain.
+- N2 [CLOSED]: CI-verified (3/3 FavoritesHttp green).
+- N3 [CLOSED]: locally verified (0 warnings); CI blocked by infra drift below.
+- NEW infra debt [UNTRIAGED, proposed N9]: ubuntu-latest → ubuntu26.04-x64 breaks
+  `playwright install --with-deps chromium` for pinned Playwright 1.58.2 → Frontend
+  Tests job cannot reach Lint/tests steps. Fix options for 11.5.3: pin runs-on
+  ubuntu-24.04 (workflow-only) OR bump Playwright (lockfile — needs supervisor approval).
+  NOTE: main's "Health Check" workflow is also failing since ≥2026-10-27 (separate).
+- N7 [open]: error_reports FK/index drift — out of scope this push.
+- CoursesPostgres [open]: handler-level ForbiddenException vs BeEmpty expectation —
+  out of scope this push.
+- N4 (trivy unresolvable), N5 (android-offline branches typo), N6: unchanged.
+
+RESUME_FROM: docs commit (final HEAD of wip/11.5.2; SHA in the session report) —
+awaiting supervisor review of Phase58 SQL before any production application
+(manual apply, exactly like 11.3 AddEpisodeFavorites).
