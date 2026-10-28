@@ -249,6 +249,18 @@ async function openAudioPlayer(browser, viewport) {
   await page.locator('[data-testid="audio-player-shell"]').waitFor({ state: 'visible', timeout: 20_000 });
   // Waveform decoded + ready: the total duration appears in the time display.
   await page.locator('[data-testid="audio-time-display"]:has-text("0:20")').waitFor({ state: 'visible', timeout: 20_000 });
+  // S4e determinization: in-page timeupdate log, attached BEFORE any playback
+  // (every scenario starts paused). The native media-clock event keeps firing
+  // through compositor/rAF stalls that step out-of-band evaluate sampling on
+  // loaded runners — the recorded sequence is analyzed in the test afterward.
+  await page.evaluate(() => {
+    window.__audioLog = [];
+    const audio = document.querySelector('audio');
+    if (!audio) throw new Error('audio element missing');
+    audio.addEventListener('timeupdate', () => {
+      window.__audioLog.push(audio.currentTime);
+    });
+  });
   return { context, page, counters };
 }
 
@@ -331,7 +343,11 @@ async function main() {
       check('S2a play → playing', state && state.paused === false, JSON.stringify(state));
       await page.waitForTimeout(2000);
       state = await audioState(page);
-      check('S2b time advances after 2s', state && state.currentTime > 1.5, `currentTime=${state?.currentTime.toFixed(2)}`);
+      // Additive observability (no assertion change): proves the in-page
+      // __audioLog listener starts empty and grows during playback.
+      const logSamples = await page.evaluate(() => window.__audioLog?.length ?? -1);
+      check('S2b time advances after 2s', state && state.currentTime > 1.5,
+        `currentTime=${state?.currentTime.toFixed(2)} logSamples=${logSamples}`);
       await page.locator('[data-testid="audio-play"]').click();
       state = await audioState(page);
       check('S2c pause → paused', state && state.paused === true, `currentTime=${state?.currentTime.toFixed(2)}`);
@@ -383,23 +399,36 @@ async function main() {
       const statusText = await page.locator('[data-testid="audio-ab-status"]').innerText();
       check('S4d loop status visible', statusText.includes('التكرار مفعّل'), statusText.replace(/\s+/g, ' '));
       // Play from just below B → must cross B and wrap back to A.
+      // Determinized (commit 7): the old out-of-band evaluate sampling could
+      // step over the ~0.2s-wide high zone [4.5, B) on a loaded 2-vCPU runner
+      // (120ms sleep + round-trip > zone width) → sawHigh never set. Now the
+      // in-page __audioLog (native timeupdate, media clock) records the FULL
+      // currentTime sequence; the test fetches the whole log every 200ms and
+      // derives the wrap from consecutive samples. Bounded 15s (was 8s).
+      await page.evaluate(() => { window.__audioLog = []; });
       await page.locator('[data-testid="audio-play"]').click();
+      const deadline = Date.now() + 15000;
       let sawHigh = false;
-      let wrapTime = null;
-      {
-        const deadline = Date.now() + 8000;
-        let state = null;
-        while (Date.now() < deadline) {
-          state = await audioState(page);
-          if (state) {
-            if (state.currentTime >= 4.5) sawHigh = true;
-            if (sawHigh && state.currentTime <= 4 && state.currentTime >= 2.4) { wrapTime = state.currentTime; break; }
+      let wrappedTo = null;
+      let log = [];
+      while (Date.now() < deadline && wrappedTo === null) {
+        await page.waitForTimeout(200);
+        log = await page.evaluate(() => window.__audioLog || []);
+        for (let i = 0; i < log.length - 1; i += 1) {
+          if (log[i] >= 4.5) sawHigh = true;
+          // A wrap = a high sample (≥ 4.5) immediately followed by one below
+          // the A region ceiling (3.0) — the seek-triggered timeupdate lands
+          // ≈ A itself, well under 3.0.
+          if (log[i] >= 4.5 && log[i + 1] < 3.0) {
+            wrappedTo = log[i + 1];
+            break;
           }
-          await page.waitForTimeout(120);
         }
       }
-      check('S4e playback wraps A←B at the loop boundary', wrapTime !== null,
-        `wrappedTo=${wrapTime?.toFixed(2)}`);
+      const highSamples = log.filter((v) => v >= 4.5).length;
+      check('S4e sawHigh (currentTime reached ≥ 4.5)', sawHigh === true, `highSamples=${highSamples} logLen=${log.length}`);
+      check('S4e wrappedTo defined', wrappedTo !== null, `wrappedTo=${wrappedTo?.toFixed(2) ?? 'undefined'}`);
+      check('S4e wrapped below A', wrappedTo !== null && wrappedTo < 3.0, `wrappedTo=${wrappedTo?.toFixed(2) ?? 'undefined'} (A≈2.6)`);
       // Clear
       await page.locator('[data-testid="audio-play"]').click(); // pause
       await page.locator('[data-testid="audio-clear-ab"]').click();
