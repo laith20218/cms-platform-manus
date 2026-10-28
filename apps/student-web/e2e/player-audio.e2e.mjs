@@ -91,6 +91,31 @@ function check(name, ok, extra = '') {
   console.log(`${ok ? '  PASS' : '! FAIL'}  ${name}${extra ? ` — ${extra}` : ''}`);
 }
 
+/**
+ * Determinization helper (commit 8): poll a SYNCHRONOUS condition until it
+ * returns truthy, or reject after the bound. Callers catch the rejection to
+ * fall through to a clean assertion failure (never a crash). Note: fn must
+ * be sync — an async fn would return a Promise (always truthy) and resolve
+ * on the first tick. Reads of the Node-side route counters qualify.
+ * Single helper, no variants.
+ */
+function waitFor(fn, { timeoutMs = 3000, intervalMs = 100 } = {}) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tick = () => {
+      try {
+        const v = fn();
+        if (v) return resolve(v);
+      } catch (_) { /* treat throw as not-ready */ }
+      if (Date.now() - start > timeoutMs) {
+        return reject(new Error('waitFor timeout'));
+      }
+      setTimeout(tick, intervalMs);
+    };
+    tick();
+  });
+}
+
 const consoleErrors = [];
 const pageErrors = [];
 
@@ -398,37 +423,75 @@ async function main() {
         `b=${atB?.currentTime.toFixed(2)}`);
       const statusText = await page.locator('[data-testid="audio-ab-status"]').innerText();
       check('S4d loop status visible', statusText.includes('التكرار مفعّل'), statusText.replace(/\s+/g, ' '));
-      // Play from just below B → must cross B and wrap back to A.
-      // Determinized (commit 7): the old out-of-band evaluate sampling could
-      // step over the ~0.2s-wide high zone [4.5, B) on a loaded 2-vCPU runner
-      // (120ms sleep + round-trip > zone width) → sawHigh never set. Now the
-      // in-page __audioLog (native timeupdate, media clock) records the FULL
-      // currentTime sequence; the test fetches the whole log every 200ms and
-      // derives the wrap from consecutive samples. Bounded 15s (was 8s).
+      // Play → the loop must CYCLE: climb A→B, wrap back to A, repeat.
+      // Rewritten (commit 8): A/B are now stored at exact element precision
+      // (A≈2.7, B≈4.7 from S4b/S4c) — the previous thresholds (high ≥4.5,
+      // wrap <3.0) were tuned for the buggy floored [2,4] loop and only ever
+      // matched the startup wrap. New derivation over the full in-page
+      // __audioLog (native timeupdate, media clock, ~4Hz): sawHigh at ≥3.5
+      // (crossed on every single cycle), wrap = a high sample (≥4.0)
+      // immediately followed by a sharp backward jump (>0.5s) — the
+      // seek-commit lands at A+ε ≈ 2.73-2.78, so <3.2 has generous margin.
+      // Bounded 15s ≈ 7 full cycles.
+      // Swap-zero artifacts (commit 8, Step G): lease refresh resets
+      // currentTime to 0 for ~10-50ms; the in-page timeupdate listener
+      // records these but they are not real wraps. Skip them in detection
+      // (log count for observability) and only accept wraps landing in the
+      // plausible A-region.
       await page.evaluate(() => { window.__audioLog = []; });
       await page.locator('[data-testid="audio-play"]').click();
       const deadline = Date.now() + 15000;
       let sawHigh = false;
       let wrappedTo = null;
+      let swapZeros = 0;
+      let scannedUpTo = 0; // index of the next unprocessed log[i]
       let log = [];
-      while (Date.now() < deadline && wrappedTo === null) {
-        await page.waitForTimeout(200);
-        log = await page.evaluate(() => window.__audioLog || []);
-        for (let i = 0; i < log.length - 1; i += 1) {
-          if (log[i] >= 4.5) sawHigh = true;
-          // A wrap = a high sample (≥ 4.5) immediately followed by one below
-          // the A region ceiling (3.0) — the seek-triggered timeupdate lands
-          // ≈ A itself, well under 3.0.
-          if (log[i] >= 4.5 && log[i + 1] < 3.0) {
-            wrappedTo = log[i + 1];
+      // Incremental scan (commit 8, P3): each poll processes ONLY the pairs
+      // added since the previous poll (scannedUpTo watermark) — the old
+      // full-rescan re-counted every swap-zero ~75x on long runs. The final
+      // pass (below, only when no wrap was found) re-uses the same watermark,
+      // so it cannot double-count: it only picks up a pair whose successor
+      // arrived with the very last fetch.
+      const scan = (entries) => {
+        for (let i = Math.max(0, scannedUpTo); i < entries.length - 1; i += 1) {
+          // 3.5 is easily crossed every cycle: the cycle always reaches B.
+          if (entries[i] >= 3.5) sawHigh = true;
+          // Detect wrap: sharp backward jump landing near A — EXCEPT the
+          // lease-swap reset (lands at 0), which is a swap artifact, not a
+          // wrap: count it and keep scanning for the real wrap.
+          if (entries[i] >= 4.0 && entries[i + 1] < entries[i] - 0.5) {
+            if (entries[i + 1] <= 0.5) {
+              swapZeros += 1;
+              continue;
+            }
+            wrappedTo = entries[i + 1];
             break;
           }
         }
+        scannedUpTo = Math.max(scannedUpTo, entries.length - 1);
+      };
+      while (Date.now() < deadline && wrappedTo === null) {
+        await page.waitForTimeout(200);
+        log = await page.evaluate(() => window.__audioLog || []);
+        scan(log);
       }
-      const highSamples = log.filter((v) => v >= 4.5).length;
-      check('S4e sawHigh (currentTime reached ≥ 4.5)', sawHigh === true, `highSamples=${highSamples} logLen=${log.length}`);
-      check('S4e wrappedTo defined', wrappedTo !== null, `wrappedTo=${wrappedTo?.toFixed(2) ?? 'undefined'}`);
-      check('S4e wrapped below A', wrappedTo !== null && wrappedTo < 3.0, `wrappedTo=${wrappedTo?.toFixed(2) ?? 'undefined'} (A≈2.6)`);
+      // Final pass (only if still unresolved): the last pair may only have
+      // become complete on the final poll.
+      if (wrappedTo === null) scan(log);
+      const highSamples = log.filter((v) => v >= 3.5).length;
+      check('S4e sawHigh (currentTime reached ≥ 3.5)', sawHigh === true, `highSamples=${highSamples} logLen=${log.length} swapZeros=${swapZeros}`);
+      check('S4e wrappedTo defined (no swap-zero only)', wrappedTo !== null, `wrappedTo=${wrappedTo?.toFixed(2) ?? 'undefined'} swapZeros=${swapZeros} logLen=${log.length}`);
+      // Lower+upper bound (commit 8 expansion): the seek-commit lands at
+      // A+ε ≈ 2.73-2.78. A wrap recorded at ≤ 2.0 can only be a lease-swap
+      // zero-window masquerading as a wrap (timeupdate fired mid-load with
+      // currentTime 0) — now independently falsifiable against that defect.
+      check('S4e wrapped to near A', wrappedTo !== null && wrappedTo > 2.0 && wrappedTo < 3.2, `wrappedTo=${wrappedTo?.toFixed(2) ?? 'undefined'} (expected 2.7x) swapZeros=${swapZeros}`);
+      // Observability (P2): the product retries play() once per load-interrupt
+      // (AbortError during a lease swap); each retry bumps data-play-retries.
+      // 0 = no interrupt hit; 1 = hit once and recovered; > 3 = something is
+      // genuinely wrong with the retry bound.
+      const playRetries = await page.evaluate(() => Number(document.querySelector('audio')?.dataset.playRetries ?? 0));
+      check('S4e play retries within reason', playRetries <= 3, `playRetries=${playRetries}`);
       // Clear
       await page.locator('[data-testid="audio-play"]').click(); // pause
       await page.locator('[data-testid="audio-clear-ab"]').click();
@@ -466,11 +529,15 @@ async function main() {
       await page.locator('[data-testid="audio-bookmark-marker"]').first().click();
       await page.waitForTimeout(400);
       const state = await audioState(page);
-      const expected = counters.bookmarkPosts[0].startSeconds;
+      // Null-safe (commit 8): if S5a ever fails, S5c must FAIL — not crash the
+      // remaining checks (same class as the S6c guard from commit 6). The
+      // assertion itself is UNCHANGED, including the away-divergence arm.
+      const bm = counters.bookmarkPosts[0] ?? null;
+      const expected = bm?.startSeconds ?? null;
       check(
         'S5c click marker → seeks to bookmark start',
-        state && awayState && Math.abs(awayState.currentTime - expected) > 1.5 && Math.abs(state.currentTime - expected) < 0.75,
-        `away=${awayState?.currentTime.toFixed(2)} → marker=${state?.currentTime.toFixed(2)} expected=${expected}`,
+        bm != null && state && awayState && Math.abs(awayState.currentTime - expected) > 1.5 && Math.abs(state.currentTime - expected) < 0.75,
+        `away=${awayState?.currentTime.toFixed(2)} → marker=${state?.currentTime.toFixed(2)} bm=${JSON.stringify(bm)}`,
       );
       await context.close();
     }
@@ -492,14 +559,26 @@ async function main() {
         await page.waitForTimeout(250);
       }
       check('S6a playback reached ≥10s (2×)', reached, `currentTime=${state?.currentTime.toFixed(2)}`);
-      // Close the shell (unmount → keepalive final save).
+      // Counter semantics (commit 8, Step F): with the product guards, the
+      // lease-swap 'pause' checkpoints (generation-bump effect) now POST too
+      // — posts[0] no longer denotes the unmount save. Snapshot the count
+      // BEFORE the close-click, wait (bounded 3s) for a NEW post to land,
+      // then assert the LATEST one: "the unmount produced a new save".
+      // On timeout: fall through — S6b must FAIL cleanly, never crash.
+      const nAtClose = counters.progressPosts.length;
       await page.locator('[data-testid="player-close"]').click();
       await page.locator('[data-testid="audio-player-shell"]').waitFor({ state: 'hidden', timeout: 5000 });
-      const saved = counters.progressPosts[counters.progressPosts.length - 1];
+      try {
+        await waitFor(
+          () => counters.progressPosts.length > nAtClose,
+          { timeoutMs: 3000 },
+        );
+      } catch (_) { /* fall through to the assertion */ }
+      const saved = counters.progressPosts[counters.progressPosts.length - 1] ?? null;
       check(
         'S6b unmount saved progress (position ≥ 9)',
-        Boolean(saved) && saved.positionSeconds >= 9,
-        `saved=${JSON.stringify(saved)} totalPosts=${counters.progressPosts.length}`,
+        (saved?.positionSeconds ?? -1) >= 9,
+        `saved=${JSON.stringify(saved)} totalPosts=${counters.progressPosts.length} nAtClose=${nAtClose}`,
       );
       // Reopen → GET progress → resume applied.
       await page.locator('text=محاضرة صوتية تجريبية').first().click();

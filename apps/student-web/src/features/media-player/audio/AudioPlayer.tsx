@@ -54,6 +54,16 @@ const WAVE_COLOR = 'rgba(148, 163, 184, 0.35)';
 const PROGRESS_COLOR = '#2dd4bf';
 const CURSOR_COLOR = '#5eead4';
 
+/** A-B points carry sub-second precision (stored from the live element
+ *  position), so the status line shows one decimal place (m:ss.s) —
+ *  unlike formatMediaDuration (integer mm:ss) used for the transport
+ *  clock, where fractional seconds would be noise. */
+const fmtAB = (s: number) => {
+  const m = Math.floor(s / 60);
+  const sec = (s - m * 60).toFixed(1);
+  return `${m}:${sec.padStart(4, '0')}`;
+};
+
 export type AudioPlayerProps = {
   assetType: MediaAssetType;
   assetId: string;
@@ -114,6 +124,9 @@ export default function AudioPlayer({
   const lastDurationRef = useRef<number | null>(null);
   const savedGenerationRef = useRef(0);
   const lastMediaErrorAtRef = useRef(0);
+  // P2: play() retries issued after a lease-swap load-interrupt (AbortError).
+  // Mirrored onto the element's data-play-retries for e2e observability.
+  const playRetriesRef = useRef(0);
 
   const durationKnown = Number.isFinite(duration) && duration > 0;
   const loopActive = loopA != null && loopB != null && loopB > loopA;
@@ -157,6 +170,10 @@ export default function AudioPlayer({
         }
       });
       ws.on('timeupdate', (t: number) => {
+        // Guard against wavesurfer emitting 0 during lease-swap load().
+        // Without this, lastPositionRef is poisoned, breaking
+        // getCurrentPosition()'s fallback path.
+        if (!Number.isFinite(t) || t <= 0) return;
         setCurrentTime(t);
         lastPositionRef.current = t;
       });
@@ -211,15 +228,24 @@ export default function AudioPlayer({
     const tickId = window.setInterval(() => {
       const audioEl = audioRef.current;
       if (!audioEl) return;
+      // Lease-swap window or in-flight seek: currentTime unreliable —
+      // do not poison lastPositionRef, do not drive the UI to 0.
+      if (audioEl.seeking || audioEl.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        return;
+      }
       const pos = audioEl.currentTime;
-      lastPositionRef.current = pos;
-      setCurrentTime(pos);
+      if (Number.isFinite(pos) && pos > 0) {
+        lastPositionRef.current = pos;
+        setCurrentTime(pos);
+      }
+      // A-B wrap (uses audioEl.currentTime directly — we only reach here in
+      // a ready, non-seeking state, so it is trusted).
       const a = loopARef.current;
       const b = loopBRef.current;
       // Wrap only while PLAYING — mirrors the audioprocess semantics (it
       // fires during playback only), so a paused head at/after B (e.g. the
       // moment B is set, or a paused waveform seek past B) is never snapped.
-      if (a != null && b != null && b > a && !audioEl.paused && pos >= b) {
+      if (a != null && b != null && b > a && !audioEl.paused && audioEl.currentTime >= b) {
         audioEl.currentTime = a;
       }
     }, PLAYBACK_TICK_MS);
@@ -236,12 +262,36 @@ export default function AudioPlayer({
 
   /* ============ progress: save pipeline (VideoPlayer pattern) ============ */
 
+  /** Trusted element position with lease-swap/seek zero-window fallback.
+   *  During a silent lease refresh (useMediaLease) the element's src is
+   *  swapped and load() resets currentTime to 0 until loadedmetadata
+   *  restores it (~10-50ms every refreshDelay). A raw read in that window
+   *  returned 0 — which the saveProgress guard then dropped (final save
+   *  silently lost) and set-A/B stored as a bogus point. This helper reads
+   *  the live element ONLY when it is not seeking and has current data;
+   *  otherwise it falls back to the 250ms tick's snapshot in
+   *  lastPositionRef (kept valid by the tick-side guard). */
+  const getCurrentPosition = (): number => {
+    const el = audioRef.current;
+    if (!el) return lastPositionRef.current;
+    // Element in load()/seek window — currentTime untrusted.
+    if (el.seeking || el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      return lastPositionRef.current;
+    }
+    const pos = el.currentTime;
+    if (!Number.isFinite(pos) || pos <= 0) {
+      // The saveProgress guard would drop pos<=0 anyway; prefer the tick
+      // snapshot if we have one.
+      return lastPositionRef.current;
+    }
+    return pos;
+  };
+
   const saveProgress = useCallback((mode: 'interval' | 'pause' | 'final') => {
-    // Element-first for EVERY mode: visibilitychange and the unmount keepalive
-    // must read audioEl.currentTime directly, not a possibly-stale ref. At
-    // unmount React may have detached the element already — then the 250ms
-    // tick's fresh snapshot (≤250ms old) is the fallback.
-    const position = audioRef.current?.currentTime ?? lastPositionRef.current;
+    // Element-first for EVERY mode (through getCurrentPosition: live element
+    // when trusted, otherwise the tick snapshot ≤250ms old). At unmount React
+    // may have detached the element already — the fallback covers that too.
+    const position = getCurrentPosition();
     const dur = mode === 'final' ? lastDurationRef.current : (audioRef.current?.duration ?? lastDurationRef.current);
     if (!Number.isFinite(position) || position <= 0) return;
     if (mode === 'final') {
@@ -249,6 +299,7 @@ export default function AudioPlayer({
     } else {
       mediaApi.upsertProgress(assetType, assetId, position, dur && Number.isFinite(dur) ? Math.round(dur) : null).catch(() => {});
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assetType, assetId]);
 
   // Every 10s while playing.
@@ -335,9 +386,47 @@ export default function AudioPlayer({
   /* ============ transport ============ */
 
   function safePlay(el: HTMLAudioElement) {
+    // Two races in useMediaLease's src-swap window:
+    //   (1) Reject side: load() interrupts play() → AbortError.
+    //   (2) Resolve side: play() resolves before load() lands,
+    //       leaving paused=true + rs<HAVE_CURRENT_DATA.
+    // Both arm a single one-shot retry on loadedmetadata.
+    // This is a workaround; root fix is in useMediaLease
+    // (see WIP_STATUS CRITICAL_DEBT).
+    const armRetry = () => {
+      console.info(`[AudioPlayer] play retry pending (rs=${el.readyState}, paused=${el.paused})`);
+      playRetriesRef.current += 1;
+      el.dataset.playRetries = String(playRetriesRef.current);
+      el.addEventListener('loadedmetadata', () => {
+        el.play().catch((retryReason: unknown) => {
+          console.warn('[AudioPlayer] retry play failed:', (retryReason as { name?: string } | null | undefined)?.name);
+          /* give up */
+        });
+      }, { once: true });
+    };
     try {
-      const maybe = el.play();
-      if (maybe && typeof maybe.catch === 'function') maybe.catch(() => { /* autoplay policy */ });
+      const attempt = el.play();
+      if (attempt && typeof attempt.then === 'function') {
+        attempt
+          .then(() => {
+            // Race: play() resolved but the element was reset
+            // by a lease-swap load() in the same instant.
+            if (el.paused === true && el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+              armRetry();
+            }
+          })
+          .catch((reason: unknown) => {
+            if (
+              (reason as { name?: string } | null | undefined)?.name === 'AbortError'
+              && el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+            ) {
+              armRetry();
+              return;
+            }
+            // Autoplay policy or other transient failure — give up silently
+            // (existing behavior, unchanged).
+          });
+      }
     } catch { /* ignore */ }
   }
 
@@ -637,9 +726,14 @@ export default function AudioPlayer({
 
         {/* A-B loop */}
         <div className="flex items-center gap-1" data-testid="audio-ab-controls">
+          {/* Store exact element position (not floored React state) for
+              language-learning-grade precision: Math.floor loses up to 0.99s,
+              the 250ms-quantized `currentTime` state adds up to 0.25s more,
+              and the waveform marker is drawn at the true playhead — a
+              floored value makes it lie to the user. */}
           <button
             type="button"
-            onClick={() => setLoopPoint('a', loopA != null ? null : Math.floor(currentTime))}
+            onClick={() => setLoopPoint('a', loopA != null ? null : getCurrentPosition())}
             aria-label={loopA != null ? 'مسح نقطة A' : 'تعيين نقطة A عند الموضع الحالي'}
             aria-pressed={loopA != null}
             data-testid="audio-set-a"
@@ -653,7 +747,7 @@ export default function AudioPlayer({
           </button>
           <button
             type="button"
-            onClick={() => setLoopPoint('b', loopB != null ? null : Math.floor(currentTime))}
+            onClick={() => setLoopPoint('b', loopB != null ? null : getCurrentPosition())}
             aria-label={loopB != null ? 'مسح نقطة B' : 'تعيين نقطة B عند الموضع الحالي'}
             aria-pressed={loopB != null}
             data-testid="audio-set-b"
@@ -720,7 +814,7 @@ export default function AudioPlayer({
             {loopActive ? 'التكرار مفعّل' : 'التكرار'}
           </span>
           <span dir="ltr" className="font-mono tabular-nums">
-            {`A ${loopA != null ? formatMediaDuration(loopA) : '--:--'} / B ${loopB != null ? formatMediaDuration(loopB) : '--:--'}`}
+            {`A ${loopA != null ? fmtAB(loopA) : '--:--'} / B ${loopB != null ? fmtAB(loopB) : '--:--'}`}
           </span>
           {loopInvalid && (
             <span className="text-amber-300">يجب أن تكون B بعد A — التكرار متوقف</span>
