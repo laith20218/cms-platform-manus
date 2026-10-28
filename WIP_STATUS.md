@@ -1172,3 +1172,32 @@ awaiting supervisor review of Phase58 SQL before any production application
   CodeQL alerts uploaded to the Security tab — findings tracked
   separately for 11.5.8 triage, NOT a job failure). Security
   Artifact Gate success.
+
+## Post-merge debts (Push 11.5.7)
+
+- N11 [CLOSED]: keepalive test determinized via synthetic 
+  beforeunload. CI-verified: posts 2→3, player-video 17/17, 
+  5/5 specs green.
+
+- N15 [CLOSED]: Lighthouse CI runs autorun with filesystem 
+  upload (no --assert flags). Autorun skips assert entirely 
+  (autorun.js:137). Reports uploaded via upload-artifact@v4.6.2 
+  (SHA-pinned ea165f8d). Artifact contains 7 files 
+  (3 HTML+JSON pairs + manifest). Default assertions suppressed 
+  via absence of assert configuration.
+
+- Lighthouse default assertions decision: no performance gate. 
+  Findings visible in artifact for manual review.
+
+- N16 [RECORDED, deferred]: check 13 flake under TTL=8 churn. 
+  CI: 5/5 passes so far. Local: 1/5 fails. Post-Wave-11.5 DIAG.
+
+- CodeQL alerts (157 total, 2 high + 3 error + 6 medium + 
+  rest note/warning): visible in Security tab. Tracked for 
+  11.5.8 triage. High-severity: js/xss-through-dom 
+  (admin-web/src/lib/mediaProcessing.ts:184), 
+  js/regex/missing-regexp-anchor (e2e spec:169), 
+  cs/loss-of-precision ×3 (PerformanceService.cs:122-123).
+
+- Wave 11.5 status: 14/14 closed. Only 11.5.8 (CodeQL triage) 
+  remains. First FULL GREEN CI achieved on this merge.
