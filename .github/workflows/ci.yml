@@ -37,7 +37,7 @@ jobs:
   # =========================================================
   security-gate:
     name: Security Artifact Gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Reject committed secrets and mutable actions
@@ -49,7 +49,7 @@ jobs:
   backend-test:
     needs: [security-gate]
     name: Backend Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -82,7 +82,7 @@ jobs:
   frontend-test:
     name: Frontend Tests
     needs: [security-gate]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -227,7 +227,7 @@ jobs:
   security-scan:
     name: Security Scan
     needs: [security-gate]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       security-events: write
       actions: read
@@ -267,7 +267,7 @@ jobs:
   # =========================================================
   lighthouse:
     name: Lighthouse CI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [frontend-test]
     steps:
       - uses: actions/checkout@v4
@@ -299,7 +299,7 @@ jobs:
   # =========================================================
   docker-build:
     name: Build & Push Docker Images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [backend-test, frontend-test]
     # Push 11.5: gated to the long-lived branches — the new 'wip/**' push trigger must not
     # publish throwaway ghcr images for every work branch.
@@ -368,7 +368,7 @@ jobs:
     name: Deploy to Staging (disabled — Railway removed)
     if: false  # was: github.ref == 'refs/heads/develop'
     needs: [docker-build, security-scan]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: staging
       url: https://staging-app.cms.example.com
@@ -402,7 +402,7 @@ jobs:
     name: Deploy to Production (disabled — Render/Vercel auto-deploy)
     if: false  # was: github.ref == 'refs/heads/main'
     needs: [docker-build, security-scan, lighthouse]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: production
       url: https://app.cms.example.com
