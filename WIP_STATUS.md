@@ -987,3 +987,19 @@ awaiting supervisor review of Phase58 SQL before any production application
 
 - Wave 11.5: 12/13. Only N4 (trivy-action) remains. 11.5.6
   will close N4 and Wave 11.5 completes.
+
+## Push 11.5.6 status
+
+- N4 [CLOSED]: trivy-action upgraded from 0.28.0 (removed) to 
+  v0.36.0 (SHA-pinned at ed142fd0673e97e23eac54620cfb913e5ce36c25). 
+  Security Scan job now resolves and runs. Scan outcome: SUCCESS 
+  — full job green (CodeQL init/autobuild/analyze + trivy fs scan 
+  + SARIF upload); 0 CRITICAL/HIGH findings (0 code-scanning 
+  alerts, open or otherwise; Trivy + CodeQL analyses both 
+  uploaded on 02b99e7, run 40634985453).
+- Wave 11.5: 13/13 on paper for security scanning. Frontend 
+  remains flaky (N11, 11.5.7). N4 fix does not affect e2e.
+- Next: 11.5.7 (N11 re-fix), then 11.5.8 (CodeQL).
+- Deviation note: SHA-pin departs from ci.yml's tag-ref 
+  convention (intentional, supply-chain posture); systematic 
+  SHA migration for all actions deferred to Wave 12.
