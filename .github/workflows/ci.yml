@@ -183,7 +183,6 @@ jobs:
           node e2e/player-favorite-toggle.e2e.mjs
           node e2e/player-hls.e2e.mjs
           node e2e/player-hls-option-c.e2e.mjs
-          node e2e/player-audio.e2e.mjs
           kill $DEV_PID 2>/dev/null || true
           pkill -f vite 2>/dev/null || true
 

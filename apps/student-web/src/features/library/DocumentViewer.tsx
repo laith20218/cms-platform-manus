@@ -6,13 +6,6 @@ import {
   Image as ImageIcon, Loader2, Minus, Monitor, Music, Plus, RotateCcw, Video, X,
 } from 'lucide-react';
 import { libraryApi, type LibraryFile, type FileAccess } from './services/library-api';
-import { PlayerShell } from '@/features/media-player/PlayerShell';
-import { LazyPlayerMount, PlayerLoading } from '@/features/media-player/LazyPlayerMount';
-import type { AudioPlayerProps } from '@/features/media-player/audio/AudioPlayer';
-
-/** Stable module-level loader — React.lazy is created exactly once per mount
- *  site, so the AudioPlayer (+ wavesurfer) ships as its own code-split chunk. */
-const loadAudioPlayer = () => import('@/features/media-player/audio/AudioPlayer');
 
 /**
  * Vercel-grade in-app document viewer (Push 9 Task 2).
@@ -30,13 +23,7 @@ const loadAudioPlayer = () => import('@/features/media-player/audio/AudioPlayer'
  *  - TXT    → fetched and rendered as a Medium-style reading column.
  *  - HTML   → sandboxed iframe (`allow-scripts`) on a forced white canvas.
  *  - Images → pinch-zoomable frame + the same zoom controls.
- *  - Video  → the premium media frames.
- *  - Audio  → Push 11.7 (F1): the fullscreen PlayerShell (kind="audio") hosting
- *             the code-split AudioPlayer (waveform, speed, A-B loop, bookmarks,
- *             resume). Audio leaves the document-dialog path entirely: the shell
- *             stacks at z-50 while this dialog's overlay/content sit at
- *             --z-modal: 60 — nesting the shell INSIDE the dialog would render
- *             the player UNDER the viewer chrome, so the shell replaces it.
+ *  - Video/Audio → the premium media frames.
  *  - Anything else (docx…) → a calm "preview not available" card with real
  *             download/open actions — never a dead end, never a raw error.
  */
@@ -229,37 +216,6 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
 
   const clampZoom = (next: number) => setZoomIndex(Math.max(0, Math.min(ZOOM_STEPS.length - 1, next)));
 
-  // ===== Push 11.7 (F1) — AUDIO: the fullscreen player shell replaces the
-  // document dialog (see the rendering-matrix note above for the z-index
-  // rationale). All hooks above (access/detail/view telemetry) keep running
-  // exactly as before — only the surface changes.
-  if (kind === 'audio') {
-    return (
-      <PlayerShell
-        open
-        onOpenChange={(next) => { if (!next) onClose(); }}
-        kind="audio"
-        title={file.title}
-        subtitle={meta.label}
-        contentClassName="max-w-3xl"
-        testId="audio-player-shell"
-      >
-        {loading || kindPending ? (
-          <PlayerLoading label="جارٍ تجهيز الملف الصوتي…" />
-        ) : loadFailed || !access ? (
-          <ViewerError onClose={onClose} />
-        ) : (
-          <LazyPlayerMount<AudioPlayerProps>
-            active
-            loader={loadAudioPlayer}
-            playerProps={{ assetType: 'library-file', assetId: file.id, title: file.title, testId: 'library-audio-player' }}
-            testId="audio-player-mount"
-          />
-        )}
-      </PlayerShell>
-    );
-  }
-
   return (
     <DialogPrimitive.Root open onOpenChange={(next) => { if (!next) onClose(); }}>
       <DialogPrimitive.Portal>
@@ -382,6 +338,11 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
                     {access.accessUrl.includes('youtube.com/embed')
                       ? <iframe src={access.accessUrl} className="aspect-video w-full rounded-2xl" style={{ border: 'none' }} title={file.title} allowFullScreen />
                       : <video src={access.accessUrl} className="max-h-full w-full rounded-2xl" controls controlsList="nodownload" />}
+                  </div>
+                )}
+                {kind === 'audio' && (
+                  <div className="mx-auto flex h-full max-w-3xl items-center justify-center p-6">
+                    <audio src={access.accessUrl} className="w-full" controls controlsList="nodownload" />
                   </div>
                 )}
                 {kind === 'other' && (
