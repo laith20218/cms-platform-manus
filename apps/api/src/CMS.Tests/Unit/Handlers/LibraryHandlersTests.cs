@@ -112,10 +112,11 @@ public sealed class LibraryHandlersTests
 
     [Theory]
     [InlineData("video/mp4")]
-    [InlineData("audio/mpeg")]
     [InlineData("application/x-msdownload")]
     [InlineData("application/zip")]
     [InlineData("image/gif")]
+    [InlineData("audio/ogg")]
+    [InlineData("audio/aac")]
     public async Task RequestUploadUrl_RejectsDisallowedContentType_WithInvalidFileType(string contentType)
     {
         using var db = TestDbHelper.CreateInMemoryContext();
@@ -137,6 +138,10 @@ public sealed class LibraryHandlersTests
     [InlineData("image/webp")]
     [InlineData("application/vnd.openxmlformats-officedocument.wordprocessingml.document")]
     [InlineData("application/msword")]
+    [InlineData("audio/mpeg")]
+    [InlineData("audio/mp4")]
+    [InlineData("audio/wav")]
+    [InlineData("audio/webm")]
     public async Task RequestUploadUrl_AllowsDocumentContentTypes(string contentType)
     {
         using var db = TestDbHelper.CreateInMemoryContext();
@@ -144,8 +149,8 @@ public sealed class LibraryHandlersTests
         var (handler, storage, _, _) = Create(db);
         storage.Setup(service => service.GetSignedUploadUrlAsync(It.IsAny<string>(), contentType, It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("https://storage.example.com/signed-put");
-        // Type enum must match the allowed document family (Pdf/Html/Image).
-        var type = contentType.StartsWith("image/") ? "Image" : contentType == "text/html" ? "Html" : "Pdf";
+        // Type enum must match the allowed document family (Pdf/Html/Image/Audio — Push 11.7).
+        var type = contentType.StartsWith("image/") ? "Image" : contentType == "text/html" ? "Html" : contentType.StartsWith("audio/") ? "Audio" : "Pdf";
 
         var result = await handler.Handle(new RequestUploadUrlCommand(
             "file.pdf", contentType, 1024, subject.Id, null, type, "عنوان", null, Guid.NewGuid()), CancellationToken.None);

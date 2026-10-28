@@ -3,10 +3,50 @@
 ## Base
 Branch: wip/11.7
 Parent: fd61ba4805547e68798ceb96ec2d3291412eeab4 (main, Wave 11.5 CLOSED — CI green)
-Status: Push 11.7 (F1 — Audio Player) — PART A diagnostic COMPLETE.
-PAUSED at the STOP gate awaiting supervisor approval of (1) wavesurfer.js
-addition + version pin, (2) implementation approach (see decisions below).
-NO files modified except WIP_STATUS.md so far (read-only diagnostic).
+Status: Push 11.7 (F1 — Audio Player) — PART B in progress.
+Supervisor decisions (final): D1 = wavesurfer.js 7.12.12 EXACT PIN (note: npm package
+name is "wavesurfer.js" — the bare "wavesurfer" name is a different deprecated v1.3.4
+package; installed with --save-exact). D2 = DocumentViewer integration + backend
+audio upload allow-list (CoursePlayerPage/AudioStage OUT).
+
+## PART B progress
+
+### Pre-flight (V0)
+- V0-A verbatim: `npm view wavesurfer.js version` → 8.0.3;
+  `npm view wavesurfer.js dist-tags --json` → { alpha: 7.0.0-alpha.58, beta:
+  8.0.0-beta.5, latest: 8.0.3 }. Pin remains 7.12.12 per D1.
+- V0-B confirmed: CoursePlayerPage.tsx:559-568 is a decorative pseudo-waveform
+  (deterministic Math.sin bars seeded from the title).
+
+### CORS CHECK (BLOCKING gate for commit 3): PASS
+- Method: student login stale (AUTH_INVALID_CREDENTIALS x2 — stopped to avoid
+  lockout), so the presigned audio/mpeg URL was minted OUT-OF-BAND with the same
+  inputs the API itself uses: Storage:S3:* (Backblaze B2, bucket CMSmedia @
+  eu-central-003, path-style, SigV4 query presign — identical algorithm to
+  S3StorageService.GetSignedUrlAsync) + the real audio episode's fileKey
+  (episode 10106029-df31-4a2f-a44b-c3259d8c4abf, audio/mpeg, 12,218,994 bytes,
+  read-only SELECT). Probe: GET + Origin
+  https://cms-platform-manus-student-web.vercel.app →
+  200 + `access-control-allow-origin: https://cms-platform-manus-student-web.vercel.app`
+  (echoes the exact origin; Range probe → 206 + same ACAO; Accept-Ranges: bytes).
+  Bucket CORS therefore admits wavesurfer's cross-origin fetch from the student
+  web origin. Commit 3 UNBLOCKED.
+
+### COMMIT 1 — backend audio upload allow-list (DONE)
+- LibraryHandlers.cs: AllowedLibraryContentTypes += audio/mpeg, audio/mp4,
+  audio/wav, audio/webm (mirrors CourseHandlers.AllowedEpisodeContentTypes
+  exactly; video still rejected). ContentTypeUploadLimits += the same 4 audio
+  MIMEs → ("upload.limit.audio_mb", DefaultAudioLimitMb=200) — otherwise the
+  new allow-listed types would silently fall to the "unreachable" 200 MB
+  default without runtime tunability (same file, required for the feature).
+- LibraryHandlersTests.cs: reject theory now asserts video/mp4, audio/ogg,
+  audio/aac still INVALID_FILE_TYPE (audio/mpeg removed from rejects); allow
+  theory += the 4 audio MIMEs with Type="Audio" mapping.
+- Verification: dotnet build → 0 errors, 18 warnings (all pre-existing, none in
+  touched files). dotnet test --filter "FullyQualifiedName~LibraryHandlers" →
+  Passed 37 / Failed 0. Full suite → Passed 513 / Failed 0 / Skipped 27
+  (Postgres integration tests — CI-only).
+
 Environment note: fresh sandbox — /home/z/cms-env rebuilt from scratch
 (clone + branch push); main SHA verified fd61ba4805547e68798ceb96ec2d3291412eeab4.
 
