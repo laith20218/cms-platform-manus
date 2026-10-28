@@ -435,7 +435,16 @@ try {
         break;
       }
     }
-    const freshGenSegments = evidence.b2SegmentsByGeneration[floorGeneration + 1] ?? 0;
+    // N11 (11.5.4): the recovery loop can break the instant playback resumes
+    // while the fresh-generation segment response is still in flight through
+    // the route interceptor (observed on CI: recovered=true, freshGenSegments=0
+    // with byGen frozen — the next gen-N+1 segment serves seconds later). Poll
+    // the counter for up to 15s before judging instead of reading it once.
+    let freshGenSegments = evidence.b2SegmentsByGeneration[floorGeneration + 1] ?? 0;
+    for (let i = 0; i < 30 && recovered && freshGenSegments < 1; i++) {
+      await page.waitForTimeout(500);
+      freshGenSegments = evidence.b2SegmentsByGeneration[floorGeneration + 1] ?? 0;
+    }
     check('NETWORK_ERROR recovery: expired B2 presigns → fatal → silent refresh → playback resumes at the seek position',
       recovered && freshGenSegments >= 1,
       `recovered=${recovered} playbackUrl=${evidence.playbackUrlCalls} (floor gen=${floorGeneration}) freshGenSegments=${freshGenSegments} b2Failures=${evidence.b2SegmentFailures} time=${snapshot.time.toFixed(1)}`);
