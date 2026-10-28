@@ -782,3 +782,37 @@ CI (run 40609897238 on 8063b4f):
 RESUME_FROM: docs commit (final HEAD of wip/11.5.2; SHA in the session report) —
 awaiting supervisor review of Phase58 SQL before any production application
 (manual apply, exactly like 11.3 AddEpisodeFavorites).
+
+## Post-merge debts (Push 11.5.2)
+
+- N8 [CLOSED]: counts_against_limit is now in the model + 
+  Phase58 guarded migration. Replay=prod 1:1 (27 migrations). 
+  Phase58 will be applied to production manually by supervisor 
+  (safe-guarded DO block; column already exists on prod). 
+  No urgency — the API does not auto-migrate; Phase58 pending 
+  is harmless until next migration.
+
+- N2 [CLOSED]: FavoritesHttpIntegrationTests updated to 
+  PagedResult shape. CI: 3/3 pass.
+
+- N3 [CLOSED-locally]: any-warnings replaced with 
+  getApiErrorMessage. Local Lint: 0 warnings. CI cannot 
+  verify due to N9.
+
+- N9 [CRITICAL, NEW, 11.5.3 target]: ubuntu-latest now 
+  resolves to ubuntu26.04-x64; Playwright 1.58.2 Chromium 
+  install fails (DNS EAI_AGAIN during install step). Effect: 
+  Frontend Tests job fails at install, before Lint and e2e. 
+  All frontend CI verification blocked. Fix options in 
+  11.5.3: (a) pin runs-on: ubuntu-24.04 (workflow only, 
+  no lockfile) — RECOMMENDED; (b) upgrade Playwright 
+  (lockfile change); (c) add retry. Verification of N3 in 
+  CI is pending N9 fix.
+
+- N10 [LOW, NEW, 11.5.3 target]: Health Check workflow on 
+  main fails repeatedly since ≥ 2026-10-27. Root cause 
+  uninvestigated. Requires diagnostic in 11.5.3.
+
+- Remaining: N7 (error_reports FK drift) + CoursesPostgres 
+  (test-authoring) + N4 (trivy) + N5 (android typo) + 
+  N6 (lighthouse). All 11.5.3+.
