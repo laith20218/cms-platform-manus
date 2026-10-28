@@ -292,17 +292,32 @@ jobs:
       - name: Run Lighthouse CI
         # N15 (11.5.7): no lighthouserc anywhere in the repo and the job's cwd
         # is the repo root, so autorun died at findBuildDir ("Failed to
-        # automatically determine staticDistDir") — the first time this job ever
-        # ran (Frontend finally went green on main). Point collect at the vite
-        # output directly. N15 followup: with no assertions configured, LHCI's
-        # BUILT-IN defaults kicked in and failed the job (unused-javascript,
-        # network-dependency-tree-insight) — suppressed with an empty assertions
-        # set per supervisor decision (no performance gate; findings stay
-        # visible in the report artifact). Upload stays gated on
-        # LHCI_GITHUB_APP_TOKEN.
-        run: npx @lhci/cli autorun --collect.staticDistDir=./apps/student-web/dist --assert.assertions=""
+        # automatically determine staticDistDir"). Fixed by pointing collect
+        # at the vite output directly. N15 final: NO --assert.* flags at all —
+        # with none configured LHCI injects its default recommended preset
+        # (which failed the job on performance assertions), and an empty
+        # assertions set is rejected outright ("No assertions to use",
+        # assert.js:55). Instead, the presence of --upload.* config makes
+        # autorun SKIP assert entirely (autorun.js:137) and write the reports
+        # to the filesystem; the follow-up step uploads them as a workflow
+        # artifact — findings stay visible, no performance gate. Local T2
+        # verified: exit 0, assert skipped, reports on disk.
+        run: |
+          npx @lhci/cli autorun \
+            --collect.staticDistDir=./apps/student-web/dist \
+            --upload.target=filesystem \
+            --upload.outputDir=./lhci-reports
         env:
           LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+
+      - name: Upload Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lighthouse-reports-${{ github.run_id }}
+          path: ./lhci-reports/
+          retention-days: 7
+          if-no-files-found: warn
 
   # =========================================================
   # JOB 5: Build & Push Docker Images
