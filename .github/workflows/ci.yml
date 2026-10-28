@@ -294,9 +294,13 @@ jobs:
         # is the repo root, so autorun died at findBuildDir ("Failed to
         # automatically determine staticDistDir") — the first time this job ever
         # ran (Frontend finally went green on main). Point collect at the vite
-        # output directly. No assertions configured — a perf-budget failure
-        # would be scope creep; upload stays gated on LHCI_GITHUB_APP_TOKEN.
-        run: npx @lhci/cli autorun --collect.staticDistDir=./apps/student-web/dist
+        # output directly. N15 followup: with no assertions configured, LHCI's
+        # BUILT-IN defaults kicked in and failed the job (unused-javascript,
+        # network-dependency-tree-insight) — suppressed with an empty assertions
+        # set per supervisor decision (no performance gate; findings stay
+        # visible in the report artifact). Upload stays gated on
+        # LHCI_GITHUB_APP_TOKEN.
+        run: npx @lhci/cli autorun --collect.staticDistDir=./apps/student-web/dist --assert.assertions=""
         env:
           LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
 
