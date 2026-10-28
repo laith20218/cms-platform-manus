@@ -1137,3 +1137,38 @@ awaiting supervisor review of Phase58 SQL before any production application
   cs/loss-of-precision ×3 (PerformanceService.cs:122-123),
   acknowledge-or-fix cs/log-forging ×6 (middlewares), document the
   146 warning/note alerts as backlog.
+
+## Push 11.5.7 status (updated — N15 final closure)
+
+- N15 [CLOSED]: Lighthouse autorun with filesystem upload,
+  no assert flags. Autorun skips assert (autorun.js:137).
+  Reports uploaded as artifact. Default assertions suppressed
+  via absence of assert configuration. Local T2 verified.
+  CI VERIFIED — run 40644558809 (b0d0d10), Lighthouse CI job
+  SUCCESS for the first time: command resolved + executed
+  (log lines 274-275), Healthcheck passed (line 296), Running
+  Lighthouse 3 time(s) → Run #1/#2/#3 done → Done running
+  Lighthouse! (lines 299-303), reports dumped to ./lhci-reports
+  (line 305), "Done running autorun." exit 0 (line 308) — no
+  assertion step ran at all. Artifact step (upload-artifact@
+  ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2, SHA verified
+  against the v4.6.2 tag before pinning): "Artifact
+  lighthouse-reports-40644558809 has been successfully uploaded!
+  Final size is 466870 bytes. Artifact ID is 12796958537" (log
+  line 336). Artifact downloaded and verified: exactly 3 HTML+JSON
+  report pairs (06:38:40 / 06:38:52 / 06:39:03; html ~474-479 KB,
+  json ~287-292 KB each) + manifest.json (1.4 KB) = 7 files.
+
+- Wave 11.5 status: 14/14 closed on paper. Only 11.5.8
+  (CodeQL triage) remains.
+
+- Run 40644558809 overall: FULL GREEN (conclusion: success —
+  first fully green pipeline run). Backend 535/535 (Test Run
+  Successful, 535 Passed lines, 0 Failed). Frontend: unit 38 + 126
+  passed; e2e 5/5 specs — favorites-advanced 30/30, player-video
+  17/17 (check 13 posts 1→2 line 1215; keepalive beforeunload
+  posts 2→3 line 1216), player-favorite-toggle 14/14, player-hls
+  19/19, player-hls-option-c 13/13. Security Scan success (157
+  CodeQL alerts uploaded to the Security tab — findings tracked
+  separately for 11.5.8 triage, NOT a job failure). Security
+  Artifact Gate success.
