@@ -272,31 +272,46 @@ try {
   check('speed selector sets playbackRate=1.5', rate === 1.5, `rate=${rate}`);
 
   // 10 — DOUBLE TAP: left zone −10s with ripple badge.
+  //      N11 (11.5.4): raw touchscreen.tap(x, y) with a pre-measured boundingBox
+  //      dispatches at stale viewport coordinates when the layout shifts between
+  //      measure and dispatch (observed locally + CI: pointerups landing on
+  //      episode-stage above the player — zero pairs ever registered, the app's
+  //      280ms window is NOT the culprit). locator.tap() re-resolves geometry
+  //      with actionability + hit-target checks at dispatch time. Retry absorbs
+  //      residual pairing misses; t0 re-baselined per attempt.
   {
-    const t0 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    let rippleVisible = false;
+    let t0 = 0;
+    let t1 = 0;
     const zone = page.getByTestId('video-tap-zone-left');
-    const box = await zone.boundingBox();
-    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(120);
-    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-    const rippleVisible = await page.getByTestId('video-ripple-left').isVisible().catch(() => false);
-    await page.waitForTimeout(400); // let the seek settle
-    const t1 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    for (let attempt = 0; attempt < 5 && !rippleVisible; attempt++) {
+      t0 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      await zone.tap();
+      await page.waitForTimeout(120);
+      await zone.tap();
+      rippleVisible = await page.getByTestId('video-ripple-left').isVisible().catch(() => false);
+      await page.waitForTimeout(400); // let the seek settle
+      t1 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    }
     check('double-tap LEFT: −10s + ripple badge', rippleVisible && t0 - t1 >= 8.5 && t0 - t1 <= 11.5,
       `${t0.toFixed(1)}→${t1.toFixed(1)} ripple=${rippleVisible}`);
   }
 
-  // 11 — DOUBLE TAP: right zone +10s.
+  // 11 — DOUBLE TAP: right zone +10s. (N11 11.5.4: same locator.tap retry as 10.)
   {
-    const t0 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    let rippleVisible = false;
+    let t0 = 0;
+    let t1 = 0;
     const zone = page.getByTestId('video-tap-zone-right');
-    const box = await zone.boundingBox();
-    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(120);
-    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-    const rippleVisible = await page.getByTestId('video-ripple-right').isVisible().catch(() => false);
-    await page.waitForTimeout(400);
-    const t1 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    for (let attempt = 0; attempt < 5 && !rippleVisible; attempt++) {
+      t0 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      await zone.tap();
+      await page.waitForTimeout(120);
+      await zone.tap();
+      rippleVisible = await page.getByTestId('video-ripple-right').isVisible().catch(() => false);
+      await page.waitForTimeout(400);
+      t1 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    }
     check('double-tap RIGHT: +10s + ripple badge', rippleVisible && t1 - t0 >= 8.5 && t1 - t0 <= 11.5,
       `${t0.toFixed(1)}→${t1.toFixed(1)} ripple=${rippleVisible}`);
   }
@@ -336,14 +351,25 @@ try {
       `posts ${before}→${after}`);
   }
 
-  // 14 — Leaving the page unmounts the player → the keepalive final save fires
-  //      (the sandbox shell's close button is gone; navigation is the real exit).
+  // 14 — Leaving the page unmounts the player → the keepalive final save fires.
+  //      N11 (11.5.4): exit via the REAL user path — the navbar link navigates the
+  //      SPA (react-router), unmounting the player (effect cleanup → onHide →
+  //      keepalive final save) from a LIVE page, so the beacon's route
+  //      interception is deterministic. A full page.goto tears the document down
+  //      while the keepalive fetch is in flight — Chromium hands it to the
+  //      network process where CDP interception intermittently misses it (CI
+  //      logs show the escaped beacon hitting the vite proxy: ECONNREFUSED on
+  //      /progress — observed posts 2→2 even within a 15s poll). Then poll for
+  //      the final post instead of a fixed window.
   {
     const before = context.__counters.progressPosts.length;
-    await page.goto(`${BASE_URL}/my-studies`);
+    await page.getByRole('link', { name: 'العودة إلى لوحة التحكم' }).click();
     await page.getByTestId('course-episode-player').waitFor({ state: 'detached', timeout: 10_000 });
-    await page.waitForTimeout(800);
-    const after = context.__counters.progressPosts.length;
+    let after = context.__counters.progressPosts.length;
+    for (let i = 0; i < 30 && after === before; i++) {
+      await page.waitForTimeout(500);
+      after = context.__counters.progressPosts.length;
+    }
     check('page-leave/unmount → final progress save (keepalive)', after > before, `posts ${before}→${after}`);
   }
 
@@ -364,15 +390,19 @@ try {
     `controlsW=${controlsBox.width.toFixed(0)} noHScroll=${noHScroll}`,
   );
 
-  // Double-tap works with touch on mobile too.
+  // Double-tap works with touch on mobile too. (N11 11.5.4: locator.tap retry — see 10/11.)
   {
-    const t0 = await mPage.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
-    const box = await mPage.getByTestId('video-tap-zone-right').boundingBox();
-    await mPage.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-    await mPage.waitForTimeout(120);
-    await mPage.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-    await mPage.waitForTimeout(400);
-    const t1 = await mPage.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    let t0 = 0;
+    let t1 = 0;
+    const zone = mPage.getByTestId('video-tap-zone-right');
+    for (let attempt = 0; attempt < 5 && !(t1 - t0 >= 8.5); attempt++) {
+      t0 = await mPage.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      await zone.tap();
+      await mPage.waitForTimeout(120);
+      await zone.tap();
+      await mPage.waitForTimeout(400);
+      t1 = await mPage.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    }
     check('mobile double-tap RIGHT: +10s', t1 - t0 >= 8.5 && t1 - t0 <= 11.5, `${t0.toFixed(1)}→${t1.toFixed(1)}`);
   }
 
