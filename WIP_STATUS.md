@@ -1084,3 +1084,56 @@ awaiting supervisor review of Phase58 SQL before any production application
 - Wave 11.5 status: 14/14 on paper (13 debts + N15). N16 deferred.
   Next: 11.5.8 (CodeQL findings triage — scope per supervisor)
   closes Wave 11.5 operationally.
+
+### Push 11.5.7 followup — N15 assertion suppression flag REJECTED by LHCI
+
+- Supervisor-approved followup commit 86ead1b appended
+  `--assert.assertions=""` to the autorun command (ci.yml:303). CI run
+  40641892837 (86ead1b): Lighthouse CI job = FAILURE at a NEW point —
+  collect fully green (Running Lighthouse 3 time(s), Run #1/#2/#3
+  done, "Done running Lighthouse!", log lines 289-293), then
+  `Error: No assertions to use` thrown at assert.js:55 → "assert
+  command failed. Exiting with status code 1." All other jobs green
+  (Backend 535/535, Frontend e2e 5/5 specs, Security Scan success,
+  Artifact Gate success).
+
+- ROOT CAUSE (source-verified, @lhci/cli 0.15.1 — same version CI
+  resolves; local copy installed to /tmp/lhci-probe for forensics):
+  * assert.js:53-55: `areAssertionsSet = Boolean(assertions ||
+    assertMatrix || preset)`; empty-string assertions is FALSY →
+    throws 'No assertions to use'. The assert command REFUSES to run
+    with zero assertions — no empty-set form can ever pass.
+  * autorun.js:137: assert is skipped ONLY when the assert config is
+    falsy AND upload config is present. With no assert flags at all,
+    autorun injects `--preset=lighthouse:recommended` (the source of
+    the original default-assertion failures).
+  * autorun.js:144-147: upload failures are WARNING-only by default
+    (exit 0) unless --failOnUploadFailure.
+  * LHCI_GITHUB_APP_TOKEN is read NOWHERE in @lhci/cli 0.15.1 src —
+    the workflow's env var is inert.
+- LOCAL EMPIRICAL VERIFICATION (existing dist/, no app code changed
+  in 11.5.7):
+  * T1 repro: `--assert.assertions=""` → exit 1, "Error: No
+    assertions to use" — byte-identical to CI.
+  * T2 candidate mechanism: `--upload.target=filesystem
+    --upload.outputDir=<dir>` with NO assert flags → exit 0, "Done
+    running autorun.", assert step SKIPPED entirely, 3 report pairs
+    (html+json) + manifest.json written to disk.
+- N15 [REOPENED]: mechanism correction requires a supervisor
+  decision (findings-visibility tradeoff):
+  * Option 1 (RECOMMENDED): T2 flags + an actions/upload-artifact@v4
+    step (pattern already used 3× in ci.yml at lines 72/213/219) —
+    green + reports downloadable in the run's Artifacts section
+    ("findings visible in the report artifact" literally). 2 changes.
+  * Option 2: T2 flags only — green, but reports die with the job
+    workspace; no findings visibility. 1 change.
+  * Option 3: `--upload.target=temporary-public-storage` — green
+    (upload failure = warning-only), prints PUBLIC report links in
+    the log; exposes the build's report on public storage + adds a
+    network dependency. 1 change.
+- 11.5.8 scope REVISED by supervisor (recorded for planning, no work
+  done): fix js/xss-through-dom (admin-web mediaProcessing.ts:184),
+  fix js/regex/missing-regexp-anchor (e2e spec:169), fix/verify
+  cs/loss-of-precision ×3 (PerformanceService.cs:122-123),
+  acknowledge-or-fix cs/log-forging ×6 (middlewares), document the
+  146 warning/note alerts as backlog.
