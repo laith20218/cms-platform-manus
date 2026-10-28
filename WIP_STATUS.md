@@ -1026,3 +1026,149 @@ awaiting supervisor review of Phase58 SQL before any production application
 - Remaining Wave 11.5 sequence:
   * 11.5.7 = N11 keepalive re-fix
   * 11.5.8 = CodeQL JS/TS coverage (2nd inspector complete)
+
+## Push 11.5.7 status
+
+- N11 [CLOSED]: keepalive test determinized via synthetic
+  beforeunload. Local: 5/5 runs × 17/17 each (was 4/5 before
+  fix). CI: VERIFIED — run 40639970231 (de9bfc7), Frontend Tests
+  success, player-video 17/17, "page-leave (beforeunload) → final
+  progress save (keepalive) — posts 2→3" green. Root cause
+  confirmed: beacon escapes CDP interception during unload; synthetic
+  dispatch runs handler in live context. Hardening (a) added:
+  try/catch around postDataJSON() in the progress route handler
+  (degraded postBody no longer kills the handler before
+  route.fulfill). Unmount-path onHide coverage deferred to unit
+  tests (supervisor decision 11.5.7). CI evidence: frontend job log
+  lines 1260-1261.
+
+- N15 [CLOSED]: Lighthouse staticDistDir set to
+  ./apps/student-web/dist via inline flag in ci.yml:299 (chosen over
+  lighthouserc.js: the step has no working-directory, so a nested
+  config file would also need an explicit --config flag = 2 changes).
+  CI: job RUNS — collect succeeded (1 URL × 3 audits; findBuildDir
+  error gone). Job conclusion = failure from LHCI's BUILT-IN default
+  assertions (none configured by us; "Configuration file not found"
+  in the log): ✘ unused-javascript (maxLength), ✘
+  network-dependency-tree-insight (minScore); warnings incl.
+  first-contentful-paint, interactive, LCP, render-blocking-resources
+  (expected ≤0, found 3). Per supervisor decision 11.5.7:
+  performance-metric failure = report-only, not a blocker.
+  Disabling the default assertions is a supervisor decision — NOT
+  touched in this push.
+
+- N16 [RECORDED, deferred]: check 13 (interval progress posts)
+  flakes under TTL=8 churn. Local: 1/5 fails. CI: 5/5 passes so far
+  (incl. this run — "progress POST every 10s — posts 1→2" green,
+  job log line 1260). Deferred to post-Wave-11.5 with dedicated
+  DIAG. No fix in this push.
+
+- CORRECTION to 11.5.6 record: Security Scan "0 findings" was a
+  false negative — the alerts query ran before SARIF ingestion
+  completed (CodeQL analysis 2042372383 on 02b99e7 = 157 results,
+  created 05:00:17Z, after the check). Current open code-scanning
+  alerts: 157 (149 cs/ + 8 js/; severity: 77 note, 69 warning,
+  6 medium, 2 high, 3 error). Notable: js/xss-through-dom
+  (apps/admin-web/src/lib/mediaProcessing.ts:184, HIGH),
+  js/regex/missing-regexp-anchor (e2e/player-hls-option-c.e2e.mjs:169,
+  HIGH), cs/loss-of-precision ×3 (PerformanceService.cs:122-123,
+  ERROR), cs/log-forging ×6 (middlewares, MEDIUM), cs/catch-of-all-
+  exceptions ×46 (quality). Facts for scope planning: CodeQL
+  javascript-typescript has been in ci.yml's init step since the
+  initial import (d08b64a) alongside csharp with the
+  security-and-quality suite — the "extend CodeQL to JS/TS"
+  premise for 11.5.8 is moot; the actual 11.5.8 work = triage
+  policy for these 157 findings (supervisor decision). All
+  findings REPORTED ONLY (§12) — no triage/fix in this push.
+
+- Wave 11.5 status: 14/14 on paper (13 debts + N15). N16 deferred.
+  Next: 11.5.8 (CodeQL findings triage — scope per supervisor)
+  closes Wave 11.5 operationally.
+
+### Push 11.5.7 followup — N15 assertion suppression flag REJECTED by LHCI
+
+- Supervisor-approved followup commit 86ead1b appended
+  `--assert.assertions=""` to the autorun command (ci.yml:303). CI run
+  40641892837 (86ead1b): Lighthouse CI job = FAILURE at a NEW point —
+  collect fully green (Running Lighthouse 3 time(s), Run #1/#2/#3
+  done, "Done running Lighthouse!", log lines 289-293), then
+  `Error: No assertions to use` thrown at assert.js:55 → "assert
+  command failed. Exiting with status code 1." All other jobs green
+  (Backend 535/535, Frontend e2e 5/5 specs, Security Scan success,
+  Artifact Gate success).
+
+- ROOT CAUSE (source-verified, @lhci/cli 0.15.1 — same version CI
+  resolves; local copy installed to /tmp/lhci-probe for forensics):
+  * assert.js:53-55: `areAssertionsSet = Boolean(assertions ||
+    assertMatrix || preset)`; empty-string assertions is FALSY →
+    throws 'No assertions to use'. The assert command REFUSES to run
+    with zero assertions — no empty-set form can ever pass.
+  * autorun.js:137: assert is skipped ONLY when the assert config is
+    falsy AND upload config is present. With no assert flags at all,
+    autorun injects `--preset=lighthouse:recommended` (the source of
+    the original default-assertion failures).
+  * autorun.js:144-147: upload failures are WARNING-only by default
+    (exit 0) unless --failOnUploadFailure.
+  * LHCI_GITHUB_APP_TOKEN is read NOWHERE in @lhci/cli 0.15.1 src —
+    the workflow's env var is inert.
+- LOCAL EMPIRICAL VERIFICATION (existing dist/, no app code changed
+  in 11.5.7):
+  * T1 repro: `--assert.assertions=""` → exit 1, "Error: No
+    assertions to use" — byte-identical to CI.
+  * T2 candidate mechanism: `--upload.target=filesystem
+    --upload.outputDir=<dir>` with NO assert flags → exit 0, "Done
+    running autorun.", assert step SKIPPED entirely, 3 report pairs
+    (html+json) + manifest.json written to disk.
+- N15 [REOPENED]: mechanism correction requires a supervisor
+  decision (findings-visibility tradeoff):
+  * Option 1 (RECOMMENDED): T2 flags + an actions/upload-artifact@v4
+    step (pattern already used 3× in ci.yml at lines 72/213/219) —
+    green + reports downloadable in the run's Artifacts section
+    ("findings visible in the report artifact" literally). 2 changes.
+  * Option 2: T2 flags only — green, but reports die with the job
+    workspace; no findings visibility. 1 change.
+  * Option 3: `--upload.target=temporary-public-storage` — green
+    (upload failure = warning-only), prints PUBLIC report links in
+    the log; exposes the build's report on public storage + adds a
+    network dependency. 1 change.
+- 11.5.8 scope REVISED by supervisor (recorded for planning, no work
+  done): fix js/xss-through-dom (admin-web mediaProcessing.ts:184),
+  fix js/regex/missing-regexp-anchor (e2e spec:169), fix/verify
+  cs/loss-of-precision ×3 (PerformanceService.cs:122-123),
+  acknowledge-or-fix cs/log-forging ×6 (middlewares), document the
+  146 warning/note alerts as backlog.
+
+## Push 11.5.7 status (updated — N15 final closure)
+
+- N15 [CLOSED]: Lighthouse autorun with filesystem upload,
+  no assert flags. Autorun skips assert (autorun.js:137).
+  Reports uploaded as artifact. Default assertions suppressed
+  via absence of assert configuration. Local T2 verified.
+  CI VERIFIED — run 40644558809 (b0d0d10), Lighthouse CI job
+  SUCCESS for the first time: command resolved + executed
+  (log lines 274-275), Healthcheck passed (line 296), Running
+  Lighthouse 3 time(s) → Run #1/#2/#3 done → Done running
+  Lighthouse! (lines 299-303), reports dumped to ./lhci-reports
+  (line 305), "Done running autorun." exit 0 (line 308) — no
+  assertion step ran at all. Artifact step (upload-artifact@
+  ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2, SHA verified
+  against the v4.6.2 tag before pinning): "Artifact
+  lighthouse-reports-40644558809 has been successfully uploaded!
+  Final size is 466870 bytes. Artifact ID is 12796958537" (log
+  line 336). Artifact downloaded and verified: exactly 3 HTML+JSON
+  report pairs (06:38:40 / 06:38:52 / 06:39:03; html ~474-479 KB,
+  json ~287-292 KB each) + manifest.json (1.4 KB) = 7 files.
+
+- Wave 11.5 status: 14/14 closed on paper. Only 11.5.8
+  (CodeQL triage) remains.
+
+- Run 40644558809 overall: FULL GREEN (conclusion: success —
+  first fully green pipeline run). Backend 535/535 (Test Run
+  Successful, 535 Passed lines, 0 Failed). Frontend: unit 38 + 126
+  passed; e2e 5/5 specs — favorites-advanced 30/30, player-video
+  17/17 (check 13 posts 1→2 line 1215; keepalive beforeunload
+  posts 2→3 line 1216), player-favorite-toggle 14/14, player-hls
+  19/19, player-hls-option-c 13/13. Security Scan success (157
+  CodeQL alerts uploaded to the Security tab — findings tracked
+  separately for 11.5.8 triage, NOT a job failure). Security
+  Artifact Gate success.
