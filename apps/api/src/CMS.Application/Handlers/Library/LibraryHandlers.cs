@@ -225,10 +225,12 @@ public class LibraryHandlers :
 
     // ===== Admin: Upload =====
     /// <summary>
-    /// Strict server-side MIME allow-list for the institutional library. Video and audio
-    /// media are intentionally rejected here — they belong to course episodes, not the
-    /// document library. The declared type is enforced before any presigned URL is issued,
-    /// because the PUT URL binds the Content-Type server-side.
+    /// Strict server-side MIME allow-list for the institutional library. VIDEO uploads are
+    /// intentionally rejected here — library video is YouTube-hosted by design, and stored
+    /// video blobs belong to course episodes. Push 11.7 (F1) admits STORED AUDIO to the
+    /// library (the read side already streams Audio rows through MediaHandlers) with the
+    /// exact course-episode audio MIME set. The declared type is enforced before any
+    /// presigned URL is issued, because the PUT URL binds the Content-Type server-side.
     /// </summary>
     private static readonly HashSet<string> AllowedLibraryContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -238,7 +240,15 @@ public class LibraryHandlers :
         "image/jpeg",
         "image/webp",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/msword"
+        "application/msword",
+        // Push 11.7 (F1) — stored audio blobs join the library (read side already streamed them
+        // through MediaHandlers: Audio is a streamable LibraryFileType). The list mirrors the
+        // course-episode audio MIME set exactly (CourseHandlers.AllowedEpisodeContentTypes):
+        // mpeg, mp4, wav, webm — nothing else. Video uploads stay YouTube-only by design.
+        "audio/mpeg",
+        "audio/mp4",
+        "audio/wav",
+        "audio/webm"
     };
 
     // ===== Per-type upload ceilings (A2-3) =====
@@ -248,6 +258,10 @@ public class LibraryHandlers :
     private const int DefaultPdfLimitMb = 200;
     private const int DefaultHtmlLimitMb = 10;
     private const int DefaultImageLimitMb = 20;
+    // Push 11.7 (F1) — audio joins the library family; a conservative document-class ceiling
+    // (runtime-tunable via upload.limit.audio_mb). Long lecture recordings belong to course
+    // episodes, whose video-class ceiling stays the episode pipeline's concern.
+    private const int DefaultAudioLimitMb = 200;
 
     private static readonly Dictionary<string, (string SettingKey, int DefaultMb)> ContentTypeUploadLimits =
         new(StringComparer.OrdinalIgnoreCase)
@@ -259,6 +273,10 @@ public class LibraryHandlers :
             ["image/png"] = ("upload.limit.image_mb", DefaultImageLimitMb),
             ["image/jpeg"] = ("upload.limit.image_mb", DefaultImageLimitMb),
             ["image/webp"] = ("upload.limit.image_mb", DefaultImageLimitMb),
+            ["audio/mpeg"] = ("upload.limit.audio_mb", DefaultAudioLimitMb),
+            ["audio/mp4"] = ("upload.limit.audio_mb", DefaultAudioLimitMb),
+            ["audio/wav"] = ("upload.limit.audio_mb", DefaultAudioLimitMb),
+            ["audio/webm"] = ("upload.limit.audio_mb", DefaultAudioLimitMb),
         };
 
     /// <summary>Resolves the per-type upload ceiling in bytes: system setting first, hardcoded fallback when absent/unparseable.</summary>

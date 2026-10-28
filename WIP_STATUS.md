@@ -1,3 +1,230 @@
+# WIP_STATUS — wip/11.7
+
+## Base
+Branch: wip/11.7
+Parent: fd61ba4805547e68798ceb96ec2d3291412eeab4 (main, Wave 11.5 CLOSED — CI green)
+Status: Push 11.7 (F1 — Audio Player) — COMMITS 1+2+3 COMPLETE, verification green.
+F1 [CLOSED locally]: awaiting supervisor merge review. No main push, no merge,
+no deploy (STOP GATE). Next wave: 11.8 (F2 — PDF Player in PlayerShell).
+Supervisor decisions (final): D1 = wavesurfer.js 7.12.12 EXACT PIN (note: npm package
+name is "wavesurfer.js" — the bare "wavesurfer" name is a different deprecated v1.3.4
+package; installed with --save-exact). D2 = DocumentViewer integration + backend
+audio upload allow-list (CoursePlayerPage/AudioStage OUT).
+
+## PART B progress
+
+### Pre-flight (V0)
+- V0-A verbatim: `npm view wavesurfer.js version` → 8.0.3;
+  `npm view wavesurfer.js dist-tags --json` → { alpha: 7.0.0-alpha.58, beta:
+  8.0.0-beta.5, latest: 8.0.3 }. Pin remains 7.12.12 per D1.
+- V0-B confirmed: CoursePlayerPage.tsx:559-568 is a decorative pseudo-waveform
+  (deterministic Math.sin bars seeded from the title).
+
+### COMMIT 2 — wavesurfer.js install (DONE)
+- pnpm 9.12.0 (matches root packageManager + lockfileVersion 9.0).
+- `pnpm add wavesurfer.js@7.12.12 --save-exact` inside apps/student-web.
+  NOTE: the npm package NAME is "wavesurfer.js" — the bare "wavesurfer" name
+  is a different deprecated package (latest 1.3.4) and has no 7.x line.
+- package.json: "wavesurfer.js": "7.12.12" (exact, no caret).
+- pnpm-lock.yaml: exactly +8 lines, wavesurfer.js entries ONLY — zero churn
+  elsewhere (verified via git diff of the lockfile).
+- `pnpm list wavesurfer.js --depth=0` → wavesurfer.js 7.12.12.
+- Integration contract verified from the installed dist source:
+  setPlaybackRate(rate, preservePitch?) sets media.preservesPitch (default true);
+  create({media, url}) uses the external element + fetches the blob for peaks
+  (CORS applies — production check PASSED above); silent lease refresh =
+  swap media.src only, decodedData peaks persist.
+
+### CORS CHECK (BLOCKING gate for commit 3): PASS
+- Method: student login stale (AUTH_INVALID_CREDENTIALS x2 — stopped to avoid
+  lockout), so the presigned audio/mpeg URL was minted OUT-OF-BAND with the same
+  inputs the API itself uses: Storage:S3:* (Backblaze B2, bucket CMSmedia @
+  eu-central-003, path-style, SigV4 query presign — identical algorithm to
+  S3StorageService.GetSignedUrlAsync) + the real audio episode's fileKey
+  (episode 10106029-df31-4a2f-a44b-c3259d8c4abf, audio/mpeg, 12,218,994 bytes,
+  read-only SELECT). Probe: GET + Origin
+  https://cms-platform-manus-student-web.vercel.app →
+  200 + `access-control-allow-origin: https://cms-platform-manus-student-web.vercel.app`
+  (echoes the exact origin; Range probe → 206 + same ACAO; Accept-Ranges: bytes).
+  Bucket CORS therefore admits wavesurfer's cross-origin fetch from the student
+  web origin. Commit 3 UNBLOCKED.
+
+### COMMIT 1 — backend audio upload allow-list (DONE)
+- LibraryHandlers.cs: AllowedLibraryContentTypes += audio/mpeg, audio/mp4,
+  audio/wav, audio/webm (mirrors CourseHandlers.AllowedEpisodeContentTypes
+  exactly; video still rejected). ContentTypeUploadLimits += the same 4 audio
+  MIMEs → ("upload.limit.audio_mb", DefaultAudioLimitMb=200) — otherwise the
+  new allow-listed types would silently fall to the "unreachable" 200 MB
+  default without runtime tunability (same file, required for the feature).
+- LibraryHandlersTests.cs: reject theory now asserts video/mp4, audio/ogg,
+  audio/aac still INVALID_FILE_TYPE (audio/mpeg removed from rejects); allow
+  theory += the 4 audio MIMEs with Type="Audio" mapping.
+- Verification: dotnet build → 0 errors, 18 warnings (all pre-existing, none in
+  touched files). dotnet test --filter "FullyQualifiedName~LibraryHandlers" →
+  Passed 37 / Failed 0. Full suite → Passed 513 / Failed 0 / Skipped 27
+  (Postgres integration tests — CI-only).
+
+### COMMIT 3 — AudioPlayer + DocumentViewer integration + e2e (DONE)
+- media-api.ts: + listBookmarks (GET bookmarks, mirrors the file's existing
+  error/bearer/entitlement pattern; []-safe).
+- NEW src/features/media-player/audio/AudioPlayer.tsx: wavesurfer.js waveform
+  over ONE hidden <audio> element (media: external + url → blob decode once);
+  useMediaLease on the SAME element (TTL−60s silent refresh = plain element
+  src swap, decoded peaks persist, loadedmetadata restores time+play state);
+  play/pause 48px + ±15s; volume Radix slider + mute; speed Radix Select
+  0.25×–2× via setPlaybackRate(rate, true) + preservesPitch re-assert; A-B
+  loop (audioprocess wrap, A/B toggle buttons, invalid-B hint, markers);
+  bookmark markers overlay (click → seek; list on ready + after dialog close;
+  create via the UNMODIFIED shared BookmarkDialog); progress save every 10s +
+  pause + keepalive final (VideoPlayer pattern); resume via GET progress;
+  keyboard (Space / ←→ ±10s / M) container-scoped with input+slider guards.
+- DocumentViewer.tsx: kind==='audio' renders PlayerShell(kind="audio",
+  z-50 fullscreen) INSTEAD of the document dialog — nesting the shell inside
+  the dialog is impossible (dialog overlay/content sit at --z-modal:60 > 50,
+  the player would render under the viewer chrome). The raw <audio controls>
+  block is REMOVED. AudioPlayer mounts code-split via LazyPlayerMount
+  (module-level loader). All viewer effects (access/detail/view telemetry)
+  unchanged.
+- e2e/player-audio.e2e.mjs: production library route driven end-to-end with
+  mocked API + REAL locally-served WAV (deterministic in-spec generator,
+  20s/8kHz/mono PCM16, git-ignored) + short TTL 8s so every scenario ≥3s
+  exercises the silent lease swap against genuine playback.
+- VERIFICATION (all green):
+  * tsc -b (typecheck): 0 errors.
+  * vite build: success; AudioPlayer chunk = 58.15 kB raw / 16.73 kB gzip
+    (code-split via React.lazy; wavesurfer rides inside it).
+  * vitest run: 126/126 passed (8 files) — no regressions.
+  * eslint --max-warnings=0: clean.
+  * e2e player-audio: 23/23 checks PASS (S1×3 viewports 375/768/1024:
+    waveform canvas + duration 0:20 + zero horizontal overflow; S2 play/pause
+    + time advance; S3 1.5× → playbackRate 1.5 AND preservesPitch true; S4
+    waveform click-seek + A≈2.6/B≈4.7 set + loop wraps to A + clear; S5
+    bookmark create→refetch→marker→click seeks to start; S6 play to 10s →
+    unmount keepalive save 10 → remount resumes at exactly 10 + progress GET;
+    S7 right-click/copy/Ctrl+C all defaultPrevented inside the stage).
+  * Peak Chromium RSS: 1014 MB (< 1600 MB §4 ceiling). Console errors: 0.
+    (9 page errors: sessionStorage SecurityError from opaque aborted-route
+    frames — harness noise, same init-script pattern as every existing spec.)
+- Deviations from the B+C letter (documented):
+  * npm package installed as "wavesurfer.js@7.12.12" — the supervisor's
+    literal "wavesurfer@7.12.12" names a DIFFERENT deprecated package
+    (latest 1.3.4, no 7.x); PART 4 of the original push named it correctly.
+  * Bookmark markers are custom overlay buttons (physical-left %) instead of
+    the wavesurfer MarkersPlugin: v7's plugin has NO click-callback API, and
+    real <button> markers give a11y + deterministic e2e clicks.
+  * Unit tests for AudioPlayer were not added: the B+C IN SCOPE file list
+    contains only the e2e spec (no src/test/* entry); e2e covers the paths.
+
+Environment note: fresh sandbox — /home/z/cms-env rebuilt from scratch
+(clone + branch push); main SHA verified fd61ba4805547e68798ceb96ec2d3291412eeab4.
+RESUME_FROM: a8833cad422279d4c456b4bda3b625dcad313e38 — awaiting supervisor merge-approval for Wave 11.7/F1 (commit-8: lease-swap guards P1-P3 + play-resolve race cover, 5/5 local, CI-green).
+
+
+
+## PART A — F1 audio diagnostic findings (read-only, 2026-10-28)
+
+### A.1 — Current audio rendering (TWO surfaces, not one)
+- Library files: DocumentViewer.tsx:343-347 — native `<audio controls
+  controlsList="nodownload">`, centered card. No waveform / speed / A-B loop /
+  bookmarks / progress. Kind resolution: `resolveViewerKind()` — class "Audio"
+  → 'audio' (DIRECT_KINDS), or MIME fallback `audio/*` for the summary family.
+- Course episodes: CoursePlayerPage.tsx:339-366 + AudioStage (509-628, Push 8) —
+  spinning vinyl disc + DECORATIVE pseudo-waveform (deterministic fake bars,
+  559-568) + Radix slider seek/volume + ±10s + 56px play button. Page-side
+  Lease Trap (8-min refresh, 258-268). NO real waveform, NO speed control,
+  NO A-B loop, NO bookmarks, NO progress save/resume for audio episodes.
+
+### A.2 — PlayerShell + VideoPlayer patterns to mirror
+- PlayerShell props: { open, onOpenChange, title, subtitle?, kind?:
+  'video'|'audio'|'pdf'|'html', protection?, children, contentClassName?,
+  metadata?, testId? }. Fullscreen targets the STAGE; protection
+  (contextmenu/copy/Ctrl+S/P block) active while open. AudioPlayer mounts as
+  `children` with kind="audio".
+- useMediaLease({ assetType, assetId, mediaRef }) — TTL−60s silent refresh,
+  preserve-time swap via pendingTimeRef/wasPlayingRef/resetPending,
+  generation counter, retry backoff. Accepts HTMLAudioElement ref → REUSE
+  DIRECTLY (no useAudioLease needed).
+- VideoPlayer patterns to mirror: progress GET on mount → resume;
+  POST every 10s + pause + keepalive final on hide/unload; BookmarkDialog
+  (generic over assetType/assetId — reusable as-is); favorite star
+  (episode-only, server truth on lease info.isFavorite); keyboard shortcuts;
+  fullscreen via usePlayerShell context.
+- LazyPlayerMount: IntersectionObserver-gated React.lazy mount — AudioPlayer
+  should ship as its own chunk via this wrapper.
+
+### A.3 — Backend endpoints (all exist, no changes needed)
+- POST /api/v1/media/{assetType}/{assetId}/playback-url → { url, ttlSeconds,
+  expiresAt, contentType, supportsRange, isFavorite }
+- GET/POST /api/v1/media/{assetType}/{assetId}/progress (GET→204 when none;
+  POST body { positionSeconds, durationSeconds })
+- GET/POST /api/v1/media/{assetType}/{assetId}/bookmarks; PATCH (NOT PUT —
+  prompt said PUT) + DELETE /api/v1/media/bookmarks/{bookmarkId} (owner-only)
+- Frontend media-api.ts already has: getPlaybackUrl, getProgress,
+  upsertProgress, upsertProgressKeepalive, createBookmark. MISSING client
+  methods: listBookmarks (GET). BookmarkDialog is create-only (no list UI
+  exists anywhere for video either).
+
+### A.4 — Library audio types: READ side complete, WRITE side BLOCKED
+- LibraryFileType.Audio exists (Enums.cs:145); search/entitlements/favorites/
+  playback-url all branch on it; LibraryHandlers RequiredContentScope maps
+  Video|Audio → VideoAudio scope.
+- BUT AllowedLibraryContentTypes (LibraryHandlers.cs:233-242) = pdf/html/
+  png/jpeg/webp/docx/msword ONLY. Unit test LibraryHandlersTests.cs:113-130
+  asserts audio/mpeg AND video/mp4 → INVALID_FILE_TYPE. Library video files
+  are YouTube-links-only (YoutubeVideoId); there is NO creation path for a
+  library Audio file through the current API (admin UI offers Audio in the
+  type dropdown but the API gate rejects it).
+- Course episodes DO accept audio: audio/mpeg, audio/mp4, audio/wav,
+  audio/webm (CourseHandlers.cs:75-84) → course episodes are the REAL
+  production audio surface today.
+
+### A.5 — playback-url behavior for audio (library path)
+- MediaHandlers.cs:130 — Audio passes the streamable check; entitlement gate
+  VideoAudio enforced; fileKey = FileUrl (audio never has HLS);
+  contentType = FileFormat if set else "audio/mpeg" (line 142-145);
+  presigned object-scoped GET, SupportsRange: true, TTL 540s
+  (MediaPolicy.PlaybackUrlTtlSeconds). Episode path: ContentType column
+  ("audio/mpeg" etc. per upload allow-list). No backend change needed for F1.
+
+### A.6 — wavesurfer.js versions (SURPRISE: v8 is out)
+- npm dist-tags: latest = 8.0.3 (v8 line stable: 8.0.0→8.0.3), latest v7 =
+  7.12.12. Prompt authorized "v7.x".
+- API parity for our needs (verified from dist typings): both expose
+  setTime/getCurrentTime/getDuration/setVolume/isPlaying/destroy; BOTH have
+  `setPlaybackRate(rate: number, preservePitch?: boolean)` — pitch preserved
+  by default (docs comment: "pass an optional false to NOT preserve the
+  pitch"). v7 events: ready/timeupdate/audioprocess/interaction/finish/error.
+- v7.12.12 dist/wavesurfer.min.js measured: 41,962 bytes raw / 12,000 bytes
+  gzipped (core, no plugins).
+- RECOMMENDATION: pin 7.12.12 (explicit "v7.x" authorization; months of
+  production soak; identical API surface for our feature set). v8.0.3 exists
+  if supervisor prefers latest-stable per PART B.1 wording. DECISION NEEDED.
+
+### A.7 — Current UI deps (student-web)
+- Radix (dialog/select/slider), TanStack Query 5, axios, framer-motion 11,
+  hls.js 1.7, lucide-react, react 19, react-router 7, sonner, clsx,
+  tailwind-merge, Tailwind 4, Vite 6, vitest 2, Playwright 1.58.
+- NO audio library present — wavesurfer.js would be the first. Confirmed.
+
+### Risks / assumptions
+- R1: DocumentViewer integration has no production library-audio data to
+  exercise today (A.4 write-side gap). e2e runs against mocked API + real
+  locally-served audio — works, but the feature stays dormant until the
+  upload allow-list is extended (BACKEND change = OUT OF SCOPE this push;
+  recommend a debt note for a future wave).
+- R2: Whether to ALSO replace CoursePlayerPage's AudioStage (the real audio
+  surface) — NOT authorized by the prompt (integration scope = DocumentViewer
+  only). Flagged for supervisor decision; default = DocumentViewer only.
+- R3: Pitch preservation is a browser media-element property (preservesPitch);
+  e2e asserts the playbackRate + preservesPitch property, not audible pitch.
+- R4: wavesurfer decodes the full file for peaks (Web Audio fetch) — large
+  audio files (multi-hour lectures) pay a one-time decode; media element
+  still streams progressively. Peak cache not needed for v1.
+
+---
+
+# (history below — Wave 11.5.x, closed)
+
 # WIP_STATUS — wip/11.5.1
 
 ## Base
