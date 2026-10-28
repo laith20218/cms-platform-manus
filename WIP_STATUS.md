@@ -1265,3 +1265,25 @@ awaiting supervisor review of Phase58 SQL before any production application
 
 - RESUME_FROM: wip/11.5.8 HEAD (2cd4a1b code fixes + this
   docs commit) — awaiting merge approval into main @ 8e79660.
+
+## Post-merge debts (Push 11.5.8)
+
+- CodeQL triage: Wave 11.5 closure complete.
+  * #150 js/xss-through-dom: dismissed via API (false positive)
+  * #151 js/regex/missing-regexp-anchor: fixed (anchor added)
+  * #21-23 cs/loss-of-precision ×3: fixed (literals to double)
+  * #1-6 cs/log-forging ×6: deferred to Wave 12 (N17)
+  * 146 note/warning: documented as backlog, opportunistic 
+    cleanup in future waves
+
+- Alert count after merge SARIF analysis: expected 152 
+  (146 backlog + 6 N17). Verification pending.
+
+- Wave 11.5 status: **CLOSED** (14/14 debts + CodeQL triage).
+  Debts closed: N1-N15 (N16 deferred post-wave).
+  First full-green CI: maintained.
+  Production: healthy (videos play, favorites work).
+  Migrations: 29 replay=prod 1:1.
+  Security: trivy + CodeQL operating (2 inspectors).
+
+- Next: Wave 12 (Android Offline) — R1 DIAG pending approval.
