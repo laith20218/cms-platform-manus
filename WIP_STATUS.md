@@ -1026,3 +1026,61 @@ awaiting supervisor review of Phase58 SQL before any production application
 - Remaining Wave 11.5 sequence:
   * 11.5.7 = N11 keepalive re-fix
   * 11.5.8 = CodeQL JS/TS coverage (2nd inspector complete)
+
+## Push 11.5.7 status
+
+- N11 [CLOSED]: keepalive test determinized via synthetic
+  beforeunload. Local: 5/5 runs × 17/17 each (was 4/5 before
+  fix). CI: VERIFIED — run 40639970231 (de9bfc7), Frontend Tests
+  success, player-video 17/17, "page-leave (beforeunload) → final
+  progress save (keepalive) — posts 2→3" green. Root cause
+  confirmed: beacon escapes CDP interception during unload; synthetic
+  dispatch runs handler in live context. Hardening (a) added:
+  try/catch around postDataJSON() in the progress route handler
+  (degraded postBody no longer kills the handler before
+  route.fulfill). Unmount-path onHide coverage deferred to unit
+  tests (supervisor decision 11.5.7). CI evidence: frontend job log
+  lines 1260-1261.
+
+- N15 [CLOSED]: Lighthouse staticDistDir set to
+  ./apps/student-web/dist via inline flag in ci.yml:299 (chosen over
+  lighthouserc.js: the step has no working-directory, so a nested
+  config file would also need an explicit --config flag = 2 changes).
+  CI: job RUNS — collect succeeded (1 URL × 3 audits; findBuildDir
+  error gone). Job conclusion = failure from LHCI's BUILT-IN default
+  assertions (none configured by us; "Configuration file not found"
+  in the log): ✘ unused-javascript (maxLength), ✘
+  network-dependency-tree-insight (minScore); warnings incl.
+  first-contentful-paint, interactive, LCP, render-blocking-resources
+  (expected ≤0, found 3). Per supervisor decision 11.5.7:
+  performance-metric failure = report-only, not a blocker.
+  Disabling the default assertions is a supervisor decision — NOT
+  touched in this push.
+
+- N16 [RECORDED, deferred]: check 13 (interval progress posts)
+  flakes under TTL=8 churn. Local: 1/5 fails. CI: 5/5 passes so far
+  (incl. this run — "progress POST every 10s — posts 1→2" green,
+  job log line 1260). Deferred to post-Wave-11.5 with dedicated
+  DIAG. No fix in this push.
+
+- CORRECTION to 11.5.6 record: Security Scan "0 findings" was a
+  false negative — the alerts query ran before SARIF ingestion
+  completed (CodeQL analysis 2042372383 on 02b99e7 = 157 results,
+  created 05:00:17Z, after the check). Current open code-scanning
+  alerts: 157 (149 cs/ + 8 js/; severity: 77 note, 69 warning,
+  6 medium, 2 high, 3 error). Notable: js/xss-through-dom
+  (apps/admin-web/src/lib/mediaProcessing.ts:184, HIGH),
+  js/regex/missing-regexp-anchor (e2e/player-hls-option-c.e2e.mjs:169,
+  HIGH), cs/loss-of-precision ×3 (PerformanceService.cs:122-123,
+  ERROR), cs/log-forging ×6 (middlewares, MEDIUM), cs/catch-of-all-
+  exceptions ×46 (quality). Facts for scope planning: CodeQL
+  javascript-typescript has been in ci.yml's init step since the
+  initial import (d08b64a) alongside csharp with the
+  security-and-quality suite — the "extend CodeQL to JS/TS"
+  premise for 11.5.8 is moot; the actual 11.5.8 work = triage
+  policy for these 157 findings (supervisor decision). All
+  findings REPORTED ONLY (§12) — no triage/fix in this push.
+
+- Wave 11.5 status: 14/14 on paper (13 debts + N15). N16 deferred.
+  Next: 11.5.8 (CodeQL findings triage — scope per supervisor)
+  closes Wave 11.5 operationally.
