@@ -969,3 +969,21 @@ awaiting supervisor review of Phase58 SQL before any production application
   5-min diagnostics bound + pre-diagnostics artifact
   observe on the FIRST main run after merge (report-only
   there).
+
+## Post-merge debts (Push 11.5.5)
+
+- N13 [CLOSED]: pnpm.overrides in root package.json forces
+  axios>=1.20.0 (1.19.0→1.21.0) and follow-redirects>=1.16.1
+  (1.16.0→1.16.2). Audit: 15→0. CI step 14 = SUCCESS on
+  0cfe3ef (run 40630875693). Removed dead zod dependency
+  from admin-web (0 imports repo-wide, all gates green).
+
+- N14 [STRUCTURALLY CLOSED]: added timeout-minutes: 15 
+  (emulator step), 5 (diagnostics step), and pre-diagnostics 
+  artifact upload with if: always(). No more 35-min hang on 
+  emulator failure. Emulator itself still fails at step 6 — 
+  tracked for Wave 12. Operational verification: first main 
+  run after this merge.
+
+- Wave 11.5: 12/13. Only N4 (trivy-action) remains. 11.5.6
+  will close N4 and Wave 11.5 completes.
