@@ -816,3 +816,46 @@ awaiting supervisor review of Phase58 SQL before any production application
 - Remaining: N7 (error_reports FK drift) + CoursesPostgres 
   (test-authoring) + N4 (trivy) + N5 (android typo) + 
   N6 (lighthouse). All 11.5.3+.
+
+## Post-merge debts (Push 11.5.3)
+
+- N7 [CLOSED]: Phase59AddErrorReportForeignKeys added 
+  (2 FKs ON DELETE SET NULL + 2 indexes + composite index 
+  registered in DbContext). Phase57 history row also 
+  reconciled (DDL was no-op; only INSERT was needed). 
+  Production and disk now have identical 29 migrations, 
+  identical 5 FKs and 7 indexes on error_reports.
+
+- N9 [CLOSED]: runs-on pinned to ubuntu-24.04 in ci.yml 
+  (8 jobs). Frontend CI can now proceed past "Install 
+  Playwright Chromium".
+
+- N5 [CLOSED — different root cause than documented]: 
+  The documented "branches typo" never existed; the actual 
+  defect was `${{ env.ANDROID_HOME }}` inside job-level env 
+  (GitHub rejects this — the file was marked invalid, 
+  causing phantom failing runs on every push). Removed the 
+  invalid block; workflow filters restored.
+
+- CoursesPostgres [CLOSED]: test updated to expect 
+  ForbiddenException (test-authoring, not EntitlementService 
+  drift). Backend CI: 535/535.
+
+- N3 [CLOSED-locally]: 0 lint warnings. CI verification 
+  pending N11 fix.
+
+- N10 [DIAGNOSED, fix in 11.5.4]: Health Check probes 
+  placeholder domains (api.cms.example.com) + missing 
+  SLACK_WEBHOOK_URL secret. API has real /health endpoint 
+  available.
+
+- N11 [NEW, CRITICAL, 11.5.4 target]: player-video.e2e.mjs 
+  keepalive test fails (16/17) on first-ever CI execution. 
+  Blocks Lint (step order: e2e → Lint). Likely race in 
+  teardown or real keepalive bug — needs investigation.
+
+- N4 [DEFERRED 11.5.4]: trivy-action@0.28.0 unresolvable.
+
+- Remaining (Wave 11.6/12): B7 (Npgsql in Application), 
+  B3 (in-memory pagination), D1 (processing_error), 
+  B1 (transcoding retry), F1-F4 (players), O1-O5, S4-S7.
