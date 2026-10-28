@@ -900,3 +900,38 @@ awaiting supervisor review of Phase58 SQL before any production application
 
 - Remaining after 11.5.4: N4 (trivy, deferred 11.5.5), N13 (audit,
   11.5.5). Wave 11.5 complete except N13.
+
+## Post-merge debts (Push 11.5.4)
+
+- N11 [CLOSED]: three root causes (keepalive beacon escapes 
+  interception during unload; double-tap stale boundingBox; 
+  HLS counter race at loop exit) fixed with proven patterns. 
+  CI step 11 = SUCCESS. Local 3x3 all green.
+
+- N12 [CLOSED]: apps/android/gradlew 100644→100755 (blob 
+  unchanged). Note: `git update-index --chmod=+x` alone is 
+  reverted by `git add` under core.filemode=true; correct 
+  approach is `chmod +x` on disk then `git add`.
+
+- N10 [CLOSED]: Health Check URLs replaced with real 
+  endpoints; runner pinned to ubuntu-24.04; Slack step 
+  removed (secret unconfigured). Verification on first 
+  scheduled run after merge.
+
+- N3 [CLOSED in CI]: Lint success on runs 40618355176 (main) 
+  and 40623534942 (wip/11.5.4).
+
+- N13 [CRITICAL, NEW, 11.5.5 target]: pnpm audit fails with 
+  axios@1.19.0 ReDoS (GHSA-c29m-xwm3-cm6r, fixed >=1.20.0) 
+  + 14 other vulns. Frontend job will remain red on main 
+  until fixed. Requires pnpm-lock changes (supervisor must 
+  authorize in 11.5.5).
+
+- N4 [DEFERRED 11.5.5]: trivy.
+
+- Remaining Wave 11.5: N4 + N13 only. Wave 11.5 will be 
+  fully closed by 11.5.5.
+
+- Local-only observation (no fix): player-video check 13 
+  can show "posts 1→1" occasionally under memory pressure. 
+  CI never exhibited it. Watch for future occurrence.
