@@ -59,6 +59,11 @@ public class ExamSession : BaseEntity
     public ExamSessionStatus Status { get; set; } = ExamSessionStatus.InProgress;
     public bool IsFirstAttempt { get; set; }
 
+    /// <summary>Push 11.5.2 (N8): column exists on production since the lost
+    /// Phase53ExamAttemptPolicy migration but was never mapped. Registered here so the
+    /// EF model snapshot matches production 1:1. Dead column — no code reads/writes it.</summary>
+    public bool CountsAgainstLimit { get; set; } = true;
+
     public Student Student { get; set; } = null!;
     public Exam Exam { get; set; } = null!;
     public ICollection<ExamSessionQuestion> SessionQuestions { get; set; } = new List<ExamSessionQuestion>();
