@@ -3,7 +3,9 @@
 ## Base
 Branch: wip/11.7
 Parent: fd61ba4805547e68798ceb96ec2d3291412eeab4 (main, Wave 11.5 CLOSED — CI green)
-Status: Push 11.7 (F1 — Audio Player) — PART B in progress.
+Status: Push 11.7 (F1 — Audio Player) — COMMITS 1+2+3 COMPLETE, verification green.
+F1 [CLOSED locally]: awaiting supervisor merge review. No main push, no merge,
+no deploy (STOP GATE). Next wave: 11.8 (F2 — PDF Player in PlayerShell).
 Supervisor decisions (final): D1 = wavesurfer.js 7.12.12 EXACT PIN (note: npm package
 name is "wavesurfer.js" — the bare "wavesurfer" name is a different deprecated v1.3.4
 package; installed with --save-exact). D2 = DocumentViewer integration + backend
@@ -62,8 +64,62 @@ audio upload allow-list (CoursePlayerPage/AudioStage OUT).
   Passed 37 / Failed 0. Full suite → Passed 513 / Failed 0 / Skipped 27
   (Postgres integration tests — CI-only).
 
+### COMMIT 3 — AudioPlayer + DocumentViewer integration + e2e (DONE)
+- media-api.ts: + listBookmarks (GET bookmarks, mirrors the file's existing
+  error/bearer/entitlement pattern; []-safe).
+- NEW src/features/media-player/audio/AudioPlayer.tsx: wavesurfer.js waveform
+  over ONE hidden <audio> element (media: external + url → blob decode once);
+  useMediaLease on the SAME element (TTL−60s silent refresh = plain element
+  src swap, decoded peaks persist, loadedmetadata restores time+play state);
+  play/pause 48px + ±15s; volume Radix slider + mute; speed Radix Select
+  0.25×–2× via setPlaybackRate(rate, true) + preservesPitch re-assert; A-B
+  loop (audioprocess wrap, A/B toggle buttons, invalid-B hint, markers);
+  bookmark markers overlay (click → seek; list on ready + after dialog close;
+  create via the UNMODIFIED shared BookmarkDialog); progress save every 10s +
+  pause + keepalive final (VideoPlayer pattern); resume via GET progress;
+  keyboard (Space / ←→ ±10s / M) container-scoped with input+slider guards.
+- DocumentViewer.tsx: kind==='audio' renders PlayerShell(kind="audio",
+  z-50 fullscreen) INSTEAD of the document dialog — nesting the shell inside
+  the dialog is impossible (dialog overlay/content sit at --z-modal:60 > 50,
+  the player would render under the viewer chrome). The raw <audio controls>
+  block is REMOVED. AudioPlayer mounts code-split via LazyPlayerMount
+  (module-level loader). All viewer effects (access/detail/view telemetry)
+  unchanged.
+- e2e/player-audio.e2e.mjs: production library route driven end-to-end with
+  mocked API + REAL locally-served WAV (deterministic in-spec generator,
+  20s/8kHz/mono PCM16, git-ignored) + short TTL 8s so every scenario ≥3s
+  exercises the silent lease swap against genuine playback.
+- VERIFICATION (all green):
+  * tsc -b (typecheck): 0 errors.
+  * vite build: success; AudioPlayer chunk = 58.15 kB raw / 16.73 kB gzip
+    (code-split via React.lazy; wavesurfer rides inside it).
+  * vitest run: 126/126 passed (8 files) — no regressions.
+  * eslint --max-warnings=0: clean.
+  * e2e player-audio: 23/23 checks PASS (S1×3 viewports 375/768/1024:
+    waveform canvas + duration 0:20 + zero horizontal overflow; S2 play/pause
+    + time advance; S3 1.5× → playbackRate 1.5 AND preservesPitch true; S4
+    waveform click-seek + A≈2.6/B≈4.7 set + loop wraps to A + clear; S5
+    bookmark create→refetch→marker→click seeks to start; S6 play to 10s →
+    unmount keepalive save 10 → remount resumes at exactly 10 + progress GET;
+    S7 right-click/copy/Ctrl+C all defaultPrevented inside the stage).
+  * Peak Chromium RSS: 1014 MB (< 1600 MB §4 ceiling). Console errors: 0.
+    (9 page errors: sessionStorage SecurityError from opaque aborted-route
+    frames — harness noise, same init-script pattern as every existing spec.)
+- Deviations from the B+C letter (documented):
+  * npm package installed as "wavesurfer.js@7.12.12" — the supervisor's
+    literal "wavesurfer@7.12.12" names a DIFFERENT deprecated package
+    (latest 1.3.4, no 7.x); PART 4 of the original push named it correctly.
+  * Bookmark markers are custom overlay buttons (physical-left %) instead of
+    the wavesurfer MarkersPlugin: v7's plugin has NO click-callback API, and
+    real <button> markers give a11y + deterministic e2e clicks.
+  * Unit tests for AudioPlayer were not added: the B+C IN SCOPE file list
+    contains only the e2e spec (no src/test/* entry); e2e covers the paths.
+
 Environment note: fresh sandbox — /home/z/cms-env rebuilt from scratch
 (clone + branch push); main SHA verified fd61ba4805547e68798ceb96ec2d3291412eeab4.
+RESUME_FROM: <commit-3-sha> — awaiting merge review + Wave 11.8 (F2 PDF) planning.
+
+
 
 ## PART A — F1 audio diagnostic findings (read-only, 2026-10-28)
 
