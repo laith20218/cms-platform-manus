@@ -181,6 +181,11 @@ export function probeVideoResolution(file: File): Promise<{ width: number; heigh
     video.onerror = () => done(null);
     // Safety net: some container/codec combos never fire metadata events.
     window.setTimeout(() => done(null), 8000);
+    // CodeQL js/xss-through-dom (#150): dismissed as false
+    // positive. video.src with blob: URL does not execute HTML/JS.
+    // Source is admin-selected file via <input type=file>.
+    // Belt-and-suspenders: comment survives if API dismissal
+    // is lost due to code refactor.
     video.src = url;
   });
 }

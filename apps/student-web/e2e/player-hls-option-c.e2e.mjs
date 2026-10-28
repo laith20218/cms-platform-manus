@@ -166,7 +166,9 @@ async function newStudentContext(browser, viewport) {
 
   // B2 DIRECT segment traffic (host-only pattern — never the API origin):
   // fulfills with the ladder's REAL .ts bytes; 403s URLs from expired generations.
-  await context.route(/backblazeb2\.com\/.*\.ts.*/, async (route) => {
+  // CodeQL js/regex/missing-regexp-anchor (#151): anchored to https:// + B2 host
+  // so the route can never match a merely-B2-containing URL (e.g. the API origin).
+  await context.route(/^https:\/\/[^/]*\.backblazeb2\.com\/.*\.ts/, async (route) => {
     const url = route.request().url();
     const gen = Number(url.match(/\/gen-(\d+)\//)?.[1] ?? 0);
     const file = url.match(/(360p|720p)\/(segment_\d+\.ts)/);

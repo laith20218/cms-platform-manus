@@ -119,8 +119,11 @@ public class PerformanceService
         var totalNotifications = await _db.NotificationDeliveries.CountAsync(ct);
 
         // Estimate DB size (rough approximation)
-        var estimatedSizeMb = (totalStudents * 0.5) + (totalQuestions * 2) + (totalAttempts * 0.3) +
-                              (totalExamSessions * 1) + (totalLibraryFiles * 5) + (totalNotifications * 0.2);
+        // CodeQL cs/loss-of-precision (#21-23): int32*int32 mults promoted to double
+        // only AFTER overflow would occur (>1.07B rows); .0 literals keep the whole
+        // expression in double — identical results below overflow, correct above.
+        var estimatedSizeMb = (totalStudents * 0.5) + (totalQuestions * 2.0) + (totalAttempts * 0.3) +
+                              (totalExamSessions * 1.0) + (totalLibraryFiles * 5.0) + (totalNotifications * 0.2);
 
         return new DbStatsDto(
             totalStudents, totalQuestions, totalAttempts,
