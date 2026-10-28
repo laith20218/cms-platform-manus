@@ -164,6 +164,11 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         {
             entity.HasOne(x => x.Assignee).WithMany().HasForeignKey(x => x.AssignedTo).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(x => x.Reviewer).WithMany().HasForeignKey(x => x.ReviewedBy).OnDelete(DeleteBehavior.SetNull);
+            // Push 11.5.3 (N7): register the production-only composite index (created by
+            // Phase55, absent from the model snapshot) so the model matches prod 1:1.
+            // Consumed by Phase59AddErrorReportForeignKeys (guarded SQL).
+            entity.HasIndex(x => new { x.Status, x.AssignedTo })
+                .HasDatabaseName("ix_error_reports_status_assigned_to");
         });
         modelBuilder.Entity<SystemSetting>(entity =>
         {

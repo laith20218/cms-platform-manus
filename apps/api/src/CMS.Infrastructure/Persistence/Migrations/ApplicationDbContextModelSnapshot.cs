@@ -877,6 +877,9 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.HasIndex("StudentId")
                         .HasDatabaseName("ix_error_reports_student_id");
 
+                    b.HasIndex("Status", "AssignedTo")
+                        .HasDatabaseName("ix_error_reports_status_assigned_to");
+
                     b.ToTable("error_reports");
                 });
 

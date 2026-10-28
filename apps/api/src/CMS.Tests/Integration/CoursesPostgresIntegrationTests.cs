@@ -150,12 +150,15 @@ public sealed class CoursesPostgresIntegrationTests
             access.AccessUrl.Should().StartWith("https://www.youtube.com/embed/abc123");
             access.Watermark.StudentPhone.Should().NotBeNullOrEmpty();
 
-            // 5. a student without the VideoAudio grant gets an empty catalog
+            // 5. a student without the VideoAudio grant is rejected (403): GetSubjectCoursesQuery
+            // throws ForbiddenException for grant-less students (CourseHandlers.cs:122-123);
+            // an empty list is only returned for content-scope mismatch (124-125).
+            // 11.5.3: replaced the outdated BeEmpty expectation with the contract behavior.
             var outsider = Student.Create($"09{Random.Shared.Next(10_000_000, 99_999_999)}", "outsider-hash", "Outsider");
             db.Students.Add(outsider);
             await db.SaveChangesAsync();
-            var outsiderCatalog = await handler.Handle(new GetSubjectCoursesQuery(outsider.Id, subject.Id), CancellationToken.None);
-            outsiderCatalog.Should().BeEmpty("no VideoAudio grant ⇒ no course visibility");
+            var outsiderAct = () => handler.Handle(new GetSubjectCoursesQuery(outsider.Id, subject.Id), CancellationToken.None);
+            await outsiderAct.Should().ThrowAsync<ForbiddenException>();
         }
     }
 

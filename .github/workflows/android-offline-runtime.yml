@@ -24,8 +24,6 @@ jobs:
     name: API 35 connected instrumentation
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    env:
-      ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
     steps:
       - name: Checkout
         # actions/checkout v4.2.2
