@@ -290,7 +290,13 @@ jobs:
           VITE_API_URL: https://staging-api.cms.example.com/api/v1
 
       - name: Run Lighthouse CI
-        run: npx @lhci/cli autorun
+        # N15 (11.5.7): no lighthouserc anywhere in the repo and the job's cwd
+        # is the repo root, so autorun died at findBuildDir ("Failed to
+        # automatically determine staticDistDir") — the first time this job ever
+        # ran (Frontend finally went green on main). Point collect at the vite
+        # output directly. No assertions configured — a perf-budget failure
+        # would be scope creep; upload stays gated on LHCI_GITHUB_APP_TOKEN.
+        run: npx @lhci/cli autorun --collect.staticDistDir=./apps/student-web/dist
         env:
           LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
 
