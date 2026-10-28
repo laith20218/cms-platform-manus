@@ -935,3 +935,37 @@ awaiting supervisor review of Phase58 SQL before any production application
 - Local-only observation (no fix): player-video check 13 
   can show "posts 1→1" occasionally under memory pressure. 
   CI never exhibited it. Watch for future occurrence.
+
+## Push 11.5.5 status
+
+- N13 [CLOSED]: axios@1.19.0 -> 1.21.0 via pnpm
+  overrides. Audit: 15 -> 0 advisories. Frontend step 14
+  (Audit) now passes.
+
+- N14 [PARTIAL CLOSED]: android workflow now has per-step
+  timeouts (emulator 15min, diagnostics 5min) and
+  artifact upload before diagnostics (if: always()).
+  Emulator boot still fails at step 6 — deferred to Wave
+  12 (Android Offline feature work). The 35-minute hang
+  is fixed: diagnostics now terminates at 5min max,
+  preserving artifacts.
+
+- Wave 11.5 status: 12/13 closed. Only N4 (trivy) remains.
+  11.5.6 will close N4 and complete Wave 11.5.
+
+- N13 evidence: wip/11.5.5 commits 2946822 (qualified
+  overrides in root package.json pnpm.overrides — the
+  pnpm 9 location; pnpm-workspace.yaml overrides verified
+  inert on pnpm 9.12.0), 38dac7a (dead zod removed from
+  admin-web — 0 imports repo-wide), 0cfe3ef (lockfile
+  +15/-19). CI run 40630875693 on 0cfe3ef: Frontend job
+  SUCCESS — all 18 steps green incl. step 14 (first
+  green Frontend since the audit gate landed; steps
+  15-18 Build/SBOM/artifacts unblocked). Backend 535/535,
+  e2e 5 specs green (30/17/14/19/13).
+
+- N14 verification note: android-offline on.push branches
+  = [main, develop] — wip pushes do NOT trigger it; the
+  5-min diagnostics bound + pre-diagnostics artifact
+  observe on the FIRST main run after merge (report-only
+  there).
