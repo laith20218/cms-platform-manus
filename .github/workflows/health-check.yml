@@ -12,11 +12,11 @@ on:
 jobs:
   health-check:
     name: Production Health Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check API Health (Production)
         run: |
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" https://api.cms.example.com/health)
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" https://cms-api-preview.onrender.com/health)
           if [ "$RESPONSE" != "200" ]; then
             echo "::error::API health check failed with status $RESPONSE"
             exit 1
@@ -25,7 +25,7 @@ jobs:
 
       - name: Check Frontend Health (Production)
         run: |
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" https://app.cms.example.com/)
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" https://cms-platform-manus-student-web.vercel.app/)
           if [ "$RESPONSE" != "200" ]; then
             echo "::error::Frontend health check failed with status $RESPONSE"
             exit 1
@@ -34,19 +34,9 @@ jobs:
 
       - name: Check API Response Time
         run: |
-          TIME=$(curl -s -o /dev/null -w "%{time_total}" https://api.cms.example.com/health)
+          TIME=$(curl -s -o /dev/null -w "%{time_total}" https://cms-api-preview.onrender.com/health)
           echo "API response time: ${TIME}s"
           # Alert if slower than 2 seconds
           if (( $(echo "$TIME > 2.0" | bc -l) )); then
             echo "::warning::API response time is slow: ${TIME}s"
           fi
-
-      - name: Notify on failure
-        if: failure()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: failure
-          channel: '#alerts'
-          fields: repo,message,workflow
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
