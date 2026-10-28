@@ -1003,3 +1003,26 @@ awaiting supervisor review of Phase58 SQL before any production application
 - Deviation note: SHA-pin departs from ci.yml's tag-ref 
   convention (intentional, supply-chain posture); systematic 
   SHA migration for all actions deferred to Wave 12.
+
+## Post-merge debts (Push 11.5.6)
+
+- N4 [CLOSED]: trivy-action 0.28.0 → v0.36.0 SHA-pinned at
+  ed142fd0673e97e23eac54620cfb913e5ce36c25. Security Scan 
+  job green for the first time ever. Trivy 0.70.0 ran fs 
+  scan (vuln+secret), SARIF uploaded, 0 CRITICAL/HIGH 
+  findings. Wave 11.5: 13/13 on paper.
+
+- N11 [OPEN, 11.5.7 target]: keepalive flake recurs on main 
+  and wip (16/17, posts 2→2). Prior fix (11.5.4-B: polling 
+  + SPA link) insufficient under CI load. 11.5.7 will 
+  re-diagnose.
+
+- CodeQL observation: CodeQL/C# already runs in the 
+  security-scan job (init + autobuild + analyze with 171 
+  csharp queries, all success). 11.5.8 = extend CodeQL to 
+  JavaScript/TypeScript for frontend coverage (incremental, 
+  not from-scratch).
+
+- Remaining Wave 11.5 sequence:
+  * 11.5.7 = N11 keepalive re-fix
+  * 11.5.8 = CodeQL JS/TS coverage (2nd inspector complete)
