@@ -53,6 +53,9 @@ jobs:
 
       - name: Run Android 35 connected instrumentation
         # ReactiveCircus/android-emulator-runner v2 (peeled commit SHA)
+        # N14: bound the whole step — emulator-boot-timeout (600s) covers boot
+        # only; the outer step can hang beyond it on a wedged emulator.
+        timeout-minutes: 15
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: 35
@@ -70,8 +73,27 @@ jobs:
             adb shell getprop ro.build.version.sdk
             ./gradlew :app:connectedDebugAndroidTest --console=plain
 
+      - name: Upload pre-diagnostics artifacts
+        # N14: preserve evidence BEFORE diagnostics (which can hang on a wedged
+        # emulator). APK outputs always exist at this point (step 5 output), so
+        # the artifact is guaranteed non-empty even when no test reports exist.
+        if: always()
+        # actions/upload-artifact v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-offline-pre-diag-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            apps/android/app/build/reports/
+            apps/android/app/build/outputs/androidTest-results/
+            apps/android/app/build/outputs/apk/
+
       - name: Collect Android runtime diagnostics
         if: always()
+        # N14: adb against a wedged emulator can block indefinitely (observed:
+        # 35-min hang -> job-level timeout -> cancelled -> all logs lost).
+        timeout-minutes: 5
         working-directory: apps/android
         run: |
           set -uo pipefail
