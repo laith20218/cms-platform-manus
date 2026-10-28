@@ -859,3 +859,44 @@ awaiting supervisor review of Phase58 SQL before any production application
 - Remaining (Wave 11.6/12): B7 (Npgsql in Application), 
   B3 (in-memory pagination), D1 (processing_error), 
   B1 (transcoding retry), F1-F4 (players), O1-O5, S4-S7.
+
+## Push 11.5.4 status
+
+- N11 [CLOSED]: e2e flakiness family (keepalive + double-tap + HLS
+  recovery) hardened. Root causes (3 distinct, evidence-backed):
+  (1) keepalive beacon on page.goto escapes CDP route interception
+  intermittently (CI vite proxy ECONNREFUSED logs prove it) — exit now
+  via the real user path (navbar SPA link → React unmount → beacon
+  from live page) + 15s poll; (2) double-tap used stale
+  touchscreen.tap coordinates (layout shift between measure and
+  dispatch → taps landed on episode-stage) — now locator.tap() with
+  actionability/hit-target checks + gesture retry; (3) HLS recovery
+  read the fresh-gen segment counter at loop-exit instant — now a
+  bounded 15s counter poll. Local: 3× runs each spec, all green
+  (player-video 17/17 ×3, player-hls-option-c 13/13 ×3). CI run
+  40623651995 in progress at report time.
+
+- N12 [CLOSED]: gradlew 100644 → 100755 (mode-only, blob unchanged).
+  android-offline workflow fires on main only (branch filters) — its
+  first real execution happens after merge; result to be observed
+  then (previous failure was the exec bit itself).
+
+- N10 [CLOSED]: Health Check URLs replaced with real endpoints
+  (cms-api-preview.onrender.com/health,
+  cms-platform-manus-student-web.vercel.app), runs-on pinned to
+  ubuntu-24.04, Slack notify step removed (SLACK_WEBHOOK_URL secret
+  not configured — silent failure is the cleaner default).
+
+- N3 [CLOSED in CI]: Lint step passed on main run 40618355176
+  (evidence: step 12 "Lint" → success). Re-verification rides this
+  push's Frontend job.
+
+- N13 [NEW, CRITICAL, 11.5.5 target]: Frontend job fails at "Audit
+  production dependencies" — pnpm audit --prod --audit-level high
+  reports 15 vulnerabilities; headline: axios@1.19.0 ReDoS
+  (GHSA-c29m-xwm3-cm6r, fixed in >=1.20.0) in admin-web +
+  student-web. Fix requires pnpm-lock.yaml changes (out of scope
+  11.5.4). Frontend job stays red on main until N13.
+
+- Remaining after 11.5.4: N4 (trivy, deferred 11.5.5), N13 (audit,
+  11.5.5). Wave 11.5 complete except N13.
