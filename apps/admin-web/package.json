@@ -28,7 +28,6 @@
     "recharts": "^3.10.1",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.5.0",
-    "zod": "^3.23.0",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
