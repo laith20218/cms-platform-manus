@@ -42,6 +42,10 @@ import { formatMediaDuration, formatRate, PLAYBACK_RATES } from '../video/time';
 const UI_SKIP_SECONDS = 15;
 const KEYBOARD_SKIP_SECONDS = 10;
 const PROGRESS_SAVE_INTERVAL_MS = 10_000;
+// rAF-independent playback tick — drives the A-B wrap + the position snapshot
+// even when wavesurfer's requestAnimationFrame loop is stalled (headless CI,
+// hidden tabs, low-power devices).
+const PLAYBACK_TICK_MS = 250;
 
 /** Colors resolve to the existing player-family Tailwind palette tokens
  *  (slate-400 / teal-400 / teal-300 — the same values ControlsBar and the
@@ -191,6 +195,38 @@ export default function AudioPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [generation]);
 
+  /* ============ deterministic playback tick (rAF-independent) ============ */
+
+  // wavesurfer's timeupdate/audioprocess ride a requestAnimationFrame loop
+  // (its Timer class). When rAF stalls — headless CI runners, hidden tabs,
+  // low-power devices — those events never fire, which used to freeze the
+  // A-B loop wrap and the final progress snapshot (a product defect: audio
+  // keeps playing while the loop and the saved position drift). This 250ms
+  // interval reads the media element directly and is the AUTHORITATIVE
+  // driver; the ws handlers above stay as supplementary (smoother clock and
+  // cursor when rAF is healthy).
+  // Declared BEFORE the destroy + final-save effects so the unmount cleanup
+  // order is: clearInterval → ws.destroy() → saveProgress('final').
+  useEffect(() => {
+    const tickId = window.setInterval(() => {
+      const audioEl = audioRef.current;
+      if (!audioEl) return;
+      const pos = audioEl.currentTime;
+      lastPositionRef.current = pos;
+      setCurrentTime(pos);
+      const a = loopARef.current;
+      const b = loopBRef.current;
+      // Wrap only while PLAYING — mirrors the audioprocess semantics (it
+      // fires during playback only), so a paused head at/after B (e.g. the
+      // moment B is set, or a paused waveform seek past B) is never snapped.
+      if (a != null && b != null && b > a && !audioEl.paused && pos >= b) {
+        audioEl.currentTime = a;
+      }
+    }, PLAYBACK_TICK_MS);
+    return () => window.clearInterval(tickId);
+    // Mount-scoped: refs + stable setState only — no reactive deps.
+  }, []);
+
   // Destroy the engine on unmount (external media: the element is ours, React
   // removes it with the tree; destroy() releases the renderer + subscriptions).
   useEffect(() => () => {
@@ -201,7 +237,11 @@ export default function AudioPlayer({
   /* ============ progress: save pipeline (VideoPlayer pattern) ============ */
 
   const saveProgress = useCallback((mode: 'interval' | 'pause' | 'final') => {
-    const position = mode === 'final' ? lastPositionRef.current : audioRef.current?.currentTime ?? lastPositionRef.current;
+    // Element-first for EVERY mode: visibilitychange and the unmount keepalive
+    // must read audioEl.currentTime directly, not a possibly-stale ref. At
+    // unmount React may have detached the element already — then the 250ms
+    // tick's fresh snapshot (≤250ms old) is the fallback.
+    const position = audioRef.current?.currentTime ?? lastPositionRef.current;
     const dur = mode === 'final' ? lastDurationRef.current : (audioRef.current?.duration ?? lastDurationRef.current);
     if (!Number.isFinite(position) || position <= 0) return;
     if (mode === 'final') {

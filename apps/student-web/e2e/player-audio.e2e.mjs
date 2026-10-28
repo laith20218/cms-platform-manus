@@ -478,10 +478,13 @@ async function main() {
       await page.locator('[data-testid="audio-time-display"]:has-text("0:20")').waitFor({ state: 'visible', timeout: 20_000 });
       await page.waitForTimeout(800);
       state = await audioState(page);
+      // Guarded deref: when S6b fails (no save), S6c must FAIL — not crash the
+      // remaining checks (S6d/S7a-c still run and report). `null` arithmetic →
+      // NaN → the tolerance check is false, so the assertion is NOT weakened.
       check(
         'S6c remount resumes at the saved position',
-        state && Math.abs(state.currentTime - saved.positionSeconds) < 0.75,
-        `currentTime=${state?.currentTime.toFixed(2)} saved=${saved.positionSeconds}`,
+        state && Math.abs(state.currentTime - saved?.positionSeconds ?? null) < 0.75,
+        `currentTime=${state?.currentTime.toFixed(2)} saved=${saved?.positionSeconds ?? null}`,
       );
       check('S6d resume read the progress endpoint', counters.progressGets >= 2, `gets=${counters.progressGets}`);
       await context.close();
