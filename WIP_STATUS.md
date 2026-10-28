@@ -117,7 +117,7 @@ audio upload allow-list (CoursePlayerPage/AudioStage OUT).
 
 Environment note: fresh sandbox — /home/z/cms-env rebuilt from scratch
 (clone + branch push); main SHA verified fd61ba4805547e68798ceb96ec2d3291412eeab4.
-RESUME_FROM: <commit-3-sha> — awaiting merge review + Wave 11.8 (F2 PDF) planning.
+RESUME_FROM: da3485254bb2a9a530d8f5e12a1abf28b3b73824 — awaiting merge review + Wave 11.8 (F2 PDF) planning.
 
 
 
