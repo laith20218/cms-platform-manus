@@ -85,6 +85,13 @@ export function useMediaLease(params: {
   // mountedRef check cannot catch it because the ref flips false → true
   // within one commit on an in-place asset change.
   const assetKeyRef = useRef(`${assetType}:${assetId}`);
+  // W8 — asset key of the URL currently stored in `state.info`. The refresh
+  // ⇄ initial classification must be a property of the CURRENT asset, not of
+  // the `state.info` a stale fetchUrl closure happened to capture: on an
+  // in-place asset change the closure still sees the PREVIOUS asset's info
+  // (truthy) and misroutes the new asset's initial fetch — and its failures —
+  // into the silent-refresh branch (infinite spinner, no surfaced error).
+  const infoKeyRef = useRef<string | null>(null);
 
   /** Host calls inside onLoadedMetadata after applying pendingTime. */
   const resetPending = useCallback(() => {
@@ -114,7 +121,9 @@ export function useMediaLease(params: {
         pendingTimeRef.current = 0;
         wasPlayingRef.current = false;
       }
-      const isRefresh = Boolean(state.info);
+      // W8: refresh ⇄ initial is decided by which asset the URL in state
+      // belongs to — NOT by the closure's (possibly stale) view of state.info.
+      const isRefresh = Boolean(state.info) && infoKeyRef.current === requestKey;
       if (isRefresh) setState((s) => ({ ...s, refreshing: true }));
       else setState((s) => ({ ...s, loading: true, error: null }));
 
@@ -125,6 +134,9 @@ export function useMediaLease(params: {
         // presigned URL must never land in the new asset's state.
         if (assetKeyRef.current !== requestKey) return;
         attemptRef.current = 0;
+        // W8: this info now belongs to the current asset — later fetches for
+        // the SAME asset classify as refreshes, fetches for a NEW asset do not.
+        infoKeyRef.current = requestKey;
         setState((s) => ({ ...s, info, loading: false, error: null, refreshing: false, generation: s.generation + 1 }));
       } catch {
         if (!mountedRef.current) return;
@@ -168,6 +180,9 @@ export function useMediaLease(params: {
     // W5: mark which asset this hook serves BEFORE its initial fetch starts,
     // so any still-pending fetch for the previous asset discards on arrival.
     assetKeyRef.current = `${assetType}:${assetId}`;
+    // W8: no URL in state belongs to the new asset yet — its first fetch is
+    // an INITIAL fetch even though a stale closure still sees the old info.
+    infoKeyRef.current = null;
     // W4/W5: fresh in-flight slot per asset (the old asset's flight, if any,
     // self-discards via the key check above).
     inFlightRef.current = null;

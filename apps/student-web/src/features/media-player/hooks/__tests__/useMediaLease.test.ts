@@ -223,4 +223,36 @@ describe('useMediaLease P0 — hook hygiene (Wave 11.7.x)', () => {
     expect(result.current.info?.url).toBe('url-2');
     expect(result.current.error).toBeNull();
   });
+
+  it('W8 — an asset change classifies the new asset\'s first fetch as INITIAL, not refresh', async () => {
+    vi.useFakeTimers();
+    const queue = deferredPosts();
+    const { result, rerender } = setup('lease-a');
+
+    // asset A loads fully
+    await act(async () => {
+      await flushAsync();
+    });
+    await act(async () => {
+      queue[0].resolve(makeInfo('url-a', 8));
+    });
+    expect(result.current.info?.url).toBe('url-a');
+
+    // switch asset; the NEW asset's initial fetch will fail
+    act(() => {
+      rerender({ id: 'lease-b' });
+    });
+    await act(async () => {
+      await flushAsync();
+    });
+    expect(queue.length).toBe(2);
+    await act(async () => {
+      queue[1].reject(new Error('presign 500'));
+    });
+
+    // the failure must take the INITIAL branch: surfaced error, loading done
+    expect(result.current.error).toBeTruthy(); // RED pre-fix: null — misrouted to the silent branch
+    expect(result.current.loading).toBe(false); // RED pre-fix: true — infinite spinner
+    expect(toastInfoMock).not.toHaveBeenCalled(); // RED pre-fix: silent auto-renewal toast fired
+  });
 });
