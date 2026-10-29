@@ -1,76 +1,75 @@
-# WIP_STATUS — wip/11.7.x-p3 (Wave 11.7.x root fix, P3 in review)
+# WIP_STATUS — main (Wave 11.7.x root fix in flight — P0+P1+P2+P3 landed)
 
 ## ─── STATUS ───────────────────────────────────────────
 Wave 11.7.x / P3 (Regression matrix + queue property
-tests) — STATUS: BRANDED, LOCAL, AWAITING SUPERVISOR
-REVIEW + PUSH AUTHORIZATION.
-Branch: wip/11.7.x-p3 (from main 862d3ae)
-Started at: 2026-10-29
-Commits (local, unpushed):
-  7712f26 docs(11.7.x): initialize W-MATRIX regression index
-  7a84d50 test(useMediaLease): P3 queue property suite
-  (+ this docs checkpoint — WIP_STATUS + W-MATRIX
-     measured-numbers refresh from the final run)
+tests) — STATUS: CLOSED
+Merge SHA: 634952d128b63d8f35c6aa1c2483ea7437303d34
+Closed at: 2026-10-29
+Commits: 7712f26, 7a84d50, 3f221ae
+Closes: no new windows — PERMANENTIZES all prior
+        closures (W1-W10 + W1s/W7a/W7b)
+Deliverables: W-MATRIX.md (32/32 grep-verified),
+              5 property suites (5000 randomized
+              scenarios total)
+CI: 5 consecutive green on branch SHA before merge
+    (run 40886895500, attempts 1-5 on 3f221ae); merge
+    run 40892902055 on 634952d green.
 
-## ─── DELIVERABLES ────────────────────────────────────
-- W-MATRIX.md (repo root): 10 W rows + 3 SWAPPING rows +
-  14 queue deterministic specs + 5 property rows, all with
-  corrected SHA provenance (F-B), exact grep-able test
-  names, and a Verified-at column.
-- useMediaLease.p3-queue-property.test.ts: 5 properties,
-  1000 iterations each, seeds 42-46, mulberry32.
-- Zero existing test files modified; source untouched.
+## ─── ROOT FIX PROGRESS ────────────────────────────────
+P0 ✅ (a2d66d5)
+P1 ✅ (a4be3e9)
+P2 ✅ (bcf0b4e)
+P3 ✅ (this merge)
+P4 ⏳ Re-merge F1 (AudioPlayer adaptation + delete
+        G1/G2/G2-ext)
 
-## ─── FINDINGS FROM P3 REVIEW (folded into rev 2) ─────
-- F-A: W8 test already existed (eb85466, merged a2d66d5).
-  P3 scope item void — nothing appended.
-- F-B: pre-fix SHA provenance was one-phase shifted;
-  corrected (P0=9a05466, P1=5168f37, P2=3b41c11;
-  Closed by = merge SHAs a2d66d5/a4be3e9/bcf0b4e).
-- F-C: useMediaLease.p2.test.ts (14 queue specs) was
-  absent from the initial inventory; now a W-MATRIX
-  section.
-- F-D/F-E/F-H: property oracles corrected per source
-  semantics (merged-plan rules :264-415; error terminal =
-  RAW queue :349-359, unclamped, no ps-merge).
-- F-F/F-G: generator covers all 5 intent methods incl.
-  non-finite/out-of-range pins; RESTORING-phase property
-  (P3-P2) added with the A3 gated-element mechanic.
-- Red-first (worktree-verified): vs 3b41c11 (P1) —
-  P3-P1/P2/P3/P5 red at first intent call (methods
-  absent); P3-P4 green there BY DESIGN (its swapId
-  contract was established by P1/W9 and preserved by P2;
-  its true red-state is 5168f37). vs 5168f37 (P0) — all
-  five red (no lifecycle events / no swapId surface).
-
-## ─── LOCAL VERIFICATION ──────────────────────────────
-vitest full suite: 12 files, 164/164 (159 + 5).
-Property measurements (final full-suite run):
-  P1=1143ms P2=763ms P3=1114ms P4=2037ms P5=712ms
-  (total 5769ms, 1000 iterations — under the 8s budget,
-  no 500 drop).
-tsc -b: 0 errors. eslint --max-warnings=0: clean.
-git diff vs main: exactly 3 files (W-MATRIX.md new,
-property test new, WIP_STATUS.md checkpoint).
-W-MATRIX grep check: all 32 rows (10 W + 3 SWAPPING +
-14 deterministic + 5 property) FOUND at their cited
-file:line.
-No new packages; package.json + pnpm-lock.yaml
-untouched.
+## ─── W-MATRIX INTEGRATION ────────────────────────────
+W-MATRIX.md is now the canonical reference for
+test provenance. Maintenance rule: any PR touching
+useMediaLease.ts or VideoPlayer.tsx must update
+the "Verified at" column in the same PR.
 
 ## ─── DISCLOSURE ──────────────────────────────────────
-wip/11.7 branch REF is ABSENT in the current clone;
-commit edb2637 (parked F1) is reachable from main via
-the pre-pivot merge (reverted by 9a05466). Content
-intact. P4 must recreate the ref from edb2637 when
-needed. (Recorded per the P3 review disclosure rule.)
+wip/11.7 branch ref absent in the P3 clone; commit
+edb2637 reachable from main via pre-pivot merge
+(reverted by 9a05466). Content intact. P4 must
+recreate the ref from edb2637 when starting.
 
-## ─── RESUME_FROM ─────────────────────────────────────
-wip/11.7.x-p3 @ 7a84d50 (+ this docs checkpoint) — awaiting supervisor P3 review
-+ PART I-push authorization. P3 local verification
-complete.
+⚠️  AudioPlayer on (now-absent) wip/11.7 content
+    is STILL on OLD hook contract. Do NOT re-merge
+    F1 until P4 adapts AudioPlayer.
 
-# (history below — P2 closed checkpoint on main, then P2 review checkpoint, then P1 closed checkpoint, then P1 review checkpoint, then P0, then Wave 11.5.x, closed)
+## ─── ADJACENT DEBT (carried from P2 + P3) ─────────────
+- A10: volume/rate/mute during SWAPPING not
+  queue-protected (P2 scope). P3 property suite
+  deliberately excludes these intents.
+- Screenshot fonts-loading flake: rare infrastructure
+  (observed once during P2 local validation).
+  P3 CI gate: any occurrence with RESULTS line
+  allows one re-run. Second occurrence → P4 infra
+  item. (Did NOT occur during P3's 6 CI runs.)
+- Swap-during-swap: unreachable-by-construction
+  (documented in W-MATRIX). If a future change
+  makes it reachable, matrix update MANDATORY.
+
+## ─── FLAKY_MAIN_STATUS UPDATE ─────────────────────────
+P3 does not change product code. main's stability
+is now:
+  - e2e: 24 deterministic checks (base-17 sweep +
+    P1 fetch + P2 SWAPPING).
+  - unit: 164 vitest (145 pre-P2 + 14 P2 queue +
+    5 P3 property).
+  - W-MATRIX: 32/32 grep-verified entries.
+Residual flake classes: A10 product race (~5% on
+#8/#9 tests only), screenshot fonts-loading
+(infrastructure, rare).
+
+## ─── RESUME_FROM ──────────────────────────────────────
+main @ 634952d (P3 merge) + this docs checkpoint (HEAD)
+— awaiting supervisor PART X (P4 design) review.
+P0+P1+P2+P3 landed, main stable.
+
+# (history below — P3 branch checkpoint, then P2 closed checkpoint, then P2 review checkpoint, then P1 closed checkpoint, then P1 review checkpoint, then P0, then Wave 11.5.x, closed)
 
 # WIP_STATUS — main (Wave 11.7.x root fix in flight — P0+P1+P2 landed)
 
