@@ -40,6 +40,26 @@ import { mediaApi, type MediaAssetType, type PlaybackUrlInfo } from '../services
  * (refresh ⇄ initial classified by asset identity), W10 (a failed fetch
  * captures nothing — capture happens at the swap moment or not at all).
  *
+ * P2 (deferred-intent queue): user intents that arrive during SWAPPING or
+ * RESTORING — after capture-at-swap, before the element is trustworthy
+ * again — are routed through a COLLAPSED queue (one slot per concern,
+ * A2: { playPause?: 'play'|'pause'; seek?: number }) and replayed as ONE
+ * merged plan inside applyRestore (A3): the queue's entry ⊕ previousState.
+ * The five stable-identity methods (A1):
+ *   play() / pause() / seek(t)  — carry no classification hazard
+ *   togglePlay() / seekBy(d)    — swap-aware: during a swap they classify
+ *                                 against the ACTIVE CTX's previousState
+ *                                 (captured at the swap moment), never
+ *                                 the torn-down element (F1: a toggle read
+ *                                 el.paused mid-load and inverted the
+ *                                 intent; F2: a relative seek read the
+ *                                 reset position and its duration guard
+ *                                 dropped the intent entirely)
+ * IDLE (A8): immediate element apply. Terminals (A6): onSwapError applies
+ * best-effort + clears; ASSET_CHANGE and unmount DROP — a stale queued
+ * play() must never ghost onto the next asset's element. The gate is
+ * phaseRef (A7): never render state.
+ *
  * Short-TTL clamp: refreshDelay = max(3s, (ttl − 60) · 1s). Production
  * 540s → 480s; a mocked ttl of 8 (e2e) → 3s.
  */
@@ -145,6 +165,16 @@ export interface UseMediaLeaseResult {
    *  capture-at-swap. Coalesces during a swap (never rejects) and executes
    *  at the terminal (depth 1, latest-wins — OPEN-6). */
   refresh: (reason?: 'manual' | 'error') => void;
+  /** P2/A1 — the five intent methods. IDLE: applied to the element
+   *  immediately (A8). SWAPPING/RESTORING: collapsed into the queue (A2)
+   *  and replayed as one merged plan at restore (A3). togglePlay/seekBy
+   *  classify swap-phase intents against the active ctx's previousState —
+   *  never the torn-down element (F1/F2). */
+  play: () => void;
+  pause: () => void;
+  seek: (t: number) => void;
+  togglePlay: () => void;
+  seekBy: (delta: number) => void;
 }
 
 /** The consumer's ack condition (PART X-a §5, element-level readiness):
@@ -224,6 +254,56 @@ export function useMediaLease(options: UseMediaLeaseOptions): UseMediaLeaseResul
   const retryCleanupRef = useRef<(() => void) | null>(null);
   // OPEN-6: deferred refresh while a swap is in flight (depth 1, latest-wins).
   const pendingRefreshRef = useRef<{ reason: Exclude<InternalReason, 'initial'> } | null>(null);
+  // P2/A2: the deferred-intent queue — ONE slot per concern, collapsed
+  // last-writer-wins. SWAPPING|RESTORING only (A7); never render state.
+  // Consumed (cleared) at replay (A3) and at every terminal (A6).
+  const intentRef = useRef<{ playPause?: 'play' | 'pause'; seek?: number }>({});
+
+  /** P2: the authoritative position base for swap-phase relative intents
+   *  (F2) — the capture, not the torn-down element. */
+  const baseSwapPosition = (ctx: SwapContext): number => {
+    const queued = intentRef.current.seek;
+    if (queued !== undefined) return ctx.previousState.ended ? 0 : queued;
+    return ctx.previousState.ended ? 0 : ctx.previousState.currentTime;
+  };
+
+  /** P2: applies one collapsed entry to a LIVE element (the IDLE path and
+   *  the merged plan share it — seek first, then playPause, A4). Play()
+   *  rejections are swallowed + console.debug (P1 #12 semantics): never
+   *  onSwapError, never a thrown rejection. */
+  const applyIntentToElement = (el: HTMLMediaElement, entry: { playPause?: 'play' | 'pause'; seek?: number }): void => {
+    if (entry.seek !== undefined) {
+      try { el.currentTime = entry.seek; } catch { /* engine refused */ }
+    }
+    if (entry.playPause === 'play') {
+      try {
+        const maybe = el.play();
+        if (maybe && typeof maybe.catch === 'function') maybe.catch((err) => {
+          // An intent play() rejection is not a swap failure (P1 #12
+          // semantics): autoplay policy or a superseding load. Diagnostics
+          // only; do NOT emit onSwapError.
+          console.debug('[useMediaLease] intent play rejected:', err);
+        });
+      } catch { /* ignore */ }
+    } else if (entry.playPause === 'pause') {
+      try { el.pause(); } catch { /* ignore */ }
+    }
+  };
+
+  /** P2/A3: the merged plan entry for this restore invocation — the queue
+   *  ⊕ previousState. Consumes (clears) the queue: every applyRestore call
+   *  re-plans from the LATEST queue, so a late RESTORING intent upgrades the
+   *  pending readiness retry instead of being lost. seek is ALWAYS present
+   *  in the plan (the queue's seek or the capture's position/0-if-ended). */
+  const consumeQueueForRestore = (ps: Readonly<SwapPreviousState>): { seek: number; playPause?: 'play' | 'pause' } => {
+    const q = intentRef.current;
+    intentRef.current = {};
+    const seek = q.seek !== undefined ? q.seek : (ps.ended ? 0 : ps.currentTime);
+    const plan: { seek: number; playPause?: 'play' | 'pause' } = { seek };
+    if (q.playPause !== undefined) plan.playPause = q.playPause;
+    else if (!ps.paused) plan.playPause = 'play';
+    return plan;
+  };
 
   // ---- lease schedule / fetch hygiene (P0 internals preserved) ----
   const inFlightRef = useRef<{ key: string; promise: Promise<void> | null } | null>(null);
@@ -266,13 +346,22 @@ export function useMediaLease(options: UseMediaLeaseOptions): UseMediaLeaseResul
     phaseRef.current = 'idle';
     activeCtxRef.current = null;
     swapActiveRef.current = false;
+    // P2/A6: best-effort apply + clear — the user's intent should reach the
+    // element even if the swap failed to complete (in doc order: seek →
+    // playPause; rejections swallowed).
+    const pendingIntent = intentRef.current;
+    intentRef.current = {};
     setState((s) => ({ ...s, isSwapInFlight: false, refreshing: false }));
     callbacksRef.current.onSwapError(ctx, err);
+    const el0 = mediaRef.current;
+    if (el0 && (pendingIntent.seek !== undefined || pendingIntent.playPause !== undefined)) {
+      applyIntentToElement(el0, pendingIntent);
+    }
     // OPEN-6: a refresh that arrived during the swap executes now.
     const pending = pendingRefreshRef.current;
     pendingRefreshRef.current = null;
     if (pending) startFetchRef.current(pending.reason);
-  }, [clearAckDeadline, clearRestoreDeadline, clearRetryListeners]);
+  }, [mediaRef, clearAckDeadline, clearRestoreDeadline, clearRetryListeners]);
 
   const completeSwap = useCallback((ctx: SwapContext) => {
     clearAckDeadline();
@@ -291,11 +380,16 @@ export function useMediaLease(options: UseMediaLeaseOptions): UseMediaLeaseResul
     if (pending) startFetchRef.current(pending.reason);
   }, [clearAckDeadline, clearRestoreDeadline, clearRetryListeners]);
 
-  /** Applies previousState; returns true when the seek landed (or nothing
-   *  needed seeking). A refused seek arms the readiness retry. */
+  /** Applies the merged plan (A3: queue ⊕ previousState, consumed on EVERY
+   *  invocation — a late RESTORING intent upgrades the pending readiness
+   *  retry); returns true when the seek landed (or nothing needed seeking).
+   *  A refused seek arms the readiness retry. */
   const applyRestore = useCallback((ctx: SwapContext) => {
     const el = mediaRef.current;
     const ps = ctx.previousState;
+    // P2/A3: ONE plan for this invocation — the queue consumed here. On the
+    // readiness retry this re-plans from the LATEST queue.
+    const plan = consumeQueueForRestore(ps);
     if (el) {
       try {
         if (Number.isFinite(ps.playbackRate) && ps.playbackRate > 0) el.playbackRate = ps.playbackRate;
@@ -307,10 +401,10 @@ export function useMediaLease(options: UseMediaLeaseOptions): UseMediaLeaseResul
 
     let seekTook = true;
     if (el) {
-      // OPEN-9: ended media restarts from the top; the target is clamped
-      // inside the seekable range (or duration) so a shorter re-upload /
-      // variant cannot silently no-op the seek.
-      let target = ps.ended ? 0 : Math.max(0, ps.currentTime);
+      // OPEN-9: the target (plan.seek = the queue's seek or the capture)
+      // is clamped inside the seekable range (or duration) so a shorter
+      // re-upload / variant cannot silently no-op the seek.
+      let target = Math.max(0, plan.seek);
       try {
         if (el.seekable && el.seekable.length > 0) {
           const seekableEnd = el.seekable.end(el.seekable.length - 1);
@@ -325,19 +419,12 @@ export function useMediaLease(options: UseMediaLeaseOptions): UseMediaLeaseResul
         el.seeking === true;
     }
 
-    if (el && !ps.paused) {
-      // DF-8: a play() rejection (autoplay policy, a superseding swap's load
-      // aborting this one) is swallowed — a superseding swap is not a failure.
-      try {
-        const maybe = el.play();
-        if (maybe && typeof maybe.catch === 'function') maybe.catch((err) => {
-          // Restore play() rejection is not a swap failure
-          // (DF-8): a superseding swap is expected under fast-
-          // TTL chains or autoplay policy. Log for diagnostics
-          // only; do NOT emit onSwapError.
-          console.debug('[useMediaLease] restore play rejected:', err);
-        });
-      } catch { /* ignore */ }
+    if (el && plan.playPause !== undefined) {
+      // P2 merged plan (A3): the queue's playPause or the capture's
+      // wasPlaying — BOTH directions through the shared swallow helper, so
+      // the IDLE path and the restore path log identically (P1 #12
+      // semantics). A queued pause is as authoritative as a queued play.
+      applyIntentToElement(el, { playPause: plan.playPause });
     }
 
     if (seekTook) {
@@ -526,6 +613,10 @@ export function useMediaLease(options: UseMediaLeaseOptions): UseMediaLeaseResul
     activeCtxRef.current = null;
     swapActiveRef.current = false;
     pendingRefreshRef.current = null;
+    // P2/A6: DROP the queue, never apply — the element is about to be
+    // re-purposed for the NEXT asset; a stale queued play() must never
+    // ghost onto it.
+    intentRef.current = {};
     attemptRef.current = 0;
     infoRef.current = null;
     setState({
@@ -543,6 +634,8 @@ export function useMediaLease(options: UseMediaLeaseOptions): UseMediaLeaseResul
       clearRestoreDeadline();
       clearRetryListeners();
       clearScheduleTimer();
+      // P2/A6: unmount DROPs the queue — never applied.
+      intentRef.current = {};
     };
   }, [assetType, assetId, startFetch, clearAckDeadline, clearRestoreDeadline, clearRetryListeners, clearScheduleTimer]);
 
@@ -591,6 +684,88 @@ export function useMediaLease(options: UseMediaLeaseOptions): UseMediaLeaseResul
 
   const isSwapActive = useCallback(() => swapActiveRef.current, []);
 
+  /** P2/A7: the intent gate — phaseRef only (SWAPPING|RESTORING), never
+   *  render state (isSwapInFlight/refreshing). The refresh FETCH window is
+   *  phase 'idle' by construction (P1: a refresh fetch in flight lives under
+   *  idle until beginSwap) — no FETCHING-phase queue (A7/OPEN-6: NO). */
+  const swapIsActiveForIntents = () => phaseRef.current !== 'idle';
+
+  const play = useCallback(() => {
+    const el = mediaRef.current;
+    if (!el) return; // A8: null element no-op
+    if (swapIsActiveForIntents()) intentRef.current.playPause = 'play';
+    else applyIntentToElement(el, { playPause: 'play' });
+  }, [mediaRef]);
+
+  const pause = useCallback(() => {
+    const el = mediaRef.current;
+    if (!el) return;
+    if (swapIsActiveForIntents()) intentRef.current.playPause = 'pause';
+    else applyIntentToElement(el, { playPause: 'pause' });
+  }, [mediaRef]);
+
+  const seek = useCallback((t: number) => {
+    const el = mediaRef.current;
+    if (!el) return;
+    if (!Number.isFinite(t)) return;
+    if (swapIsActiveForIntents()) {
+      intentRef.current.seek = Math.max(0, t);
+      return;
+    }
+    // A8: clamp [0, duration] (today's consumer seekTo semantics)
+    let target = Math.max(0, t);
+    if (Number.isFinite(el.duration) && el.duration > 0) target = Math.min(target, el.duration);
+    try { el.currentTime = target; } catch { /* engine refused */ }
+  }, [mediaRef]);
+
+  const togglePlay = useCallback(() => {
+    const el = mediaRef.current;
+    if (!el) return;
+    if (swapIsActiveForIntents()) {
+      // F1: classify against the ACTIVE CTX's capture, never the torn-down
+      // element. Base = the queue's playPause or the capture's paused state;
+      // the user's toggle during the window is the OPPOSITE of the base.
+      const ctx = activeCtxRef.current;
+      if (!ctx) return; // defensive: phase and ctx are set/cleared together
+      const ps = ctx.previousState;
+      const wasPlaying =
+        intentRef.current.playPause !== undefined
+          ? intentRef.current.playPause === 'play'
+          : !ps.paused;
+      intentRef.current.playPause = wasPlaying ? 'pause' : 'play';
+      return;
+    }
+    if (el.paused) applyIntentToElement(el, { playPause: 'play' });
+    else applyIntentToElement(el, { playPause: 'pause' });
+  }, [mediaRef]);
+
+  const seekBy = useCallback((delta: number) => {
+    if (!Number.isFinite(delta)) return;
+    const el = mediaRef.current;
+    if (!el) return;
+    if (swapIsActiveForIntents()) {
+      // F2: the relative base is the authoritative swap position (the
+      // queue's seek or the capture) — never the torn-down element. Ended
+      // media bases at 0 (A1). Clamp to the capture's duration.
+      const ctx = activeCtxRef.current;
+      if (!ctx) return;
+      const ps = ctx.previousState;
+      const base = baseSwapPosition(ctx);
+      let target = base + delta;
+      target = Math.max(0, target);
+      if (Number.isFinite(ps.duration) && ps.duration > 0) target = Math.min(target, ps.duration);
+      intentRef.current.seek = target;
+      return;
+    }
+    // A8: the live path — relative to the live position, guarded on a known
+    // duration (today's consumer seekBy semantics).
+    if (!Number.isFinite(el.duration)) return;
+    let target = el.currentTime + delta;
+    target = Math.max(0, target);
+    target = Math.min(target, el.duration);
+    try { el.currentTime = target; } catch { /* engine refused */ }
+  }, [mediaRef]);
+
   const refresh = useCallback((reason: 'manual' | 'error' = 'manual') => {
     startFetch(reason);
   }, [startFetch]);
@@ -600,5 +775,10 @@ export function useMediaLease(options: UseMediaLeaseOptions): UseMediaLeaseResul
     ackSwap,
     isSwapActive,
     refresh,
+    play,
+    pause,
+    seek,
+    togglePlay,
+    seekBy,
   };
 }
