@@ -60,6 +60,12 @@ export function useMediaLease(params: {
     refreshing: false,
     generation: 0,
   });
+  // W6 — internal failure tick, deliberately NOT part of MediaLeaseState (the
+  // public returned shape is unchanged in P0). A failed silent refresh changes
+  // nothing in `state` that the timer effect depends on, so pre-P0 the retry
+  // timer was never re-armed and RETRY_DELAY_MS was unreachable. This tick
+  // changes on every failed refresh, re-running the timer effect.
+  const [retryTick, setRetryTick] = useState(0);
 
   // Timestamp/play-state captured right before a preserve-time fetch; the
   // host restores them from onLoadedMetadata and clears via resetPending().
@@ -130,6 +136,8 @@ export function useMediaLease(params: {
           // Silent-refresh failure: retry on a backoff, keep the current URL
           // playing (it may simply outlive its nominal TTL).
           setState((s) => ({ ...s, refreshing: false }));
+          // W6: change the failure tick so the timer effect re-arms the retry.
+          setRetryTick((t) => t + 1);
           if (attemptRef.current < MAX_REFRESH_ATTEMPTS) {
             toast.info('يجري تجديد رابط التشغيل تلقائياً…', { duration: 2000 });
           }
@@ -178,9 +186,16 @@ export function useMediaLease(params: {
   }, [assetType, assetId]);
 
   // The timer: refresh at ttl − 60s, or retry 15s after a failed attempt.
+  // W6: `retryTick` is in the deps so a failed silent refresh re-arms the
+  // RETRY_DELAY_MS branch (pre-P0 no dep changed on failure → the branch was
+  // unreachable and the lease rode an expiring URL). Arming stops after
+  // MAX_REFRESH_ATTEMPTS consecutive failures — the consumer's error-driven
+  // fetchUrl({ reason: 'error' }) call is NOT capped and stays available as
+  // the escape hatch (a success resets attemptRef to 0).
   useEffect(() => {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     if (!state.info || state.loading) return;
+    if (attemptRef.current >= MAX_REFRESH_ATTEMPTS) return;
 
     const delay =
       attemptRef.current > 0
@@ -193,7 +208,7 @@ export function useMediaLease(params: {
     return () => {
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     };
-  }, [state.info, state.loading, fetchUrl]);
+  }, [state.info, state.loading, fetchUrl, retryTick]);
 
   return {
     ...state,

@@ -183,4 +183,44 @@ describe('useMediaLease P0 — hook hygiene (Wave 11.7.x)', () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
   });
+
+  it('W6 — the retry timer re-arms after a failed silent refresh', async () => {
+    vi.useFakeTimers();
+    const queue = deferredPosts();
+    const { result } = setup('lease-a');
+
+    // initial URL lands (ttl 8s -> first silent refresh at ~3s)
+    await act(async () => {
+      await flushAsync();
+    });
+    await act(async () => {
+      queue[0].resolve(makeInfo('url-1', 8));
+    });
+    expect(result.current.generation).toBe(1);
+
+    // first silent refresh fires and FAILS
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(queue.length).toBe(2);
+    await act(async () => {
+      queue[1].reject(new Error('presign 503'));
+    });
+    expect(result.current.refreshing).toBe(false);
+    expect(result.current.generation).toBe(1); // no bump on failure
+    expect(toastInfoMock).toHaveBeenCalledTimes(1); // auto-renewal toast (attempt 1 < MAX)
+
+    // RETRY_DELAY_MS (15s) passes — the retry must actually fire
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(queue.length).toBe(3); // RED pre-fix: 2 — retry never armed, lease rides the expiring URL
+
+    await act(async () => {
+      queue[2].resolve(makeInfo('url-2', 8));
+    });
+    expect(result.current.generation).toBe(2); // RED pre-fix: stuck at 1
+    expect(result.current.info?.url).toBe('url-2');
+    expect(result.current.error).toBeNull();
+  });
 });
