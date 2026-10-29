@@ -1,3 +1,52 @@
+# WIP_STATUS — wip/11.7.x-root-fix
+
+## Base
+Branch: wip/11.7.x-root-fix (LOCAL ONLY — not pushed; push authorized separately)
+Parent: 9a054663b25ba6c3b6a013c5cfe726c33700a559 (main, post-revert baseline,
+tree byte-identical to fd61ba48)
+Status: Wave 11.7.x PART I (P0 — useMediaLease hook hygiene) COMPLETE —
+all commits local, all verification green. Awaiting supervisor P0 review +
+push authorization. P1 (hook-owned atomic swap + lifecycle events + swapId)
+NOT STARTED.
+
+## P0 — closed windows + commit map (red-first, evidence in commit bodies)
+- W4  9aa71e0 coalesce overlapping refreshes (fetch→fetch guard)
+- W5  83b2bfd discard stale responses across asset change
+- W6  87c607b re-arm the retry timer after a failed refresh
+- W8  eb85466 classify asset-change fetches by info ownership (infoKeyRef)
+- W10 056a36a clear capture refs on failed refresh
+- fe4b46a tsc definite-assignment conformance in the W4 flight slot
+  (mechanical, no behavior change; TS2454 rode commits 9aa71e0..056a36a —
+  vitest/eslint were green throughout; tsc -b now gates HEAD clean)
+
+## P0 verification (local, this environment)
+- vitest full suite: 131/131 (126 pre-existing + 5 new window specs) —
+  9 files, zero regressions.
+- tsc -b: 0 errors. eslint --max-warnings=0: clean.
+- player-video e2e (real MP4, TTL=8 churn): 17/17, console errors 0,
+  peak Chromium RSS ~1042 MB (ceiling 1600 MB).
+- player-audio e2e vs PRISTINE wip/11.7 worktree (edb26370, port 5174):
+  26/26 ×2 consecutive; one earlier run 23/26 — the S4e (A-B loop wrap)
+  flake, pre-existing on the parked branch (identical signature with and
+  without the P0 hook: highSamples=0/logLen=12/swapZeros=0 → seam race,
+  P1/P2 territory, NOT a P0 regression).
+- P0-compat evidence: the P0 hook swapped into the wip/11.7 scratch tree
+  passed the full audio suite 26/26 (worktree restored to pristine after;
+  tracked screenshots restored in both trees).
+
+## P0 contract note
+Public API UNCHANGED (state shape, generation, resetPending,
+pendingTimeRef, wasPlayingRef, fetchUrl signature). No consumer file
+touched. Happy-path event sequencing unchanged (the W4 dedupe is only
+observable under overlap; W6 retry / W8 routing / W10 clearing are
+failure-path only; the W5 discard only fires cross-asset).
+
+RESUME_FROM: fe4b46a — awaiting supervisor P0 review + push
+authorization, then merge to main under the 5-re-run gate (B3:
+same-SHA re-runs, not 5 pushes).
+
+# (history below — Wave 11.5.x, closed)
+
 # WIP_STATUS — wip/11.5.1
 
 ## Base
