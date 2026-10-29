@@ -176,6 +176,12 @@ async function flushAsync(ticks = 10) {
   for (let i = 0; i < ticks; i += 1) await Promise.resolve();
 }
 
+/** HTMLMediaElement.paused is readonly in the TS lib — the stub is a plain
+ *  writable object; mutate it through this cast. */
+function setPaused(el: HTMLAudioElement, value: boolean) {
+  (el as unknown as { paused: boolean }).paused = value;
+}
+
 type SwapEvent =
   | { type: 'start'; ctx: SwapContext }
   | { type: 'complete'; ctx: SwapContext }
@@ -195,7 +201,13 @@ interface Harness {
 function setupHook(
   assetId: string,
   media: HTMLAudioElement,
-  options: { autoAck?: boolean; swapAckTimeoutMs?: number } = {},
+  options: {
+    autoAck?: boolean;
+    swapAckTimeoutMs?: number;
+    /** Runs inside onSwapStart AFTER the capture — models the consumer
+     *  assigning a fresh src (which resets the element mid-load). */
+    onStart?: (ctx: SwapContext) => void;
+  } = {},
 ): Harness {
   const events: SwapEvent[] = [];
   const autoAck = { current: options.autoAck ?? false };
@@ -225,13 +237,15 @@ function setupHook(
     { initialProps: { id: assetId } },
   );
   // Auto-ack fires INSIDE onSwapStart — the element is already ready in these
-  // specs, so ack→restore→complete is one synchronous cascade.
+  // specs, so ack→restore→complete is one synchronous cascade. onStart models
+  // the consumer's src assignment (element reset) landing after the capture.
   const ackNow = (ctx: SwapContext) => {
     if (autoAck.current) rendered.result.current.ackSwap(ctx.swapId);
   };
   const originalStart = onSwapStart.getMockImplementation()!;
   onSwapStart.mockImplementation((ctx: SwapContext) => {
     originalStart(ctx);
+    options.onStart?.(ctx);
     ackNow(ctx);
   });
   return {
@@ -303,7 +317,7 @@ describe('useMediaLease P1 — swap lifecycle contract (Wave 11.7.x / W9)', () =
     // … user intent lands INSIDE the fetch window (the W3 core: P0 captured
     // at fetch ENTRY — these mutations would be invisible to that capture)
     media.currentTime = 42;
-    media.paused = false;
+    setPaused(media, false);
     media.playbackRate = 1.5;
 
     const startedAt = Date.now();
@@ -345,6 +359,7 @@ describe('useMediaLease P1 — swap lifecycle contract (Wave 11.7.x / W9)', () =
     // second swap → swapId monotonic
     await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
     media.currentTime = 50;
+    setPaused(media, false);
     await act(async () => { queue[2].resolve(makeInfo('url-3', 8)); });
     expect(h.events.filter((e) => e.type === 'start')).toHaveLength(2);
     expect(h.events.at(-1)!.type).toBe('complete');
@@ -402,14 +417,21 @@ describe('useMediaLease P1 — swap lifecycle contract (Wave 11.7.x / W9)', () =
     const ctx = h.events[0].ctx;
     expect(h.result.current.isSwapInFlight).toBe(true);
 
-    // no ack within SWAP_ACK_TIMEOUT_MS → sync onSwapError, no rollback
+    // no ack within SWAP_ACK_TIMEOUT_MS → sync onSwapError, no rollback.
+    // NOTE: the schedule timer armed when url-2 landed fires DURING the held
+    // swap (coalesced per OPEN-6) and DRAINS at the error terminal — a new
+    // refresh POST is immediately in flight (amendment 5: executes at ANY
+    // terminal). That fetch is the lease renewal the timer owed: refreshing
+    // stays true while the swap lifecycle itself is terminal.
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
     expect(h.onSwapError).toHaveBeenCalledTimes(1);
     expect(h.events[1].type).toBe('error');
+    if (h.events[1].type !== 'error') throw new Error('expected error event');
     expect(h.events[1].ctx).toBe(ctx);
     expect(h.events[1].err.message).toMatch(/ack/i);
     expect(h.result.current.isSwapInFlight).toBe(false);
-    expect(h.result.current.refreshing).toBe(false);
+    expect(queue.length).toBe(3); // the coalesced timer refresh drained at the terminal
+    expect(h.result.current.refreshing).toBe(true); // …and is in flight
     expect(h.result.current.info?.url).toBe('url-2'); // NO rollback
     expect(h.result.current.error).toBeNull(); // swap timeout ≠ lease error
 
@@ -424,16 +446,18 @@ describe('useMediaLease P1 — swap lifecycle contract (Wave 11.7.x / W9)', () =
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const queue = deferredPosts();
     const media = gatedMedia(30); // playing at 30, refuses seeks until ready
-    const h = setupHook('lease-a', media);
+    const h = setupHook('lease-a', media, {
+      // the consumer's src assignment inside onSwapStart resets the element
+      // to 0, exactly like a real mid-load element
+      onStart: () => media.__resetByConsumerLoad(),
+    });
 
     await act(async () => { await flushAsync(); });
     await act(async () => { queue[0].resolve(makeInfo('url-1', 8)); });
     await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
-    // the swap resolves; the consumer resets the element (src assign) — it is
-    // now at 0 and not ready, exactly like a mid-load element
-    media.__resetByConsumerLoad();
     await act(async () => { queue[1].resolve(makeInfo('url-2', 8)); });
     expect(h.onSwapStart).toHaveBeenCalledTimes(1);
+    expect(h.events[0].ctx.previousState.currentTime).toBe(30); // captured pre-reset
 
     // ack → RESTORING: rate/vol/mute applied, seek REFUSED (target 30, stuck 0)
     // → one retry armed on readiness events → none fires
@@ -445,6 +469,7 @@ describe('useMediaLease P1 — swap lifecycle contract (Wave 11.7.x / W9)', () =
     await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
     expect(h.onSwapError).toHaveBeenCalledTimes(1);
     expect(h.events[1].type).toBe('error');
+    if (h.events[1].type !== 'error') throw new Error('expected error event');
     expect(h.events[1].err.message).toMatch(/restore/i);
     expect(h.events[1].ctx.previousState.currentTime).toBe(30);
     expect(h.result.current.isSwapInFlight).toBe(false);
@@ -456,12 +481,13 @@ describe('useMediaLease P1 — swap lifecycle contract (Wave 11.7.x / W9)', () =
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const queue = deferredPosts();
     const media = gatedMedia(30);
-    const h = setupHook('lease-a', media);
+    const h = setupHook('lease-a', media, {
+      onStart: () => media.__resetByConsumerLoad(),
+    });
 
     await act(async () => { await flushAsync(); });
     await act(async () => { queue[0].resolve(makeInfo('url-1', 8)); });
     await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
-    media.__resetByConsumerLoad();
     await act(async () => { queue[1].resolve(makeInfo('url-2', 8)); });
 
     act(() => { h.result.current.ackSwap(1); }); // seek refused, retry armed
@@ -499,17 +525,25 @@ describe('useMediaLease P1 — swap lifecycle contract (Wave 11.7.x / W9)', () =
     expect(h.events[0].ctx.deadlineAt).toBe(startedAt + 800);
     await act(async () => { await vi.advanceTimersByTimeAsync(800); });
     expect(h.onSwapError).toHaveBeenCalledTimes(1);
+    if (h.events[1].type !== 'error') throw new Error('expected error event');
     expect(h.events[1].err.message).toMatch(/ack/i);
+  });
 
-    // clamp: sub-500 values are raised to the floor
-    const queue2 = deferredPosts();
-    const h2 = setupHook('lease-b', stubMedia(), { swapAckTimeoutMs: 100 });
+  it('W9 — swapAckTimeoutMs clamped to the 500ms floor', async () => {
+    vi.useFakeTimers();
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const queue = deferredPosts();
+    const media = stubMedia();
+    const h = setupHook('lease-b', media, { swapAckTimeoutMs: 100 });
+
     await act(async () => { await flushAsync(); });
-    await act(async () => { queue2[0].resolve(makeInfo('url-b1', 8)); });
+    await act(async () => { queue[0].resolve(makeInfo('url-b1', 8)); });
     await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
-    const startedAt2 = Date.now();
-    await act(async () => { queue2[1].resolve(makeInfo('url-b2', 8)); });
-    expect(h2.events[0].ctx.deadlineAt).toBe(startedAt2 + 500);
+    const startedAt = Date.now();
+    await act(async () => { queue[1].resolve(makeInfo('url-b2', 8)); });
+
+    // sub-500 values are raised to the floor (OPEN-8/17)
+    expect(h.events[0].ctx.deadlineAt).toBe(startedAt + 500);
   });
 
   it('W9 — refresh() coalesces during SWAPPING (depth 1, latest-wins) and executes at the swap terminal', async () => {
