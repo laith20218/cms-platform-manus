@@ -172,6 +172,12 @@ export default function VideoPlayer({
     ackSwap,
     isSwapActive,
     refresh,
+    // P2/A9: the intent methods — every user play/pause/seek routes through
+    // the hook (swap-aware: during SWAPPING/RESTORING the hook's queue owns
+    // them, F1/F2; in IDLE they apply immediately, A8).
+    togglePlay: leaseTogglePlay,
+    seek: leaseSeek,
+    seekBy: leaseSeekBy,
   } = useMediaLease({
     assetType,
     assetId,
@@ -588,36 +594,37 @@ export default function VideoPlayer({
     setBufferedSeconds(Math.min(end, video.duration));
   }, []);
 
-  /* ============ helpers ============ */
-
-  function safePlay(video: HTMLVideoElement) {
-    try {
-      const maybe = video.play();
-      if (maybe && typeof maybe.catch === 'function') maybe.catch(() => { /* autoplay policy — user presses play */ });
-    } catch { /* ignore */ }
-  }
+  /* ============ helpers (P2/A9: intents route through the lease hook) ============
+   *
+   * Every user play/pause/seek now delegates to the hook's intent methods.
+   * The element write is the hook's alone — during a swap the hook's queue
+   * owns the intent (classified against the capture, never the torn-down
+   * element: F1/F2); in IDLE it applies immediately (A8). The UI side-effect
+   * (setCurrentTime so the slider follows the user's intent) stays
+   * consumer-side; lastPositionRef is deliberately NOT written here —
+   * mid-swap the position truth belongs to the hook (capture/replay), and
+   * the N16 gate repopulates it once the element is trustworthy again.
+   * safePlay is gone — the swallow is generalized into the hook (P1 #12
+   * semantics), shared by the IDLE path and the restore replay. */
 
   const togglePlay = useCallback(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (video.paused) safePlay(video);
-    else video.pause();
-  }, []);
+    leaseTogglePlay();
+  }, [leaseTogglePlay]);
 
   const seekTo = useCallback((seconds: number) => {
+    // Display clamp mirrors the old consumer clamp; the authoritative
+    // element write (with its own clamp) is the hook's.
     const video = videoRef.current;
-    if (!video || !Number.isFinite(video.duration)) return;
-    const target = Math.min(Math.max(0, seconds), video.duration);
-    try { video.currentTime = target; } catch { return; }
+    const d = video && Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null;
+    const target = d !== null ? Math.min(Math.max(0, seconds), d) : Math.max(0, seconds);
+    leaseSeek(seconds);
     setCurrentTime(target);
-    lastPositionRef.current = target;
-  }, []);
+  }, [leaseSeek]);
 
   const seekBy = useCallback((delta: number) => {
-    const video = videoRef.current;
-    if (!video) return;
-    seekTo(video.currentTime + delta);
-  }, [seekTo]);
+    leaseSeekBy(delta); // the authoritative base (live position, or the
+    // capture during a swap — F2) is the hook's; no consumer computation.
+  }, [leaseSeekBy]);
 
   const bumpControls = useCallback(() => {
     setControlsVisible(true);
