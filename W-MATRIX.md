@@ -32,7 +32,7 @@ stale — fix the row in the same PR that moved the test.
 | W5 | Stale response across asset change | a2d66d5 | 9a05466 | apps/student-web/src/features/media-player/hooks/__tests__/useMediaLease.test.ts:234 | W5 — a stale response from the previous asset is discarded after an in-place asset change | vitest | red-verified | 862d3ae |
 | W6 | Dead retry path | a2d66d5 | 9a05466 | apps/student-web/src/features/media-player/hooks/__tests__/useMediaLease.test.ts:273 | W6 — the retry timer re-arms after a failed silent refresh | vitest | red-verified | 862d3ae |
 | W7 | Ghost un-pause / seek revert (fetch) | a4be3e9 | 5168f37 | apps/student-web/e2e/player-video.e2e.mjs:763 | W7 — seek during FETCH survives the swap (no seek revert) | e2e | red-verified | 862d3ae |
-| W8 | Stale isRefresh closure | a2d66d5 | 9a05466 | apps/student-web/src/features/media-player/hooks/__tests__/useMediaLease.test.ts:318 | W8 — an asset change classifies the new asset's first fetch as INITIAL, not refresh | vitest | red-verified | 862d3ae |
+| W8 | Stale isRefresh closure | a2d66d5 | 9a05466 | apps/student-web/src/features/media-player/hooks/__tests__/useMediaLease.test.ts:318 | W8 — an asset change classifies the new asset\'s first fetch as INITIAL, not refresh † | vitest | red-verified | 862d3ae |
 | W9 | Swap lifecycle contract absent (no events, no ackSwap, no deadlines — dead API surface) | a4be3e9 | 5168f37 | apps/student-web/src/features/media-player/hooks/__tests__/useMediaLease.p1.test.ts:272 (+ 13-spec family :272-687) | W9 — module surface: lifecycle exports + contract constants | vitest | red-verified | 862d3ae |
 | W10 | Stale capture refs | a2d66d5 | 9a05466 | apps/student-web/src/features/media-player/hooks/__tests__/useMediaLease.test.ts:351 | W10 — a failed refresh captures NOTHING; the next swap captures FRESH state (stronger than the P0 ref check) | vitest | red-verified | 862d3ae |
 
@@ -41,6 +41,10 @@ SHA provenance key (per P3 review F-B): P0 branch base / true red-state =
 P1's specs (W1/W2/W3/W7 e2e + W9 unit) were red against 5168f37 (P0 HEAD);
 P2's specs were red against 3b41c11 (P1 HEAD). Merge SHAs: P0 = a2d66d5,
 P1 = a4be3e9, P2 = bcf0b4e.
+
+† W8: the it() literal escapes the apostrophe — the source bytes are
+`asset\'s`. Grep -F for the escaped form exactly as shown in the row; the
+runtime test name (vitest output) omits the backslash.
 
 ## Matrix — SWAPPING-phase (P2)
 
@@ -93,15 +97,15 @@ all five properties are RED (P3-P1/P2/P3/P5 fail at the reachSwapping gate
 — P0 emits no lifecycle events). Measured on the full-suite run
 (12 files / 164 tests) at wip/11.7.x-p3:
 
-| Property | Invariant | Iterations | Seed | Measured |
-|---|---|---|---|---|
-| P3-P1 | collapse + no-lost-intent (merged-plan oracle; element state at onSwapComplete = oracle over generated intents ⊕ capture) | 1000 | 42 | 1207 ms |
-| P3-P2 | late RESTORING intent upgrades readiness-retry plan (merged plan re-planned from the LATEST queue) | 1000 | 43 | 1171 ms |
-| P3-P3 | terminal differentiation: complete = merged plan / error = RAW queue (:349-359) / asset-change = DROP / unmount = DROP | 1000 | 44 | 822 ms |
-| P3-P4 | swapId surfaces: counter === k after k swaps; info.swapId null on initial; ctx.swapId === counter at emission; preserved across ASSET_CHANGE; fresh instance → 0 | 1000 | 45 | 2104 ms |
-| P3-P5 | pendingRefresh drain-after-terminal: exactly one drained POST; next swap captures FRESH state; consumed queue never ghosts | 1000 | 46 | 665 ms |
+| Property | Invariant | File:line | Iterations | Seed | Measured |
+|---|---|---|---|---|---|
+| P3-P1 | collapse + no-lost-intent (merged-plan oracle; element state at onSwapComplete = oracle over generated intents ⊕ capture) | useMediaLease.p3-queue-property.test.ts:459 | 1000 | 42 | 1143 ms |
+| P3-P2 | late RESTORING intent upgrades readiness-retry plan (merged plan re-planned from the LATEST queue) | useMediaLease.p3-queue-property.test.ts:547 | 1000 | 43 | 763 ms |
+| P3-P3 | terminal differentiation: complete = merged plan / error = RAW queue (:349-359) / asset-change = DROP / unmount = DROP | useMediaLease.p3-queue-property.test.ts:629 | 1000 | 44 | 1114 ms |
+| P3-P4 | swapId surfaces: counter === k after k swaps; info.swapId null on initial; ctx.swapId === counter at emission; preserved across ASSET_CHANGE; fresh instance → 0 | useMediaLease.p3-queue-property.test.ts:738 | 1000 | 45 | 2037 ms |
+| P3-P5 | pendingRefresh drain-after-terminal: exactly one drained POST; next swap captures FRESH state; consumed queue never ghosts | useMediaLease.p3-queue-property.test.ts:830 | 1000 | 46 | 712 ms |
 
-Total: 5969 ms — under the 8s budget, so 1000 iterations stand (no 500 drop).
+Total: 5769 ms — under the 8s budget, so 1000 iterations stand (no 500 drop).
 A10 (volume/playbackRate/mute during SWAPPING) is deliberately not generated —
 P2 scope decision, recorded in the property file header.
 
