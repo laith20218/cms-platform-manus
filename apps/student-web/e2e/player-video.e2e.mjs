@@ -424,6 +424,270 @@ try {
 
   await mPage.screenshot({ path: path.join(SHOT_DIR, 'video-player-02-mobile-375.png') });
   await mobile.close();
+
+  /* ============ Wave 11.7.x / P1 — fetch-phase race windows (W1/W2/W3/W7) ============
+   *
+   * Deterministic race harness. The race scenarios own their playback-url
+   * mock and serve ttlSeconds=68: the hook's arm formula max(3000, (ttl−60)·s)
+   * schedules each silent refresh 8s after the last URL landed — the scenario
+   * setup (resume + play + optional pause) ALWAYS beats the first one, so the
+   * overlay that appears next is guaranteed to be the target refresh. The
+   * target refresh's POST is held for LEASE_FETCH_DELAY_MS (the FETCH window —
+   * every user intent below lands inside it), and the following refresh is 8s
+   * away, so the target swap is the only one in flight during the assertions.
+   *
+   * Refresh discrimination (why a gap check, not a call counter): React dev
+   * StrictMode double-invokes the hook's asset effect at mount — the app issues
+   * TWO initial playback-url POSTs ~20ms apart (the second run clears the
+   * in-flight slot, so they do not coalesce). Delaying by call index would hit
+   * the second INITIAL, which lands misclassified (initial → no capture) and
+   * kills playback at 0 — a StrictMode artifact, not the race under test. The
+   * timer-driven silent refresh is the first POST issued a ≥2s gap after the
+   * previous one; that one (and only it) gets the delay.
+   * W2 additionally delays the swapped media response (route.fetch pass-through
+   * with delay), widening the classic resolve-then-reset kill zone: the play
+   * has RESOLVED on the old URL, then the load from the swap lands late and
+   * resets the element.
+   *
+   * The refreshing indicator appears at fetch ENTRY on both the P0 hook and
+   * the P1 rewrite (P1: refreshing spans fetch + SWAPPING + RESTORING), so it
+   * is the cross-codebase FETCH-window signal the specs poll. The
+   * data-swap-in-flight attribute (P1 instrumentation, set imperatively in
+   * onSwapStart, cleared at every terminal) is asserted ABSENT after settle;
+   * P2's SWAPPING-phase intent specs will poll it mid-flight.
+   *
+   * RED evidence: run against main 5168f37 (P0 hook) before the P1 rewrite —
+   * each spec fails exactly as its window predicts (per-window excerpts in the
+   * P1 e2e commit message).
+   */
+  {
+    const LEASE_FETCH_DELAY_MS = 2_000;
+    const W2_MEDIA_DELAY_MS = 800;
+    const SETTLE_GRACE_MS = 2_000;
+
+    const readVideo = (page) => page.evaluate(() => {
+      const v = document.querySelector('[data-testid="video-element"]');
+      return v
+        ? { time: v.currentTime, paused: v.paused, swapAttr: v.getAttribute('data-swap-in-flight') }
+        : { time: -1, paused: true, swapAttr: null };
+    });
+
+    const overlayVisible = (page, visible, timeout) => page.waitForFunction(
+      (wantVisible) => {
+        const el = document.querySelector('[data-testid="video-refreshing"]');
+        return wantVisible ? !!el : !el;
+      },
+      visible, { timeout },
+    );
+
+    /** The race scenarios' OWN playback-url mock (shadows the base one): every
+     *  lease carries ttl=68 (each silent refresh arms 8s after the last URL —
+     *  setup always beats the first). The FIRST SILENT REFRESH — identified by
+     *  the >=2s gap since the previous POST, NOT by call index (React dev
+     *  StrictMode double-invokes the hook's asset effect at mount: TWO initial
+     *  POSTs ~20ms apart; delaying by index would hit the second initial,
+     *  which lands misclassified and kills playback at 0 — a StrictMode
+     *  artifact, not the race under test) — is held for LEASE_FETCH_DELAY_MS;
+     *  state.refreshLease records its lease number for W2's media delay.
+     *  Installed BEFORE navigation so the machine's speed can never shift
+     *  which request is delayed. */
+    const raceLeaseRoute = (context, state) => {
+      let n = 0;
+      let lastPostAt = 0;
+      return context.route(`**/api/v1/media/course-episode/${EPISODE_ID}/playback-url`, async (route) => {
+        n += 1;
+        const now = Date.now();
+        // The silent refresh is the first POST a >=2s gap after the previous
+        // one (the StrictMode mount pair lands ~20ms apart — see header).
+        const isSilentRefresh = lastPostAt > 0 && now - lastPostAt >= 2_000;
+        lastPostAt = now;
+        if (isSilentRefresh && !state.delayedRefreshDone) {
+          state.delayedRefreshDone = true;
+          state.refreshLease = n;
+          await new Promise((r) => setTimeout(r, LEASE_FETCH_DELAY_MS));
+        }
+        await route.fulfill({
+          json: {
+            url: `${VIDEO_URL}?lease=${n}`,
+            ttlSeconds: 68,
+            expiresAt: new Date(Date.now() + 68_000).toISOString(),
+            contentType: 'video/mp4',
+            supportsRange: true,
+          },
+        });
+      });
+    };
+
+    /** W2: holds the swapped media response (the delayed refresh's lease) so
+     *  the load lands while the play has already resolved on the old URL.
+     *  Other media requests pass straight through to vite's static file. */
+    const delaySwappedMedia = (context, state) => context.route(`${VIDEO_URL}*`, async (route) => {
+      if (state.refreshLease && route.request().url().includes(`lease=${state.refreshLease}`)) {
+        const response = await route.fetch();
+        await new Promise((r) => setTimeout(r, W2_MEDIA_DELAY_MS));
+        await route.fulfill({ response });
+      } else {
+        await route.fallback();
+      }
+    });
+
+    const openPlayingPlayer = async (page) => {
+      await openPlayer(page);
+      await page.waitForFunction(
+        () => { const v = document.querySelector('[data-testid="video-element"]'); return v && Math.abs(v.currentTime - 12) < 1.5; },
+        null, { timeout: 15_000 },
+      );
+      await page.getByTestId('video-center-play').click();
+      await page.waitForFunction(
+        () => { const v = document.querySelector('[data-testid="video-element"]'); return v && !v.paused && v.currentTime > 12.5; },
+        null, { timeout: 15_000 },
+      );
+      await page.getByTestId('course-episode-player').focus();
+    };
+
+    const runRaceScenario = async (name, body) => {
+      const context = await newStudentContext(browser, { width: 1280, height: 800 });
+      const page = await context.newPage();
+      const state = { delayedRefreshDone: false, refreshLease: 0 };
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') consoleErrors.push(`[${name}] ${msg.text().slice(0, 160)}`);
+      });
+      try {
+        await body(context, page, state);
+      } catch (err) {
+        check(name, false, `SPEC ERROR: ${err?.message ?? err}`);
+      } finally {
+        await context.close();
+      }
+    };
+
+    // W1 — play intent issued during the (route-delayed) FETCH window must
+    // survive the swap. P0 captured wasPlaying at fetch ENTRY (still paused)
+    // → the restore never replays the play → dead tap.
+    await runRaceScenario('W1 — play during FETCH survives the swap (dead tap)', async (context, page, state) => {
+      await raceLeaseRoute(context, state);
+      await openPlayingPlayer(page);
+      await page.keyboard.press('Space'); // pause — the intent setup
+      await page.waitForFunction(
+        () => document.querySelector('[data-testid="video-element"]').paused,
+        null, { timeout: 5_000 },
+      );
+      const pausedAt = await readVideo(page);
+
+      await overlayVisible(page, true, 12_000); // FETCH window open
+      await page.keyboard.press('Space'); // PLAY — the user's tap inside the window
+      await overlayVisible(page, false, LEASE_FETCH_DELAY_MS + 12_000); // swap landed
+
+      let playing = true;
+      try {
+        await page.waitForFunction(
+          () => { const v = document.querySelector('[data-testid="video-element"]'); return v && !v.paused && v.currentTime > 0.5; },
+          null, { timeout: 10_000 },
+        );
+      } catch { playing = false; }
+      const finalState = await readVideo(page);
+      check(
+        'W1 — play during FETCH survives the swap (dead tap)',
+        playing && !finalState.paused && finalState.time >= pausedAt.time - 1 && finalState.swapAttr === null,
+        `pausedAt=${pausedAt.time.toFixed(1)}s final=${finalState.time.toFixed(1)}s paused=${finalState.paused} swapAttr=${finalState.swapAttr}`,
+      );
+    });
+
+    // W2 — resolve-then-reset: the play RESOLVES on the old URL (time visibly
+    // advancing), then the swapped load lands (media response delayed) and
+    // kills playback. P0 restores from the entry capture (paused) → dead.
+    await runRaceScenario('W2 — resolved play survives the late swap (resolve-then-reset)', async (context, page, state) => {
+      await raceLeaseRoute(context, state);
+      await delaySwappedMedia(context, state);
+      await openPlayingPlayer(page);
+      await page.keyboard.press('Space');
+      await page.waitForFunction(
+        () => document.querySelector('[data-testid="video-element"]').paused,
+        null, { timeout: 5_000 },
+      );
+      const pausedAt = await readVideo(page);
+
+      await overlayVisible(page, true, 12_000);
+      await page.keyboard.press('Space'); // play
+      // The RESOLVE half: real playback on the OLD url, confirmed before the
+      // delayed fetch can land the swap.
+      await page.waitForFunction(
+        () => {
+          const v = document.querySelector('[data-testid="video-element"]');
+          return v && !v.paused && v.currentTime > 13;
+        },
+        null, { timeout: 1_500 },
+      );
+      await overlayVisible(page, false, LEASE_FETCH_DELAY_MS + 12_000);
+
+      let playing = true;
+      try {
+        await page.waitForFunction(
+          () => { const v = document.querySelector('[data-testid="video-element"]'); return v && !v.paused && v.currentTime > 0.5; },
+          null, { timeout: 10_000 },
+        );
+      } catch { playing = false; }
+      const finalState = await readVideo(page);
+      check(
+        'W2 — resolved play survives the late swap (resolve-then-reset)',
+        playing && !finalState.paused && finalState.time >= pausedAt.time - 1 && finalState.swapAttr === null,
+        `pausedAt=${pausedAt.time.toFixed(1)}s final=${finalState.time.toFixed(1)}s paused=${finalState.paused} swapAttr=${finalState.swapAttr}`,
+      );
+    });
+
+    // W3 — pause intent issued during the FETCH window must be respected.
+    // P0 captured wasPlaying=true at entry → the restore ghost-un-pauses.
+    await runRaceScenario('W3 — pause during FETCH is respected (no ghost un-pause)', async (context, page, state) => {
+      await raceLeaseRoute(context, state);
+      await openPlayingPlayer(page);
+
+      await overlayVisible(page, true, 12_000);
+      await page.keyboard.press('Space'); // PAUSE inside the window
+      await page.waitForFunction(
+        () => document.querySelector('[data-testid="video-element"]').paused,
+        null, { timeout: 5_000 },
+      );
+      const pausedAt = await readVideo(page);
+
+      await overlayVisible(page, false, LEASE_FETCH_DELAY_MS + 12_000);
+      await page.waitForTimeout(SETTLE_GRACE_MS);
+
+      const finalState = await readVideo(page);
+      check(
+        'W3 — pause during FETCH is respected (no ghost un-pause)',
+        finalState.paused && Math.abs(finalState.time - pausedAt.time) < 3 && finalState.swapAttr === null,
+        `pausedAt=${pausedAt.time.toFixed(1)}s final=${finalState.time.toFixed(1)}s paused=${finalState.paused} swapAttr=${finalState.swapAttr}`,
+      );
+    });
+
+    // W7 — seek intent issued during the FETCH window must survive the swap.
+    // P0 captured currentTime at entry → the restore reverts the playhead.
+    await runRaceScenario('W7 — seek during FETCH survives the swap (no seek revert)', async (context, page, state) => {
+      await raceLeaseRoute(context, state);
+      await openPlayingPlayer(page);
+
+      await overlayVisible(page, true, 12_000);
+      for (let i = 0; i < 5; i += 1) {
+        await page.keyboard.press('l'); // +10s each → ~13s → ~63s
+        await page.waitForTimeout(80);
+      }
+      await page.waitForFunction(
+        () => { const v = document.querySelector('[data-testid="video-element"]'); return v && v.currentTime >= 55; },
+        null, { timeout: 3_000 },
+      );
+      const seekedTo = await readVideo(page);
+
+      await overlayVisible(page, false, LEASE_FETCH_DELAY_MS + 12_000);
+      await page.waitForTimeout(SETTLE_GRACE_MS);
+
+      const finalState = await readVideo(page);
+      check(
+        'W7 — seek during FETCH survives the swap (no seek revert)',
+        finalState.time >= 55 && Math.abs(finalState.time - seekedTo.time) <= 8 && finalState.swapAttr === null,
+        `seekedTo=${seekedTo.time.toFixed(1)}s final=${finalState.time.toFixed(1)}s paused=${finalState.paused} swapAttr=${finalState.swapAttr}`,
+      );
+    });
+  }
 } finally {
   await browser.close(); // RAM contract: close immediately.
 }
