@@ -227,18 +227,33 @@ try {
   //     playing at the same timestamp (seamless swap). Short TTLs cascade a
   //     swap every ~3s — assert "at least the 2nd lease, still playing, time
   //     never regressed", not an exact lease number.
+  //     Commit 6 (11.7.x/P2 gate, base-17 #5): the original poll counted
+  //     __counters.playbackUrl then read v.src IMMEDIATELY — CI attempt 3
+  //     (run 40824944242) caught the fetch counted before the new src was
+  //     attached (requests=2 lease=1): count-then-read races the swap's src
+  //     attachment. Same hardening P1 gave its FETCH checks: wait on the
+  //     ELEMENT's lease param itself (the attachment IS the swap's visible
+  //     effect) via waitForFunction, then assert the outcome. Budget stays
+  //     25s (the counter poll's 50×500ms) — this poll spans the full wait
+  //     for the 2nd attach, not just the count catch-up.
   {
-    let swaps = 0;
-    for (let i = 0; i < 50; i++) {
-      await page.waitForTimeout(500);
-      swaps = context.__counters.playbackUrl;
-      if (swaps >= 2) break;
-    }
+    let swapAttached = true;
+    try {
+      await page.waitForFunction(
+        () => {
+          const v = document.querySelector('[data-testid="video-element"]');
+          const m = v && v.src ? v.src.match(/lease=(\d+)/) : null;
+          return !!(m && Number(m[1]) >= 2);
+        },
+        null, { timeout: 25_000, polling: 50 },
+      );
+    } catch { swapAttached = false; }
+    const swaps = context.__counters.playbackUrl;
     const after = await page.evaluate(() => {
       const v = document.querySelector('[data-testid="video-element"]');
       return { time: v.currentTime, paused: v.paused, lease: Number((v.src.match(/lease=(\d+)/) || [0, 0])[1]) };
     });
-    const seamless = swaps >= 2 && !after.paused && after.time >= beforeTime - 0.2 && after.lease >= 2;
+    const seamless = swapAttached && swaps >= 2 && !after.paused && after.time >= beforeTime - 0.2 && after.lease >= 2;
     check(
       'silent refresh at ttl-60 (clamped): seamless swap',
       seamless,
