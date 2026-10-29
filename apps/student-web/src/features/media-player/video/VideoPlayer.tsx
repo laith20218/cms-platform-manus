@@ -5,7 +5,7 @@ import Hls, { type ErrorData } from 'hls.js';
 import { toast } from 'sonner';
 import { LoaderCircle, MonitorPlay, Play, RotateCcw } from 'lucide-react';
 import { cn, getOrCreateInstallationId } from '@/utils';
-import { useMediaLease } from '../hooks/useMediaLease';
+import { useMediaLease, isElementSwapReady, type SwapContext } from '../hooks/useMediaLease';
 import { mediaApi, type MediaAssetType } from '../services/media-api';
 import { favoritesApi } from '@/features/favorites/api';
 import { usePlayerShell } from '../shell-context';
@@ -31,7 +31,8 @@ import { ControlsBar } from './ControlsBar';
  *   1. The proxy master URL is a STABLE string — a silent lease refresh would never
  *      re-run the loadSource effect on URL identity alone, yet the variant MUST be
  *      re-fetched to mint fresh presigned segments before the old ones lapse. The
- *      hls effect is therefore keyed on the lease `generation` as well.
+ *      swap path therefore re-runs loadSource on EVERY lease swap, never on
+ *      URL identity (see handleSwapStart).
  *   2. B2 answers an expired presign with 401/403 and NO CORS headers (measured
  *      live, PART B) — the browser surfaces that to hls.js as an opaque
  *      NETWORK_ERROR, so recovery is status-agnostic: any fatal network error
@@ -151,17 +152,35 @@ export default function VideoPlayer({
   const shell = usePlayerShell();
   const queryClient = useQueryClient();
 
+  /* ============ lease lifecycle (P1 contract: swap-driven element control) ============
+   *
+   * The hook owns WHEN a swap happens and WHAT state is restored; this
+   * component owns the ELEMENT: onSwapStart assigns the fresh src (or
+   * re-runs hls.loadSource), ackSwap fires once the element is swap-ready
+   * (isElementSwapReady — element-level readiness, never MANIFEST_PARSED),
+   * and the hook applies the captured restore at ack. The JSX never binds
+   * `src` — the element is driven exclusively by the lifecycle (initial
+   * loads included). */
+  const ackSwapRef = useRef<((swapId: number) => void) | null>(null);
+  const swapWatchRef = useRef<{ swapId: number; cancel: () => void } | null>(null);
+
   const {
     info,
     loading,
     error: leaseError,
     refreshing,
-    generation,
-    fetchUrl,
-    pendingTimeRef,
-    wasPlayingRef,
-    resetPending,
-  } = useMediaLease({ assetType, assetId, mediaRef: videoRef });
+    ackSwap,
+    isSwapActive,
+    refresh,
+  } = useMediaLease({
+    assetType,
+    assetId,
+    mediaRef: videoRef,
+    onSwapStart: (ctx) => handleSwapStart(ctx),
+    onSwapComplete: () => handleSwapComplete(),
+    onSwapError: () => handleSwapError(),
+  });
+  ackSwapRef.current = ackSwap;
 
   // Push 11.3 — whole-episode favorite (player star button, product decision #1).
   // Server truth arrives on the lease info (PlaybackUrlInfo.isFavorite); the override
@@ -230,13 +249,20 @@ export default function VideoPlayer({
   const rippleClearTimerRef = useRef<number | null>(null);
   const lastMediaErrorAtRef = useRef(0);
   const rateRef = useRef(1);
-  const savedGenerationRef = useRef(0);
 
   /* ============ progress: save pipeline ============ */
 
-  const saveProgress = useCallback((mode: 'interval' | 'pause' | 'final') => {
-    const position = mode === 'final' ? lastPositionRef.current : videoRef.current?.currentTime ?? lastPositionRef.current;
-    const dur = mode === 'final' ? lastDurationRef.current : (videoRef.current?.duration ?? lastDurationRef.current);
+  const saveProgress = useCallback((mode: 'interval' | 'pause' | 'final', override?: { position: number; duration: number }) => {
+    const position = override
+      ? override.position
+      : mode === 'final'
+        ? lastPositionRef.current
+        : videoRef.current?.currentTime ?? lastPositionRef.current;
+    const dur = override
+      ? override.duration
+      : mode === 'final'
+        ? lastDurationRef.current
+        : (videoRef.current?.duration ?? lastDurationRef.current);
     if (!Number.isFinite(position) || position <= 0) return;
     if (mode === 'final') {
       mediaApi.upsertProgressKeepalive(assetType, assetId, position, dur && Number.isFinite(dur) ? Math.round(dur) : null);
@@ -266,13 +292,12 @@ export default function VideoPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saveProgress]);
 
-  // Also checkpoint right before a lease swap steals the element's state.
-  useEffect(() => {
-    if (generation > savedGenerationRef.current) {
-      savedGenerationRef.current = generation;
-      saveProgress('pause');
-    }
-  }, [generation, saveProgress]);
+  // Also checkpoint right before a lease swap steals the element's state —
+  // DF-9: the pre-swap checkpoint moved INTO onSwapStart, driven by
+  // ctx.previousState (deterministic). The old generation-keyed effect ran
+  // POST-COMMIT — after React had already swapped the src attribute, so the
+  // checkpoint read an element that could already be resetting. The
+  // savedGenerationRef bookkeeping is gone entirely.
 
   // Initial progress fetch → resume position (applied at loadedmetadata, or
   // immediately if metadata had already loaded before the response landed).
@@ -301,22 +326,19 @@ export default function VideoPlayer({
       setDuration(video.duration);
       lastDurationRef.current = video.duration;
     }
-    // playbackRate resets on every src swap — re-apply before restoring play.
+    // DF-10: INITIAL-load duties only — the swap restore is hook-owned
+    // (applied at ackSwap). playbackRate resets on every src swap, so it is
+    // re-asserted here too (a swap's loadedmetadata fires pre-ack; the
+    // hook's restore re-applies the same values — idempotent).
     video.playbackRate = rateRef.current;
     video.volume = volume;
     video.muted = muted;
 
-    if (pendingTimeRef.current != null) {
-      // Lease swap: restore timestamp + play state — the student never notices.
-      try { video.currentTime = pendingTimeRef.current; } catch { /* engine refused the seek */ }
-      if (wasPlayingRef.current) safePlay(video);
-      resetPending();
-    } else if (resumeRef.current != null) {
+    if (resumeRef.current != null) {
       try { video.currentTime = resumeRef.current; } catch { /* ignore */ }
       resumeRef.current = null;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingTimeRef, wasPlayingRef, resetPending, volume, muted]);
+  }, [volume, muted]);
 
   const handleMediaError = useCallback(() => {
     // An expired/403 URL usually surfaces as a media error just after the
@@ -328,12 +350,12 @@ export default function VideoPlayer({
       return;
     }
     lastMediaErrorAtRef.current = now;
-    void fetchUrl({ preserveTime: true, reason: 'error' });
-  }, [fetchUrl]);
+    refresh('error');
+  }, [refresh]);
 
   // The hls.js error listener attaches once (instance creation) but must
-  // always see the *latest* refresh handler — fetchUrl's identity changes
-  // with every lease generation.
+  // always see the *latest* refresh handler — refresh's identity changes
+  // with every lease asset.
   const handleMediaErrorRef = useRef(handleMediaError);
   useEffect(() => {
     handleMediaErrorRef.current = handleMediaError;
@@ -346,12 +368,12 @@ export default function VideoPlayer({
    * and NO CORS headers — the browser surfaces that to hls.js as an opaque
    * NETWORK_ERROR (status 0), so there is no readable HTTP status to branch on.
    * Recovery is therefore status-agnostic: reload the ladder from a fresh
-   * playback-url swap. fetchUrl({preserveTime}) captures currentTime + play
-   * state, calls playback-url (auth headers ride the axios interceptors), and
-   * bumps the lease generation — the generation-keyed hls effect below re-runs
-   * loadSource(master) → MANIFEST_PARSED → startLoad(savedTime) → the fresh
-   * variant mints new presigned segment URLs, and onLoadedMetadata restores the
-   * playhead + play state. The «جاري تجديد الرابط…» overlay rides `refreshing`.
+   * playback-url swap. refresh('error') mints the new lease; the hook
+   * captures the element state AT THE SWAP MOMENT and drives the lifecycle:
+   * onSwapStart re-runs hls.loadSource(master) → MANIFEST_PARSED →
+   * startLoad(capturedTime) → the fresh variant mints new presigned segment
+   * URLs, and the hook's restore (at ackSwap) re-seeks + replays. The
+   * «جاري تجديد الرابط…» overlay rides `refreshing`.
    *
    * The 5s anti-hammer guard (shared with the native path's throttle) keeps a
    * persistently-failing ladder from looping: a second failure within 5s of the
@@ -364,8 +386,8 @@ export default function VideoPlayer({
       return;
     }
     lastMediaErrorAtRef.current = now;
-    void fetchUrl({ preserveTime: true, reason: 'error' });
-  }, [fetchUrl]);
+    refresh('error');
+  }, [refresh]);
 
   // Same identity-stability pattern as handleMediaErrorRef: the hls instance is
   // created once, its error listener must call the LATEST refresh trigger.
@@ -376,78 +398,164 @@ export default function VideoPlayer({
 
   /* ============ hls.js engine (`.m3u8` playback URLs only) ============ */
 
-  // attach/load — runs on every playback URL change AND every silent lease swap
-  // (the generation key). Option C depends on the generation key: the proxy master
-  // URL is a STABLE string, so URL identity alone would never re-run this effect —
-  // yet every refresh must re-fetch the variant playlist to mint fresh presigned
-  // segment URLs before the old ones lapse (TTL 540s). Native mode keeps the plain
-  // `src` prop path and never spins up an instance; an engine flip (never expected
-  // for one asset) destroys it.
-  useEffect(() => {
-    if (!useHlsEngine) {
+  /** Creates the MSE instance once per engine mode (autoStartLoad off — every
+   *  load, initial AND swap, starts explicitly at a position; the error
+   *  listener routes fatal errors through the latest refresh trigger). */
+  const getOrCreateHls = useCallback((video: HTMLVideoElement): Hls => {
+    let hls = hlsRef.current;
+    if (hls) return hls;
+    hls = new Hls({
+      enableWorker: true,
+      maxBufferLength: 30,
+      autoStartLoad: false,
+      xhrSetup: attachApiAuthHeaders,
+    });
+    hlsRef.current = hls;
+    hls.attachMedia(video);
+    hls.on(Hls.Events.ERROR, (_event, data: ErrorData) => {
+      if (!data.fatal) return; // hls.js already retried/absorbed it.
+      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        hlsRef.current?.recoverMediaError();
+        return;
+      }
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        // Push 11.1-REWRITE (Option C): segments stream direct from B2 via
+        // presigned URLs, and an expired signature answers 401/403 WITHOUT
+        // CORS headers — hls.js reports an opaque network failure with no
+        // readable status. The refresh trigger is therefore status-agnostic
+        // (never 401-specific): reload the ladder, re-fetch the variant,
+        // resume at the preserved playhead.
+        triggerSilentRefreshRef.current();
+        return;
+      }
       hlsRef.current?.destroy();
       hlsRef.current = null;
-      return;
-    }
-    const video = videoRef.current;
-    if (!video || !playbackUrl) return;
-
-    let hls = hlsRef.current;
-    if (!hls) {
-      // autoStartLoad stays off: every load (initial + silent swaps) starts
-      // explicitly from the captured playhead via startLoad(position), so a
-      // lease refresh never re-buffers from zero.
-      // Push 11.1 — xhrSetup: proxy-route requests carry the session auth
-      // headers (see attachApiAuthHeaders); presigned storage URLs stay bare.
-      hls = new Hls({
-        enableWorker: true,
-        maxBufferLength: 30,
-        autoStartLoad: false,
-        xhrSetup: attachApiAuthHeaders,
-      });
-      hlsRef.current = hls;
-      hls.attachMedia(video);
-      hls.on(Hls.Events.ERROR, (_event, data: ErrorData) => {
-        if (!data.fatal) return; // hls.js already retried/absorbed it.
-        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-          hlsRef.current?.recoverMediaError();
-          return;
-        }
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          // Push 11.1-REWRITE (Option C): segments stream direct from B2 via
-          // presigned URLs, and an expired signature answers 401/403 WITHOUT
-          // CORS headers — hls.js reports an opaque network failure with no
-          // readable status. The refresh trigger is therefore status-agnostic
-          // (never 401-specific): reload the ladder, re-fetch the variant,
-          // resume at the preserved playhead.
-          triggerSilentRefreshRef.current();
-          return;
-        }
-        hlsRef.current?.destroy();
-        hlsRef.current = null;
-        setFatalError('تعذّر تشغيل البث. حاول إعادة التحميل.');
-      });
-    }
-
-    // Silent-refresh swap: buffer the fresh manifest straight at the captured
-    // playhead (loadedmetadata restores it again — the safety net for engines
-    // that ignore the start position).
-    const resumeAt = pendingTimeRef.current != null && pendingTimeRef.current > 0 ? pendingTimeRef.current : -1;
-    hls.once(Hls.Events.MANIFEST_PARSED, () => {
-      hlsRef.current?.startLoad(resumeAt);
+      setFatalError('تعذّر تشغيل البث. حاول إعادة التحميل.');
     });
-    hls.loadSource(playbackUrl);
-    // refs-only contract: pendingTimeRef/videoRef are stable; the refresh
-    // triggers are read through their refs — re-running on identity churn
-    // would double-load.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playbackUrl, useHlsEngine, generation]);
+    return hls;
+  }, []);
 
-  // Unmount → release the MSE instance (and its SourceBuffers).
+  /** Cancels the active swap-readiness watcher (DF-6 cleanup duty). */
+  const cancelSwapWatch = useCallback(() => {
+    swapWatchRef.current?.cancel();
+    swapWatchRef.current = null;
+  }, []);
+
+  /** Acks the swap once the ELEMENT is swap-ready (seekable + metadata —
+   *  never MANIFEST_PARSED). The hook's ack deadline is the backstop if
+   *  readiness never arrives. */
+  const watchSwapReadiness = useCallback((video: HTMLVideoElement, swapId: number) => {
+    cancelSwapWatch();
+    const events = ['loadedmetadata', 'loadeddata', 'canplay', 'canplaythrough', 'progress', 'durationchange'] as const;
+    const check = () => {
+      if (!isElementSwapReady(video)) return;
+      cleanup();
+      if (swapWatchRef.current?.swapId === swapId) swapWatchRef.current = null;
+      ackSwapRef.current?.(swapId);
+    };
+    const cleanup = () => {
+      for (const ev of events) video.removeEventListener(ev, check);
+    };
+    for (const ev of events) video.addEventListener(ev, check);
+    swapWatchRef.current = { swapId, cancel: cleanup };
+    check(); // already ready (cached element)?
+  }, [cancelSwapWatch]);
+
+  // The initial (and asset-change) load: info with swapId === null is exactly
+  // a load delivered WITHOUT the swap lifecycle — assign the src / run the
+  // first loadSource. Guarded by lastInitialUrl so identity churn on `info`
+  // can never double-load.
+  const lastInitialUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!info || info.swapId !== null) return;
+    if (lastInitialUrlRef.current === info.url) return;
+    const video = videoRef.current;
+    if (!video) return;
+    lastInitialUrlRef.current = info.url;
+    // DF-4/DF-6: an asset change silently terminal-clears an in-flight swap
+    // (the hook emits nothing for it) — clear this side's instrumentation.
+    cancelSwapWatch();
+    video.removeAttribute('data-swap-in-flight');
+    if (isHlsUrl(info.url) && Hls.isSupported()) {
+      const hls = getOrCreateHls(video);
+      // Initial: resume applies at loadedmetadata (the progress response may
+      // land before or after metadata — the existing resumeRef path covers
+      // both); startLoad(-1) lets hls pick the default start position.
+      hls.once(Hls.Events.MANIFEST_PARSED, () => { hlsRef.current?.startLoad(-1); });
+      hls.loadSource(info.url);
+    } else {
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+      video.src = info.url; // the media load algorithm runs on assignment
+    }
+  }, [info, getOrCreateHls, cancelSwapWatch]);
+
+  /** The swap lifecycle handlers — ctx-driven ONLY (OPEN-7): the state
+   *  updates of the swap turn commit AFTER these run, so nothing here may
+   *  read render state for swap decisions. */
+  function handleSwapStart(ctx: SwapContext) {
+    const video = videoRef.current;
+    // DF-9: the pre-swap checkpoint, deterministic — the state that was in
+    // effect at the swap moment (captured by the hook this same turn).
+    saveProgress('pause', {
+      position: ctx.previousState.currentTime,
+      duration: ctx.previousState.duration,
+    });
+    if (!video) return;
+    // OPEN-11: swap instrumentation, set IMPERATIVELY (never JSX-bound —
+    // render state lags the protocol by a commit).
+    video.setAttribute('data-swap-in-flight', String(ctx.swapId));
+    if (isHlsUrl(ctx.newUrl) && Hls.isSupported()) {
+      // An src attribute would fight MSE — detach first (engine-flip safety).
+      if (video.getAttribute('src') !== null) video.removeAttribute('src');
+      const hls = getOrCreateHls(video);
+      // Buffer the fresh manifest straight at the captured playhead; the
+      // hook's restore at ack re-seeks authoritatively.
+      const startAt = ctx.previousState.ended ? 0 : ctx.previousState.currentTime;
+      hls.once(Hls.Events.MANIFEST_PARSED, () => { hlsRef.current?.startLoad(startAt); });
+      // Option C: the proxy master URL is a STABLE string — URL identity is
+      // never a valid skip condition; every swap re-fetches the variant to
+      // mint fresh presigned segment URLs before the old ones lapse.
+      hls.loadSource(ctx.newUrl);
+      watchSwapReadiness(video, ctx.swapId);
+    } else {
+      // Native (mp4, or Safari's native HLS): a stray MSE instance must go.
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+      video.src = ctx.newUrl;
+      video.load(); // explicit: a same-URL reassignment must still reload
+      watchSwapReadiness(video, ctx.swapId);
+    }
+  }
+
+  function handleSwapComplete() {
+    // The hook applied the restore at ack; clear the instrumentation.
+    videoRef.current?.removeAttribute('data-swap-in-flight');
+  }
+
+  function handleSwapError() {
+    // DF-6 cleanup duty: detach OUR readiness listeners for the failed swap.
+    // A late ack is a warn-no-op inside the hook.
+    cancelSwapWatch();
+    videoRef.current?.removeAttribute('data-swap-in-flight');
+    // No URL rollback — the new lease is valid, the swap failed to complete.
+    // Surface the retry UI (the existing fatal card); its retry button mints
+    // a fresh lease through refresh('manual').
+    setFatalError('تعذّر تجديد رابط التشغيل. حاول إعادة المحاولة.');
+  }
+
+  // Engine-off safety net: an MSE instance must never outlive HLS mode.
+  useEffect(() => {
+    if (!useHlsEngine && hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+  }, [useHlsEngine]);
+
+  // Unmount → release the MSE instance (and its SourceBuffers) + the watcher.
   useEffect(() => () => {
+    cancelSwapWatch();
     hlsRef.current?.destroy();
     hlsRef.current = null;
-  }, []);
+  }, [cancelSwapWatch]);
 
   /* ============ volume / mute wiring (state → element) ============ */
 
@@ -649,11 +757,12 @@ export default function VideoPlayer({
       )}
       style={{ boxShadow: '0 24px 64px rgba(2, 6, 23, 0.5)' }}
     >
-      {/* Media element — native controls hidden (custom bar below). In HLS
-          mode the element carries no `src`; hls.js feeds it through MSE. */}
+      {/* Media element — native controls hidden (custom bar below). The
+          src is NEVER bound in JSX (P1/C6): initial loads assign it in the
+          initial-load effect, swaps inside onSwapStart; in HLS mode hls.js
+          feeds the element through MSE instead. */}
       <video
         ref={videoRef}
-        src={useHlsEngine ? undefined : info?.url}
         poster={posterUrl}
         preload="auto"
         playsInline
@@ -667,7 +776,12 @@ export default function VideoPlayer({
         onTimeUpdate={(e) => {
           const video = e.currentTarget;
           setCurrentTime(video.currentTime);
-          lastPositionRef.current = video.currentTime;
+          // N16/B4 zero-poison gate: a mid-swap timeupdate reports readyState
+          // 0 and currentTime 0 — only trust the position when the element
+          // has current data AND no swap is active.
+          if (!isSwapActive() && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            lastPositionRef.current = video.currentTime;
+          }
           updateBuffered();
         }}
         onDurationChange={(e) => {
@@ -710,10 +824,10 @@ export default function VideoPlayer({
         {showError && (
           <div className="pointer-events-auto flex flex-col items-center gap-4 px-6 text-center text-white/85">
             <MonitorPlay className="h-10 w-10" strokeWidth={1.5} />
-            <p className="text-sm">{leaseError}</p>
+            <p className="text-sm">{leaseError?.message}</p>
             <button
               type="button"
-              onClick={() => void fetchUrl({ preserveTime: false, reason: 'manual' })}
+              onClick={() => refresh()}
               data-testid="video-retry"
               className="press inline-flex min-h-11 items-center gap-2 rounded-2xl bg-teal-500 px-5 py-2 text-sm font-bold text-[#0b1120] transition-colors hover:bg-teal-400"
             >
@@ -727,7 +841,7 @@ export default function VideoPlayer({
             <p className="text-sm">{fatalError}</p>
             <button
               type="button"
-              onClick={() => { setFatalError(null); void fetchUrl({ preserveTime: true, reason: 'manual' }); }}
+              onClick={() => { setFatalError(null); refresh('manual'); }}
               className="press inline-flex min-h-11 items-center gap-2 rounded-2xl bg-teal-500 px-5 py-2 text-sm font-bold text-[#0b1120] transition-colors hover:bg-teal-400"
             >
               <RotateCcw className="h-4 w-4" strokeWidth={2} /> إعادة المحاولة
