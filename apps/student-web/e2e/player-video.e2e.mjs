@@ -57,6 +57,49 @@ function check(name, ok, extra = '') {
 
 const consoleErrors = [];
 
+/** Commit 7 scratch (11.7.x/P2 sweep): the desktop + mobile base flow runs
+ *  under a CONTINUOUS lease-swap cascade (base mock ttl=8 → a swap every
+ *  ~3s, forever). Any raw one-shot element read can land mid-swap — on the
+ *  torn-down/reset element — and poison the assertion (base-17 #5, CI run
+ *  40824944242 attempt 3; #10 t0=0.0, local runs 3/5 after Commit 6's
+ *  phase shift). Reads ONLY at provable swap-settle: refreshing overlay
+ *  gone, data-swap-in-flight clear (P1 instrumentation: set imperatively
+ *  in onSwapStart, cleared at every terminal), readyState>=1, playhead
+ *  past the resume baseline (a fresh attach sits at 0 until the restore
+ *  seeks), and the lease= param unchanged across two consecutive reads
+ *  (guards the attach instant itself). Bounded to one cascade period
+ *  (3s); on timeout returns the last snapshot so assertions fail
+ *  honestly. The W harness does NOT use this — its reads are
+ *  orchestration-protected (ttl=68, single delayed swap, 8s to next). */
+async function readSettledVideo(page, { timeoutMs = 3_000 } = {}) {
+  const snap = () => page.evaluate(() => {
+    const v = document.querySelector('[data-testid="video-element"]');
+    if (!v) return null;
+    const m = v.src ? v.src.match(/lease=(\d+)/) : null;
+    return {
+      time: v.currentTime, paused: v.paused, ready: v.readyState,
+      muted: v.muted, rate: v.playbackRate,
+      lease: m ? Number(m[1]) : 0,
+      overlay: !!document.querySelector('[data-testid="video-refreshing"]'),
+      swapAttr: v.getAttribute('data-swap-in-flight') !== null,
+    };
+  });
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  let prev = null;
+  while (Date.now() < deadline) {
+    last = await snap();
+    if (
+      last && prev && !last.overlay && !last.swapAttr && last.ready >= 1 &&
+      last.time > 0 && last.lease > 0 && last.lease === prev.lease
+    ) return last;
+    prev = last;
+    await page.waitForTimeout(60);
+  }
+  return last ?? prev ??
+    { time: -1, paused: true, ready: 0, muted: false, rate: 0, lease: 0, overlay: true, swapAttr: true };
+}
+
 async function newStudentContext(browser, viewport) {
   // hasTouch: the double-tap zones are exercised with touchscreen.tap on
   // both form factors (touch pointer events drive the ±10s logic).
@@ -221,7 +264,7 @@ try {
   );
   check('center play button starts real playback', true);
 
-  const beforeTime = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+  const beforeTime = (await readSettledVideo(page)).time;
 
   // 4 — SILENT REFRESH: ttl=8s → clamp → refresh at ~3s; the new URL keeps
   //     playing at the same timestamp (seamless swap). Short TTLs cascade a
@@ -249,10 +292,7 @@ try {
       );
     } catch { swapAttached = false; }
     const swaps = context.__counters.playbackUrl;
-    const after = await page.evaluate(() => {
-      const v = document.querySelector('[data-testid="video-element"]');
-      return { time: v.currentTime, paused: v.paused, lease: Number((v.src.match(/lease=(\d+)/) || [0, 0])[1]) };
-    });
+    const after = await readSettledVideo(page);
     const seamless = swapAttached && swaps >= 2 && !after.paused && after.time >= beforeTime - 0.2 && after.lease >= 2;
     check(
       'silent refresh at ttl-60 (clamped): seamless swap',
@@ -274,30 +314,49 @@ try {
   await page.waitForFunction(() => !document.querySelector('[data-testid="video-element"]').paused, null, { timeout: 5_000 });
 
   // 6 — Keyboard seek on the player region (Space/K/J/L/M/F + arrows).
-  const tBefore = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+  const tBefore = (await readSettledVideo(page)).time;
   await page.getByTestId('course-episode-player').focus();
   await page.keyboard.press('ArrowRight');
-  const tAfter = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+  const tAfter = (await readSettledVideo(page)).time;
   check('keyboard: ArrowRight on the player region seeks +5s', tAfter - tBefore >= 4 && tAfter - tBefore <= 6.5,
     `${tBefore.toFixed(1)}→${tAfter.toFixed(1)}`);
 
   // 7 — Buffer indicator present and non-zero (real buffered ranges — the
-  //     local file buffers instantly after the seek above).
+  //     local file buffers instantly after the seek above). Commit 7: settle
+  //     around the fixed sleep — a swap landing mid-sleep resets the bar.
+  await readSettledVideo(page);
   await page.waitForTimeout(700);
+  await readSettledVideo(page);
   const bufferWidth = await page.getByTestId('video-buffer-fill').evaluate((el) => parseFloat(el.style.width));
   check('buffer indicator reflects real buffered data', bufferWidth > 0, `width=${bufferWidth}%`);
 
   // 8 — Volume: mute/unmute.
-  await page.getByTestId('video-mute').click();
-  let muted = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').muted);
-  await page.getByTestId('video-mute').click();
-  const unmuted = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').muted);
+  // Commit 7: mute is NOT queue-protected (A10 adjacent debt — the restore
+  // reverts it from previousState), so a swap landing inside the click→read
+  // pair can honestly revert the toggle. Settle before each click, read
+  // settled, and retry the pair when a mid-pair swap reverted it.
+  let muted = false;
+  let unmuted = true;
+  for (let attempt = 0; attempt < 3 && !(muted === true && unmuted === false); attempt++) {
+    await readSettledVideo(page);
+    await page.getByTestId('video-mute').click();
+    muted = (await readSettledVideo(page)).muted;
+    await page.getByTestId('video-mute').click();
+    unmuted = (await readSettledVideo(page)).muted;
+  }
   check('mute/unmute toggles video.muted', muted === true && unmuted === false);
 
   // 9 — Speed selector: open Radix Select, pick 1.5×.
-  await page.getByTestId('video-rate-trigger').click();
-  await page.getByTestId('video-rate-option-1-5').click();
-  const rate = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').playbackRate);
+  // Commit 7: rate is A10 adjacent debt (restore reverts from previousState)
+  // — same settle + bounded retry as the mute check above. Re-selecting 1.5
+  // is idempotent, so the retry is state-safe.
+  let rate = 0;
+  for (let attempt = 0; attempt < 3 && rate !== 1.5; attempt++) {
+    await readSettledVideo(page);
+    await page.getByTestId('video-rate-trigger').click();
+    await page.getByTestId('video-rate-option-1-5').click();
+    rate = (await readSettledVideo(page)).rate;
+  }
   check('speed selector sets playbackRate=1.5', rate === 1.5, `rate=${rate}`);
 
   // 10 — DOUBLE TAP: left zone −10s with ripple badge.
@@ -314,13 +373,13 @@ try {
     let t1 = 0;
     const zone = page.getByTestId('video-tap-zone-left');
     for (let attempt = 0; attempt < 5 && !rippleVisible; attempt++) {
-      t0 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      t0 = (await readSettledVideo(page)).time; // Commit 7: settled — t0 can no longer read a mid-swap 0
       await zone.tap();
       await page.waitForTimeout(120);
       await zone.tap();
       rippleVisible = await page.getByTestId('video-ripple-left').isVisible().catch(() => false);
       await page.waitForTimeout(400); // let the seek settle
-      t1 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      t1 = (await readSettledVideo(page)).time;
     }
     check('double-tap LEFT: −10s + ripple badge', rippleVisible && t0 - t1 >= 8.5 && t0 - t1 <= 11.5,
       `${t0.toFixed(1)}→${t1.toFixed(1)} ripple=${rippleVisible}`);
@@ -333,13 +392,13 @@ try {
     let t1 = 0;
     const zone = page.getByTestId('video-tap-zone-right');
     for (let attempt = 0; attempt < 5 && !rippleVisible; attempt++) {
-      t0 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      t0 = (await readSettledVideo(page)).time; // Commit 7: settled read
       await zone.tap();
       await page.waitForTimeout(120);
       await zone.tap();
       rippleVisible = await page.getByTestId('video-ripple-right').isVisible().catch(() => false);
       await page.waitForTimeout(400);
-      t1 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      t1 = (await readSettledVideo(page)).time;
     }
     check('double-tap RIGHT: +10s + ripple badge', rippleVisible && t1 - t0 >= 8.5 && t1 - t0 <= 11.5,
       `${t0.toFixed(1)}→${t1.toFixed(1)} ripple=${rippleVisible}`);
@@ -347,7 +406,9 @@ try {
 
   // 12 — Bookmark dialog: defaults seeded from currentTime; submit → POST + toast.
   {
-    const tNow = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    // Commit 7: settled — the dialog seeds its defaults from the element's
+    // currentTime at OPEN, so the click must land in a swap-free moment too.
+    const tNow = (await readSettledVideo(page)).time;
     await page.getByTestId('video-bookmark-button').click();
     await page.getByTestId('bookmark-dialog').waitFor({ state: 'visible', timeout: 5_000 });
     const startVal = await page.getByTestId('bookmark-start').inputValue();
@@ -427,12 +488,12 @@ try {
     let t1 = 0;
     const zone = mPage.getByTestId('video-tap-zone-right');
     for (let attempt = 0; attempt < 5 && !(t1 - t0 >= 8.5); attempt++) {
-      t0 = await mPage.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      t0 = (await readSettledVideo(mPage)).time; // Commit 7: settled read
       await zone.tap();
       await mPage.waitForTimeout(120);
       await zone.tap();
       await mPage.waitForTimeout(400);
-      t1 = await mPage.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      t1 = (await readSettledVideo(mPage)).time;
     }
     check('mobile double-tap RIGHT: +10s', t1 - t0 >= 8.5 && t1 - t0 <= 11.5, `${t0.toFixed(1)}→${t1.toFixed(1)}`);
   }
