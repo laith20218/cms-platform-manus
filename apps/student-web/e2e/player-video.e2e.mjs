@@ -57,6 +57,49 @@ function check(name, ok, extra = '') {
 
 const consoleErrors = [];
 
+/** Commit 7 scratch (11.7.x/P2 sweep): the desktop + mobile base flow runs
+ *  under a CONTINUOUS lease-swap cascade (base mock ttl=8 → a swap every
+ *  ~3s, forever). Any raw one-shot element read can land mid-swap — on the
+ *  torn-down/reset element — and poison the assertion (base-17 #5, CI run
+ *  40824944242 attempt 3; #10 t0=0.0, local runs 3/5 after Commit 6's
+ *  phase shift). Reads ONLY at provable swap-settle: refreshing overlay
+ *  gone, data-swap-in-flight clear (P1 instrumentation: set imperatively
+ *  in onSwapStart, cleared at every terminal), readyState>=1, playhead
+ *  past the resume baseline (a fresh attach sits at 0 until the restore
+ *  seeks), and the lease= param unchanged across two consecutive reads
+ *  (guards the attach instant itself). Bounded to one cascade period
+ *  (3s); on timeout returns the last snapshot so assertions fail
+ *  honestly. The W harness does NOT use this — its reads are
+ *  orchestration-protected (ttl=68, single delayed swap, 8s to next). */
+async function readSettledVideo(page, { timeoutMs = 3_000 } = {}) {
+  const snap = () => page.evaluate(() => {
+    const v = document.querySelector('[data-testid="video-element"]');
+    if (!v) return null;
+    const m = v.src ? v.src.match(/lease=(\d+)/) : null;
+    return {
+      time: v.currentTime, paused: v.paused, ready: v.readyState,
+      muted: v.muted, rate: v.playbackRate,
+      lease: m ? Number(m[1]) : 0,
+      overlay: !!document.querySelector('[data-testid="video-refreshing"]'),
+      swapAttr: v.getAttribute('data-swap-in-flight') !== null,
+    };
+  });
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  let prev = null;
+  while (Date.now() < deadline) {
+    last = await snap();
+    if (
+      last && prev && !last.overlay && !last.swapAttr && last.ready >= 1 &&
+      last.time > 0 && last.lease > 0 && last.lease === prev.lease
+    ) return last;
+    prev = last;
+    await page.waitForTimeout(60);
+  }
+  return last ?? prev ??
+    { time: -1, paused: true, ready: 0, muted: false, rate: 0, lease: 0, overlay: true, swapAttr: true };
+}
+
 async function newStudentContext(browser, viewport) {
   // hasTouch: the double-tap zones are exercised with touchscreen.tap on
   // both form factors (touch pointer events drive the ±10s logic).
@@ -221,24 +264,36 @@ try {
   );
   check('center play button starts real playback', true);
 
-  const beforeTime = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+  const beforeTime = (await readSettledVideo(page)).time;
 
   // 4 — SILENT REFRESH: ttl=8s → clamp → refresh at ~3s; the new URL keeps
   //     playing at the same timestamp (seamless swap). Short TTLs cascade a
   //     swap every ~3s — assert "at least the 2nd lease, still playing, time
   //     never regressed", not an exact lease number.
+  //     Commit 6 (11.7.x/P2 gate, base-17 #5): the original poll counted
+  //     __counters.playbackUrl then read v.src IMMEDIATELY — CI attempt 3
+  //     (run 40824944242) caught the fetch counted before the new src was
+  //     attached (requests=2 lease=1): count-then-read races the swap's src
+  //     attachment. Same hardening P1 gave its FETCH checks: wait on the
+  //     ELEMENT's lease param itself (the attachment IS the swap's visible
+  //     effect) via waitForFunction, then assert the outcome. Budget stays
+  //     25s (the counter poll's 50×500ms) — this poll spans the full wait
+  //     for the 2nd attach, not just the count catch-up.
   {
-    let swaps = 0;
-    for (let i = 0; i < 50; i++) {
-      await page.waitForTimeout(500);
-      swaps = context.__counters.playbackUrl;
-      if (swaps >= 2) break;
-    }
-    const after = await page.evaluate(() => {
-      const v = document.querySelector('[data-testid="video-element"]');
-      return { time: v.currentTime, paused: v.paused, lease: Number((v.src.match(/lease=(\d+)/) || [0, 0])[1]) };
-    });
-    const seamless = swaps >= 2 && !after.paused && after.time >= beforeTime - 0.2 && after.lease >= 2;
+    let swapAttached = true;
+    try {
+      await page.waitForFunction(
+        () => {
+          const v = document.querySelector('[data-testid="video-element"]');
+          const m = v && v.src ? v.src.match(/lease=(\d+)/) : null;
+          return !!(m && Number(m[1]) >= 2);
+        },
+        null, { timeout: 25_000, polling: 50 },
+      );
+    } catch { swapAttached = false; }
+    const swaps = context.__counters.playbackUrl;
+    const after = await readSettledVideo(page);
+    const seamless = swapAttached && swaps >= 2 && !after.paused && after.time >= beforeTime - 0.2 && after.lease >= 2;
     check(
       'silent refresh at ttl-60 (clamped): seamless swap',
       seamless,
@@ -259,30 +314,49 @@ try {
   await page.waitForFunction(() => !document.querySelector('[data-testid="video-element"]').paused, null, { timeout: 5_000 });
 
   // 6 — Keyboard seek on the player region (Space/K/J/L/M/F + arrows).
-  const tBefore = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+  const tBefore = (await readSettledVideo(page)).time;
   await page.getByTestId('course-episode-player').focus();
   await page.keyboard.press('ArrowRight');
-  const tAfter = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+  const tAfter = (await readSettledVideo(page)).time;
   check('keyboard: ArrowRight on the player region seeks +5s', tAfter - tBefore >= 4 && tAfter - tBefore <= 6.5,
     `${tBefore.toFixed(1)}→${tAfter.toFixed(1)}`);
 
   // 7 — Buffer indicator present and non-zero (real buffered ranges — the
-  //     local file buffers instantly after the seek above).
+  //     local file buffers instantly after the seek above). Commit 7: settle
+  //     around the fixed sleep — a swap landing mid-sleep resets the bar.
+  await readSettledVideo(page);
   await page.waitForTimeout(700);
+  await readSettledVideo(page);
   const bufferWidth = await page.getByTestId('video-buffer-fill').evaluate((el) => parseFloat(el.style.width));
   check('buffer indicator reflects real buffered data', bufferWidth > 0, `width=${bufferWidth}%`);
 
   // 8 — Volume: mute/unmute.
-  await page.getByTestId('video-mute').click();
-  let muted = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').muted);
-  await page.getByTestId('video-mute').click();
-  const unmuted = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').muted);
+  // Commit 7: mute is NOT queue-protected (A10 adjacent debt — the restore
+  // reverts it from previousState), so a swap landing inside the click→read
+  // pair can honestly revert the toggle. Settle before each click, read
+  // settled, and retry the pair when a mid-pair swap reverted it.
+  let muted = false;
+  let unmuted = true;
+  for (let attempt = 0; attempt < 3 && !(muted === true && unmuted === false); attempt++) {
+    await readSettledVideo(page);
+    await page.getByTestId('video-mute').click();
+    muted = (await readSettledVideo(page)).muted;
+    await page.getByTestId('video-mute').click();
+    unmuted = (await readSettledVideo(page)).muted;
+  }
   check('mute/unmute toggles video.muted', muted === true && unmuted === false);
 
   // 9 — Speed selector: open Radix Select, pick 1.5×.
-  await page.getByTestId('video-rate-trigger').click();
-  await page.getByTestId('video-rate-option-1-5').click();
-  const rate = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').playbackRate);
+  // Commit 7: rate is A10 adjacent debt (restore reverts from previousState)
+  // — same settle + bounded retry as the mute check above. Re-selecting 1.5
+  // is idempotent, so the retry is state-safe.
+  let rate = 0;
+  for (let attempt = 0; attempt < 3 && rate !== 1.5; attempt++) {
+    await readSettledVideo(page);
+    await page.getByTestId('video-rate-trigger').click();
+    await page.getByTestId('video-rate-option-1-5').click();
+    rate = (await readSettledVideo(page)).rate;
+  }
   check('speed selector sets playbackRate=1.5', rate === 1.5, `rate=${rate}`);
 
   // 10 — DOUBLE TAP: left zone −10s with ripple badge.
@@ -299,13 +373,13 @@ try {
     let t1 = 0;
     const zone = page.getByTestId('video-tap-zone-left');
     for (let attempt = 0; attempt < 5 && !rippleVisible; attempt++) {
-      t0 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      t0 = (await readSettledVideo(page)).time; // Commit 7: settled — t0 can no longer read a mid-swap 0
       await zone.tap();
       await page.waitForTimeout(120);
       await zone.tap();
       rippleVisible = await page.getByTestId('video-ripple-left').isVisible().catch(() => false);
       await page.waitForTimeout(400); // let the seek settle
-      t1 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      t1 = (await readSettledVideo(page)).time;
     }
     check('double-tap LEFT: −10s + ripple badge', rippleVisible && t0 - t1 >= 8.5 && t0 - t1 <= 11.5,
       `${t0.toFixed(1)}→${t1.toFixed(1)} ripple=${rippleVisible}`);
@@ -318,13 +392,13 @@ try {
     let t1 = 0;
     const zone = page.getByTestId('video-tap-zone-right');
     for (let attempt = 0; attempt < 5 && !rippleVisible; attempt++) {
-      t0 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      t0 = (await readSettledVideo(page)).time; // Commit 7: settled read
       await zone.tap();
       await page.waitForTimeout(120);
       await zone.tap();
       rippleVisible = await page.getByTestId('video-ripple-right').isVisible().catch(() => false);
       await page.waitForTimeout(400);
-      t1 = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      t1 = (await readSettledVideo(page)).time;
     }
     check('double-tap RIGHT: +10s + ripple badge', rippleVisible && t1 - t0 >= 8.5 && t1 - t0 <= 11.5,
       `${t0.toFixed(1)}→${t1.toFixed(1)} ripple=${rippleVisible}`);
@@ -332,7 +406,9 @@ try {
 
   // 12 — Bookmark dialog: defaults seeded from currentTime; submit → POST + toast.
   {
-    const tNow = await page.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+    // Commit 7: settled — the dialog seeds its defaults from the element's
+    // currentTime at OPEN, so the click must land in a swap-free moment too.
+    const tNow = (await readSettledVideo(page)).time;
     await page.getByTestId('video-bookmark-button').click();
     await page.getByTestId('bookmark-dialog').waitFor({ state: 'visible', timeout: 5_000 });
     const startVal = await page.getByTestId('bookmark-start').inputValue();
@@ -412,12 +488,12 @@ try {
     let t1 = 0;
     const zone = mPage.getByTestId('video-tap-zone-right');
     for (let attempt = 0; attempt < 5 && !(t1 - t0 >= 8.5); attempt++) {
-      t0 = await mPage.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      t0 = (await readSettledVideo(mPage)).time; // Commit 7: settled read
       await zone.tap();
       await mPage.waitForTimeout(120);
       await zone.tap();
       await mPage.waitForTimeout(400);
-      t1 = await mPage.evaluate(() => document.querySelector('[data-testid="video-element"]').currentTime);
+      t1 = (await readSettledVideo(mPage)).time;
     }
     check('mobile double-tap RIGHT: +10s', t1 - t0 >= 8.5 && t1 - t0 <= 11.5, `${t0.toFixed(1)}→${t1.toFixed(1)}`);
   }
@@ -453,8 +529,12 @@ try {
    * the P1 rewrite (P1: refreshing spans fetch + SWAPPING + RESTORING), so it
    * is the cross-codebase FETCH-window signal the specs poll. The
    * data-swap-in-flight attribute (P1 instrumentation, set imperatively in
-   * onSwapStart, cleared at every terminal) is asserted ABSENT after settle;
-   * P2's SWAPPING-phase intent specs will poll it mid-flight.
+   * onSwapStart, cleared at every terminal) is asserted ABSENT after settle
+   * — and, since P2 landed, polled PRESENT mid-flight: the SWAPPING-phase
+   * specs (W1s/W7a/W7b at the bottom of this block) aim the user's intent
+   * between onSwapStart and the element's readiness (the media response is
+   * route-held for SWAPPING_MEDIA_DELAY_MS, so the consumer cannot ack and
+   * the swap lifecycle is deterministically mid-SWAPPING).
    *
    * RED evidence: run against main 5168f37 (P0 hook) before the P1 rewrite —
    * each spec fails exactly as its window predicts (per-window excerpts in the
@@ -463,6 +543,10 @@ try {
   {
     const LEASE_FETCH_DELAY_MS = 2_000;
     const W2_MEDIA_DELAY_MS = 800;
+    /** P2: widens SWAPPING (not FETCH) — the swapped media response is held
+     *  this long, so onSwapStart has fired (attr set) but the element cannot
+     *  become ready and ack. Comfortably inside the 5s ack deadline. */
+    const SWAPPING_MEDIA_DELAY_MS = 1_500;
     const SETTLE_GRACE_MS = 2_000;
 
     const readVideo = (page) => page.evaluate(() => {
@@ -478,6 +562,18 @@ try {
         return wantVisible ? !!el : !el;
       },
       visible, { timeout },
+    );
+
+    /** P2: polls the imperative swap instrumentation MID-FLIGHT —
+     *  data-swap-in-flight is set in onSwapStart (SWAPPING begins) and
+     *  cleared at every terminal. present=true resolves the moment the
+     *  swap lifecycle is deterministically inside SWAPPING. */
+    const swapAttrVisible = (page, present, timeout) => page.waitForFunction(
+      (want) => {
+        const v = document.querySelector('[data-testid="video-element"]');
+        return want === (v ? v.getAttribute('data-swap-in-flight') !== null : false);
+      },
+      present, { timeout },
     );
 
     /** The race scenarios' OWN playback-url mock (shadows the base one): every
@@ -520,11 +616,13 @@ try {
 
     /** W2: holds the swapped media response (the delayed refresh's lease) so
      *  the load lands while the play has already resolved on the old URL.
-     *  Other media requests pass straight through to vite's static file. */
-    const delaySwappedMedia = (context, state) => context.route(`${VIDEO_URL}*`, async (route) => {
+     *  Other media requests pass straight through to vite's static file.
+     *  P2: delayMs parametrized — the SWAPPING-phase specs hold it longer
+     *  (SWAPPING_MEDIA_DELAY_MS) to widen the swap window. */
+    const delaySwappedMedia = (context, state, delayMs = W2_MEDIA_DELAY_MS) => context.route(`${VIDEO_URL}*`, async (route) => {
       if (state.refreshLease && route.request().url().includes(`lease=${state.refreshLease}`)) {
         const response = await route.fetch();
-        await new Promise((r) => setTimeout(r, W2_MEDIA_DELAY_MS));
+        await new Promise((r) => setTimeout(r, delayMs));
         await route.fulfill({ response });
       } else {
         await route.fallback();
@@ -685,6 +783,110 @@ try {
         'W7 — seek during FETCH survives the swap (no seek revert)',
         finalState.time >= 55 && Math.abs(finalState.time - seekedTo.time) <= 8 && finalState.swapAttr === null,
         `seekedTo=${seekedTo.time.toFixed(1)}s final=${finalState.time.toFixed(1)}s paused=${finalState.paused} swapAttr=${finalState.swapAttr}`,
+      );
+    });
+
+    /* ============ Wave 11.7.x / P2 — SWAPPING-phase intent windows ============
+     *
+     * The residual window P1 left open: intent issued AFTER onSwapStart (the
+     * element is torn down mid-load on the fresh URL) and BEFORE the restore.
+     * Aim: swapAttrVisible(true) — the imperative instrumentation set in
+     * onSwapStart — then the intent; the media response is route-held
+     * (SWAPPING_MEDIA_DELAY_MS), so the consumer cannot ack and the swap is
+     * deterministically mid-SWAPPING when the intent lands.
+     *
+     * Honest red-first classification (per the P2 review's F1/F2 analysis):
+     *  - W7a RED on P1: the consumer classifier reads el.paused of the
+     *    torn-down element (paused=true after the fresh load) and issues
+     *    PLAY — the ghost un-pause, intent inverted before any queue could
+     *    help. P2's togglePlay classifies against the capture (playing → the
+     *    user's toggle is PAUSE) and the restore replays it.
+     *  - W7b RED on P1: the consumer seekBy computes el.currentTime + delta
+     *    on the reset element and its duration guard drops the intent
+     *    entirely (mid-load duration is NaN) — the seek revert. P2's seekBy
+     *    accumulates from the CAPTURE base and the restore lands it.
+     *  - W1s GREEN-BY-PASSTHROUGH on P1 (documented as such, kept as a
+     *    permanent guard): the reset already happened at onSwapStart, the
+     *    user's play() lands on the mid-load element and survives, and the
+     *    restore never pauses — an accident P2 converts into a guarantee
+     *    via the queue replay.
+     */
+    await runRaceScenario('W1s — play during SWAPPING survives the swap (dead tap, queue form)', async (context, page, state) => {
+      await raceLeaseRoute(context, state);
+      await delaySwappedMedia(context, state, SWAPPING_MEDIA_DELAY_MS);
+      await openPlayingPlayer(page);
+      await page.keyboard.press('Space'); // pause — the deterministic pre-state (the capture: paused)
+      await page.waitForFunction(
+        () => document.querySelector('[data-testid="video-element"]').paused,
+        null, { timeout: 5_000 },
+      );
+      const pausedAt = await readVideo(page);
+
+      await overlayVisible(page, true, 12_000); // FETCH window opens
+      await swapAttrVisible(page, true, 4_000); // SWAPPING begins (onSwapStart fired)
+      await page.keyboard.press('Space'); // PLAY — inside SWAPPING (media held)
+
+      await overlayVisible(page, false, LEASE_FETCH_DELAY_MS + 12_000);
+      await page.waitForTimeout(SETTLE_GRACE_MS);
+
+      let playing = true;
+      try {
+        await page.waitForFunction(
+          () => { const v = document.querySelector('[data-testid="video-element"]'); return v && !v.paused && v.currentTime > 0.5; },
+          null, { timeout: 10_000 },
+        );
+      } catch { playing = false; }
+      const finalState = await readVideo(page);
+      check(
+        'W1s — play during SWAPPING survives the swap (dead tap, queue form)',
+        playing && !finalState.paused && finalState.time >= pausedAt.time - 1 && finalState.swapAttr === null,
+        `pausedAt=${pausedAt.time.toFixed(1)}s final=${finalState.time.toFixed(1)}s paused=${finalState.paused} swapAttr=${finalState.swapAttr}`,
+      );
+    });
+
+    await runRaceScenario('W7a — pause during SWAPPING is respected (no ghost un-pause)', async (context, page, state) => {
+      await raceLeaseRoute(context, state);
+      await delaySwappedMedia(context, state, SWAPPING_MEDIA_DELAY_MS);
+      await openPlayingPlayer(page); // playing — the capture base (paused=false)
+      const baseAt = await readVideo(page);
+
+      await overlayVisible(page, true, 12_000);
+      await swapAttrVisible(page, true, 4_000); // SWAPPING begins
+      await page.keyboard.press('Space'); // PAUSE — inside SWAPPING (media held)
+
+      await overlayVisible(page, false, LEASE_FETCH_DELAY_MS + 12_000);
+      await page.waitForTimeout(SETTLE_GRACE_MS);
+
+      const finalState = await readVideo(page);
+      check(
+        'W7a — pause during SWAPPING is respected (no ghost un-pause)',
+        finalState.paused && finalState.time >= baseAt.time - 1 && finalState.time <= baseAt.time + 10 && finalState.swapAttr === null,
+        `baseAt=${baseAt.time.toFixed(1)}s final=${finalState.time.toFixed(1)}s paused=${finalState.paused} swapAttr=${finalState.swapAttr}`,
+      );
+    });
+
+    await runRaceScenario('W7b — seek during SWAPPING survives the swap (no seek revert)', async (context, page, state) => {
+      await raceLeaseRoute(context, state);
+      await delaySwappedMedia(context, state, SWAPPING_MEDIA_DELAY_MS);
+      await openPlayingPlayer(page); // playing — wasPlaying replays after the restore
+
+      await overlayVisible(page, true, 12_000);
+      await swapAttrVisible(page, true, 4_000); // SWAPPING begins
+      for (let i = 0; i < 5; i += 1) {
+        await page.keyboard.press('l'); // +10s each — accumulates from the capture base
+        await page.waitForTimeout(80);
+      }
+      // The presses land inside SWAPPING (media held 1.5s; 5×(press+80ms)
+      // ≈ 0.5s) — the element cannot seek yet; only the restore can land it.
+
+      await overlayVisible(page, false, LEASE_FETCH_DELAY_MS + 12_000);
+      await page.waitForTimeout(SETTLE_GRACE_MS);
+
+      const finalState = await readVideo(page);
+      check(
+        'W7b — seek during SWAPPING survives the swap (no seek revert)',
+        finalState.time >= 55 && !finalState.paused && finalState.swapAttr === null,
+        `final=${finalState.time.toFixed(1)}s paused=${finalState.paused} swapAttr=${finalState.swapAttr}`,
       );
     });
   }
