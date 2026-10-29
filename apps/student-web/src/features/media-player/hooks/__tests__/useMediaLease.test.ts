@@ -255,4 +255,35 @@ describe('useMediaLease P0 — hook hygiene (Wave 11.7.x)', () => {
     expect(result.current.loading).toBe(false); // RED pre-fix: true — infinite spinner
     expect(toastInfoMock).not.toHaveBeenCalled(); // RED pre-fix: silent auto-renewal toast fired
   });
+
+  it('W10 — a failed refresh clears the pending swap-restore capture', async () => {
+    vi.useFakeTimers();
+    const queue = deferredPosts();
+    const media = stubMedia({ currentTime: 42, paused: false }); // playing at 42s
+    const { result } = setup('lease-a', media);
+
+    await act(async () => {
+      await flushAsync();
+    });
+    await act(async () => {
+      queue[0].resolve(makeInfo('url-1', 8));
+    });
+    expect(result.current.generation).toBe(1);
+
+    // the silent refresh fires and captures the restore intent at fetch entry
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(queue.length).toBe(2);
+    expect(result.current.pendingTimeRef.current).toBe(42); // captured (pre and post fix)
+    expect(result.current.wasPlayingRef.current).toBe(true);
+
+    // the refresh FAILS — no swap will land, so the capture is void
+    await act(async () => {
+      queue[1].reject(new Error('presign 503'));
+    });
+
+    expect(result.current.pendingTimeRef.current).toBeNull(); // RED pre-fix: 42 (stale capture survives)
+    expect(result.current.wasPlayingRef.current).toBe(false); // RED pre-fix: true (stale capture survives)
+  });
 });

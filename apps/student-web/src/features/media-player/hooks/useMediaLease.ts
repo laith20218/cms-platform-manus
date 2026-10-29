@@ -161,6 +161,11 @@ export function useMediaLease(params: {
             error: 'تعذّر تجهيز الملف للتشغيل. تحقق من اتصالك ثم أعد المحاولة.',
           }));
         }
+        // W10: the swap never lands — the restore intent captured at fetch
+        // entry is void. Stale refs would otherwise poison the NEXT
+        // successful swap's restore.
+        pendingTimeRef.current = null;
+        wasPlayingRef.current = false;
       } finally {
         // W4: release the in-flight slot only if it is still OURS (a newer
         // fetch for a different key may have replaced it).
