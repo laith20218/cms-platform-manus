@@ -73,6 +73,12 @@ export function useMediaLease(params: {
   // coalesce onto the in-flight one). P1 will extend the guard to span
   // fetch → consumer ack.
   const inFlightRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
+  // W5 — identity of the asset this hook instance CURRENTLY serves
+  // (`${assetType}:${assetId}`). A fetch whose request key no longer matches
+  // this ref resolves for a previous asset and must be discarded — the
+  // mountedRef check cannot catch it because the ref flips false → true
+  // within one commit on an in-place asset change.
+  const assetKeyRef = useRef(`${assetType}:${assetId}`);
 
   /** Host calls inside onLoadedMetadata after applying pendingTime. */
   const resetPending = useCallback(() => {
@@ -109,10 +115,16 @@ export function useMediaLease(params: {
       try {
         const info = await mediaApi.getPlaybackUrl(assetType, assetId);
         if (!mountedRef.current) return;
+        // W5: the asset changed while this fetch was in flight — a stale
+        // presigned URL must never land in the new asset's state.
+        if (assetKeyRef.current !== requestKey) return;
         attemptRef.current = 0;
         setState((s) => ({ ...s, info, loading: false, error: null, refreshing: false, generation: s.generation + 1 }));
       } catch {
         if (!mountedRef.current) return;
+        // W5: a stale failure belongs to the previous asset too — the new
+        // asset's initial fetch owns the loading/error state now.
+        if (assetKeyRef.current !== requestKey) return;
         attemptRef.current += 1;
         if (isRefresh) {
           // Silent-refresh failure: retry on a backoff, keep the current URL
@@ -145,6 +157,12 @@ export function useMediaLease(params: {
   // Initial fetch + reset when the asset changes.
   useEffect(() => {
     mountedRef.current = true;
+    // W5: mark which asset this hook serves BEFORE its initial fetch starts,
+    // so any still-pending fetch for the previous asset discards on arrival.
+    assetKeyRef.current = `${assetType}:${assetId}`;
+    // W4/W5: fresh in-flight slot per asset (the old asset's flight, if any,
+    // self-discards via the key check above).
+    inFlightRef.current = null;
     pendingTimeRef.current = null;
     wasPlayingRef.current = false;
     attemptRef.current = 0;

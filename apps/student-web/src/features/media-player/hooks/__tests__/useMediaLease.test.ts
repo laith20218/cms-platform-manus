@@ -147,4 +147,40 @@ describe('useMediaLease P0 — hook hygiene (Wave 11.7.x)', () => {
     expect(result.current.info?.url).toBe('url-2');
     expect(result.current.refreshing).toBe(false);
   });
+
+  it('W5 — a stale response from the previous asset is discarded after an in-place asset change', async () => {
+    vi.useFakeTimers();
+    const queue = deferredPosts();
+    const { result, rerender } = setup('lease-a');
+
+    // asset switches BEFORE the initial response for A lands
+    await act(async () => {
+      await flushAsync();
+    });
+    expect(queue.length).toBe(1); // A's initial fetch, still pending
+    act(() => {
+      rerender({ id: 'lease-b' });
+    });
+    await act(async () => {
+      await flushAsync();
+    });
+    expect(queue.length).toBe(2); // B's initial fetch issued
+
+    // B's response lands first: clean state for B
+    await act(async () => {
+      queue[1].resolve(makeInfo('url-b', 8));
+    });
+    expect(result.current.info?.url).toBe('url-b');
+    expect(result.current.generation).toBe(1);
+
+    // A's stale response lands LAST — it must be discarded, not swapped in
+    await act(async () => {
+      queue[0].resolve(makeInfo('url-a', 8));
+    });
+
+    expect(result.current.info?.url).toBe('url-b'); // RED pre-fix: 'url-a' overwrote B
+    expect(result.current.generation).toBe(1); // RED pre-fix: 2 (ghost bump)
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
 });
