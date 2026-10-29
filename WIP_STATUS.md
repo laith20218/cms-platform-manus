@@ -1,3 +1,70 @@
+# WIP_STATUS — main (Wave 11.7.x root fix in flight — P1 landed)
+
+## ─── STATUS ───────────────────────────────────────────
+Wave 11.7.x / P1 (useMediaLease redesign) — STATUS: CLOSED
+Merge SHA: a4be3e996898278b0b61bbf7199e793e5b1353b8
+Closed at: 2026-10-29
+Commits: 1122fb1, 01fb0ed, f008ba6, c72fc55, 8c40fe9,
+         7110056, 0c24947
+         (0c24947 = the #12 letter-deviation fix ruled at
+         pre-push verification: console.debug on the
+         swallowed restore-play rejection, DF-8)
+Closes: W1, W2, W3, W7, W9
+Preserves: W4, W5, W6, W8, W10 (P0)
+Contract: capture-at-swap swap lifecycle — see the
+          "P1 CONTRACT SUMMARY" section below (kept live
+          for P4's AudioPlayer adaptation)
+CI: 5 consecutive green on the branch SHA (0c24947) before
+    merge — run 40812599281 attempts 1-5, all five required
+    jobs green every attempt (Backend Tests / Frontend Tests
+    / Security Scan / Security Artifact Gate / Lighthouse CI;
+    durations 340-377s). player-video e2e in-run evidence
+    (B.6) from attempts 1 & 2: 21/21 each — W1/W2/W3/W7 all
+    PASS, NODE RSS 131/128 MB, console errors none. Merge run
+    40816591686 on a4be3e9: green (536s) — no re-run needed.
+
+## ─── ROOT FIX PROGRESS ────────────────────────────────
+P0 ✅ (closed at a2d66d5)
+P1 ✅ (this merge, a4be3e9)
+P2 ⏳ Deferred-intent queue (SWAPPING-phase intent)
+P3 ⏳ Red-first regression tests (W1-W10 permanent
+      matrix)
+P4 ⏳ Re-merge F1 (adapt AudioPlayer, delete G1/G2/G2-ext)
+
+## ─── P1 CONTRACT SUMMARY (for P4's AudioPlayer work) ───
+- useMediaLease options: onSwapStart REQUIRED (sync, ctx-driven),
+  onSwapError REQUIRED, onSwapComplete optional, swapAckTimeoutMs
+  (default 5000, floor 500).
+- Returns: info (LeaseInfo: PlaybackUrlInfo & {swapId: number|null}),
+  loading, refreshing (fetch∨SWAPPING∨RESTORING), error (Error),
+  swapId, isSwapInFlight (render-only!), ackSwap(id), isSwapActive()
+  (hot-path gate), refresh(reason?).
+- Consumer duties: assign src / hls.loadSource(ctx.newUrl) inside
+  onSwapStart (ALWAYS for HLS — URL identity is not a skip
+  condition); ack on isElementSwapReady(el); in onSwapError detach
+  readiness listeners + surface retry UI; never JSX-bind src; gate
+  hot-path position writes on !isSwapActive() &&
+  readyState >= HAVE_CURRENT_DATA.
+- LeaseInfo.swapId === null ⇔ initial/asset-change load (no
+  lifecycle); number ⇔ the swap that delivered it.
+
+## ─── FLAKY_MAIN_STATUS ────────────────────────────────
+Update: with P1 landed, the W1/W2/W3/W7 seam races are
+closed. Player-video e2e should now be stable. Player-audio
+(still on wip/11.7) may show S4e flake until P4 re-merges
+AudioPlayer against the new contract.
+
+⚠️  AudioPlayer on wip/11.7 is still on the OLD hook
+    contract (generation/resetPending removed). Do NOT
+    merge wip/11.7 until P4 adapts AudioPlayer.
+
+## ─── RESUME_FROM ──────────────────────────────────────
+main @ a4be3e9 (P1 merge) + this docs checkpoint (HEAD)
+— awaiting supervisor PART X (P2 design) review.
+P0+P1 landed, main stable.
+
+# (history below — P1 checkpoint, then P0 checkpoint, then Wave 11.5.x, closed)
+
 # WIP_STATUS — wip/11.7.x-p1 (Wave 11.7.x root fix, P1 in review)
 
 ## ─── STATUS ───────────────────────────────
