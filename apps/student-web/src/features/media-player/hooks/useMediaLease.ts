@@ -68,50 +68,78 @@ export function useMediaLease(params: {
   const attemptRef = useRef(0);
   const timerRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
+  // W4 — the in-flight presign fetch, keyed by `${assetType}:${assetId}`.
+  // Scope in P0: fetch → fetch (concurrent fetchUrl calls for the same asset
+  // coalesce onto the in-flight one). P1 will extend the guard to span
+  // fetch → consumer ack.
+  const inFlightRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
 
   /** Host calls inside onLoadedMetadata after applying pendingTime. */
   const resetPending = useCallback(() => {
     pendingTimeRef.current = null;
   }, []);
 
-  const fetchUrl = useCallback(async (options: { preserveTime: boolean; reason?: 'timer' | 'error' | 'manual' }) => {
-    const media = mediaRef.current;
-    if (options.preserveTime && media && !media.ended) {
-      pendingTimeRef.current = media.currentTime;
-      wasPlayingRef.current = !media.paused;
-    } else if (options.preserveTime && media) {
-      // Ended media restarts from the top on the fresh URL.
-      pendingTimeRef.current = 0;
-      wasPlayingRef.current = false;
-    }
-    const isRefresh = Boolean(state.info);
-    if (isRefresh) setState((s) => ({ ...s, refreshing: true }));
-    else setState((s) => ({ ...s, loading: true, error: null }));
+  const fetchUrl = useCallback((options: { preserveTime: boolean; reason?: 'timer' | 'error' | 'manual' }): Promise<void> => {
+    const requestKey = `${assetType}:${assetId}`;
 
-    try {
-      const info = await mediaApi.getPlaybackUrl(assetType, assetId);
-      if (!mountedRef.current) return;
-      attemptRef.current = 0;
-      setState((s) => ({ ...s, info, loading: false, error: null, refreshing: false, generation: s.generation + 1 }));
-    } catch {
-      if (!mountedRef.current) return;
-      attemptRef.current += 1;
-      if (isRefresh) {
-        // Silent-refresh failure: retry on a backoff, keep the current URL
-        // playing (it may simply outlive its nominal TTL).
-        setState((s) => ({ ...s, refreshing: false }));
-        if (attemptRef.current < MAX_REFRESH_ATTEMPTS) {
-          toast.info('يجري تجديد رابط التشغيل تلقائياً…', { duration: 2000 });
-        }
-      } else {
-        setState((s) => ({
-          ...s,
-          loading: false,
-          refreshing: false,
-          error: 'تعذّر تجهيز الملف للتشغيل. تحقق من اتصالك ثم أعد المحاولة.',
-        }));
-      }
+    // W4 (fetch → fetch scope): coalesce concurrent fetches for the same asset
+    // onto the in-flight one. A second caller wants the very URL the first is
+    // already minting — abort-and-restart would discard the in-flight presign
+    // and ADD latency; coalescing keeps ONE mint, ONE generation bump and ONE
+    // consumer swap per URL (the pre-P0 double swap made the second restore
+    // land on an already-reset element → position 0).
+    if (inFlightRef.current && inFlightRef.current.key === requestKey) {
+      return inFlightRef.current.promise;
     }
+
+    const promise = (async () => {
+      const media = mediaRef.current;
+      if (options.preserveTime && media && !media.ended) {
+        pendingTimeRef.current = media.currentTime;
+        wasPlayingRef.current = !media.paused;
+      } else if (options.preserveTime && media) {
+        // Ended media restarts from the top on the fresh URL.
+        pendingTimeRef.current = 0;
+        wasPlayingRef.current = false;
+      }
+      const isRefresh = Boolean(state.info);
+      if (isRefresh) setState((s) => ({ ...s, refreshing: true }));
+      else setState((s) => ({ ...s, loading: true, error: null }));
+
+      try {
+        const info = await mediaApi.getPlaybackUrl(assetType, assetId);
+        if (!mountedRef.current) return;
+        attemptRef.current = 0;
+        setState((s) => ({ ...s, info, loading: false, error: null, refreshing: false, generation: s.generation + 1 }));
+      } catch {
+        if (!mountedRef.current) return;
+        attemptRef.current += 1;
+        if (isRefresh) {
+          // Silent-refresh failure: retry on a backoff, keep the current URL
+          // playing (it may simply outlive its nominal TTL).
+          setState((s) => ({ ...s, refreshing: false }));
+          if (attemptRef.current < MAX_REFRESH_ATTEMPTS) {
+            toast.info('يجري تجديد رابط التشغيل تلقائياً…', { duration: 2000 });
+          }
+        } else {
+          setState((s) => ({
+            ...s,
+            loading: false,
+            refreshing: false,
+            error: 'تعذّر تجهيز الملف للتشغيل. تحقق من اتصالك ثم أعد المحاولة.',
+          }));
+        }
+      } finally {
+        // W4: release the in-flight slot only if it is still OURS (a newer
+        // fetch for a different key may have replaced it).
+        if (inFlightRef.current?.promise === promise) {
+          inFlightRef.current = null;
+        }
+      }
+    })();
+
+    inFlightRef.current = { key: requestKey, promise };
+    return promise;
   }, [assetType, assetId, mediaRef, state.info]);
 
   // Initial fetch + reset when the asset changes.
