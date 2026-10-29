@@ -78,7 +78,7 @@ export function useMediaLease(params: {
   // Scope in P0: fetch → fetch (concurrent fetchUrl calls for the same asset
   // coalesce onto the in-flight one). P1 will extend the guard to span
   // fetch → consumer ack.
-  const inFlightRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
+  const inFlightRef = useRef<{ key: string; promise: Promise<void> | null } | null>(null);
   // W5 — identity of the asset this hook instance CURRENTLY serves
   // (`${assetType}:${assetId}`). A fetch whose request key no longer matches
   // this ref resolves for a previous asset and must be discarded — the
@@ -107,9 +107,15 @@ export function useMediaLease(params: {
     // and ADD latency; coalescing keeps ONE mint, ONE generation bump and ONE
     // consumer swap per URL (the pre-P0 double swap made the second restore
     // land on an already-reset element → position 0).
-    if (inFlightRef.current && inFlightRef.current.key === requestKey) {
-      return inFlightRef.current.promise;
+    const existing = inFlightRef.current;
+    if (existing && existing.key === requestKey && existing.promise) {
+      return existing.promise;
     }
+
+    // W4: claim the slot FIRST (so a same-tick concurrent call coalesces),
+    // fill in the promise immediately after the fetch starts.
+    const flight: { key: string; promise: Promise<void> | null } = { key: requestKey, promise: null };
+    inFlightRef.current = flight;
 
     const promise = (async () => {
       const media = mediaRef.current;
@@ -169,13 +175,13 @@ export function useMediaLease(params: {
       } finally {
         // W4: release the in-flight slot only if it is still OURS (a newer
         // fetch for a different key may have replaced it).
-        if (inFlightRef.current?.promise === promise) {
+        if (inFlightRef.current === flight) {
           inFlightRef.current = null;
         }
       }
     })();
 
-    inFlightRef.current = { key: requestKey, promise };
+    flight.promise = promise;
     return promise;
   }, [assetType, assetId, mediaRef, state.info]);
 
