@@ -1,3 +1,71 @@
+# WIP_STATUS — main (Wave 11.7.x root fix in flight — P0+P1+P2 landed)
+
+## ─── STATUS ───────────────────────────────────────────
+Wave 11.7.x / P2 (Deferred-intent queue + base-flow
+e2e sweep) — STATUS: CLOSED
+Merge SHA: bcf0b4e48e9288b1417669fee5b85c6ae331dcbf
+Closed at: 2026-10-29
+Commits: ced70db, 236b599, 5cf24a5, fe9f037, 9ae1188,
+         1ce1af0, 3415026
+Closes: SWAPPING-phase residual of W1, W7a, W7b
+Also closes: 15 raw element-read races in base-17
+               e2e checks (pre-P0, exposed by Commit 6)
+Preserves: W1-W10 (all P0 + P1 closures intact)
+P2 queue: single-slot playPause + seek, collapse
+            last-writer-wins, merged plan in
+            applyRestore, terminal differentiation
+            (apply vs drop)
+CI: 5 consecutive green on BRANCH_SHA_3 before merge.
+
+## ─── ROOT FIX PROGRESS ────────────────────────────────
+P0 ✅ (a2d66d5)
+P1 ✅ (a4be3e9)
+P2 ✅ (this commit)
+P3 ⏳ Red-first regression matrix (W1-W10 permanent)
+P4 ⏳ Re-merge F1 (AudioPlayer adaptation + delete
+        G1/G2/G2-ext)
+
+## ─── ADJACENT DEBT (from P2 scope decisions) ──────────
+- A10: volume/rate/mute during SWAPPING not
+  queue-protected. Restore legitimately reverts them
+  from previousState. #8/#9 e2e specs use bounded
+  pair-retry (<=3) to reduce residual ~3x; final
+  residual ~5% if a swap reverts inside last attempt.
+  Re-correctable by user. Revisit only if reported.
+- W1-swapping was green-by-passthrough on P1; the
+  queue converts to guaranteed (spec kept as
+  permanent guard).
+- Headless screenshot fonts-loading flake: observed
+  once during P2 local validation (S1) AFTER
+  24/24 checks passed. Infrastructure, not
+  element-read class. Not fixed in P2; if it hits
+  CI gate more than once, address as P3 infrastructure
+  item.
+- Old run 40824944242 closed with 2 success + 1
+  failure on #5 flake. That run does not count toward
+  the final gate (superseded by BRANCH_SHA_3 run).
+
+## ─── FLAKY_MAIN_STATUS UPDATE ─────────────────────────
+P2 + base-flow sweep: player-video e2e now has 24
+deterministic checks with protected element reads.
+#5 and #10 and 13 other sites fully settled. W
+harness has its own orchestration protection.
+No known element-read race survives in the spec.
+Residual risk: A10 product race (#8/#9, ~5%),
+screenshot fonts flake (infrastructure, rare).
+If either hits, P3 matrix will surface it.
+
+⚠️  AudioPlayer on wip/11.7 is STILL on OLD hook
+    contract. Do NOT merge wip/11.7 until P4 adapts
+    AudioPlayer.
+
+## ─── RESUME_FROM ──────────────────────────────────────
+main @ bcf0b4e (P2 merge) + this docs checkpoint (HEAD)
+— awaiting supervisor PART X (P3 design) review.
+P0+P1+P2 landed, main stable.
+
+# (history below — P2 review checkpoint, then P1 closed checkpoint, then P1 review checkpoint, then P0, then Wave 11.5.x, closed)
+
 # WIP_STATUS — wip/11.7.x-p2 (Wave 11.7.x root fix, P2 in review)
 
 ## ─── STATUS ───────────────────────────────────────────
