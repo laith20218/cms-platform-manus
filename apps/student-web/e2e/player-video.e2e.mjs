@@ -453,8 +453,12 @@ try {
    * the P1 rewrite (P1: refreshing spans fetch + SWAPPING + RESTORING), so it
    * is the cross-codebase FETCH-window signal the specs poll. The
    * data-swap-in-flight attribute (P1 instrumentation, set imperatively in
-   * onSwapStart, cleared at every terminal) is asserted ABSENT after settle;
-   * P2's SWAPPING-phase intent specs will poll it mid-flight.
+   * onSwapStart, cleared at every terminal) is asserted ABSENT after settle
+   * — and, since P2 landed, polled PRESENT mid-flight: the SWAPPING-phase
+   * specs (W1s/W7a/W7b at the bottom of this block) aim the user's intent
+   * between onSwapStart and the element's readiness (the media response is
+   * route-held for SWAPPING_MEDIA_DELAY_MS, so the consumer cannot ack and
+   * the swap lifecycle is deterministically mid-SWAPPING).
    *
    * RED evidence: run against main 5168f37 (P0 hook) before the P1 rewrite —
    * each spec fails exactly as its window predicts (per-window excerpts in the
@@ -463,6 +467,10 @@ try {
   {
     const LEASE_FETCH_DELAY_MS = 2_000;
     const W2_MEDIA_DELAY_MS = 800;
+    /** P2: widens SWAPPING (not FETCH) — the swapped media response is held
+     *  this long, so onSwapStart has fired (attr set) but the element cannot
+     *  become ready and ack. Comfortably inside the 5s ack deadline. */
+    const SWAPPING_MEDIA_DELAY_MS = 1_500;
     const SETTLE_GRACE_MS = 2_000;
 
     const readVideo = (page) => page.evaluate(() => {
@@ -478,6 +486,18 @@ try {
         return wantVisible ? !!el : !el;
       },
       visible, { timeout },
+    );
+
+    /** P2: polls the imperative swap instrumentation MID-FLIGHT —
+     *  data-swap-in-flight is set in onSwapStart (SWAPPING begins) and
+     *  cleared at every terminal. present=true resolves the moment the
+     *  swap lifecycle is deterministically inside SWAPPING. */
+    const swapAttrVisible = (page, present, timeout) => page.waitForFunction(
+      (want) => {
+        const v = document.querySelector('[data-testid="video-element"]');
+        return want === (v ? v.getAttribute('data-swap-in-flight') !== null : false);
+      },
+      present, { timeout },
     );
 
     /** The race scenarios' OWN playback-url mock (shadows the base one): every
@@ -520,11 +540,13 @@ try {
 
     /** W2: holds the swapped media response (the delayed refresh's lease) so
      *  the load lands while the play has already resolved on the old URL.
-     *  Other media requests pass straight through to vite's static file. */
-    const delaySwappedMedia = (context, state) => context.route(`${VIDEO_URL}*`, async (route) => {
+     *  Other media requests pass straight through to vite's static file.
+     *  P2: delayMs parametrized — the SWAPPING-phase specs hold it longer
+     *  (SWAPPING_MEDIA_DELAY_MS) to widen the swap window. */
+    const delaySwappedMedia = (context, state, delayMs = W2_MEDIA_DELAY_MS) => context.route(`${VIDEO_URL}*`, async (route) => {
       if (state.refreshLease && route.request().url().includes(`lease=${state.refreshLease}`)) {
         const response = await route.fetch();
-        await new Promise((r) => setTimeout(r, W2_MEDIA_DELAY_MS));
+        await new Promise((r) => setTimeout(r, delayMs));
         await route.fulfill({ response });
       } else {
         await route.fallback();
@@ -685,6 +707,110 @@ try {
         'W7 — seek during FETCH survives the swap (no seek revert)',
         finalState.time >= 55 && Math.abs(finalState.time - seekedTo.time) <= 8 && finalState.swapAttr === null,
         `seekedTo=${seekedTo.time.toFixed(1)}s final=${finalState.time.toFixed(1)}s paused=${finalState.paused} swapAttr=${finalState.swapAttr}`,
+      );
+    });
+
+    /* ============ Wave 11.7.x / P2 — SWAPPING-phase intent windows ============
+     *
+     * The residual window P1 left open: intent issued AFTER onSwapStart (the
+     * element is torn down mid-load on the fresh URL) and BEFORE the restore.
+     * Aim: swapAttrVisible(true) — the imperative instrumentation set in
+     * onSwapStart — then the intent; the media response is route-held
+     * (SWAPPING_MEDIA_DELAY_MS), so the consumer cannot ack and the swap is
+     * deterministically mid-SWAPPING when the intent lands.
+     *
+     * Honest red-first classification (per the P2 review's F1/F2 analysis):
+     *  - W7a RED on P1: the consumer classifier reads el.paused of the
+     *    torn-down element (paused=true after the fresh load) and issues
+     *    PLAY — the ghost un-pause, intent inverted before any queue could
+     *    help. P2's togglePlay classifies against the capture (playing → the
+     *    user's toggle is PAUSE) and the restore replays it.
+     *  - W7b RED on P1: the consumer seekBy computes el.currentTime + delta
+     *    on the reset element and its duration guard drops the intent
+     *    entirely (mid-load duration is NaN) — the seek revert. P2's seekBy
+     *    accumulates from the CAPTURE base and the restore lands it.
+     *  - W1s GREEN-BY-PASSTHROUGH on P1 (documented as such, kept as a
+     *    permanent guard): the reset already happened at onSwapStart, the
+     *    user's play() lands on the mid-load element and survives, and the
+     *    restore never pauses — an accident P2 converts into a guarantee
+     *    via the queue replay.
+     */
+    await runRaceScenario('W1s — play during SWAPPING survives the swap (dead tap, queue form)', async (context, page, state) => {
+      await raceLeaseRoute(context, state);
+      await delaySwappedMedia(context, state, SWAPPING_MEDIA_DELAY_MS);
+      await openPlayingPlayer(page);
+      await page.keyboard.press('Space'); // pause — the deterministic pre-state (the capture: paused)
+      await page.waitForFunction(
+        () => document.querySelector('[data-testid="video-element"]').paused,
+        null, { timeout: 5_000 },
+      );
+      const pausedAt = await readVideo(page);
+
+      await overlayVisible(page, true, 12_000); // FETCH window opens
+      await swapAttrVisible(page, true, 4_000); // SWAPPING begins (onSwapStart fired)
+      await page.keyboard.press('Space'); // PLAY — inside SWAPPING (media held)
+
+      await overlayVisible(page, false, LEASE_FETCH_DELAY_MS + 12_000);
+      await page.waitForTimeout(SETTLE_GRACE_MS);
+
+      let playing = true;
+      try {
+        await page.waitForFunction(
+          () => { const v = document.querySelector('[data-testid="video-element"]'); return v && !v.paused && v.currentTime > 0.5; },
+          null, { timeout: 10_000 },
+        );
+      } catch { playing = false; }
+      const finalState = await readVideo(page);
+      check(
+        'W1s — play during SWAPPING survives the swap (dead tap, queue form)',
+        playing && !finalState.paused && finalState.time >= pausedAt.time - 1 && finalState.swapAttr === null,
+        `pausedAt=${pausedAt.time.toFixed(1)}s final=${finalState.time.toFixed(1)}s paused=${finalState.paused} swapAttr=${finalState.swapAttr}`,
+      );
+    });
+
+    await runRaceScenario('W7a — pause during SWAPPING is respected (no ghost un-pause)', async (context, page, state) => {
+      await raceLeaseRoute(context, state);
+      await delaySwappedMedia(context, state, SWAPPING_MEDIA_DELAY_MS);
+      await openPlayingPlayer(page); // playing — the capture base (paused=false)
+      const baseAt = await readVideo(page);
+
+      await overlayVisible(page, true, 12_000);
+      await swapAttrVisible(page, true, 4_000); // SWAPPING begins
+      await page.keyboard.press('Space'); // PAUSE — inside SWAPPING (media held)
+
+      await overlayVisible(page, false, LEASE_FETCH_DELAY_MS + 12_000);
+      await page.waitForTimeout(SETTLE_GRACE_MS);
+
+      const finalState = await readVideo(page);
+      check(
+        'W7a — pause during SWAPPING is respected (no ghost un-pause)',
+        finalState.paused && finalState.time >= baseAt.time - 1 && finalState.time <= baseAt.time + 10 && finalState.swapAttr === null,
+        `baseAt=${baseAt.time.toFixed(1)}s final=${finalState.time.toFixed(1)}s paused=${finalState.paused} swapAttr=${finalState.swapAttr}`,
+      );
+    });
+
+    await runRaceScenario('W7b — seek during SWAPPING survives the swap (no seek revert)', async (context, page, state) => {
+      await raceLeaseRoute(context, state);
+      await delaySwappedMedia(context, state, SWAPPING_MEDIA_DELAY_MS);
+      await openPlayingPlayer(page); // playing — wasPlaying replays after the restore
+
+      await overlayVisible(page, true, 12_000);
+      await swapAttrVisible(page, true, 4_000); // SWAPPING begins
+      for (let i = 0; i < 5; i += 1) {
+        await page.keyboard.press('l'); // +10s each — accumulates from the capture base
+        await page.waitForTimeout(80);
+      }
+      // The presses land inside SWAPPING (media held 1.5s; 5×(press+80ms)
+      // ≈ 0.5s) — the element cannot seek yet; only the restore can land it.
+
+      await overlayVisible(page, false, LEASE_FETCH_DELAY_MS + 12_000);
+      await page.waitForTimeout(SETTLE_GRACE_MS);
+
+      const finalState = await readVideo(page);
+      check(
+        'W7b — seek during SWAPPING survives the swap (no seek revert)',
+        finalState.time >= 55 && !finalState.paused && finalState.swapAttr === null,
+        `final=${finalState.time.toFixed(1)}s paused=${finalState.paused} swapAttr=${finalState.swapAttr}`,
       );
     });
   }
