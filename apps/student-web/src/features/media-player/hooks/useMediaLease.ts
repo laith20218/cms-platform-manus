@@ -330,7 +330,13 @@ export function useMediaLease(options: UseMediaLeaseOptions): UseMediaLeaseResul
       // aborting this one) is swallowed — a superseding swap is not a failure.
       try {
         const maybe = el.play();
-        if (maybe && typeof maybe.catch === 'function') maybe.catch(() => { /* swallowed by contract */ });
+        if (maybe && typeof maybe.catch === 'function') maybe.catch((err) => {
+          // Restore play() rejection is not a swap failure
+          // (DF-8): a superseding swap is expected under fast-
+          // TTL chains or autoplay policy. Log for diagnostics
+          // only; do NOT emit onSwapError.
+          console.debug('[useMediaLease] restore play rejected:', err);
+        });
       } catch { /* ignore */ }
     }
 
