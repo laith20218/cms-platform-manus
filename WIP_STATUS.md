@@ -1,49 +1,50 @@
-# WIP_STATUS — wip/11.7.x-root-fix
+# WIP_STATUS — main (Wave 11.7.x root fix in flight)
 
-## Base
-Branch: wip/11.7.x-root-fix (LOCAL ONLY — not pushed; push authorized separately)
-Parent: 9a054663b25ba6c3b6a013c5cfe726c33700a559 (main, post-revert baseline,
-tree byte-identical to fd61ba48)
-Status: Wave 11.7.x PART I (P0 — useMediaLease hook hygiene) COMPLETE —
-all commits local, all verification green. Awaiting supervisor P0 review +
-push authorization. P1 (hook-owned atomic swap + lifecycle events + swapId)
-NOT STARTED.
+## ─── STATUS ───────────────────────────────────────────
+Wave 11.7.x / P0 (Hook hygiene) — STATUS: CLOSED
+Merge SHA: a2d66d5a45215014e481d5da5ccb2c645950f855
+Closed at: 2026-10-29
+Commits: 9aa71e0, 83b2bfd, 87c607b, eb85466, 056a36a,
+         fe4b46a (tsc conformance), 57f9ef9 (docs)
+Closes: W4, W5, W6, W8, W10
+Public API: unchanged
+CI: 5 consecutive green on the branch SHA
+     (57f9ef9) before merge — run 40796556538 attempts
+     1-5, all five required jobs green every attempt
+     (Backend/Frontend/Security Scan/Artifact Gate/
+     Lighthouse; durations 299-356s). Merge run
+     40801012489 on a2d66d5: green (453s), incl.
+     player-video e2e 17/17 in-run evidence.
+Local verification (pre-push): vitest 131/131, tsc -b 0
+     errors, eslint clean, player-video 17/17 (RSS
+     ~1042MB/1600), player-audio 26/26 x2 vs pristine
+     wip/11.7 worktree.
 
-## P0 — closed windows + commit map (red-first, evidence in commit bodies)
-- W4  9aa71e0 coalesce overlapping refreshes (fetch→fetch guard)
-- W5  83b2bfd discard stale responses across asset change
-- W6  87c607b re-arm the retry timer after a failed refresh
-- W8  eb85466 classify asset-change fetches by info ownership (infoKeyRef)
-- W10 056a36a clear capture refs on failed refresh
-- fe4b46a tsc definite-assignment conformance in the W4 flight slot
-  (mechanical, no behavior change; TS2454 rode commits 9aa71e0..056a36a —
-  vitest/eslint were green throughout; tsc -b now gates HEAD clean)
+## ─── ROOT FIX PROGRESS ────────────────────────────────
+P0 ✅ (this merge)
+P1 ⏳ Hook-owned atomic swap + lifecycle events
+P2 ⏳ Deferred-intent queue
+P3 ⏳ Red-first regression tests (W1-W10)
+P4 ⏳ Re-merge F1 (adapt AudioPlayer, delete workarounds)
 
-## P0 verification (local, this environment)
-- vitest full suite: 131/131 (126 pre-existing + 5 new window specs) —
-  9 files, zero regressions.
-- tsc -b: 0 errors. eslint --max-warnings=0: clean.
-- player-video e2e (real MP4, TTL=8 churn): 17/17, console errors 0,
-  peak Chromium RSS ~1042 MB (ceiling 1600 MB).
-- player-audio e2e vs PRISTINE wip/11.7 worktree (edb26370, port 5174):
-  26/26 ×2 consecutive; one earlier run 23/26 — the S4e (A-B loop wrap)
-  flake, pre-existing on the parked branch (identical signature with and
-  without the P0 hook: highSamples=0/logLen=12/swapZeros=0 → seam race,
-  P1/P2 territory, NOT a P0 regression).
-- P0-compat evidence: the P0 hook swapped into the wip/11.7 scratch tree
-  passed the full audio suite 26/26 (worktree restored to pristine after;
-  tracked screenshots restored in both trees).
+## ─── FLAKY_MAIN_STATUS ────────────────────────────────
+P0 does NOT fix the S4e flake observed on wip/11.7
+(confirmed empirically: same signature on pristine
+wip/11.7 AND with P0 hook applied). That flake is the
+surviving seam race — P1/P2 territory. Therefore:
 
-## P0 contract note
-Public API UNCHANGED (state shape, generation, resetPending,
-pendingTimeRef, wasPlayingRef, fetchUrl signature). No consumer file
-touched. Happy-path event sequencing unchanged (the W4 dedupe is only
-observable under overlap; W6 retry / W8 routing / W10 clearing are
-failure-path only; the W5 discard only fires cross-asset).
+⚠️  main is expected to be stable for non-F1 CI
+    (video path benefits from P0's W6 fix).
+⚠️  Player-audio spec still flaky when exercised
+    (it lives on wip/11.7, not main, so main's CI is
+    not affected).
+⚠️  Do NOT merge wip/11.7's F1 to main until P1-P4
+    complete and S4e flake is closed.
 
-RESUME_FROM: fe4b46a — awaiting supervisor P0 review + push
-authorization, then merge to main under the 5-re-run gate (B3:
-same-SHA re-runs, not 5 pushes).
+## ─── RESUME_FROM ──────────────────────────────────────
+main @ a2d66d5 (P0 merge) + this docs checkpoint (HEAD)
+— awaiting supervisor PART X (P1 design) review.
+P0 landed, main stable.
 
 # (history below — Wave 11.5.x, closed)
 
