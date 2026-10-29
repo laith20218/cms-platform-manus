@@ -1,3 +1,81 @@
+# WIP_STATUS — wip/11.7.x-p1 (Wave 11.7.x root fix, P1 in review)
+
+## ─── STATUS ───────────────────────────────
+Wave 11.7.x / P1 (useMediaLease swap-lifecycle redesign
++ VideoPlayer adaptation) — STATUS: BRANDED, LOCAL,
+AWAITING SUPERVISOR REVIEW + PUSH AUTHORIZATION.
+Branch: wip/11.7.x-p1 (from main 5168f37)
+Commits (local, unpushed):
+  1122fb1 test(useMediaLease): W9 API presence specs — RED vs P0
+  01fb0ed feat(useMediaLease): the swap-lifecycle contract
+  f008ba6 test(useMediaLease): adapt the P0 regression file (1:1 mapping)
+  c72fc55 feat(VideoPlayer): adapt to the swap-lifecycle contract
+  8c40fe9 test(e2e): W1/W2/W3/W7 fetch-phase race specs
+  (+ docs checkpoint — this commit)
+Closes: W1, W2, W3, W7, W9 (fetch-phase intent; SWAPPING-phase
+        intent remains P2 territory by design)
+X-b.1 amendments: all 17 in force and implemented (DF-1..DF-10,
+        OPEN-1/3/4/6/8/9/11/12 as amended).
+P0 behaviors preserved: W4/W5/W6/W8/W10 green in the adapted
+        file (5/5) — permanently.
+
+Local verification (branch HEAD):
+  vitest full suite: 10 files, 145/145 (131 on main + 14 W9 specs)
+  tsc -b: 0 errors | eslint: clean
+  player-video e2e: 21/21 (17 existing + W1/W2/W3/W7 green),
+     red-first vs main 5168f37 captured (17/21 — exactly the
+     four windows failed: dead tap, resolve-then-reset dead,
+     ghost un-pause, seek revert); 3 consecutive reruns green
+     (21/21 each; peak Chromium RSS 1008-1046MB / 1600 contract)
+  player-hls-option-c e2e vs branch HEAD: 13/13 — the HLS swap
+     path (onSwapStart → loadSource → isElementSwapReady ack →
+     restore) works end-to-end incl. NETWORK_ERROR recovery.
+  player-audio e2e vs pristine wip/11.7 (read-only): 26/26 —
+     S4e passed this run; no NEW failures; contract compatible
+     with parked F1.
+  HLS spike (OPEN-9, ~25min of the 2h box): ack latency
+     234-255ms per swap on the Option-C VOD pattern
+     (hls.js 1.7.3, autoStartLoad:false, startLoad(position));
+     restore lands within 1-7ms of ack; ~20x headroom under
+     SWAP_ACK_TIMEOUT_MS=5000; clamp + restore-deadline fallback
+     never needed. Evidence: /home/z/p1-evidence/ (session-local).
+
+## ─── ROOT FIX PROGRESS ────────────────────────────────
+P0 ✅ CLOSED on main (merge a2d66d5, CI 5/5)
+P1 ✅ IMPLEMENTED on wip/11.7.x-p1 — awaiting review + push
+P2 ⏳ Deferred-intent queue (SWAPPING-phase intent — the
+     documented residual; e2e specs will poll
+     data-swap-in-flight mid-flight)
+P3 ⏳ Full red-first regression matrix (W1-W10 cross-consumer)
+P4 ⏳ Re-merge F1 (adapt AudioPlayer to the P1 contract,
+     delete G1/G2/G2-ext workarounds)
+
+## ─── P1 CONTRACT SUMMARY (for P4's AudioPlayer work) ───
+- useMediaLease options: onSwapStart REQUIRED (sync, ctx-driven),
+  onSwapError REQUIRED, onSwapComplete optional, swapAckTimeoutMs
+  (default 5000, floor 500).
+- Returns: info (LeaseInfo: PlaybackUrlInfo & {swapId: number|null}),
+  loading, refreshing (fetch∨SWAPPING∨RESTORING), error (Error),
+  swapId, isSwapInFlight (render-only!), ackSwap(id), isSwapActive()
+  (hot-path gate), refresh(reason?).
+- Consumer duties: assign src / hls.loadSource(ctx.newUrl) inside
+  onSwapStart (ALWAYS for HLS — URL identity is not a skip
+  condition); ack on isElementSwapReady(el); in onSwapError detach
+  readiness listeners + surface retry UI; never JSX-bind src; gate
+  hot-path position writes on !isSwapActive() &&
+  readyState >= HAVE_CURRENT_DATA.
+- LeaseInfo.swapId === null ⇔ initial/asset-change load (no
+  lifecycle); number ⇔ the swap that delivered it.
+
+## ─── RESUME_FROM ────────────────────────────────
+wip/11.7.x-p1 @ 8c40fe9 (+ this docs checkpoint)
+— awaiting supervisor P1 review; PART I-push (push + 5-rerun
+gate + merge) comes separately. Do NOT push from this session.
+Next phases: P2 (deferred-intent queue), P3 (regression matrix),
+P4 (AudioPlayer adaptation on wip/11.7 re-merge).
+
+# (history below — P0 checkpoint, then Wave 11.5.x, closed)
+
 # WIP_STATUS — main (Wave 11.7.x root fix in flight)
 
 ## ─── STATUS ───────────────────────────────────────────
