@@ -1,3 +1,78 @@
+# WIP_STATUS — wip/11.7.x-p2 (Wave 11.7.x root fix, P2 in review)
+
+## ─── STATUS ───────────────────────────────────────────
+Wave 11.7.x / P2 (deferred-intent queue) — STATUS:
+BRANDED, LOCAL, AWAITING SUPERVISOR REVIEW + PUSH
+AUTHORIZATION.
+Branch: wip/11.7.x-p2 (from main 3b41c11)
+Commits (local, unpushed):
+  ced70db test(useMediaLease): P2 queue specs — RED vs P1
+  236b599 feat(useMediaLease): queue + 5 intent methods
+  5cf24a5 feat(VideoPlayer): route intents through the hook
+  fe9f037 test(e2e): SWAPPING-phase W1s/W7a/W7b specs
+  (+ docs checkpoint — this commit)
+Closes: the SWAPPING/RESTORING-phase residual — the
+  informal W1-swapping / W7a-swapping / W7b-swapping
+  variants (intent issued after onSwapStart, before the
+  restore).
+F1/F2 (the review's consumer-side flaw findings, fixed
+  by A1): togglePlay's classifier read el.paused of the
+  torn-down element and INVERTED the intent (the ghost
+  un-pause); seekBy computed el.currentTime+delta on the
+  reset element and its NaN-duration guard dropped the
+  intent entirely (the seek revert). Both now classify
+  hook-side against the ACTIVE CTX's previousState.
+Amendments: A1-A10 all in force and implemented.
+P0/P1 preserved: P0 file 5/5 and P1 file 14/14 pass
+  UNMODIFIED; P1's e2e fetch-phase specs stay green.
+
+Local verification (branch HEAD):
+  vitest full suite: 11 files, 159/159 (145 existing +
+  14 new P2)
+  tsc -b: 0 errors | eslint: clean (max-warnings=0)
+  player-video e2e: 24/24 × 3 consecutive reruns
+    (21 existing + W1s/W7a/W7b green; NODE RSS 185-192
+    MB; console errors none). Red-first vs P1 HEAD
+    (3b41c11): 22/24 — W7a RED (ghost un-pause:
+    baseAt=12.5s final=23.8s paused=false), W7b RED
+    (seek revert: final=23.7s), W1s GREEN-BY-PASSTHROUGH
+    (pausedAt=12.5s final=14.7s — documented honestly,
+    kept as a permanent guard); all 21 existing checks
+    green on P1 in the same run.
+  player-audio e2e vs pristine wip/11.7 (read-only):
+    26/26 — S4e passed this run; console errors 0 (the
+    9 about:blank sessionStorage page-errors are teardown
+    noise, not app errors). Peak Chromium RSS 1018 MB /
+    1600 contract.
+
+ADJACENT DEBT (A10/OPEN-8 ruling — out of P2 scope,
+  documented): volume/rate/mute changes issued during
+  SWAPPING/RESTORING are overwritten by the restore's
+  previousState application. Rare (a click inside the
+  200-500ms window), user-visible, instantly
+  re-correctable. Queue slots NOT added per the ruling;
+  revisit only if a user reports it.
+
+## ─── ROOT FIX PROGRESS ────────────────────────────────
+P0 ✅ CLOSED on main (merge a2d66d5, CI 5/5)
+P1 ✅ CLOSED on main (merge a4be3e9, CI 5/5 + merge green)
+P2 ⏳ IMPLEMENTED on wip/11.7.x-p2 — awaiting review + push
+P3 ⏳ Red-first regression tests (W1-W10 permanent matrix)
+P4 ⏳ Re-merge F1 (adapt AudioPlayer, delete G1/G2/G2-ext)
+
+⚠️  wip/11.7 (F1) is still on the OLD hook contract
+    (pre-P1). Do NOT merge wip/11.7 until P4 adapts
+    AudioPlayer to the P1+P2 contract. The P1 CONTRACT
+    SUMMARY (two sections below) remains the P4 brief.
+
+## ─── RESUME_FROM ────────────────────────────────
+wip/11.7.x-p2 @ fe9f037 (+ this docs checkpoint)
+— awaiting supervisor P2 review + push authorization.
+PART I-push (push + 5-rerun gate + merge) comes
+separately. Do NOT push from this session.
+
+# (history below — P1 closed checkpoint, then P1 review checkpoint, then P0, then Wave 11.5.x, closed)
+
 # WIP_STATUS — main (Wave 11.7.x root fix in flight — P1 landed)
 
 ## ─── STATUS ───────────────────────────────────────────
