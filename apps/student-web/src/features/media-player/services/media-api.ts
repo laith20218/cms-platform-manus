@@ -120,6 +120,17 @@ export const mediaApi = {
     } catch { /* best-effort by contract */ }
   },
 
+  /** List the caller's bookmarks for an asset, ordered by StartSeconds
+   *  (server-side ordering). 204 is not part of this route's contract — an
+   *  empty list arrives as `[]`. */
+  listBookmarks: async (assetType: MediaAssetType, assetId: string): Promise<MediaBookmark[]> => {
+    const res = await apiClient.get<MediaBookmark[]>(
+      `${mediaPath(assetType, assetId)}/bookmarks`,
+      await entitlementRequestConfig(),
+    );
+    return Array.isArray(res.data) ? res.data : [];
+  },
+
   /** Create a labeled clip bookmark. Returns the bookmark + the raw response
    * headers (X-Duration-Warning: unknown tells the client the asset duration
    * was not known server-side when the window was validated). */
