@@ -1,7 +1,11 @@
-import { GlobalWorkerOptions } from 'pdfjs-dist';
+import { GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
 // Vite `?url` import — the worker ships as its own emitted asset, loaded once
-// by the pdf.js engine (never bundled into the main graph).
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+// by the pdf.js engine (never bundled into the main graph). The LEGACY build
+// is deliberate: pdf.js v6's modern build assumes bleeding-edge JS baseline
+// (Map.prototype.getOrInsertComputed) that real student browsers — and the
+// e2e Chromium — lack; the legacy build ships core-js polyfills for exactly
+// this class of gap.
+import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 
 let configured = false;
 

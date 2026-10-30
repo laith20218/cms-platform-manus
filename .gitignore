@@ -138,3 +138,4 @@ apps/student-web/public/e2e-test-video.mp4
 
 # Push 11.7 — e2e WAV test asset (regenerable — see e2e/player-audio.e2e.mjs header)
 apps/student-web/public/e2e-test-audio.wav
+apps/student-web/public/e2e-test-doc.pdf

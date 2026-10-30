@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getDocument, TextLayer, type PDFDocumentProxy } from 'pdfjs-dist';
+import { getDocument, TextLayer, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { AlertTriangle, LoaderCircle, RotateCcw } from 'lucide-react';
 import { libraryApi } from '@/features/library/services/library-api';
 import { usePdfAnnotations } from './usePdfAnnotations';
@@ -122,7 +122,9 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     return () => { cancelled = true; };
   }, [doc]);
 
-  /* ---- Fit-width scale: ResizeObserver on the measured content column. ---- */
+  /* ---- Fit-width scale: ResizeObserver on the measured content column.
+          Runs after the layout that hosts contentRef (gate below only needs
+          doc+dims — the ref must exist by the time this effect fires). ---- */
   useEffect(() => {
     if (!dims || dims.length === 0) return;
     const el = contentRef.current;
@@ -138,9 +140,10 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     return () => observer.disconnect();
   }, [dims]);
 
-  /* ---- Visibility: one IntersectionObserver over the registered pages. ---- */
+  /* ---- Visibility: one IntersectionObserver over the registered pages.
+          Re-runs when fitScale lands (pages mount only after it). ---- */
   useEffect(() => {
-    if (!doc || !dims) return;
+    if (!doc || !dims || fitScale === null) return;
     const root = scrollRef.current;
     if (!root) return;
     const observer = new IntersectionObserver((entries) => {
@@ -154,7 +157,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     }, { root, rootMargin: '240px 0px' });
     pagesRef.current.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  }, [doc, dims]);
+  }, [doc, dims, fitScale]);
 
   /* ---- Current page from the scroll position (closest to the midline). ---- */
   useEffect(() => {
@@ -287,7 +290,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     );
   }
 
-  if (docStatus === 'loading' || !doc || !dims || !renderScale || dims.length === 0) {
+  if (docStatus === 'loading' || !doc || !dims || dims.length === 0) {
     return (
       <div className="flex h-full w-full items-center justify-center" data-testid="pdf-player-loading">
         <div className="flex flex-col items-center gap-4">
@@ -330,7 +333,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
         style={{ touchAction: 'pan-y pinch-zoom' }}
       >
         <div ref={contentRef} className="mx-auto w-full max-w-4xl">
-          {dims.map((dim, index) => {
+          {fitScale !== null && renderScale !== null && dims.map((dim, index) => {
             const pageNumber = index + 1;
             const cssWidth = dim.width * renderScale;
             const cssHeight = dim.height * renderScale;
@@ -453,9 +456,13 @@ function PageView({
           viewport,
         });
         await textLayer.render();
-      } catch {
-        // Cancellations (zoom/scroll teardown) and benign teardown races land
-        // here — the effect cleanup already resets canvas + text layer state.
+      } catch (renderError) {
+        // Cancellations (zoom/scroll teardown) are routine; anything else is a
+        // real render failure and must be observable in the console.
+        const name = (renderError as { name?: string } | null)?.name;
+        if (name !== 'RenderingCancelledException') {
+          console.warn('[PdfPlayer] page render/text-layer failed:', renderError);
+        }
       }
     })();
     return () => {

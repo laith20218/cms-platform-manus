@@ -277,7 +277,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
         kind="pdf"
         title={file.title}
         subtitle={meta.label}
-        contentClassName="h-full max-w-none"
+        contentClassName="max-w-none p-4 pb-4"
         fill
         testId="pdf-player-shell"
       >
@@ -289,6 +289,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
           <LazyPlayerMount<PdfPlayerProps>
             active
             loader={loadPdfPlayer}
+            className="h-full"
             playerProps={{
               assetType: 'library-file',
               assetId: file.id,
