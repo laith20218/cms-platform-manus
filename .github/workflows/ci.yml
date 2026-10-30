@@ -102,7 +102,12 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      ConnectionStrings__Default: "Host=localhost;Port=5432;Database=cms_ci;Username=cms;Password=cms_ci_only"
+      # remediation R14: the EF design-time factory (CMS.Infrastructure/Persistence/
+      # ApplicationDbContextFactory.cs) reads CMS_EF_CONNECTION ?? ConnectionStrings__PostgreSQL.
+      # The previous name (ConnectionStrings__Default) matched neither, so
+      # "dotnet ef database update" failed with the missing-variable error.
+      CMS_EF_CONNECTION: "Host=localhost;Port=5432;Database=cms_ci;Username=cms;Password=cms_ci_only"
+      ConnectionStrings__PostgreSQL: "Host=localhost;Port=5432;Database=cms_ci;Username=cms;Password=cms_ci_only"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
