@@ -42,6 +42,15 @@ public static class DependencyInjection
         services.AddSingleton<ITranscodingJobRegistry, TranscodingJobRegistry>();
         services.AddHostedService<VideoTranscodingService>();
 
+        // Wave 11.9 — Ghostscript PDF pre-processing pipeline (cloned 10.3 architecture):
+        // one bounded in-memory queue (handlers enqueue via IPdfProcessingQueue at
+        // complete-upload for application/pdf assets) + the single-consumer hosted worker.
+        // The runner is a singleton so tests can substitute it (InternalsVisibleTo CMS.Tests).
+        services.AddSingleton<PdfProcessingChannelQueue>();
+        services.AddSingleton<IPdfProcessingQueue>(sp => sp.GetRequiredService<PdfProcessingChannelQueue>());
+        services.AddSingleton<IGhostscriptRunner, ProcessGhostscriptRunner>();
+        services.AddHostedService<PdfProcessingService>();
+
         return services;
     }
 }

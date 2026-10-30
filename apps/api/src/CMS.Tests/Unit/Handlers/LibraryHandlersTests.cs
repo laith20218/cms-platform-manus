@@ -54,7 +54,8 @@ public sealed class LibraryHandlersTests
             settingsService.Object,
             sanitizer.Object,
             NullLogger<LibraryHandlers>.Instance, NoOp.ActivityWriter(),
-            new TranscodingChannelQueue()); // Push 10.3: real inert queue — jobs buffer, nothing consumes them in tests
+            new TranscodingChannelQueue(), // Push 10.3: real inert queue — jobs buffer, nothing consumes them in tests
+            new PdfProcessingChannelQueue()); // Wave 11.9: real inert queue — same rationale
         return (handler, storage, sanitizer, scanner);
     }
 
@@ -448,5 +449,122 @@ public sealed class LibraryHandlersTests
                 "an HTML body above the 10 MB ceiling must be rejected at completion time (defensive gate)");
         sanitizer.Verify(service => service.SanitizeAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never,
             "an oversized body must never reach the sanitizer");
+    }
+
+    // ===== Wave 11.9 — Ghostscript PDF pipeline gates =====
+
+    /// <summary>Self-contained handler factory for the 11.9 tests: exposes the REAL pdf
+    /// queue so tests can observe the enqueue side effect (the shared Create() above
+    /// keeps its inert queue private).</summary>
+    private static (LibraryHandlers Handler, PdfProcessingChannelQueue PdfQueue) CreateWithPdfQueue(
+        ApplicationDbContext db,
+        Mock<IFileStorageService> storage,
+        Mock<ISystemSettingsService>? settings = null)
+    {
+        var scanner = new Mock<IFileScanner>();
+        scanner.Setup(service => service.ScanAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FileScanResult(IsClean: true, IsInfected: false, Verdict: "trusted"));
+        var settingsService = settings ?? new Mock<ISystemSettingsService>();
+        if (settings is null)
+        {
+            settingsService.Setup(service => service.GetAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((string?)null);
+        }
+        var pdfQueue = new PdfProcessingChannelQueue();
+        var handler = new LibraryHandlers(
+            db, new UnitOfWork(db), storage.Object, scanner.Object,
+            new Mock<IEntitlementService>().Object, settingsService.Object,
+            new Mock<IHtmlBlobSanitizer>().Object, NullLogger<LibraryHandlers>.Instance,
+            NoOp.ActivityWriter(), new TranscodingChannelQueue(), pdfQueue);
+        return (handler, pdfQueue);
+    }
+
+    [Fact]
+    public async Task CompleteUpload_PdfFile_MarksPending_AndEnqueuesGhostscriptJob()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        const string fileKey = "library/pdf/gs";
+        var file = await SeedFileAsync(db, fileKey);
+        var storage = new Mock<IFileStorageService>(MockBehavior.Strict);
+        storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        var (handler, pdfQueue) = CreateWithPdfQueue(db, storage);
+
+        var result = await handler.Handle(CompleteCommand(file), CancellationToken.None);
+
+        result.PdfProcessingStatus.Should().Be(PdfProcessingStatus.Pending,
+            "application/pdf uploads enter the Ghostscript pipeline at complete-upload");
+        result.FontPipelineFixed.Should().BeFalse("the worker has not produced the fixed object yet");
+        result.FontProcessingError.Should().BeNull();
+        db.LibraryFiles.AsNoTracking().Single(f => f.Id == file.Id).PdfProcessingStatus
+            .Should().Be(PdfProcessingStatus.Pending, "the status commit precedes the enqueue (Push 10.3 rationale)");
+        pdfQueue.Reader.TryPeek(out var job).Should().BeTrue("complete-upload must enqueue the Ghostscript pass after the commit");
+        job.FileId.Should().Be(file.Id);
+    }
+
+    [Fact]
+    public async Task CompleteUpload_NonPdfFile_KeepsPdfPipelineNull()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var file = await SeedHtmlFileAsync(db, "library/html/nogs");
+        var storage = new Mock<IFileStorageService>(MockBehavior.Strict);
+        storage.Setup(service => service.ExistsAsync("library/html/nogs", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        var (handler, pdfQueue) = CreateWithPdfQueue(db, storage);
+
+        var result = await handler.Handle(CompleteCommand(file), CancellationToken.None);
+
+        result.PdfProcessingStatus.Should().BeNull("non-PDF files never enter the Ghostscript pipeline");
+        pdfQueue.Reader.TryPeek(out _).Should().BeFalse("no PDF job may be enqueued for an HTML upload");
+    }
+
+    [Fact]
+    public async Task PublishLibraryFile_PdfProcessingFailed_IsRejected()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var file = await SeedFileAsync(db, "library/pdf/failed");
+        file.PdfProcessingStatus = PdfProcessingStatus.Failed;
+        file.ProcessingError = "Ghostscript exited with code 1: Unrecoverable error";
+        file.Status = ContentStatus.Draft; // unpublished — a publish attempt must NOT flip it
+        await db.SaveChangesAsync();
+        var (handler, _, _, _) = Create(db);
+
+        var act = () => handler.Handle(new PublishLibraryFileCommand(file.Id, Guid.NewGuid()), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>())
+            .Where(ex => ex.ErrorCode == "PDF_PROCESSING_FAILED",
+                "a PDF whose Ghostscript pass failed must never be published to students");
+        db.LibraryFiles.AsNoTracking().Single(f => f.Id == file.Id).Status
+            .Should().Be(ContentStatus.Draft, "the rejected publish must leave the row unpublished");
+    }
+
+    [Fact]
+    public async Task PublishLibraryFile_PdfReadyWithFixedObject_Succeeds()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var file = await SeedFileAsync(db, "library/pdf/fixedkey");
+        file.PdfProcessingStatus = PdfProcessingStatus.Ready;
+        file.FileUrl = "library/pdf/fixedkey-fixed";
+        await db.SaveChangesAsync();
+        var (handler, _, _, _) = Create(db);
+
+        var result = await handler.Handle(new PublishLibraryFileCommand(file.Id, Guid.NewGuid()), CancellationToken.None);
+
+        result.PdfProcessingStatus.Should().Be(PdfProcessingStatus.Ready);
+        result.FontPipelineFixed.Should().BeTrue("FileUrl now points at the {key}-fixed object");
+    }
+
+    [Fact]
+    public async Task PublishLibraryFile_PdfReadyButOverCeilingSkip_SucceedsWithoutFixedFlag()
+    {
+        // The over-ceiling skip marks Ready while FileUrl still points at the ORIGINAL
+        // object — publishable, but FontPipelineFixed stays false (R19 fallback).
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var file = await SeedFileAsync(db, "library/pdf/original");
+        file.PdfProcessingStatus = PdfProcessingStatus.Ready;
+        await db.SaveChangesAsync();
+        var (handler, _, _, _) = Create(db);
+
+        var result = await handler.Handle(new PublishLibraryFileCommand(file.Id, Guid.NewGuid()), CancellationToken.None);
+
+        result.FontPipelineFixed.Should().BeFalse("no -fixed object was produced; the player keeps R19 path rendering");
     }
 }

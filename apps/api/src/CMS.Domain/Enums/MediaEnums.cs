@@ -35,6 +35,35 @@ public enum ProcessingStatus
 }
 
 /// <summary>
+/// Wave 11.9 — lifecycle of the Ghostscript PDF pre-processing pass on a LibraryFile
+/// (<c>application/pdf</c> only). NULL on rows that never enter the pipeline:
+/// non-PDF assets and legacy rows uploaded before Wave 11.9.
+///
+/// The pipeline fixes broken embedded fonts / missing ToUnicode maps at the SOURCE
+/// (the root cause behind the R16–R19 player hotfixes): pdf.js then renders the
+/// fixed file through the standard @font-face pipeline (disableFontFace: false)
+/// while unfixed files keep R19 path rendering. Mirrors <see cref="ProcessingStatus"/>
+/// so the admin UI's Push 10.4 phase-timeline pattern applies unchanged.
+/// </summary>
+public enum PdfProcessingStatus
+{
+    /// <summary>Uploaded and waiting for the Ghostscript worker to pick the job up.</summary>
+    Pending = 0,
+
+    /// <summary>Worker downloaded the source and Ghostscript is re-embedding fonts.</summary>
+    Normalizing = 1,
+
+    /// <summary>Fixed PDF uploaded as {key}-fixed and FileUrl swapped — OR the source
+    /// exceeded the processing ceiling and was deliberately skipped (fallback to the
+    /// player's R19 path rendering; FontPipelineFixed stays false).</summary>
+    Ready = 2,
+
+    /// <summary>Terminal failure (download/Ghostscript/upload). ProcessingError carries
+    /// the technical details; publish is blocked until an admin retry (future action).</summary>
+    Failed = 3
+}
+
+/// <summary>
 /// Push 10.7 — admin-selected transcoding target for a video asset.
 ///
 /// <see cref="Auto"/> (default) keeps the Push 10.3 behaviour: the ladder is built

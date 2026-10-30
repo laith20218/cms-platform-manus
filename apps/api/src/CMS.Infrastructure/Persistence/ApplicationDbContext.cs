@@ -363,6 +363,11 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasIndex(x => x.ProcessingStatus)
                 .HasDatabaseName("ix_library_files_processing_status")
                 .HasFilter("processing_status IS NOT NULL");
+
+            // Wave 11.9 — Ghostscript pipeline sweep/views (same filtered convention).
+            entity.HasIndex(x => x.PdfProcessingStatus)
+                .HasDatabaseName("ix_library_files_pdf_processing_status")
+                .HasFilter("pdf_processing_status IS NOT NULL");
         });
 
         base.OnModelCreating(modelBuilder);

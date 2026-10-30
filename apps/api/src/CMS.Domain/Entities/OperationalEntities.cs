@@ -116,6 +116,17 @@ public class LibraryFile : AuditableEntity
     /// the column too (Auto) but the pipeline never reads it for them.</summary>
     public TargetQuality TargetQuality { get; set; } = TargetQuality.Auto;
 
+    // ===== Wave 11.9 — Ghostscript PDF pre-processing pipeline =====
+
+    /// <summary>Ghostscript font re-embedding state. NULL for non-PDF files / legacy rows
+    /// (mirrors <see cref="ProcessingStatus"/>; the admin UI polls this column).</summary>
+    public PdfProcessingStatus? PdfProcessingStatus { get; set; }
+
+    /// <summary>English technical failure details from the pipeline (Ghostscript stderr
+    /// tail / storage errors) — surfaced in the admin error modal only while
+    /// <see cref="PdfProcessingStatus"/> is Failed. NULL otherwise.</summary>
+    public string? ProcessingError { get; set; }
+
     public Subject Subject { get; set; } = null!;
     public Lecture? Lecture { get; set; }
     public ICollection<LibraryView> Views { get; set; } = new List<LibraryView>();
