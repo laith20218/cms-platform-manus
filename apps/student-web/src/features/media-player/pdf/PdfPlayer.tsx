@@ -5,6 +5,7 @@ import { libraryApi } from '@/features/library/services/library-api';
 import { usePdfAnnotations } from './usePdfAnnotations';
 import { PdfControlsBar } from './PdfControlsBar';
 import { ensurePdfWorker } from './pdf-worker';
+import { normalizeArabicPresentationForms } from './pdf-text';
 import { clamp01, newAnnotationId, rectsFromRange, simplifyPoints, strokePathD } from './pdf-geometry';
 import type {
   NormalizedPoint, PdfAnnotation, PdfPlayerProps, PdfTool,
@@ -449,9 +450,17 @@ function PageView({
         await task.promise;
         if (cancelled) return;
         // Text layer AFTER the paint so selection never lands on a blank page.
+        // Hotfix R15.1: the content is materialized through presentation-form
+        // normalization first — Arabic spans then carry BASE letters (shapable,
+        // joinable) instead of the fixed isolated glyphs the PDF's ToUnicode
+        // map emitted; the stylesheet's unicode-bidi: plaintext does the rest.
         layer.textContent = '';
+        const textContent = await page.getTextContent();
+        const items = textContent.items.map((item) => ('str' in item
+          ? { ...item, str: normalizeArabicPresentationForms(item.str) }
+          : item));
         const textLayer = new TextLayer({
-          textContentSource: page.streamTextContent(),
+          textContentSource: { lang: textContent.lang, items, styles: textContent.styles },
           container: layer,
           viewport,
         });
@@ -516,7 +525,13 @@ function PageView({
       data-page-number={pageNumber}
       data-testid={`pdf-page-${pageNumber}`}
       className="pdf-page mb-4"
-      style={{ width: Math.round(cssWidth), height: Math.round(cssHeight) }}
+      /* --total-scale-factor feeds the pdf.js v6 span metric contract the text
+         layer CSS mirrors (hotfix R15.1): font-size = scale * --font-height. */
+      style={{
+        width: Math.round(cssWidth),
+        height: Math.round(cssHeight),
+        '--total-scale-factor': renderScale,
+      } as React.CSSProperties}
     >
       <canvas ref={canvasRef} aria-label={`صفحة ${pageNumber}`} />
 
