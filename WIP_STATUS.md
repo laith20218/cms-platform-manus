@@ -1,3 +1,102 @@
+# WIP_STATUS — wip/11.7.x-p4 (Wave 11.7.x, P4 re-executed, pre-push)
+
+## ─── STATUS ───────────────────────────────────────────
+Wave 11.7.x / P4 (AudioPlayer re-merge on the P1
+contract) — STATUS: RE-EXECUTED, LOCAL, AWAITING PUSH
+AUTHORIZATION (PART I-push).
+Branch: wip/11.7.x-p4 (from main e0e211a)
+Commits (local, unpushed):
+  8f28eff feat(audio): port AudioPlayer to P1 lifecycle
+  ef342f5 feat(audio): route intents through the lease
+  e6240e8 test(e2e): player-audio 32-check spec + CI
+  (+ docs checkpoint — this commit)
+
+RE-EXECUTION CONTEXT (sandbox recovery): the original
+P4 branch (e8c630f/2abf2f9/e3673b8/038ad79) was LOST in
+a sandbox reset — never pushed. Re-executed from the
+PART X rev 2 + PART I design and the edb2637 sources
+(read-only worktree); SHAs differ from the lost
+originals by construction; CONTENT is authoritative.
+
+Closes: F1 (Audio Player) re-merged on main's P1+P2
+contract — no workarounds. All 6 features (waveform,
+speed+pitch, A-B loop, bookmarks, resume, keyboard) on
+the new lifecycle. Wave 11.7.x closes with this merge.
+
+Ported artifacts (5):
+  - AudioPlayer.tsx (875 lines at edb2637 → 940
+    migrated; DIFFERS by design)
+  - DocumentViewer.tsx 45-line block (byte-identical;
+    native-audio fallback deleted)
+  - player-audio.e2e.mjs (26-check port, then 32)
+  - package.json + lockfile (wavesurfer.js 7.12.12
+    exact pin; lockfile churn wavesurfer-only, 3 hunks)
+  - media-api.ts listBookmarks (5th artifact,
+    P4-discovered: dropped at the pivot, required for
+    tsc + S5b; whole file byte-identical to edb2637)
+Plus .gitignore (regenerable e2e WAV) + ci.yml (6th e2e
+spec, after player-video, before player-hls).
+
+Disclosed deviations (SUPERVISOR-ACCEPTED):
+  - 7 intent sites (not 8): waveform drag-seek stays
+    direct (ws core handler; F-B design — P2 covers
+    SWAPPING-window intents only).
+  - handleLoadedMetadata deps moved to [volume, muted]
+    in Commit 1 (forced — refs no longer destructured).
+  - media-api.ts ported as the 5th artifact.
+
+CORRECTION OF PRIOR CLAIM (P2/P3 push reports stated
+"player-audio 30/30 in CI" — FALSE on both counts):
+  (a) the true count was 26 checks (not 30);
+  (b) player-audio.e2e.mjs was NEVER in CI — ci.yml's
+      e2e step hardcoded 5 specs; "30/30" belonged to
+      favorites-advanced. The earlier WIP_STATUS entries
+      (P2/P3 sections below) recorded the correct
+      local-only 26/26. P4 corrects the record:
+      player-audio now joins CI with a genuine 32-check
+      spec (26−2+8).
+
+Local verification (branch HEAD):
+  vitest full suite: 164/164 (unchanged — no unit-test
+  file touched). tsc -b: 0 errors. eslint
+  --max-warnings=0: clean.
+  player-audio e2e: 32/32 × 3 consecutive fresh-server
+  runs (RSS 1066/1068/1068 MB; console errors 0; the
+  about:blank sessionStorage page-errors are teardown
+  noise). Two pre-warmup attempts aborted on a
+  cold-start goto timeout (infrastructure, zero checks
+  executed); the runner warms the route first — the
+  spec itself is deterministic.
+  Risk confirmations:
+  R1 peaks preserved: shadow-root canvas node identity
+    stable across ≥5 silent swaps (probe; 0 re-create,
+    playback continuous).
+  R2 0 ack-timeouts: no terminal swap failure across
+    all checks × 3 runs (no fatal card outside S11's
+    forced one; restores landed on every swap).
+  R3 port completeness 5/5 (byte-identity verified vs
+    edb2637 for the 4 verbatim artifacts; lockfile
+    identical to edb2637).
+  R5 isSwapInFlight: 0 occurrences in AudioPlayer
+    (gates use isSwapActive only).
+
+## ─── ROOT FIX PROGRESS ────────────────────────────────
+P0 ✅ CLOSED on main (a2d66d5)
+P1 ✅ CLOSED on main (a4be3e9)
+P2 ✅ CLOSED on main (bcf0b4e)
+P3 ✅ CLOSED on main (634952d)
+P4 ⏳ IMPLEMENTED on wip/11.7.x-p4 — awaiting push +
+    merge (wave close follows on main)
+
+## ─── RESUME_FROM ────────────────────────────────
+wip/11.7.x-p4 @ e6240e8 (+ this docs checkpoint)
+— PART I-push authorized: push branch, 5-rerun CI
+gate on the branch SHA, merge --no-ff to main (only if
+5/5 green AND origin/main still e0e211a), then the
+Wave 11.7.x CLOSED docs entry on main.
+
+# (history below — P3 closed on main, then the P3 branch checkpoint, then P2 closed, then P2 review, then P1 closed, then P1 review, then P0, then Wave 11.5.x, closed)
+
 # WIP_STATUS — main (Wave 11.7.x root fix in flight — P0+P1+P2+P3 landed)
 
 ## ─── STATUS ───────────────────────────────────────────
