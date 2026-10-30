@@ -6,6 +6,7 @@ import { usePdfAnnotations } from './usePdfAnnotations';
 import { PdfControlsBar } from './PdfControlsBar';
 import { ensurePdfWorker } from './pdf-worker';
 import { normalizeArabicPresentationForms } from './pdf-text';
+import { PDF_DEBUG, textLayerDebugClass } from './pdf-debug';
 import { clamp01, newAnnotationId, rectsFromRange, resolveInkStrokeWidth, simplifyPoints, strokePathD } from './pdf-geometry';
 import type {
   NormalizedPoint, PdfAnnotation, PdfPlayerProps, PdfTool,
@@ -38,6 +39,24 @@ ensurePdfWorker();
  * coextensive with the canvas + official span/br text-layer contract
  * (highlight offset / bottom-of-page coverage); R16.4 ink strokeWidth as a
  * page-relative fraction (no raw px, no vector-effect, legacy-payload guard).
+ *
+ * Hotfix R18 (production feedback): R18.1 bullet-proof text-layer invisibility
+ * (!important color/shadow/background transparency — the double-render leak
+ * behind the "W ebS o ck et" screenshot) + URL diagnostics (pdf-debug.ts:
+ * ?pdfDebugText=hide|visible). R18.2 the highlight surface is its OWN blend
+ * layer under the text layer — z 0 canvas < 10 highlight (multiply wash) <
+ * 11 ink < 20 text — because mix-blend-mode on a child of the isolated ink
+ * SVG could never reach the canvas and painted as an opaque block over the
+ * glyphs.
+ *
+ * Hotfix R19 (production feedback): the A/B evidence (R18 e2e S1 vs S6)
+ * proved the browser @font-face pipeline mis-maps the synthetic cmap of
+ * subset embedded fonts on the canvas (dropped 'i's, 'a'→'ã', cluster gaps —
+ * the "W ebS o ck et" signature). Path rendering is therefore the DEFAULT:
+ * disableFontFace: true unconditionally — pdf.js draws glyph outlines as
+ * paths straight from the embedded font programs. cMap/cMapPacked stay on
+ * (character mapping), useSystemFonts stays on (non-embedded fallbacks).
+ * Field A/B of the old pipeline: ?pdfFonts=embedded (pdf-debug.ts).
  */
 
 const ZOOM_STEPS = [1, 1.25, 1.5, 2, 2.5, 3];
@@ -120,6 +139,16 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           wasmUrl: `${PDFJS_ASSET_BASE}wasm/`,
           iccUrl: `${PDFJS_ASSET_BASE}iccs/`,
           useSystemFonts: true,
+          // Hotfix R19.1 — DEFAULT path rendering (glyph outlines drawn as
+          // paths straight from the embedded font programs). The @font-face
+          // pipeline produces the canvas glyph-mapping failure mode (dropped
+          // 'i's, 'a'→'ã', inter-cluster gaps — R18 e2e S1/S6 A/B evidence);
+          // visual integrity of medical Arabic outweighs the render cost.
+          // cMapUrl/cMapPacked above stay active for character mapping.
+          disableFontFace: true,
+          // Diagnostic ONLY (?pdfFonts=embedded): opt BACK into the old
+          // @font-face pipeline to reproduce the broken canvas in the field.
+          ...(PDF_DEBUG.embeddedFontFaceOverride ? { disableFontFace: false } : {}),
         });
         task = loadingTask;
         const loaded = await loadingTask.promise;
@@ -607,12 +636,32 @@ const PageView = memo(function PageView({
     >
       <canvas ref={canvasRef} aria-label={`صفحة ${pageNumber}`} />
 
-      <div
-        ref={layerRef}
-        className={`pdf-text-layer${tool === 'pen' ? ' is-dormant' : ''}`}
-        data-pdf-text-layer="true"
-        onPointerUp={onTextPointerUp ? () => onTextPointerUp(pageNumber) : undefined}
-      />
+      {/* Hotfix R18.2 — highlights live on their OWN blend surface. mix-blend-
+          mode composites an element against its backdrop, but blending stops
+          at the nearest stacking context: inside the (z-indexed, therefore
+          isolated) ink SVG a multiplied child can only blend with the SVG's
+          transparent backdrop — the production "opaque yellow covering the
+          text". As a sibling SVG the ROOT carries the blend and multiplies
+          straight through onto the canvas below (z 10 < 20 text layer). */}
+      <svg
+        viewBox="0 0 1 1"
+        preserveAspectRatio="none"
+        className="pdf-highlight-layer"
+        data-annotation-page={pageNumber}
+        data-testid={`pdf-highlight-layer-${pageNumber}`}
+        aria-hidden="true"
+      >
+        {annotations.map((annotation) => {
+          if (annotation.annotationType !== 'Highlight') return null;
+          return (
+            <g key={annotation.id} className="pdf-highlight">
+              {annotation.payload.rects.map((rect, index) => (
+                <rect key={index} x={rect.x} y={rect.y} width={rect.w} height={rect.h} fill={annotation.payload.color} />
+              ))}
+            </g>
+          );
+        })}
+      </svg>
 
       <svg
         ref={overlayRef}
@@ -626,15 +675,7 @@ const PageView = memo(function PageView({
         onPointerCancel={clearLiveStroke}
       >
         {annotations.map((annotation) => {
-          if (annotation.annotationType === 'Highlight') {
-            return (
-              <g key={annotation.id} className="pdf-highlight">
-                {annotation.payload.rects.map((rect, index) => (
-                  <rect key={index} x={rect.x} y={rect.y} width={rect.w} height={rect.h} fill={annotation.payload.color} />
-                ))}
-              </g>
-            );
-          }
+          if (annotation.annotationType !== 'Ink') return null;
           return (
             <path
               key={annotation.id}
@@ -648,6 +689,13 @@ const PageView = memo(function PageView({
           );
         })}
       </svg>
+
+      <div
+        ref={layerRef}
+        className={`pdf-text-layer${tool === 'pen' ? ' is-dormant' : ''}${textLayerDebugClass()}`}
+        data-pdf-text-layer="true"
+        onPointerUp={onTextPointerUp ? () => onTextPointerUp(pageNumber) : undefined}
+      />
     </div>
   );
 });
