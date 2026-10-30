@@ -17,6 +17,12 @@
   border-radius: 6px;
   box-shadow: 0 10px 30px rgba(2, 6, 23, 0.45);
   margin-inline: auto;
+  /* Hotfix R18.2 — the page is the BLEND GROUP. mix-blend-mode composites
+     against the backdrop within the nearest stacking context; isolating the
+     page guarantees the highlight wash can only multiply with what is below
+     it INSIDE the page (the canvas), never with the gray scroll background
+     or sibling pages. */
+  isolation: isolate;
 }
 
 .pdf-page > canvas {
@@ -31,7 +37,8 @@
 .pdf-text-layer {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  /* Hotfix R18.2 z-order: 0 canvas < 10 highlight < 11 ink < 20 text. */
+  z-index: 20;
   overflow: clip;
   line-height: 1;
   text-align: initial;
@@ -90,7 +97,16 @@
    Out-of-flow (absolute) they contribute nothing to layout or selection
    geometry, exactly as pdf_viewer.css intends. */
 .pdf-text-layer :is(span, br) {
-  color: transparent;
+  /* Hotfix R18.1 — HARD transparency enforcement. Plain `color: transparent`
+     lost in the production bundle (any later/equal-specificity color rule
+     from the app shell re-painted the spans: the double-render leak with
+     spaced-out Latin and isolated Arabic). !important makes the spans win
+     EVERY cascade war; text-shadow/background are closed too so no surface
+     of the span can ever paint. The glyphs the user reads belong to the
+     canvas — the DOM layer is selection geometry ONLY. */
+  color: transparent !important;
+  text-shadow: none !important;
+  background: transparent !important;
   position: absolute;
   white-space: pre;
   cursor: text;
@@ -101,6 +117,22 @@
 
 .pdf-text-layer ::selection {
   background: rgba(13, 148, 136, 0.28);
+  /* R18.1: never let a UA selection foreground resurrect the glyphs. */
+  color: transparent;
+}
+
+/* ---- Hotfix R18.1 field diagnostics (?pdfDebugText=...) ---- */
+
+.pdf-text-layer.is-debug-hidden {
+  /* Canvas-only view: removes the DOM layer from painting AND layout. */
+  display: none !important;
+}
+
+.pdf-text-layer.is-debug-visible :is(span, br) {
+  /* Leak reproduction: paints the spans the way the broken production build
+     did (double render over the canvas). Deliberately garish. */
+  color: rgba(190, 18, 60, 0.6) !important;
+  background: rgba(13, 148, 136, 0.12) !important;
 }
 
 .pdf-text-layer.is-dormant {
@@ -109,7 +141,25 @@
   pointer-events: none;
 }
 
-/* ---- Annotation overlay (one SVG per page: highlights + ink) ---- */
+/* ---- Annotation overlays (two SVGs per page, hotfix R18.2) ----
+   0 canvas < 10 highlight (blend) < 11 ink (input surface) < 20 text layer. */
+
+/* Highlights: a DEDICATED sibling SVG whose ROOT carries the blend. As a
+   positioned, z-indexed element it is itself composited against its backdrop
+   (the canvas) with multiply — the standard pdf.js highlight mechanism that
+   keeps glyphs readable through the wash. It never receives pointer events,
+   so selection/pen flows are untouched. */
+.pdf-highlight-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  /* Wash strength on top of multiply (visual comfort per R18.2 spec). */
+  opacity: 0.4;
+}
 
 .pdf-annotation-layer {
   position: absolute;
@@ -122,10 +172,7 @@
      is active — otherwise the text layer must receive the events). */
   width: 100%;
   height: 100%;
-  /* Hotfix R15.2: highlights render BEHIND the text layer, above the canvas —
-     z 0=canvas < 1=overlay < 2=text layer. The pen still works because the
-     text layer goes dormant (pointer-events: none) while the pen is active. */
-  z-index: 1;
+  z-index: 11;
   pointer-events: none;
 }
 
@@ -137,13 +184,7 @@
   cursor: crosshair;
 }
 
-/* Highlights sit between canvas and text layer (z-order above); multiply
-   blending keeps glyphs readable under every palette color. */
-.pdf-annotation-layer .pdf-highlight {
-  mix-blend-mode: multiply;
-  pointer-events: none;
-}
-
+/* Ink strokes: solid, normal blending, above the highlight wash. */
 .pdf-annotation-layer .pdf-ink {
   fill: none;
   stroke-linecap: round;

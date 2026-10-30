@@ -278,9 +278,13 @@ async function main() {
       await openPdfPlayer(page);
 
       const probes = await page.evaluate(async () => {
+        // REAL shipped fallback fonts of pdfjs-dist 6.4.299 (FoxitSans.pfb does
+        // not exist in this version; a strict binary check also defeats any
+        // 200-as-HTML SPA fallback that would make pdf.js fail silently).
         const targets = [
           '/pdfjs-dist/cmaps/78-H.bcmap',
-          '/pdfjs-dist/standard_fonts/FoxitSans.pfb',
+          '/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf',
+          '/pdfjs-dist/standard_fonts/FoxitSerif.pfb',
           '/pdfjs-dist/wasm/openjpeg.wasm',
           '/pdfjs-dist/iccs/CGATS001Compat-v2-micro.icc',
         ];
@@ -295,7 +299,7 @@ async function main() {
         }
         return out;
       });
-      const all200 = probes.length === 4 && probes.every((p) => p.status === 200 && p.bytes > 0);
+      const all200 = probes.length === 5 && probes.every((p) => p.status === 200 && p.bytes > 0);
       check(
         'R16.1 pdf.js runtime assets (cmaps/fonts/wasm/iccs) are deployed and reachable',
         all200,
