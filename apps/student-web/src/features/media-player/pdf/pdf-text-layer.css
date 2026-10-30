@@ -95,12 +95,21 @@
   background: rgba(13, 148, 136, 0.28);
 }
 
+.pdf-text-layer.is-dormant {
+  /* Hotfix R15.2: while the pen is the active tool the overlay (below this
+     layer) must receive the pointer events — see .pdf-annotation-layer. */
+  pointer-events: none;
+}
+
 /* ---- Annotation overlay (one SVG per page: highlights + ink) ---- */
 
 .pdf-annotation-layer {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  /* Hotfix R15.2: highlights render BEHIND the text layer, above the canvas —
+     z 0=canvas < 1=overlay < 2=text layer. The pen still works because the
+     text layer goes dormant (pointer-events: none) while the pen is active. */
+  z-index: 1;
   /* Pointer-events are driven per tool by PdfPlayer (auto only while the pen
      is active — otherwise the text layer must receive the events). */
   pointer-events: none;
@@ -114,8 +123,8 @@
   cursor: crosshair;
 }
 
-/* Highlights render ABOVE the text layer with multiply blending so glyphs
-   stay readable under every palette color. */
+/* Highlights sit between canvas and text layer (z-order above); multiply
+   blending keeps glyphs readable under every palette color. */
 .pdf-annotation-layer .pdf-highlight {
   mix-blend-mode: multiply;
   pointer-events: none;

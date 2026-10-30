@@ -195,7 +195,13 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
     const pageEl = pagesRef.current.get(pageNumber);
     if (!pageEl) return;
-    const rects = rectsFromRange(selection.getRangeAt(0), pageEl.getBoundingClientRect());
+    // Hotfix R15.2: the CANVAS is the single geometry authority. Selection
+    // rects are normalized against its box — the overlay SVG and the page div
+    // are kept pixel-identical to it (same rounding, inset 0) — so highlight
+    // coordinates can never drift off the glyphs the user actually selected.
+    const canvas = pageEl.querySelector(':scope > canvas');
+    const surface = (canvas ?? pageEl).getBoundingClientRect();
+    const rects = rectsFromRange(selection.getRangeAt(0), surface);
     if (rects.length === 0) return;
     const textSnippet = selection.toString().replace(/\s+/g, ' ').trim().slice(0, 200) || undefined;
     upsert({
@@ -436,8 +442,10 @@ function PageView({
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         canvas.width = Math.floor(viewport.width * dpr);
         canvas.height = Math.floor(viewport.height * dpr);
-        canvas.style.width = `${Math.floor(viewport.width)}px`;
-        canvas.style.height = `${Math.floor(viewport.height)}px`;
+        // Hotfix R15.2: round the CSS box the same way the page div does —
+        // canvas, page box and overlay SVG must be pixel-identical surfaces.
+        canvas.style.width = `${Math.round(viewport.width)}px`;
+        canvas.style.height = `${Math.round(viewport.height)}px`;
         const context = canvas.getContext('2d');
         if (!context) return;
         const task = page.render({
@@ -537,7 +545,7 @@ function PageView({
 
       <div
         ref={layerRef}
-        className="pdf-text-layer"
+        className={`pdf-text-layer${tool === 'pen' ? ' is-dormant' : ''}`}
         data-pdf-text-layer="true"
         onPointerUp={onTextPointerUp}
       />

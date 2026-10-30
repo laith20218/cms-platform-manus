@@ -94,6 +94,19 @@ describe('rectsFromRange', () => {
     expect(rects).toHaveLength(1);
   });
 
+  it('hotfix R15.2: keeps a rect straddling the page edge (center inside)', () => {
+    // Line box poking 10px above the page top — center is still inside.
+    const range = fakeRange([{ left: 150, top: 195, width: 200, height: 16 }]);
+    expect(rectsFromRange(range, pageRect)).toHaveLength(1);
+  });
+
+  it('hotfix R15.2: rejects rects fully outside the page even when clamping would admit them', () => {
+    // Entirely right of the page: clamp01 used to fold this into a sliver
+    // at x≈1; the center rule rejects it outright.
+    const range = fakeRange([{ left: 700, top: 280, width: 200, height: 16 }]);
+    expect(rectsFromRange(range, pageRect)).toHaveLength(0);
+  });
+
   it('filters degenerate zero-size rects', () => {
     const range = fakeRange([{ left: 150, top: 280, width: 0, height: 0 }]);
     expect(rectsFromRange(range, pageRect)).toHaveLength(0);
