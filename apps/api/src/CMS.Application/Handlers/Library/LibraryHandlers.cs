@@ -42,6 +42,8 @@ public class LibraryHandlers :
     private readonly IAdminActivityWriter _activity;
     // Push 10.3: FFmpeg pipeline enqueue surface (complete-upload → TranscodingJob).
     private readonly ITranscodingQueue _transcodingQueue;
+    // Wave 11.9: Ghostscript PDF pipeline enqueue surface (complete-upload → PdfProcessingJob).
+    private readonly IPdfProcessingQueue _pdfProcessingQueue;
 
     public LibraryHandlers(
         IApplicationDbContext db,
@@ -53,7 +55,8 @@ public class LibraryHandlers :
         IHtmlBlobSanitizer htmlSanitizer,
         ILogger<LibraryHandlers> logger,
         IAdminActivityWriter activity,
-        ITranscodingQueue transcodingQueue)
+        ITranscodingQueue transcodingQueue,
+        IPdfProcessingQueue pdfProcessingQueue)
     {
         _db = db;
         _unitOfWork = unitOfWork;
@@ -65,6 +68,7 @@ public class LibraryHandlers :
         _logger = logger;
         _activity = activity;
         _transcodingQueue = transcodingQueue;
+        _pdfProcessingQueue = pdfProcessingQueue;
     }
 
     // ===== Queries =====
@@ -399,6 +403,12 @@ public class LibraryHandlers :
         if (file.FileFormat?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true)
             file.ProcessingStatus = ProcessingStatus.Pending;
 
+        // Wave 11.9: PDF library files enter the Ghostscript font re-embedding pipeline at
+        // complete-upload (same commit as the metadata, BEFORE the enqueue below so the
+        // worker reads the final row). Non-PDF files keep PdfProcessingStatus NULL.
+        if (string.Equals(file.FileFormat, "application/pdf", StringComparison.OrdinalIgnoreCase))
+            file.PdfProcessingStatus = PdfProcessingStatus.Pending;
+
         // Do not publish before an external scanner records a clean verdict.
         // The completion endpoint only confirms storage; publication remains a separate privileged action.
         await _unitOfWork.SaveChangesAsync(ct);
@@ -415,6 +425,13 @@ public class LibraryHandlers :
             && !_transcodingQueue.TryEnqueue(new TranscodingJob(MediaAssetType.LibraryFile, file.Id)))
         {
             _logger.LogWarning("Transcoding queue at capacity; library file {FileId} stays Pending until re-enqueued", file.Id);
+        }
+
+        // Wave 11.9: enqueue the Ghostscript pass AFTER the commit, for the same reason.
+        if (file.PdfProcessingStatus == PdfProcessingStatus.Pending
+            && !_pdfProcessingQueue.TryEnqueue(new PdfProcessingJob(file.Id)))
+        {
+            _logger.LogWarning("PDF processing queue at capacity; library file {FileId} stays Pending until re-enqueued", file.Id);
         }
 
         return MapToDto(file);
@@ -450,6 +467,15 @@ public class LibraryHandlers :
 
         if (file.VirusScanStatus != VirusScanStatus.Clean)
             throw new DomainException("لا يمكن نشر ملف قبل اكتمال الفحص الأمني بنجاح", "FILE_SCAN_NOT_CLEAN");
+
+        // Wave 11.9: a PDF whose Ghostscript pass FAILED must never reach students —
+        // the player would serve an unfixed file while the admin UI reports Ready.
+        // Ready-with-skip (over-ceiling) stays publishable: it deliberately falls back
+        // to the player's R19 path rendering. Pending/Normalizing remain publishable
+        // too (the pass is best-effort; a hard gate on them would deadlock publishing
+        // whenever the queue is full) — the admin UI surfaces the live status instead.
+        if (file.PdfProcessingStatus == PdfProcessingStatus.Failed)
+            throw new DomainException("لا يمكن نشر ملف PDF بعد فشل معالجة الخطوط، يرجى إعادة المحاولة أو رفع الملف مرة أخرى", "PDF_PROCESSING_FAILED");
 
         file.Status = ContentStatus.Published;
         await _unitOfWork.SaveChangesAsync(ct);
@@ -520,6 +546,15 @@ public class LibraryHandlers :
         f.ProcessingStatus == ProcessingStatus.Failed ? MediaProcessingFailure.TechnicalDetails : null,
         f.HlsKey,
         // Push 10.7 — stored transcoding target.
-        f.TargetQuality
+        f.TargetQuality,
+        // Wave 11.9 — Ghostscript font pipeline exposure (additive DTO keys).
+        f.PdfProcessingStatus,
+        // FontPipelineFixed is DERIVED, not stored: the worker only swaps FileUrl to the
+        // "{key}-fixed" object when Ghostscript actually produced a fixed file. The
+        // over-ceiling skip (Ready, original key) and legacy/failed rows derive false —
+        // the player then keeps R19 path rendering for exactly those files.
+        f.PdfProcessingStatus == PdfProcessingStatus.Ready
+            && f.FileUrl.EndsWith("-fixed", StringComparison.Ordinal),
+        f.PdfProcessingStatus == PdfProcessingStatus.Failed ? f.ProcessingError : null
     );
 }

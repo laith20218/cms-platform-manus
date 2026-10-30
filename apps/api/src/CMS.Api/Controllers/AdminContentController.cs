@@ -96,7 +96,13 @@ public sealed class AdminContentController : ControllerBase
         return Ok(await PageAsync(query, page, pageSize, file => new AdminLibraryFileListItem(
             file.Id, file.SubjectId, file.LectureId, file.Subject.NameAr, file.Title, file.Type.ToString(),
             file.Category == null ? null : file.Category.ToString(),
-            file.FileSize, file.DurationSeconds, file.Status.ToString(), file.VirusScanStatus.ToString(), file.CreatedAt), ct));
+            file.FileSize, file.DurationSeconds, file.Status.ToString(), file.VirusScanStatus.ToString(), file.CreatedAt,
+            // Wave 11.9 — the admin upload panel polls these three keys (phase timeline +
+            // error modal). Same .ToString() enum contract as the adjacent status columns.
+            file.PdfProcessingStatus == null ? null : file.PdfProcessingStatus.ToString(),
+            file.PdfProcessingStatus == CMS.Domain.Enums.PdfProcessingStatus.Failed ? file.ProcessingError : null,
+            file.PdfProcessingStatus == CMS.Domain.Enums.PdfProcessingStatus.Ready
+                && file.FileUrl.EndsWith("-fixed", StringComparison.Ordinal)), ct));
     }
 
     [HttpGet("academic/subjects/{subjectId:guid}/lectures")]
@@ -163,5 +169,7 @@ public sealed class AdminContentController : ControllerBase
 public record AdminPagedResult<T>(List<T> Items, int Total, int Page, int PageSize, int TotalPages);
 public record AdminQuestionListItem(Guid Id, string Text, Guid SubjectId, Guid? LectureId, string SubjectName, string? LectureName, string Difficulty, string Status, DateTime CreatedAt);
 public record AdminExamListItem(Guid Id, Guid SubjectId, string SubjectName, string TitleAr, string? TitleEn, string ExamType, int DurationMinutes, int TotalQuestions, string Status, DateTime CreatedAt);
-public record AdminLibraryFileListItem(Guid Id, Guid SubjectId, Guid? LectureId, string SubjectName, string Title, string Type, string? Category, long FileSize, int? DurationSeconds, string Status, string VirusScanStatus, DateTime CreatedAt);
+public record AdminLibraryFileListItem(Guid Id, Guid SubjectId, Guid? LectureId, string SubjectName, string Title, string Type, string? Category, long FileSize, int? DurationSeconds, string Status, string VirusScanStatus, DateTime CreatedAt,
+    // Wave 11.9 — Ghostscript pipeline surface (additive, nullable → legacy rows unaffected).
+    string? PdfProcessingStatus = null, string? ProcessingError = null, bool FontPipelineFixed = false);
 public record AdminLectureListItem(Guid Id, Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, string? Description, string? InstructorName, string? SourceReference, string Status, bool IsArchived);

@@ -29,7 +29,11 @@
  *   • Upload flow:
  *       1. POST /api/v1/library/upload-url — request presigned PUT URL
  *       2. PUT <presigned-url> — direct file upload via XHR w/ progress
- *       3. POST /api/v1/library/complete-upload — finalize (triggers scan)
+ *       3. POST /api/v1/library/complete-upload — finalize (triggers scan +
+ *          Wave 11.9: application/pdf enqueues the Ghostscript font pass)
+ *       4. GET /api/v1/admin/content/files poll (3s) — phase timeline
+ *          Uploading → Processing Fonts (Ghostscript) → Ready | Failed
+ *          (+ ProcessingErrorModal on failure, Push 10.4 pattern)
  *   • Publish — POST /api/v1/library/{id}/publish
  *   • Archive — POST /api/v1/library/{id}/archive
  *   • Delete — DELETE /api/v1/library/{id}
@@ -42,11 +46,13 @@
  */
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle, Archive, CheckCircle2, FileText, FileImage, FileVideo,
+  AlertCircle, AlertTriangle, Archive, CheckCircle2, FileText, FileImage, FileVideo,
   FileAudio, FileCode, Library, LoaderCircle, Plus, RefreshCw, Search,
   Trash2, Upload, X, Film,
 } from 'lucide-react';
 import { apiRequest, type PagedResult, type AdminLibraryFileListItem, type UploadUrlResponse } from '../lib/api';
+import { isPdfProcessingActive, pdfProcessingPhase, PDF_PROCESSING_PHASES } from '../lib/mediaProcessing';
+import { ProcessingErrorModal } from './ProcessingErrorModal';
 import { useUiPermissions } from '../hooks/useUiPermissions';
 import { CoursesCenter } from './CoursesCenter';
 
@@ -96,6 +102,11 @@ const formatBytes = (bytes: number) => {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 };
+
+// ===== Wave 11.9 — Ghostscript poll cadence (CoursesCenter 10.4 precedent:
+// 3-second interval + 15-minute watchdog so a wedged pipeline can't poll forever).
+const PDF_POLL_INTERVAL_MS = 3000;
+const PDF_POLL_TIMEOUT_MS = 15 * 60 * 1000;
 
 // === Badge tone helpers (Tailwind utility classes — no custom CSS) ===
 // Type: Pdf=red, Html=sky, Image=violet, Video=amber, Audio=teal, default=slate.
@@ -224,6 +235,11 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState<AdminLibraryFileListItem | null>(null);
+  // Wave 11.9 — the file id the upload panel tracks through the Ghostscript
+  // pipeline + the failure modal payload (raw GS stderr tail).
+  const [trackingFileId, setTrackingFileId] = useState<string | null>(null);
+  const [pollTimedOut, setPollTimedOut] = useState(false);
+  const [fontErrorModal, setFontErrorModal] = useState<{ human: string | null; technical: string | null } | null>(null);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
 
@@ -307,6 +323,50 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjectId, statusFilter, categoryFilter]);
 
+  // ===== Wave 11.9 — Ghostscript processing tracker =====
+  // complete-upload no longer closes the panel: the uploaded row is tracked
+  // through the admin list (the fresh file is the newest row on page 1) until
+  // the Ghostscript pipeline resolves Ready | Failed.
+  const trackedFile = useMemo(
+    () => files.find((file) => file.id === trackingFileId) ?? null,
+    [files, trackingFileId],
+  );
+  const trackingStatus = trackedFile?.pdfProcessingStatus;
+  const trackingActive = trackingFileId != null && isPdfProcessingActive(trackingStatus);
+
+  // Poll every 3s while the pipeline runs (CoursesCenter pattern + watchdog).
+  useEffect(() => {
+    if (!trackingActive || pollTimedOut) return;
+    const id = window.setInterval(() => { void loadFiles(1); }, PDF_POLL_INTERVAL_MS);
+    const watchdog = window.setTimeout(() => setPollTimedOut(true), PDF_POLL_TIMEOUT_MS);
+    return () => { window.clearInterval(id); window.clearTimeout(watchdog); };
+    // The refresh targets page 1 explicitly; re-creating the interval on filter
+    // changes is unnecessary (loadFiles closes over the current filters).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackingActive, pollTimedOut]);
+
+  // Terminal resolution: Ready → notice + close; Failed → error modal (the raw
+  // Ghostscript stderr tail rides `processingError` into the collapsible block).
+  useEffect(() => {
+    if (!trackingFileId || trackingStatus == null) return;
+    if (trackingStatus === 'Ready') {
+      onNotice(isArabic
+        ? `تم إصلاح خطوط الملف "${trackedFile?.title ?? ''}" بنجاح.`
+        : `Font processing finished for "${trackedFile?.title ?? ''}".`);
+      setTrackingFileId(null);
+      closeUpload();
+    } else if (trackingStatus === 'Failed') {
+      setFontErrorModal({
+        human: isArabic
+          ? 'تعذّر إصلاح خطوط هذا الملف على الخادم. يمكن إعادة المحاولة بإعادة رفع الملف.'
+          : 'Font processing failed on the server. Retry by uploading the file again.',
+        technical: trackedFile?.processingError ?? null,
+      });
+      setTrackingFileId(null); // stop the poller; the timeline hides, the form stays usable
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackingStatus, trackingFileId]);
+
   const handleFileSelect = (file: File) => {
     setSelectedFile(file);
     const detected = contentTypeMap[file.type] ?? { type: 'Pdf' as const, ct: file.type || 'application/octet-stream' };
@@ -373,8 +433,12 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         }),
       });
 
-      onNotice(`تم رفع الملف "${form.title}" بنجاح.`);
-      closeUpload();
+      // Wave 11.9: complete-upload committed PdfProcessingStatus=Pending and the
+      // worker is picking the Ghostscript job up — DON'T close the panel: switch
+      // it to the phase timeline and poll the row to Ready | Failed.
+      setUploadProgress(100);
+      setTrackingFileId(uploadUrlResp.fileId);
+      setPollTimedOut(false);
       await loadFiles(1);
     } catch (error) {
       onError(error instanceof Error ? error.message : 'فشل رفع الملف.');
@@ -429,6 +493,9 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     setForm(emptyForm());
     setSelectedFile(null);
     setUploadProgress(0);
+    setTrackingFileId(null);
+    setPollTimedOut(false);
+    setFontErrorModal(null);
   }
 
   const copy = useMemo(() => isArabic ? {
@@ -975,6 +1042,58 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                     </div>
                   </div>
                 )}
+
+                {/* Wave 11.9 — Ghostscript phase timeline:
+                    Uploading → Processing Fonts (Ghostscript) → Ready | Failed */}
+                {trackingFileId && (
+                  <div
+                    className="space-y-2 rounded-lg border p-3"
+                    data-testid="pdf-processing-timeline"
+                    style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}
+                  >
+                    <div className="flex justify-between text-xs font-semibold" style={{ color: 'var(--cms-text)' }}>
+                      <span>{isArabic ? 'معالجة خطوط الملف (Ghostscript)' : 'Font processing (Ghostscript)'}</span>
+                      <span className="tabular-nums" style={{ color: 'var(--cms-text-soft)' }}>
+                        {trackingStatus === 'Failed'
+                          ? '—'
+                          : `${pdfProcessingPhase(trackingStatus)?.progress ?? PDF_PROCESSING_PHASES[0].progress}%`}
+                      </span>
+                    </div>
+                    {[
+                      { key: 'upload', label: isArabic ? 'رفع الملف إلى التخزين' : 'Uploading to storage', state: 'done' as const },
+                      {
+                        key: 'fonts',
+                        label: pdfProcessingPhase(trackingStatus)?.[isArabic ? 'labelAr' : 'labelEn']
+                          ?? (isArabic ? PDF_PROCESSING_PHASES[0].labelAr : PDF_PROCESSING_PHASES[0].labelEn),
+                        state: trackingStatus === 'Failed' ? ('failed' as const) : ('active' as const),
+                      },
+                      {
+                        key: 'ready',
+                        label: trackingStatus === 'Failed'
+                          ? (isArabic ? 'فشلت المعالجة — راجع التفاصيل' : 'Processing failed — see details')
+                          : (isArabic ? 'جاهز للنشر' : 'Ready to publish'),
+                        state: trackingStatus === 'Failed'
+                          ? ('failed' as const)
+                          : trackingStatus === 'Ready' ? ('done' as const) : ('pending' as const),
+                      },
+                    ].map((step) => (
+                      <div key={step.key} className="flex items-center gap-2 text-xs" data-testid={`pdf-phase-${step.key}`}>
+                        {step.state === 'done' && <CheckCircle2 className="w-4 h-4 shrink-0" style={{ color: '#059669' }} />}
+                        {step.state === 'active' && <LoaderCircle className="w-4 h-4 shrink-0 animate-spin" style={{ color: 'var(--cms-teal-600)' }} />}
+                        {step.state === 'failed' && <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: 'var(--cms-danger)' }} />}
+                        {step.state === 'pending' && <span className="w-4 h-4 shrink-0 rounded-full border" style={{ borderColor: 'var(--cms-line-strong)' }} />}
+                        <span style={{ color: step.state === 'pending' ? 'var(--cms-text-soft)' : 'var(--cms-text)' }}>{step.label}</span>
+                      </div>
+                    ))}
+                    {pollTimedOut && trackingActive && (
+                      <p className="text-xs" style={{ color: 'var(--cms-danger)' }}>
+                        {isArabic
+                          ? 'تجاوزت المعالجة المهلة (15 دقيقة) — تم إيقاف التحديث. أعد المحاولة لاحقاً.'
+                          : 'Processing exceeded the 15-minute watchdog — polling stopped. Retry later.'}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Action bar */}
@@ -1067,6 +1186,16 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
           </div>
         </div>
       )}
+
+      {/* ===== Wave 11.9 — PDF font-processing failure modal (Push 10.4 pattern) ===== */}
+      <ProcessingErrorModal
+        open={fontErrorModal !== null}
+        onOpenChange={(open) => { if (!open) setFontErrorModal(null); }}
+        isArabic={isArabic}
+        humanMessage={fontErrorModal?.human}
+        technicalDetails={fontErrorModal?.technical}
+        testId="pdf-processing-error-modal"
+      />
     </section>
   );
 }

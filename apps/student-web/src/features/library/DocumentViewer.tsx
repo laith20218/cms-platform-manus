@@ -121,7 +121,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
   const [textBody, setTextBody] = useState<string | null>(null);
   const [textFailed, setTextFailed] = useState(false);
   const [htmlBody, setHtmlBody] = useState<string | null>(null);
-  const [detail, setDetail] = useState<{ fileFormat: string | null } | null>(null);
+  const [detail, setDetail] = useState<{ fileFormat: string | null; fontPipelineFixed: boolean } | null>(null);
   const [viewStartMs] = useState(Date.now());
   const recordedRef = useRef(false);
 
@@ -153,8 +153,8 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
       .catch(() => { if (!cancelled) { setLoadFailed(true); toast.error('تعذّر الوصول للملف'); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     libraryApi.getFile(file.id)
-      .then((data) => { if (!cancelled) setDetail({ fileFormat: data?.fileFormat ?? null }); })
-      .catch(() => { if (!cancelled) setDetail({ fileFormat: null }); });
+      .then((data) => { if (!cancelled) setDetail({ fileFormat: data?.fileFormat ?? null, fontPipelineFixed: data?.fontPipelineFixed === true }); })
+      .catch(() => { if (!cancelled) setDetail({ fileFormat: null, fontPipelineFixed: false }); });
     return () => { cancelled = true; };
   }, [file.id]);
 
@@ -281,7 +281,10 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
         fill
         testId="pdf-player-shell"
       >
-        {loading ? (
+        {loading || (kind === 'pdf' && detail === null) ? (
+          // Wave 11.9: the PDF branch also waits for the file DETAIL — the
+          // fontPipelineFixed flag rides it, so the player mounts once with the
+          // final disableFontFace decision instead of reloading on a late flip.
           <PlayerLoading label="جارٍ تجهيز ملف PDF…" />
         ) : loadFailed || !access ? (
           <ViewerError onClose={onClose} />
@@ -296,6 +299,9 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
               title: file.title,
               pagesCount: file.pagesCount,
               watermark: access.watermark,
+              // Wave 11.9 — the detail fetch carries the Ghostscript flag; absence
+              // (legacy API) derives false → the player keeps R19 path rendering.
+              fontPipelineFixed: detail?.fontPipelineFixed === true,
               testId: 'library-pdf-player',
             }}
             testId="pdf-player-mount"

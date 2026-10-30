@@ -31,7 +31,16 @@ public record LibraryFileDto(
     string? ProcessingError = null,
     string? HlsKey = null,
     // Push 10.7 — admin-selected transcoding target ("Auto"|"P360"|"P720"|"P1080").
-    TargetQuality TargetQuality = TargetQuality.Auto
+    TargetQuality TargetQuality = TargetQuality.Auto,
+    // ===== Wave 11.9 — Ghostscript PDF font pipeline exposure (additive keys) =====
+    // Null PdfProcessingStatus = pipeline never applied (non-PDF / legacy rows).
+    // FontPipelineFixed drives the player's disableFontFace decision: true only when
+    // Ghostscript actually produced the "{key}-fixed" object (the over-ceiling skip
+    // is Ready but NOT fixed — the player keeps R19 path rendering for it).
+    // ProcessingError rides only while the status is Failed (admin error modal).
+    PdfProcessingStatus? PdfProcessingStatus = null,
+    bool FontPipelineFixed = false,
+    string? FontProcessingError = null
 );
 
 public record LibraryFileListItemDto(

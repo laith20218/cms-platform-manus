@@ -48,7 +48,9 @@ LABEL org.opencontainers.image.title="CMS API" \
 #   ffmpeg — Push 10.3 transcoding pipeline (HLS ladder 360p/720p/1080p). Alpine's ffmpeg
 #   builds ship libx264 + aac encoders; the version pinning follows the Alpine release
 #   the base image tracks (no host-side install at runtime).
-RUN apk add --no-cache icu-libs tzdata wget ca-certificates ffmpeg && \
+#   ghostscript — Wave 11.9 PDF pre-processing pipeline (pdfwrite re-embedding of
+#   broken/missing Arabic fonts before the fixed file lands in storage).
+RUN apk add --no-cache icu-libs tzdata wget ca-certificates ffmpeg ghostscript && \
     rm -rf /var/cache/apk/*
 
 # Transcoding pipeline knobs (Push 10.3 / Hotfix 10.6-2): binary discovery + per-job
@@ -57,6 +59,12 @@ RUN apk add --no-cache icu-libs tzdata wget ca-certificates ffmpeg && \
 ENV FFMPEG_PATH=ffmpeg \
     FFPROBE_PATH=ffprobe \
     FFMPEG_TIMEOUT_MINUTES=10
+
+# Wave 11.9 PDF pipeline knobs: binary discovery + OFL Arabic font pack + per-job
+# watchdog (same "stuck, not slow" rationale as the FFmpeg timeout above).
+ENV GS_PATH=gs \
+    GHOSTSCRIPT_FONTS_PATH=/app/ghostscript-fonts \
+    GS_TIMEOUT_MINUTES=10
 
 # Set globalization invariant to false (Arabic support)
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
@@ -72,6 +80,11 @@ WORKDIR /app
 
 # Copy published artifacts
 COPY --from=publish --chown=cms:cms /app/publish .
+
+# Wave 11.9 — OFL Arabic font pack (Amiri + Noto Naskh Arabic, licenses included)
+# consumed by Ghostscript via -sFONTPATH. Baked into the image: Render free-tier
+# disks are ephemeral and the service builds straight from this Dockerfile.
+COPY --chown=cms:cms assets/pdf-fonts/ /app/ghostscript-fonts/
 
 # Create directories for logs + uploads
 RUN mkdir -p /app/logs /app/uploads && \

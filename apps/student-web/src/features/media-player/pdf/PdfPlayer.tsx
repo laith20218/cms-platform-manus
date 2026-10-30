@@ -53,10 +53,17 @@ ensurePdfWorker();
  * proved the browser @font-face pipeline mis-maps the synthetic cmap of
  * subset embedded fonts on the canvas (dropped 'i's, 'a'→'ã', cluster gaps —
  * the "W ebS o ck et" signature). Path rendering is therefore the DEFAULT:
- * disableFontFace: true unconditionally — pdf.js draws glyph outlines as
- * paths straight from the embedded font programs. cMap/cMapPacked stay on
- * (character mapping), useSystemFonts stays on (non-embedded fallbacks).
- * Field A/B of the old pipeline: ?pdfFonts=embedded (pdf-debug.ts).
+ * disableFontFace: true — pdf.js draws glyph outlines as paths straight from
+ * the embedded font programs. cMap/cMapPacked stay on (character mapping),
+ * useSystemFonts stays on (non-embedded fallbacks). Field A/B of the old
+ * pipeline: ?pdfFonts=embedded (pdf-debug.ts).
+ *
+ * Wave 11.9: files the NEW server-side Ghostscript pipeline re-embedded
+ * (LibraryFileDto.FontPipelineFixed — the "{key}-fixed" object with healthy
+ * fonts) are safe for the standard @font-face pipeline, so the player flips
+ * to disableFontFace: false ONLY for them (per-file, never global). Every
+ * file that bypassed the pipeline — legacy rows, over-ceiling skips, failed
+ * runs — keeps path rendering, which is the R16→R19 failure-mode guard.
  */
 
 const ZOOM_STEPS = [1, 1.25, 1.5, 2, 2.5, 3];
@@ -77,7 +84,7 @@ interface PageDim { width: number; height: number }
 /** Stable empty list so memoized pages never see a fresh array identity. */
 const EMPTY_PAGE_ANNOTATIONS: PdfAnnotation[] = [];
 
-export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerProps) {
+export function PdfPlayer({ assetId, pagesCount, watermark, fontPipelineFixed, testId }: PdfPlayerProps) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [docStatus, setDocStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [reloadToken, setReloadToken] = useState(0);
@@ -145,7 +152,11 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           // 'i's, 'a'→'ã', inter-cluster gaps — R18 e2e S1/S6 A/B evidence);
           // visual integrity of medical Arabic outweighs the render cost.
           // cMapUrl/cMapPacked above stay active for character mapping.
-          disableFontFace: true,
+          //
+          // Wave 11.9 — per-file exception: the server's Ghostscript pass
+          // (FontPipelineFixed) re-embeds healthy fonts, so the standard
+          // @font-face pipeline is SAFE for exactly those files.
+          disableFontFace: fontPipelineFixed ? false : true,
           // Diagnostic ONLY (?pdfFonts=embedded): opt BACK into the old
           // @font-face pipeline to reproduce the broken canvas in the field.
           ...(PDF_DEBUG.embeddedFontFaceOverride ? { disableFontFace: false } : {}),
@@ -165,7 +176,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
       void task?.destroy();
       docRef.current = null;
     };
-  }, [assetId, reloadToken]);
+  }, [assetId, reloadToken, fontPipelineFixed]);
 
   /* ---- Page dimensions (scale-1 viewports; metadata only, no rendering). ---- */
   useEffect(() => {

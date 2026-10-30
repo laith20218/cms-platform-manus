@@ -199,7 +199,8 @@ public class ActivityMonitorHandlerTests
             AllowAllEntitlements(), settings.Object, sanitizer.Object,
             NullLogger<LibraryHandlers>.Instance,
             new AdminActivityWriter(db, NullLogger<AdminActivityWriter>.Instance),
-            new TranscodingChannelQueue()); // Push 10.3: inert queue — nothing consumes jobs in tests
+            new TranscodingChannelQueue(), // Push 10.3: inert queue — nothing consumes jobs in tests
+            new PdfProcessingChannelQueue()); // Wave 11.9: inert queue — same rationale
 
         await handler.Handle(new CompleteUploadCommand(file.Id, file.FileUrl, 2048, 3, null, null, admin.Id, sessionId),
             CancellationToken.None);

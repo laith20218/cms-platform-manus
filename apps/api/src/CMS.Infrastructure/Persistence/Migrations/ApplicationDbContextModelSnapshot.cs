@@ -1584,6 +1584,14 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("pages_count");
 
+                    b.Property<int?>("PdfProcessingStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("pdf_processing_status");
+
+                    b.Property<string>("ProcessingError")
+                        .HasColumnType("text")
+                        .HasColumnName("processing_error");
+
                     b.Property<int?>("ProcessingStatus")
                         .HasColumnType("integer")
                         .HasColumnName("processing_status");
@@ -1639,6 +1647,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("LectureId")
                         .HasDatabaseName("ix_library_files_lecture_id");
+
+                    b.HasIndex("PdfProcessingStatus")
+                        .HasDatabaseName("ix_library_files_pdf_processing_status")
+                        .HasFilter("pdf_processing_status IS NOT NULL");
 
                     b.HasIndex("ProcessingStatus")
                         .HasDatabaseName("ix_library_files_processing_status")
