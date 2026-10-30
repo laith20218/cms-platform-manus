@@ -180,6 +180,7 @@ jobs:
           cd apps/student-web
           node e2e/favorites-advanced.e2e.mjs
           node e2e/player-video.e2e.mjs
+          node e2e/player-audio.e2e.mjs
           node e2e/player-favorite-toggle.e2e.mjs
           node e2e/player-hls.e2e.mjs
           node e2e/player-hls-option-c.e2e.mjs

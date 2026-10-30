@@ -21,6 +21,22 @@
  * so every scenario ≥3s long exercises the silent URL swap (media src swap +
  * time/play-state restore) against genuine playback.
  *
+ * Wave 11.7.x / P4 — adapted to the P1/P2 contract and extended to 32
+ * checks (26 − 2 + 8):
+ *  - S4e: ONE wrap check now (the "defined" twin is subsumed by the
+ *    bounds; the play-retries observability check retired with the G2/
+ *    G2-ext retry arms — dataset.playRetries no longer exists).
+ *  - S8a/S8b/S8c: swap survival — speed+pitch, volume+muted, and
+ *    continuity (swap zeros recorded; every dip recovered ≤1.5s; net
+ *    progress).
+ *  - S9a/S9b/S9c: SWAPPING-phase intents through the deferred-intent
+ *    queue (play queued and landed, pause respected, keyboard seek
+ *    survives the merged plan). The waveform drag/click-seek stays
+ *    DIRECT by F-B design — these checks drive the keyboard only.
+ *  - S10: A-B loop cycles across swaps (≥4 wraps in 15s, ≥1 swap zero).
+ *  - S11: terminal lease error → retry recovers to PLAYABLE (F-G
+ *    weakened spec: position preservation NOT asserted).
+ *
  * Run (dev server on 127.0.0.1:5173):  node e2e/player-audio.e2e.mjs
  */
 import { chromium } from '@playwright/test';
@@ -265,10 +281,10 @@ async function newAudioContext(browser, viewport) {
   return { context, counters };
 }
 
-/** Navigate to the library page and open the audio file in the player shell. */
-async function openAudioPlayer(browser, viewport) {
-  const { context, counters } = await newAudioContext(browser, viewport);
-  const page = await context.newPage();
+/** Navigate to the library page and open the audio file in the player shell
+ *  (context routes must already be in place — the race scenarios install
+ *  their shadow routes BEFORE calling this). */
+async function gotoAudioPlayer(page) {
   await page.goto(`${BASE_URL}/subjects/${SUBJECT_SLUG}/library`);
   await page.locator('text=محاضرة صوتية تجريبية').first().click();
   await page.locator('[data-testid="audio-player-shell"]').waitFor({ state: 'visible', timeout: 20_000 });
@@ -286,6 +302,12 @@ async function openAudioPlayer(browser, viewport) {
       window.__audioLog.push(audio.currentTime);
     });
   });
+}
+
+async function openAudioPlayer(browser, viewport) {
+  const { context, counters } = await newAudioContext(browser, viewport);
+  const page = await context.newPage();
+  await gotoAudioPlayer(page);
   return { context, page, counters };
 }
 
@@ -299,6 +321,9 @@ const audioState = (page) => page.evaluate(() => {
     preservesPitch: el.preservesPitch === true,
     muted: el.muted,
     volume: el.volume,
+    // P4: the imperative swap instrumentation (set in onSwapStart, cleared
+    // at every terminal) — the race scenarios' SWAPPING-window probe.
+    swapAttr: el.getAttribute('data-swap-in-flight'),
   };
 });
 
@@ -480,18 +505,16 @@ async function main() {
       if (wrappedTo === null) scan(log);
       const highSamples = log.filter((v) => v >= 3.5).length;
       check('S4e sawHigh (currentTime reached ≥ 3.5)', sawHigh === true, `highSamples=${highSamples} logLen=${log.length} swapZeros=${swapZeros}`);
-      check('S4e wrappedTo defined (no swap-zero only)', wrappedTo !== null, `wrappedTo=${wrappedTo?.toFixed(2) ?? 'undefined'} swapZeros=${swapZeros} logLen=${log.length}`);
+      // P4 (F-A): ONE wrap check — the old "wrappedTo defined" twin is
+      // subsumed here (the bounds already imply defined), and the old
+      // play-retries observability check is retired with the G2/G2-ext
+      // retry arms (the P1/P2 queue supersedes them; dataset.playRetries
+      // no longer exists — the check had become a vacuous pass).
       // Lower+upper bound (commit 8 expansion): the seek-commit lands at
       // A+ε ≈ 2.73-2.78. A wrap recorded at ≤ 2.0 can only be a lease-swap
       // zero-window masquerading as a wrap (timeupdate fired mid-load with
       // currentTime 0) — now independently falsifiable against that defect.
-      check('S4e wrapped to near A', wrappedTo !== null && wrappedTo > 2.0 && wrappedTo < 3.2, `wrappedTo=${wrappedTo?.toFixed(2) ?? 'undefined'} (expected 2.7x) swapZeros=${swapZeros}`);
-      // Observability (P2): the product retries play() once per load-interrupt
-      // (AbortError during a lease swap); each retry bumps data-play-retries.
-      // 0 = no interrupt hit; 1 = hit once and recovered; > 3 = something is
-      // genuinely wrong with the retry bound.
-      const playRetries = await page.evaluate(() => Number(document.querySelector('audio')?.dataset.playRetries ?? 0));
-      check('S4e play retries within reason', playRetries <= 3, `playRetries=${playRetries}`);
+      check('S4e wrapped to near A (a real wrap, not a swap zero)', wrappedTo !== null && wrappedTo > 2.0 && wrappedTo < 3.2, `wrappedTo=${wrappedTo?.toFixed(2) ?? 'undefined'} (expected 2.7x) swapZeros=${swapZeros}`);
       // Clear
       await page.locator('[data-testid="audio-play"]').click(); // pause
       await page.locator('[data-testid="audio-clear-ab"]').click();
@@ -630,6 +653,465 @@ async function main() {
       await page.waitForTimeout(200);
       const ctrlCBlocked = await page.evaluate(() => window.__t.ctrlc === true);
       check('S7c Ctrl+C inside stage prevented', ctrlCBlocked === true, `defaultPrevented=${ctrlCBlocked}`);
+      await context.close();
+    }
+
+    /* ---- S8: swap survival — speed/pitch, volume/mute, continuity ---- */
+
+    {
+      const { context, page } = await openAudioPlayer(browser, { width: 768, height: 1024 });
+      await page.locator('[data-testid="audio-rate-trigger"]').click();
+      await page.locator('[data-testid="audio-rate-menu"]').waitFor({ state: 'visible', timeout: 5000 });
+      await page.locator('[data-testid="audio-rate-option-1-5"]').click();
+      await page.waitForTimeout(300);
+      await page.locator('[data-testid="audio-play"]').click();
+      // 5s of playback ≥ 1 silent swap (TTL 8 → refresh at ~3s): the capture
+      // (rate 1.5 + preservesPitch) must ride the hook's restore back.
+      await page.waitForTimeout(5000);
+      const state = await audioState(page);
+      check(
+        'S8a speed + pitch survive the swap',
+        state && state.playbackRate === 1.5 && state.preservesPitch === true && state.paused === false && state.currentTime > 1,
+        `rate=${state?.playbackRate} preservesPitch=${state?.preservesPitch} paused=${state?.paused} t=${state?.currentTime.toFixed(2)}`,
+      );
+      await context.close();
+    }
+
+    {
+      const { context, page } = await openAudioPlayer(browser, { width: 768, height: 1024 });
+      const box = await page.locator('[data-testid="audio-volume-slider"]').boundingBox();
+      await page.mouse.click(box.x + box.width * 0.4, box.y + box.height / 2);
+      await page.waitForTimeout(200);
+      await page.locator('[data-testid="audio-mute"]').click();
+      await page.waitForTimeout(200);
+      let state = await audioState(page);
+      const preSet = state && state.volume >= 0.3 && state.volume <= 0.5 && state.muted === true;
+      await page.locator('[data-testid="audio-play"]').click();
+      await page.waitForTimeout(5000); // ≥1 silent swap
+      state = await audioState(page);
+      check(
+        'S8b volume + muted survive the swap',
+        preSet && state && Math.abs(state.volume - 0.4) <= 0.06 && state.muted === true && state.paused === false,
+        `preSet=${preSet} volume=${state?.volume.toFixed(2)} muted=${state?.muted} paused=${state?.paused}`,
+      );
+      await context.close();
+    }
+
+    {
+      const { context, page } = await openAudioPlayer(browser, { width: 768, height: 1024 });
+      // Deterministic swap ledger (P4): a MutationObserver on the audio
+      // element timestamps every data-swap-in-flight set/clear cycle (the
+      // hook's imperative swap instrumentation), and a 10ms poll samples the
+      // element position INSIDE each open window (the load() zero-dip — the
+      // 10-50ms reset can fall between the ~4Hz timeupdate samples, so the
+      // log alone cannot prove it). The timeupdate log stays for the
+      // net-progress readout.
+      await page.evaluate(() => {
+        window.__swapLog = [];
+        window.__swaps = [];
+        const audio = document.querySelector('audio');
+        if (!audio) throw new Error('audio element missing');
+        audio.addEventListener('timeupdate', () => {
+          window.__swapLog.push({ p: audio.currentTime, at: Date.now() });
+        });
+        const obs = new MutationObserver(() => {
+          const present = audio.getAttribute('data-swap-in-flight') !== null;
+          if (present) window.__swaps.push({ setAt: Date.now(), clearAt: null, minPos: Infinity });
+          else {
+            const last = window.__swaps[window.__swaps.length - 1];
+            if (last && last.clearAt == null) last.clearAt = Date.now();
+          }
+        });
+        obs.observe(audio, { attributes: true, attributeFilter: ['data-swap-in-flight'] });
+        window.__swapPoll = setInterval(() => {
+          const last = window.__swaps[window.__swaps.length - 1];
+          if (last && last.clearAt == null && audio.currentTime < last.minPos) last.minPos = audio.currentTime;
+        }, 10);
+      });
+      await page.locator('[data-testid="audio-play"]').click();
+      // 10s of playback → ≥2 silent swaps (TTL 8 → refresh at ~3s/~6s/~9s).
+      await page.waitForTimeout(10_000);
+      const data = await page.evaluate(() => {
+        clearInterval(window.__swapPoll);
+        return { swaps: window.__swaps, log: window.__swapLog };
+      });
+      const state = await audioState(page);
+      const swaps = data.swaps ?? [];
+      const completed = swaps.filter((s) => s.clearAt != null);
+      const cycles = completed.length;
+      // Dip→recovery (≤1.5s): every completed cycle's SWAPPING+RESTORING
+      // window — the clear fires just after the hook's restore lands.
+      const slowCycles = completed.filter((s) => s.clearAt - s.setAt > 1500).length;
+      // Zeros persist: the element genuinely reset inside the window.
+      const zeroDips = completed.filter((s) => s.minPos < 0.5).length;
+      const firstSig = data.log.find((e) => e.p >= 1);
+      const last = data.log[data.log.length - 1];
+      const netProgress = firstSig && last ? last.p - firstSig.p : -1;
+      check(
+        'S8c swap continuity (zeros persist; dip→recovery; net progress)',
+        cycles >= 2 && slowCycles === 0 && zeroDips >= 1 && netProgress >= 5 && state && !state.paused,
+        `cycles=${cycles} slowCycles=${slowCycles} zeroDips=${zeroDips} net=${netProgress.toFixed(1)}s paused=${state?.paused}`,
+      );
+      await context.close();
+    }
+
+    /* ============ Wave 11.7.x / P4 — swap-phase race scenarios ============
+     *
+     * Audio-adapted ports of player-video's P2 race harness. The race
+     * contexts shadow the base playback-url mock: every lease carries
+     * ttl=68 (the first silent refresh arms 8s after mount — the setup
+     * always beats it), and the FIRST silent refresh (identified by the
+     * ≥2s gap since the previous POST, NOT by call index — the React dev
+     * StrictMode mount pair lands ~20ms apart) is held at the FETCH level
+     * for LEASE_FETCH_DELAY_MS, opening the FETCH window; the swapped
+     * media response is then route-held for SWAPPING_MEDIA_DELAY_MS so the
+     * consumer cannot ack and the swap is deterministically mid-SWAPPING
+     * when the intent lands. */
+
+    const LEASE_FETCH_DELAY_MS = 2_000;
+    const SWAPPING_MEDIA_DELAY_MS = 1_500;
+    const SETTLE_GRACE_MS = 2_000;
+
+    /** Polls the imperative swap instrumentation MID-FLIGHT —
+     *  data-swap-in-flight is set in onSwapStart (SWAPPING begins) and
+     *  cleared at every terminal. present=true resolves the moment the
+     *  swap lifecycle is deterministically inside SWAPPING. */
+    const audioSwapAttrVisible = (page, present, timeout) => page.waitForFunction(
+      (want) => {
+        const el = document.querySelector('[data-testid="audio-element"]');
+        return want === (el ? el.getAttribute('data-swap-in-flight') !== null : false);
+      },
+      present, { timeout },
+    );
+
+    const audioRefreshingVisible = (page, visible, timeout) => page.waitForFunction(
+      (wantVisible) => {
+        const el = document.querySelector('[data-testid="audio-refreshing"]');
+        return wantVisible ? !!el : !el;
+      },
+      visible, { timeout },
+    );
+
+    const raceLeaseRoute = (context, state) => {
+      let n = 0;
+      let lastPostAt = 0;
+      return context.route(`**/api/v1/media/library-file/${FILE_ID}/playback-url`, async (route) => {
+        n += 1;
+        const now = Date.now();
+        // The silent refresh is the first POST a >=2s gap after the previous
+        // one (the StrictMode mount pair lands ~20ms apart — same rule as
+        // player-video's harness).
+        const isSilentRefresh = lastPostAt > 0 && now - lastPostAt >= 2_000;
+        lastPostAt = now;
+        if (isSilentRefresh && !state.delayedRefreshDone) {
+          state.delayedRefreshDone = true;
+          state.refreshLease = n;
+          await new Promise((r) => setTimeout(r, LEASE_FETCH_DELAY_MS));
+        }
+        await route.fulfill({
+          json: {
+            url: `${AUDIO_URL}?lease=${n}`,
+            ttlSeconds: 68,
+            expiresAt: new Date(Date.now() + 68_000).toISOString(),
+            contentType: 'audio/wav',
+            supportsRange: true,
+          },
+        });
+      });
+    };
+
+    /** Holds the swapped media response (the delayed refresh's lease) so the
+     *  element cannot become ready and the consumer cannot ack — the swap is
+     *  deterministically mid-SWAPPING for delayMs. Other media requests pass
+     *  through to vite's static file. */
+    const delaySwappedMedia = (context, state, delayMs = SWAPPING_MEDIA_DELAY_MS) => context.route(`${AUDIO_URL}*`, async (route) => {
+      if (state.refreshLease && route.request().url().includes(`lease=${state.refreshLease}`)) {
+        const response = await route.fetch();
+        await new Promise((r) => setTimeout(r, delayMs));
+        await route.fulfill({ response });
+      } else {
+        await route.fallback();
+      }
+    });
+
+    const openPlayingAudio = async (page) => {
+      await gotoAudioPlayer(page);
+      await page.locator('[data-testid="audio-play"]').click();
+      await page.waitForFunction(
+        () => { const a = document.querySelector('audio[data-testid="audio-element"]'); return a && !a.paused && a.currentTime > 0.5; },
+        null, { timeout: 15_000 },
+      );
+      await page.locator('[data-testid="library-audio-player"]').focus();
+    };
+
+    const runRaceScenario = async (name, body) => {
+      const { context } = await newAudioContext(browser, { width: 1280, height: 800 });
+      const page = await context.newPage();
+      const state = { delayedRefreshDone: false, refreshLease: 0 };
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') consoleErrors.push(`[${name}] ${msg.text().slice(0, 160)}`);
+      });
+      try {
+        await body(context, page, state);
+      } catch (err) {
+        check(name, false, `SPEC ERROR: ${err?.message ?? err}`);
+      } finally {
+        await context.close();
+      }
+    };
+
+    await runRaceScenario('S9a play during SWAPPING is queued and lands', async (context, page, state) => {
+      await raceLeaseRoute(context, state);
+      await delaySwappedMedia(context, state, SWAPPING_MEDIA_DELAY_MS);
+      await openPlayingAudio(page);
+      await page.keyboard.press('Space'); // pause — the deterministic pre-state (the capture: paused)
+      await page.waitForFunction(
+        () => document.querySelector('audio[data-testid="audio-element"]').paused,
+        null, { timeout: 5_000 },
+      );
+      const pausedAt = await audioState(page);
+
+      await audioRefreshingVisible(page, true, 12_000); // FETCH window opens
+      await audioSwapAttrVisible(page, true, 4_000);    // SWAPPING begins (onSwapStart fired)
+      await page.keyboard.press('Space');               // PLAY — inside SWAPPING (media held)
+
+      await audioRefreshingVisible(page, false, LEASE_FETCH_DELAY_MS + 12_000); // swap landed
+      await page.waitForTimeout(SETTLE_GRACE_MS);
+
+      let playing = true;
+      try {
+        await page.waitForFunction(
+          () => { const a = document.querySelector('audio[data-testid="audio-element"]'); return a && !a.paused && a.currentTime > 0.5; },
+          null, { timeout: 10_000 },
+        );
+      } catch { playing = false; }
+      const finalState = await audioState(page);
+      check(
+        'S9a play during SWAPPING is queued and lands',
+        playing && finalState && !finalState.paused && finalState.currentTime >= (pausedAt?.currentTime ?? 0) - 1 && finalState.swapAttr === null,
+        `pausedAt=${pausedAt?.currentTime.toFixed(1)}s final=${finalState?.currentTime.toFixed(1)}s paused=${finalState?.paused} swapAttr=${finalState?.swapAttr}`,
+      );
+    });
+
+    await runRaceScenario('S9b pause during SWAPPING is respected (no ghost un-pause)', async (context, page, state) => {
+      await raceLeaseRoute(context, state);
+      await delaySwappedMedia(context, state, SWAPPING_MEDIA_DELAY_MS);
+      await openPlayingAudio(page); // playing — the capture base (paused=false)
+      const baseAt = await audioState(page);
+
+      await audioRefreshingVisible(page, true, 12_000);
+      await audioSwapAttrVisible(page, true, 4_000); // SWAPPING begins
+      await page.keyboard.press('Space');            // PAUSE — inside SWAPPING (media held)
+
+      await audioRefreshingVisible(page, false, LEASE_FETCH_DELAY_MS + 12_000);
+      await page.waitForTimeout(SETTLE_GRACE_MS);
+
+      const finalState = await audioState(page);
+      check(
+        'S9b pause during SWAPPING is respected (no ghost un-pause)',
+        finalState && finalState.paused && finalState.currentTime >= (baseAt?.currentTime ?? 0) - 1 && finalState.currentTime <= (baseAt?.currentTime ?? 0) + 10 && finalState.swapAttr === null,
+        `baseAt=${baseAt?.currentTime.toFixed(1)}s final=${finalState?.currentTime.toFixed(1)}s paused=${finalState?.paused} swapAttr=${finalState?.swapAttr}`,
+      );
+    });
+
+    await runRaceScenario('S9c keyboard seek during SWAPPING survives (not waveform; F-B)', async (context, page, state) => {
+      await raceLeaseRoute(context, state);
+      await delaySwappedMedia(context, state, SWAPPING_MEDIA_DELAY_MS);
+      await openPlayingAudio(page);
+      // Park deterministically (the position keeps advancing while playing —
+      // a parked base keeps base+10 safely inside the 20s fixture).
+      await waitForAudio(page, (s) => s.currentTime >= 2, 15_000);
+      await page.keyboard.press('Space'); // pause
+      await page.waitForFunction(
+        () => document.querySelector('audio[data-testid="audio-element"]').paused,
+        null, { timeout: 5_000 },
+      );
+      const parkedAt = await audioState(page);
+
+      await audioRefreshingVisible(page, true, 12_000);
+      await audioSwapAttrVisible(page, true, 4_000); // SWAPPING begins
+      await page.keyboard.press('Space');      // PLAY — queued (classified vs the paused capture, F1)
+      await page.keyboard.press('ArrowRight'); // +10s — queued (capture base + 10, F2)
+
+      await audioRefreshingVisible(page, false, LEASE_FETCH_DELAY_MS + 12_000);
+      await page.waitForTimeout(SETTLE_GRACE_MS);
+
+      // The merged plan (A3): one restore carrying BOTH intents — playing at
+      // parked+10.
+      const finalState = await audioState(page);
+      check(
+        'S9c keyboard seek during SWAPPING survives (not waveform; F-B)',
+        finalState && !finalState.paused && finalState.currentTime >= (parkedAt?.currentTime ?? 0) + 8 && finalState.currentTime <= 20 && finalState.swapAttr === null,
+        `parkedAt=${parkedAt?.currentTime.toFixed(1)}s final=${finalState?.currentTime.toFixed(1)}s paused=${finalState?.paused} swapAttr=${finalState?.swapAttr}`,
+      );
+    });
+
+    /* ---- S10: A-B loop cycles ACROSS silent swaps ---- */
+    {
+      const { context, page } = await openAudioPlayer(browser, { width: 768, height: 1024 });
+      // A ≈ 2s, B ≈ A+2.5s (the S4b/c precision pattern).
+      await page.locator('[data-testid="audio-play"]').click();
+      const atA = await waitForAudio(page, (s) => s.currentTime >= 1.8, 10_000);
+      await page.locator('[data-testid="audio-play"]').click(); // pause
+      await page.locator('[data-testid="audio-set-a"]').click();
+      await page.locator('[data-testid="audio-play"]').click();
+      const aVal = atA?.currentTime ?? -1;
+      const atB = await waitForAudio(page, (s) => s.currentTime >= aVal + 2.0, 10_000);
+      await page.locator('[data-testid="audio-play"]').click(); // pause
+      await page.locator('[data-testid="audio-set-b"]').click();
+      const bVal = atB?.currentTime ?? -1;
+
+      // Cycle for 15s — TTL 8 → silent swaps at ~3s/~6s/~9s/~12s: the loop
+      // must keep wrapping ACROSS them (the A-B gates hold during the swap
+      // window; the hook's restore re-lands inside the loop). Swap proof is
+      // the deterministic MutationObserver cycle count (the timeupdate
+      // zero-lottery is observability only).
+      await page.evaluate(() => {
+        window.__audioLog = [];
+        window.__swapCycles = 0;
+        window.__swapPresent = false;
+        const audio = document.querySelector('audio');
+        const obs = new MutationObserver(() => {
+          const present = audio.getAttribute('data-swap-in-flight') !== null;
+          if (present && !window.__swapPresent) window.__swapCycles += 1;
+          window.__swapPresent = present;
+        });
+        obs.observe(audio, { attributes: true, attributeFilter: ['data-swap-in-flight'] });
+      });
+      await page.locator('[data-testid="audio-play"]').click();
+      const deadline = Date.now() + 15_000;
+      let wraps = 0;
+      let swapZeros = 0;
+      let scannedUpTo = 0;
+      let log = [];
+      const scan = (entries) => {
+        for (let i = Math.max(0, scannedUpTo); i < entries.length - 1; i += 1) {
+          // Wrap: a ≥B−0.5 sample followed by a sharp backward jump landing
+          // in the plausible A-region — EXCEPT the lease-swap reset (≤0.5).
+          if (entries[i] >= bVal - 0.5 && entries[i + 1] < entries[i] - 0.5) {
+            if (entries[i + 1] <= 0.5) {
+              swapZeros += 1;
+              continue;
+            }
+            if (entries[i + 1] >= aVal - 0.3 && entries[i + 1] <= aVal + 1.5) wraps += 1;
+          }
+        }
+        scannedUpTo = Math.max(scannedUpTo, entries.length - 1);
+      };
+      while (Date.now() < deadline) {
+        await page.waitForTimeout(250);
+        log = await page.evaluate(() => window.__audioLog || []);
+        scan(log);
+      }
+      scan(log); // final pass: the last pair may only have completed on the final poll
+      const cycles = await page.evaluate(() => window.__swapCycles ?? 0);
+      check(
+        'S10 A-B cycles across swaps (≥4 wraps/15s; ≥2 swaps)',
+        aVal > 0 && bVal > aVal + 1 && wraps >= 4 && cycles >= 2,
+        `a=${aVal.toFixed(2)} b=${bVal.toFixed(2)} wraps=${wraps} cycles=${cycles} swapZeros=${swapZeros} logLen=${log.length}`,
+      );
+      await context.close();
+    }
+
+    /* ---- S11: terminal lease error → retry recovers to PLAYABLE (F-G) ---- */
+    {
+      const { context } = await newAudioContext(browser, { width: 768, height: 1024 });
+      // Shadow the playback-url mock: same TTL-8 cadence, but record the
+      // FIRST silent refresh's lease number (≥2s gap rule — StrictMode pair).
+      let leaseN = 0;
+      let lastPostAt = 0;
+      let failedLease = 0;
+      await context.route(`**/api/v1/media/library-file/${FILE_ID}/playback-url`, async (route) => {
+        leaseN += 1;
+        const now = Date.now();
+        const isSilentRefresh = lastPostAt > 0 && now - lastPostAt >= 2_000;
+        lastPostAt = now;
+        if (isSilentRefresh && !failedLease) failedLease = leaseN;
+        await route.fulfill({
+          json: {
+            url: `${AUDIO_URL}?lease=${leaseN}`,
+            ttlSeconds: TTL_SECONDS,
+            expiresAt: new Date(Date.now() + TTL_SECONDS * 1000).toISOString(),
+            contentType: 'audio/wav',
+            supportsRange: true,
+          },
+        });
+      });
+      // 404 the failed lease's MEDIA: the swap assigns the src, the element
+      // can never become ready → the 5s ack deadline terminal-fails the swap
+      // → onSwapError → the fatal card. (The deferred refresh from the
+      // element's error event drains at the terminal and lands a HEALTHY
+      // lease — the auto-recovery the final gate must tolerate.)
+      await context.route(`${AUDIO_URL}*`, async (route) => {
+        if (failedLease && route.request().url().includes(`lease=${failedLease}`)) {
+          return route.fulfill({ status: 404, body: 'e2e forced lease failure' });
+        }
+        return route.fallback();
+      });
+      const page = await context.newPage();
+      await gotoAudioPlayer(page);
+      // Snapshot the console-error ledger: the forced 404 below produces
+      // EXPECTED resource-error noise — bounded-removed after the scenario
+      // so a REAL regression anywhere stays visible in the report.
+      const consoleBase = consoleErrors.length;
+      await page.locator('[data-testid="audio-play"]').click();
+      // The fatal card: the ack-timeout path guarantees it (~3s refresh +
+      // 5s ack deadline), regardless of whether the double-media-error path
+      // surfaced it first.
+      await page.locator('[data-testid="audio-fatal-error"]').waitFor({ state: 'visible', timeout: 20_000 });
+      // Gate on IDLE FIRST: the early card (double-media-error path) can
+      // appear while the failed swap is still SWAPPING — a retry clicked
+      // then coalesces into the doomed swap's deferred queue, and further
+      // error events from the still-404 src would re-set the card. Wait for
+      // the terminal (attr cleared; the drained refresh's healthy swap
+      // completed), THEN retry in IDLE.
+      await audioSwapAttrVisible(page, false, 15_000);
+      await audioRefreshingVisible(page, false, 15_000);
+      await page.waitForTimeout(SETTLE_GRACE_MS);
+      // Retry: setFatalError(null) + refresh('manual') → a healthy lease →
+      // the swap lands and terminal-clears.
+      await page.locator('[data-testid="audio-fatal-error"] button').click();
+      await audioSwapAttrVisible(page, false, 15_000);
+      await audioRefreshingVisible(page, false, 15_000);
+      await page.waitForTimeout(SETTLE_GRACE_MS);
+      // Auto-recovery race (F-G): the failed swap's capture may have left
+      // the player paused OR the drained refresh may have already replayed
+      // play — either way it must reach PLAYABLE. Position preservation is
+      // deliberately NOT asserted (weakened spec).
+      let st = await audioState(page);
+      if (st && st.paused) {
+        await page.locator('[data-testid="audio-play"]').click();
+        try {
+          await page.waitForFunction(
+            () => { const a = document.querySelector('audio[data-testid="audio-element"]'); return a && !a.paused && a.currentTime > 0.5; },
+            null, { timeout: 10_000 },
+          );
+        } catch { /* fall through to the assertion */ }
+      }
+      // Final read in an IDLE moment (the TTL-8 cadence keeps swapping
+      // every ~3s; data-swap-in-flight is present only ~300ms per cycle —
+      // poll for a reading outside that window).
+      const idleDeadline = Date.now() + 15_000;
+      st = null;
+      while (Date.now() < idleDeadline) {
+        const s = await audioState(page);
+        if (s && s.swapAttr === null && !s.paused && s.currentTime > 0.5) { st = s; break; }
+        await page.waitForTimeout(200);
+      }
+      if (!st) st = await audioState(page);
+      const cardGone = (await page.locator('[data-testid="audio-fatal-error"]').count()) === 0;
+      // Bounded removal of the S11-window 404 noise (only entries added
+      // during this scenario, only the 404 signature).
+      const s11Added = consoleErrors.slice(consoleBase);
+      consoleErrors.length = consoleBase;
+      for (const e of s11Added) {
+        if (!e.includes('404')) consoleErrors.push(e);
+      }
+      check(
+        'S11 terminal lease error recovers to playable (retry; F-G: position not asserted)',
+        st && !st.paused && st.currentTime > 0.5 && st.swapAttr === null && cardGone,
+        `paused=${st?.paused} t=${st?.currentTime?.toFixed(2)} swapAttr=${st?.swapAttr} cardGone=${cardGone} failedLease=${failedLease} leases=${leaseN}`,
+      );
       await context.close();
     }
   } finally {
