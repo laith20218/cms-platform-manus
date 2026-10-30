@@ -109,6 +109,8 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       - run: dotnet restore apps/api/CMS.sln
+      # remediation R13: restore local tools (dotnet-ef, pinned in .config/dotnet-tools.json)
+      - run: dotnet tool restore
       - run: dotnet build apps/api/CMS.sln --no-restore -c Release
       - run: dotnet ef database update --project apps/api/src/CMS.Infrastructure --startup-project apps/api/src/CMS.Api
       - run: dotnet test apps/api/CMS.sln --no-build -c Release --verbosity normal
