@@ -97,8 +97,16 @@ Awaiting supervisor PART I-push authorization (merge
 wip/11.8-f2-p1 → main + prod migration apply).
 
 ## ─── RESUME_FROM ──────────────────────────────────────
-wip/11.8-f2-p1 HEAD (base 4434971 + 3 commits) —
-Phase 1 complete, all stop gates held.
+RESUME_FROM: wip/11.8-f2-p1 (base 4434971 + 11 commits total) —
+Phase 1 complete + remediation R2-R11 applied, all stop gates held.
+  — 3 feature commits on origin at 25290ad
+    (2284830 feat/db → 3f71503 feat/pdf → 25290ad test/e2e)
+  — 8 remediation commits LOCAL ONLY, awaiting credentialed push:
+    R2 600917e · R3 1848259 · R5 fab1f24 · R6 bdde75a ·
+    R7 0ef0fcb · R8 93b4fa9 · R10 a813b52 · R11 = this commit
+  — push artifact: /tmp/push-ready/wip-11.8-f2-p1.bundle
+    (one-shot: full chain through this commit; sha256 in
+     /tmp/push-ready/bundle.sha256 and in the R11 report)
 
 # (history below — Wave 11.7.x CLOSED)
 
