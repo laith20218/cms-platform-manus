@@ -1,10 +1,16 @@
 /**
- * Wave 11.9 — PdfPlayer font-pipeline contract (task book part I.2.E).
+ * R22 — PdfPlayer font-pipeline contract (task book part R22.1).
  *
- * Asserts the getDocument option flip that the whole Ghostscript pipeline
- * feeds: disableFontFace must be TRUE (R19 path rendering) for every file the
- * server did NOT re-embed, and FALSE (standard @font-face pipeline) ONLY when
- * the DTO carries fontPipelineFixed — the "{key}-fixed" Ghostscript output.
+ * Path rendering is UNIVERSAL again: disableFontFace must be TRUE for EVERY
+ * file — legacy rows, over-ceiling skips, failed runs AND Ghostscript-fixed
+ * files alike. The Wave 11.9 per-file @font-face exception (fontPipelineFixed
+ * → disableFontFace: false) is rolled back: production showed Word-generated
+ * PDFs with pre-shaped/broken text streams that the font pipeline still
+ * mis-maps. Ghostscript keeps running server-side for font hygiene and the
+ * diagnostics report, but the canvas never trusts @font-face.
+ *
+ * The ONLY escape hatch is the ?pdfFonts=embedded diagnostic override
+ * (pdf-debug.ts) which forces disableFontFace: false for field A/B.
  *
  * The pdf.js module is mocked: no canvas painting, no worker, no real parsing —
  * the test pins the EXACT options object the player hands to getDocument.
@@ -78,7 +84,7 @@ function renderPlayer(fontPipelineFixed?: boolean): ReactElement {
   );
 }
 
-describe('PdfPlayer disableFontFace (Wave 11.9 font pipeline contract)', () => {
+describe('PdfPlayer disableFontFace (R22 universal path rendering)', () => {
   beforeEach(() => {
     getDocumentMock.mockClear();
   });
@@ -101,11 +107,36 @@ describe('PdfPlayer disableFontFace (Wave 11.9 font pipeline contract)', () => {
     expect(options.disableFontFace).toBe(true);
   });
 
-  it('flips to the standard @font-face pipeline (disableFontFace: false) ONLY for Ghostscript-fixed files', async () => {
+  it('R22 rollback: Ghostscript-fixed files (fontPipelineFixed=true) ALSO stay on path rendering', async () => {
+    // The Wave 11.9 contract flipped to disableFontFace: false here; production
+    // proved pre-shaped Word PDFs still break, so the flip is rolled back.
     render(renderPlayer(true));
     await waitFor(() => expect(getDocumentMock).toHaveBeenCalled());
 
     const options = getDocumentMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(options.disableFontFace).toBe(false);
+    expect(options.disableFontFace).toBe(true);
+  });
+
+  it('honors the ?pdfFonts=embedded diagnostic override (disableFontFace: false)', async () => {
+    // pdf-debug reads window.location.search ONCE per module instance — spin a
+    // fresh PdfPlayer module graph with the override in the URL.
+    window.history.replaceState(null, '', '/?pdfFonts=embedded');
+    vi.resetModules();
+    try {
+      const { PdfPlayer: FreshPlayer } = await import('../PdfPlayer');
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={queryClient}>
+          <FreshPlayer assetType="library-file" assetId="file-1" />
+        </QueryClientProvider>,
+      );
+      await waitFor(() => expect(getDocumentMock).toHaveBeenCalled());
+
+      const options = getDocumentMock.mock.calls[0][0] as Record<string, unknown>;
+      expect(options.disableFontFace).toBe(false);
+    } finally {
+      window.history.replaceState(null, '', '/');
+      vi.resetModules();
+    }
   });
 });

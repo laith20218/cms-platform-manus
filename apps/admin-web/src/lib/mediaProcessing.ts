@@ -111,17 +111,29 @@ export interface PdfPhaseInfo {
   status: Exclude<PdfProcessingStatus, 'Failed'>;
   labelAr: string;
   labelEn: string;
+  /** R22.3 — the reassurance sub-text under the ACTIVE rung (font embedding). */
+  subTextAr?: string;
+  subTextEn?: string;
   /** Target width for the animated progress bar (0-100). */
   progress: number;
 }
 
-/** The Ghostscript ladder — the human sentences the upload panel timeline shows
- *  after the browser PUT completes. ("Uploading" is the local XHR phase and is
- *  rendered by the panel itself; these are the SERVER phases.) */
+/** The Ghostscript ladder — the task book's R22.3 human sentences (technical
+ *  jargon like "Ghostscript" stays OUT of the user-facing labels; the server
+ *  name lives in the API logs and the diagnostics report instead).
+ *  ("Uploading" is the local XHR phase and is rendered by the panel itself;
+ *  these are the SERVER phases.) */
 export const PDF_PROCESSING_PHASES: readonly PdfPhaseInfo[] = [
-  { status: 'Pending', labelAr: 'جاري تجهيز الملف في الخادم...', labelEn: 'Preparing the file on the server…', progress: 20 },
-  { status: 'Normalizing', labelAr: 'جاري إصلاح الخطوط العربية (Ghostscript)...', labelEn: 'Processing fonts (Ghostscript)…', progress: 60 },
-  { status: 'Ready', labelAr: 'الملف جاهز للنشر ✅', labelEn: 'The file is ready to publish ✅', progress: 100 },
+  { status: 'Pending', labelAr: 'جاري رفع الملف إلى السيرفر...', labelEn: 'Uploading the file to the server…', progress: 20 },
+  {
+    status: 'Normalizing',
+    labelAr: 'جاري فحص وإصلاح الخطوط العربية...',
+    labelEn: 'Inspecting and fixing the Arabic fonts…',
+    subTextAr: 'نقوم بدمج الخطوط لضمان أفضل جودة للعرض.',
+    subTextEn: 'We embed the fonts to ensure the best display quality.',
+    progress: 60,
+  },
+  { status: 'Ready', labelAr: 'الملف جاهز ومتاح للطلاب ✅', labelEn: 'The file is ready and available to students ✅', progress: 100 },
 ] as const;
 
 const PDF_PHASE_BY_STATUS = new Map<string, PdfPhaseInfo>(
@@ -145,13 +157,13 @@ export function isPdfProcessingActive(status: PdfProcessingStatus | string | nul
   return status == null || status === 'Pending' || status === 'Normalizing';
 }
 
-/** Short bilingual chip for the failure/success surfaces. */
+/** Short bilingual chip for the failure/success surfaces (R22.3 friendly wording). */
 export function pdfProcessingChipLabel(status: PdfProcessingStatus | string | null | undefined, isArabic: boolean): string | null {
-  if (status === 'Failed') return isArabic ? 'فشلت معالجة الخطوط' : 'Font processing failed';
+  if (status === 'Failed') return isArabic ? 'تعذر معالجة الملف' : 'Processing failed';
   const phase = pdfProcessingPhase(status);
   if (!phase) return null;
   if (status === 'Ready') return isArabic ? 'جاهز' : 'Ready';
-  return isArabic ? 'المعالجة: Ghostscript' : 'Processing: Ghostscript';
+  return isArabic ? 'جاري المعالجة...' : 'Processing…';
 }
 
 /** Short chip label for the episode list row (bilingual). */

@@ -13,13 +13,14 @@
  *  A. Happy pipeline (desktop 1280×800): login-restore → Library → hierarchy
  *     picks → upload panel → file pick (application/pdf) → presigned PUT →
  *     complete-upload (assert the body still binds fileId/fileKey) → the
- *     phase timeline appears (Uploading ✓ → Processing Fonts (Ghostscript)…)
- *     → the list poll walks Pending → Normalizing → Ready → the panel closes
- *     on its own with the success notice.
+ *     R22.3 friendly phase timeline appears (رفع الملف ✓ → جاري فحص وإصلاح
+ *     الخطوط العربية… + the reassurance sub-text + the ? tooltip) → the list
+ *     poll walks Pending → Normalizing → Ready → the panel closes on its own
+ *     with the success notice → the R22.4 placeholder button announces Wave 12.
  *  B. Failed processing (desktop): the pipeline lands on Failed with a
- *     Ghostscript stderr payload → ProcessingErrorModal (Push 10.4 pattern)
- *     with the Arabic human headline + the collapsible LTR technical block
- *     carrying the raw GS exit evidence.
+ *     diagnosticReport payload → ProcessingErrorModal (Push 10.4 pattern)
+ *     with the R22.3 headline «تعذر معالجة الملف» + the collapsible
+ *     «تفاصيل تقنية للدعم الفني» carrying the Arabic font report + GS evidence.
  *
  * Run (admin dev server on 127.0.0.1:5174):
  *   node e2e/admin-upload-pdf-processing.e2e.mjs
@@ -71,6 +72,14 @@ const GS_FAILURE_LOG = [
   'Ghostscript exited with code 1',
 ].join('\n');
 
+// R22.2 — the backend's diagnosticReport shape (Arabic substitution report;
+// on Failed rows the raw GS exit evidence rides the same payload).
+const ARABIC_FONT_REPORT = [
+  'الخط الأصلي (SakkalMajalla) غير مدمج، وتم استبداله بـ (Amiri).',
+  'سجل الخادم: Ghostscript exited with code 1',
+].join('\n');
+const WAVE_12_TOAST = 'هذه الميزة ستكون متاحة في التحديث القادم (Wave 12).';
+
 const results = [];
 function check(name, ok, extra = '') {
   results.push({ name, ok, extra });
@@ -108,15 +117,24 @@ function filesPayload(world) {
   world.listGetsAfterComplete += 1;
   let pdfProcessingStatus;
   let processingError = null;
+  let diagnosticReport = null;
   if (world.mode === 'failed') {
     // Poll 1 rides Pending (complete-upload's commit), then terminal failure.
     pdfProcessingStatus = world.listGetsAfterComplete === 1 ? 'Pending' : 'Failed';
-    if (pdfProcessingStatus === 'Failed') processingError = GS_FAILURE_LOG;
+    if (pdfProcessingStatus === 'Failed') {
+      processingError = GS_FAILURE_LOG;
+      diagnosticReport = ARABIC_FONT_REPORT;
+    }
   } else {
     // Each server phase persists for TWO polls (the CoursesCenter pacing
     // precedent): Pending 1-2, Normalizing 3-4, Ready 5+ → ~15s total at 3s.
     const ladder = ['Pending', 'Pending', 'Normalizing', 'Normalizing', 'Ready'];
     pdfProcessingStatus = ladder[Math.min(world.listGetsAfterComplete - 1, ladder.length - 1)];
+    if (pdfProcessingStatus === 'Ready') {
+      // R22.2 — a Ready row can carry a substitution report (exposed on the
+      // wire; the upload panel surfaces failures only).
+      diagnosticReport = 'الخط الأصلي (SakkalMajalla) غير مدمج، وتم استبداله بـ (Amiri).';
+    }
   }
 
   return {
@@ -135,6 +153,7 @@ function filesPayload(world) {
       createdAt: new Date().toISOString(),
       pdfProcessingStatus,
       processingError,
+      diagnosticReport,
       fontPipelineFixed: pdfProcessingStatus === 'Ready',
     }],
     total: 1,
@@ -231,7 +250,7 @@ async function newAdminContext(browser, viewport, world) {
       tags: [], viewsCount: 0, favoritesCount: 0, createdAt: new Date().toISOString(),
       difficulty: 'Easy', processingStatus: null, processingError: null, hlsKey: null,
       targetQuality: 'Auto', pdfProcessingStatus: 'Pending', fontPipelineFixed: false,
-      fontProcessingError: null,
+      fontProcessingError: null, diagnosticReport: null,
     } });
   });
 
@@ -353,16 +372,28 @@ try {
       body?.fileId === FILE_ID && body?.fileKey === FILE_KEY,
       `body=${JSON.stringify(body)?.slice(0, 140) ?? '<missing>'}`);
 
-    // 3 — Mid-flight: the fonts step eventually carries the Ghostscript label
-    //     (the Pending phase — server queue pickup — speaks "preparing" first).
+    // 3 — R22.3: the fonts step speaks HUMAN Arabic (no "Ghostscript" jargon)
+    //     and carries the reassurance sub-text while the pipeline runs.
     await page.waitForFunction(
-      () => document.querySelector('[data-testid="pdf-phase-fonts"]')?.textContent?.includes('Ghostscript') ?? false,
+      () => document.querySelector('[data-testid="pdf-phase-fonts"]')?.textContent?.includes('فحص وإصلاح الخطوط') ?? false,
       undefined,
       { timeout: 20_000 },
     );
     const fontsLabel = await page.getByTestId('pdf-phase-fonts').textContent();
-    check('fonts step is labelled Ghostscript (bilingual contract)',
-      (fontsLabel ?? '').includes('Ghostscript'), fontsLabel ?? '');
+    check('fonts step uses the friendly Arabic label (jargon-free)',
+      (fontsLabel ?? '').includes('فحص وإصلاح الخطوط العربية'), fontsLabel ?? '');
+
+    await page.getByTestId('pdf-phase-fonts-sub').waitFor({ state: 'visible', timeout: 10_000 });
+    const fontsSub = await page.getByTestId('pdf-phase-fonts-sub').textContent();
+    check('fonts step carries the font-embedding sub-text',
+      (fontsSub ?? '').includes('نقوم بدمج الخطوط لضمان أفضل جودة للعرض'), fontsSub ?? '');
+
+    // 3b — R22.3 UI polish: the ? tooltip next to «معالجة الخطوط» carries the
+    //      exact task-book sentence.
+    const tooltipTitle = await page.getByTestId('pdf-fonts-tooltip')
+      .getAttribute('title', { timeout: 10_000 }).catch(() => null);
+    check('the ? tooltip carries the task-book sentence',
+      (tooltipTitle ?? '').includes('متصلاً وسليماً على جميع الأجهزة'), tooltipTitle ?? '');
 
     // 4 — The ladder resolves: the timeline unmounts when the completion effect
     //     closes the panel (Ready at poll 5 → ~15s at the 3s cadence).
@@ -375,6 +406,21 @@ try {
     check('success notice announces the font fix', (toastText ?? '').includes('تم إصلاح خطوط الملف'), toastText ?? '');
     const rowVisible = await page.getByRole('cell', { name: PDF_TITLE }).first().isVisible().catch(() => false);
     check('the fixed file row is visible in the files table', rowVisible);
+
+    // 6 — R22.4: the Wave 12 placeholder button rides every PDF row and the
+    //     toast announces the roadmap (NO backend behind it yet). The success
+    //     notice may still be on screen — wait for the NEW toast by content.
+    const convertBtn = page.getByTestId('convert-images-btn').first();
+    await convertBtn.waitFor({ state: 'visible', timeout: 10_000 });
+    await convertBtn.click();
+    const waveToast = await page.locator('[data-sonner-toast]')
+      .filter({ hasText: 'Wave 12' })
+      .first().textContent({ timeout: 10_000 }).catch(() => '');
+    check('the convert-to-images placeholder announces Wave 12',
+      (waveToast ?? '').includes('Wave 12') && (waveToast ?? '').includes('ستكون متاحة'), waveToast ?? '');
+    const convertLabel = await convertBtn.getAttribute('aria-label');
+    check('the convert button carries the task-book label',
+      (convertLabel ?? '').includes('تحويل إلى صور عالية الجودة'), convertLabel ?? '');
 
     await page.screenshot({ path: path.join(SHOT_DIR, 'admin-upload-08-pdf-processing-ready.png') });
     await context.close();
@@ -397,12 +443,24 @@ try {
     await page.getByTestId('pdf-processing-error-modal').waitFor({ state: 'visible', timeout: 30_000 });
     check('ProcessingErrorModal opens when the Ghostscript pass fails', true);
 
-    // 7 — The technical block carries the raw GS evidence (collapsible, LTR).
-    await page.getByTestId('processing-error-details-toggle').click();
-    const technical = await page.getByTestId('processing-error-technical-body')
+    // 7 — R22.3: the collapsible support section «تفاصيل تقنية للدعم الفني»
+    //     carries the Arabic diagnosticReport WITH the GS exit evidence.
+    const toggle = page.getByTestId('processing-error-details-toggle');
+    await toggle.waitFor({ state: 'visible', timeout: 10_000 });
+    const toggleLabel = await toggle.textContent();
+    check('the support collapsible uses the R22.3 Arabic label',
+      (toggleLabel ?? '').includes('تفاصيل تقنية للدعم الفني'), toggleLabel ?? '');
+    await toggle.click();
+    const supportBody = await page.getByTestId('processing-error-technical-body')
       .textContent({ timeout: 5_000 }).catch(() => '');
-    check('technical block carries the Ghostscript exit evidence',
-      (technical ?? '').includes('Ghostscript exited with code 1'), (technical ?? '').slice(0, 80));
+    check('the support block carries the Arabic report + GS evidence',
+      (supportBody ?? '').includes('الخط الأصلي (SakkalMajalla)')
+      && (supportBody ?? '').includes('Ghostscript exited with code 1'), (supportBody ?? '').slice(0, 90));
+
+    // 8 — R22.3: the modal headline is file-appropriate (no "الفيديو" for PDFs).
+    const headline = await page.getByTestId('processing-error-headline').textContent().catch(() => '');
+    check('the failure headline says the FILE could not be processed',
+      (headline ?? '').includes('تعذر معالجة الملف'), headline ?? '');
 
     await page.screenshot({ path: path.join(SHOT_DIR, 'admin-upload-09-pdf-processing-failed.png') });
     await context.close();

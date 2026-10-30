@@ -47,7 +47,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle, AlertTriangle, Archive, CheckCircle2, FileText, FileImage, FileVideo,
-  FileAudio, FileCode, Library, LoaderCircle, Plus, RefreshCw, Search,
+  FileAudio, FileCode, HelpCircle, Images, Library, LoaderCircle, Plus, RefreshCw, Search,
   Trash2, Upload, X, Film,
 } from 'lucide-react';
 import { apiRequest, type PagedResult, type AdminLibraryFileListItem, type UploadUrlResponse } from '../lib/api';
@@ -239,7 +239,11 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   // pipeline + the failure modal payload (raw GS stderr tail).
   const [trackingFileId, setTrackingFileId] = useState<string | null>(null);
   const [pollTimedOut, setPollTimedOut] = useState(false);
-  const [fontErrorModal, setFontErrorModal] = useState<{ human: string | null; technical: string | null } | null>(null);
+  // R22.3 — the failure modal payload: the human sentence, the raw technical
+  // evidence, and the backend's diagnosticReport (الخط الأصلي... report).
+  const [fontErrorModal, setFontErrorModal] = useState<{
+    human: string | null; technical: string | null; diagnostic: string | null;
+  } | null>(null);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
 
@@ -361,6 +365,9 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
           ? 'تعذّر إصلاح خطوط هذا الملف على الخادم. يمكن إعادة المحاولة بإعادة رفع الملف.'
           : 'Font processing failed on the server. Retry by uploading the file again.',
         technical: trackedFile?.processingError ?? null,
+        // R22.2 — the support collapsible prefers the structured diagnosticReport;
+        // the raw stderr tail is the fallback so support ALWAYS gets evidence.
+        diagnostic: trackedFile?.diagnosticReport ?? trackedFile?.processingError ?? null,
       });
       setTrackingFileId(null); // stop the poller; the timeline hides, the form stays usable
     }
@@ -807,6 +814,23 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
+                        {/* R22.4 — Wave 12 placeholder: the escape hatch for severely
+                            broken PDFs (image conversion) is VISIBLE but not built. */}
+                        {file.type === 'Pdf' && (
+                          <button
+                            type="button"
+                            onClick={() => onNotice(isArabic
+                              ? 'هذه الميزة ستكون متاحة في التحديث القادم (Wave 12).'
+                              : 'This feature will be available in the next update (Wave 12).')}
+                            disabled={busy}
+                            title={isArabic ? 'تحويل إلى صور عالية الجودة' : 'Convert to high-quality images'}
+                            aria-label={isArabic ? 'تحويل إلى صور عالية الجودة' : 'Convert to high-quality images'}
+                            data-testid="convert-images-btn"
+                            className="p-1.5 rounded-md text-violet-600 hover:bg-violet-50 transition-colors disabled:opacity-50"
+                          >
+                            <Images className="w-4 h-4" />
+                          </button>
+                        )}
                         {file.status === 'Draft' && file.virusScanStatus === 'Clean' && can('btn:library.publish') && (
                           <button
                             type="button"
@@ -1043,16 +1067,32 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                   </div>
                 )}
 
-                {/* Wave 11.9 — Ghostscript phase timeline:
-                    Uploading → Processing Fonts (Ghostscript) → Ready | Failed */}
+                {/* R22.3 — the FRIENDLY phase timeline (jargon-free):
+                    رفع الملف → معالجة الخطوط (+ sub-text, ? tooltip) → جاهز | فشل */}
                 {trackingFileId && (
                   <div
                     className="space-y-2 rounded-lg border p-3"
                     data-testid="pdf-processing-timeline"
                     style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}
                   >
-                    <div className="flex justify-between text-xs font-semibold" style={{ color: 'var(--cms-text)' }}>
-                      <span>{isArabic ? 'معالجة خطوط الملف (Ghostscript)' : 'Font processing (Ghostscript)'}</span>
+                    <div className="flex items-center justify-between gap-2 text-xs font-semibold" style={{ color: 'var(--cms-text)' }}>
+                      <span className="inline-flex items-center gap-1.5">
+                        {isArabic ? 'معالجة الخطوط' : 'Font processing'}
+                        {/* The task-book tooltip — WHY this step exists, in plain Arabic. */}
+                        <span
+                          className="inline-flex cursor-help"
+                          title={isArabic
+                            ? 'هذه الخطوة تضمن أن النص العربي سيظهر متصلاً وسليماً على جميع الأجهزة.'
+                            : 'This step ensures Arabic text renders connected and correct on every device.'}
+                          aria-label={isArabic
+                            ? 'هذه الخطوة تضمن أن النص العربي سيظهر متصلاً وسليماً على جميع الأجهزة.'
+                            : 'This step ensures Arabic text renders connected and correct on every device.'}
+                          role="note"
+                          data-testid="pdf-fonts-tooltip"
+                        >
+                          <HelpCircle className="w-3.5 h-3.5" style={{ color: 'var(--cms-text-muted)' }} />
+                        </span>
+                      </span>
                       <span className="tabular-nums" style={{ color: 'var(--cms-text-soft)' }}>
                         {trackingStatus === 'Failed'
                           ? '—'
@@ -1060,29 +1100,44 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                       </span>
                     </div>
                     {[
-                      { key: 'upload', label: isArabic ? 'رفع الملف إلى التخزين' : 'Uploading to storage', state: 'done' as const },
+                      {
+                        key: 'upload',
+                        label: isArabic ? PDF_PROCESSING_PHASES[0].labelAr : PDF_PROCESSING_PHASES[0].labelEn,
+                        state: 'done' as const,
+                        sub: null as string | null,
+                      },
                       {
                         key: 'fonts',
-                        label: pdfProcessingPhase(trackingStatus)?.[isArabic ? 'labelAr' : 'labelEn']
-                          ?? (isArabic ? PDF_PROCESSING_PHASES[0].labelAr : PDF_PROCESSING_PHASES[0].labelEn),
+                        label: isArabic ? PDF_PROCESSING_PHASES[1].labelAr : PDF_PROCESSING_PHASES[1].labelEn,
                         state: trackingStatus === 'Failed' ? ('failed' as const) : ('active' as const),
+                        sub: trackingStatus === 'Failed'
+                          ? null
+                          : (isArabic ? PDF_PROCESSING_PHASES[1].subTextAr : PDF_PROCESSING_PHASES[1].subTextEn) ?? null,
                       },
                       {
                         key: 'ready',
                         label: trackingStatus === 'Failed'
-                          ? (isArabic ? 'فشلت المعالجة — راجع التفاصيل' : 'Processing failed — see details')
-                          : (isArabic ? 'جاهز للنشر' : 'Ready to publish'),
+                          ? (isArabic ? 'تعذر معالجة الملف ❌' : 'The file could not be processed ❌')
+                          : (isArabic ? PDF_PROCESSING_PHASES[2].labelAr : PDF_PROCESSING_PHASES[2].labelEn),
                         state: trackingStatus === 'Failed'
                           ? ('failed' as const)
                           : trackingStatus === 'Ready' ? ('done' as const) : ('pending' as const),
+                        sub: null as string | null,
                       },
                     ].map((step) => (
-                      <div key={step.key} className="flex items-center gap-2 text-xs" data-testid={`pdf-phase-${step.key}`}>
-                        {step.state === 'done' && <CheckCircle2 className="w-4 h-4 shrink-0" style={{ color: '#059669' }} />}
-                        {step.state === 'active' && <LoaderCircle className="w-4 h-4 shrink-0 animate-spin" style={{ color: 'var(--cms-teal-600)' }} />}
-                        {step.state === 'failed' && <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: 'var(--cms-danger)' }} />}
-                        {step.state === 'pending' && <span className="w-4 h-4 shrink-0 rounded-full border" style={{ borderColor: 'var(--cms-line-strong)' }} />}
-                        <span style={{ color: step.state === 'pending' ? 'var(--cms-text-soft)' : 'var(--cms-text)' }}>{step.label}</span>
+                      <div key={step.key} className="flex items-start gap-2 text-xs" data-testid={`pdf-phase-${step.key}`}>
+                        {step.state === 'done' && <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#059669' }} />}
+                        {step.state === 'active' && <LoaderCircle className="w-4 h-4 shrink-0 mt-0.5 animate-spin" style={{ color: 'var(--cms-teal-600)' }} />}
+                        {step.state === 'failed' && <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--cms-danger)' }} />}
+                        {step.state === 'pending' && <span className="w-4 h-4 shrink-0 mt-0.5 rounded-full border" style={{ borderColor: 'var(--cms-line-strong)' }} />}
+                        <div className="min-w-0">
+                          <span style={{ color: step.state === 'pending' ? 'var(--cms-text-soft)' : 'var(--cms-text)' }}>{step.label}</span>
+                          {step.sub && (
+                            <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: 'var(--cms-text-muted)' }} data-testid={`pdf-phase-${step.key}-sub`}>
+                              {step.sub}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     ))}
                     {pollTimedOut && trackingActive && (
@@ -1187,13 +1242,15 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         </div>
       )}
 
-      {/* ===== Wave 11.9 — PDF font-processing failure modal (Push 10.4 pattern) ===== */}
+      {/* ===== Wave 11.9 / R22.3 — PDF font-processing failure modal ===== */}
       <ProcessingErrorModal
         open={fontErrorModal !== null}
         onOpenChange={(open) => { if (!open) setFontErrorModal(null); }}
         isArabic={isArabic}
+        headline={isArabic ? 'تعذر معالجة الملف' : 'The file could not be processed'}
         humanMessage={fontErrorModal?.human}
         technicalDetails={fontErrorModal?.technical}
+        diagnosticReport={fontErrorModal?.diagnostic}
         testId="pdf-processing-error-modal"
       />
     </section>

@@ -34,13 +34,17 @@ public record LibraryFileDto(
     TargetQuality TargetQuality = TargetQuality.Auto,
     // ===== Wave 11.9 — Ghostscript PDF font pipeline exposure (additive keys) =====
     // Null PdfProcessingStatus = pipeline never applied (non-PDF / legacy rows).
-    // FontPipelineFixed drives the player's disableFontFace decision: true only when
-    // Ghostscript actually produced the "{key}-fixed" object (the over-ceiling skip
-    // is Ready but NOT fixed — the player keeps R19 path rendering for it).
+    // FontPipelineFixed is the DERIVED "-fixed object was produced" flag. Since R22
+    // it no longer flips the player's rendering (path rendering is universal) — it
+    // remains on the wire for audit/observability.
     // ProcessingError rides only while the status is Failed (admin error modal).
     PdfProcessingStatus? PdfProcessingStatus = null,
     bool FontPipelineFixed = false,
-    string? FontProcessingError = null
+    string? FontProcessingError = null,
+    // R22.2 — human-readable Ghostscript font diagnostics (the Arabic substitution
+    // report on Ready rows; the raw GS stderr tail on Failed rows). Null when the
+    // pipeline never ran or the run was warning-free.
+    string? DiagnosticReport = null
 );
 
 public record LibraryFileListItemDto(

@@ -95,9 +95,9 @@ export type PdfPlayerProps = {
   pagesCount?: number;
   watermark?: PdfWatermark;
   /** Wave 11.9 — the API's FontPipelineFixed flag: true ONLY when Ghostscript
-   *  re-embedded the file's fonts server-side ({key}-fixed object). true → the
-   *  standard @font-face pipeline (disableFontFace: false) is safe; false/
-   *  undefined (legacy, over-ceiling skip, failed) → keep R19 path rendering. */
+   *  re-embedded the file's fonts server-side ({key}-fixed object).
+   *  R22: retained for wire-compatibility/observability ONLY — the player no
+   *  longer reads it (path rendering is universal; see PdfPlayer.tsx). */
   fontPipelineFixed?: boolean;
   testId?: string;
 };

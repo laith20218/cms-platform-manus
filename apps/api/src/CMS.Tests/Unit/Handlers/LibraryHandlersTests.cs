@@ -495,6 +495,7 @@ public sealed class LibraryHandlersTests
             "application/pdf uploads enter the Ghostscript pipeline at complete-upload");
         result.FontPipelineFixed.Should().BeFalse("the worker has not produced the fixed object yet");
         result.FontProcessingError.Should().BeNull();
+        result.DiagnosticReport.Should().BeNull("a Pending row has no diagnostics yet");
         db.LibraryFiles.AsNoTracking().Single(f => f.Id == file.Id).PdfProcessingStatus
             .Should().Be(PdfProcessingStatus.Pending, "the status commit precedes the enqueue (Push 10.3 rationale)");
         pdfQueue.Reader.TryPeek(out var job).Should().BeTrue("complete-upload must enqueue the Ghostscript pass after the commit");
@@ -543,6 +544,8 @@ public sealed class LibraryHandlersTests
         var file = await SeedFileAsync(db, "library/pdf/fixedkey");
         file.PdfProcessingStatus = PdfProcessingStatus.Ready;
         file.FileUrl = "library/pdf/fixedkey-fixed";
+        // R22.2 — a Ready row whose run carried warnings carries the Arabic report.
+        file.ProcessingError = "الخط الأصلي (SakkalMajalla) غير مدمج، وتم استبداله بـ (Amiri).";
         await db.SaveChangesAsync();
         var (handler, _, _, _) = Create(db);
 
@@ -550,6 +553,8 @@ public sealed class LibraryHandlersTests
 
         result.PdfProcessingStatus.Should().Be(PdfProcessingStatus.Ready);
         result.FontPipelineFixed.Should().BeTrue("FileUrl now points at the {key}-fixed object");
+        result.DiagnosticReport.Should().Be(file.ProcessingError,
+            "R22.2: Ready rows expose the stored font report via diagnosticReport");
     }
 
     [Fact]

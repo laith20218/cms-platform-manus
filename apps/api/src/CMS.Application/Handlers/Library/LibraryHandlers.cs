@@ -551,10 +551,14 @@ public class LibraryHandlers :
         f.PdfProcessingStatus,
         // FontPipelineFixed is DERIVED, not stored: the worker only swaps FileUrl to the
         // "{key}-fixed" object when Ghostscript actually produced a fixed file. The
-        // over-ceiling skip (Ready, original key) and legacy/failed rows derive false —
-        // the player then keeps R19 path rendering for exactly those files.
+        // over-ceiling skip (Ready, original key) and legacy/failed rows derive false.
+        // R22: the player no longer flips rendering on this flag (path rendering is
+        // universal) — it stays on the wire for audit/observability.
         f.PdfProcessingStatus == PdfProcessingStatus.Ready
             && f.FileUrl.EndsWith("-fixed", StringComparison.Ordinal),
-        f.PdfProcessingStatus == PdfProcessingStatus.Failed ? f.ProcessingError : null
+        f.PdfProcessingStatus == PdfProcessingStatus.Failed ? f.ProcessingError : null,
+        // R22.2 — the diagnostics surface: any row the PDF pipeline touched exposes
+        // its stored report (Arabic substitution list on Ready; stderr tail on Failed).
+        f.PdfProcessingStatus == null ? null : f.ProcessingError
     );
 }
