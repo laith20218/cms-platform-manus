@@ -179,6 +179,13 @@ export type AdminLibraryFileListItem = {
   status: string;
   virusScanStatus: string;
   createdAt: string;
+  /** Wave 11.9 — Ghostscript font pipeline (additive server keys; absent on
+   *  legacy API responses → undefined, which the poller treats as in-flight). */
+  pdfProcessingStatus?: 'Pending' | 'Normalizing' | 'Ready' | 'Failed' | null;
+  /** English technical failure details — rides only while pdfProcessingStatus === 'Failed'. */
+  processingError?: string | null;
+  /** True only when the server actually produced the "{key}-fixed" object. */
+  fontPipelineFixed?: boolean;
 };
 
 export type UploadUrlResponse = {
@@ -204,6 +211,10 @@ export type LibraryFileDetail = {
   viewsCount: number;
   favoritesCount: number;
   createdAt: string;
+  /** Wave 11.9 — additive Ghostscript pipeline keys (same contract as the list item). */
+  pdfProcessingStatus?: 'Pending' | 'Normalizing' | 'Ready' | 'Failed' | null;
+  processingError?: string | null;
+  fontPipelineFixed?: boolean;
 };
 
 // ===== Push 3 / Track 3: advanced UI permissions =====

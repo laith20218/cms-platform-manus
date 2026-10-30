@@ -36,6 +36,10 @@ export interface LibraryFileDetail extends LibraryFile {
   youtubeVideoId?: string | null;
   tags?: string[];
   favoritesCount?: number;
+  /** Wave 11.9 — Ghostscript font pipeline flag (additive server key): true ONLY
+   * when the server re-embedded the PDF's fonts ({key}-fixed object). Absent on
+   * legacy API responses → the player keeps R19 path rendering (safe default). */
+  fontPipelineFixed?: boolean;
 }
 
 export interface FileAccess {

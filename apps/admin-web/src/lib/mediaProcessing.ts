@@ -101,6 +101,59 @@ export function isProcessingActive(status: ProcessingStatus | null | undefined):
     || status === 'Transcoding_1080p';
 }
 
+/* ============ Wave 11.9 — PDF font processing (Ghostscript pipeline) ============ */
+
+/** The backend enum's raw member names (JsonStringEnumConverter, no policy) —
+ *  mirrors CMS.Domain MediaEnums.PdfProcessingStatus. */
+export type PdfProcessingStatus = 'Pending' | 'Normalizing' | 'Ready' | 'Failed';
+
+export interface PdfPhaseInfo {
+  status: Exclude<PdfProcessingStatus, 'Failed'>;
+  labelAr: string;
+  labelEn: string;
+  /** Target width for the animated progress bar (0-100). */
+  progress: number;
+}
+
+/** The Ghostscript ladder — the human sentences the upload panel timeline shows
+ *  after the browser PUT completes. ("Uploading" is the local XHR phase and is
+ *  rendered by the panel itself; these are the SERVER phases.) */
+export const PDF_PROCESSING_PHASES: readonly PdfPhaseInfo[] = [
+  { status: 'Pending', labelAr: 'جاري تجهيز الملف في الخادم...', labelEn: 'Preparing the file on the server…', progress: 20 },
+  { status: 'Normalizing', labelAr: 'جاري إصلاح الخطوط العربية (Ghostscript)...', labelEn: 'Processing fonts (Ghostscript)…', progress: 60 },
+  { status: 'Ready', labelAr: 'الملف جاهز للنشر ✅', labelEn: 'The file is ready to publish ✅', progress: 100 },
+] as const;
+
+const PDF_PHASE_BY_STATUS = new Map<string, PdfPhaseInfo>(
+  PDF_PROCESSING_PHASES.map((phase) => [phase.status, phase]),
+);
+
+/** Display info for a pdfProcessingStatus; undefined/null → null (caller decides). */
+export function pdfProcessingPhase(status: PdfProcessingStatus | string | null | undefined): PdfPhaseInfo | null {
+  if (!status) return null;
+  return PDF_PHASE_BY_STATUS.get(String(status)) ?? null;
+}
+
+/**
+ * Non-terminal PDF statuses — the poller keeps polling while any is present.
+ * UNDEFINED also reads as active: complete-upload commits `Pending` before the
+ * first list refresh lands, and an absent key on a JUST-uploaded file can only
+ * mean "the refreshed page has not caught up yet". The 15-minute watchdog is
+ * the hang guard (the CoursesCenter poller precedent).
+ */
+export function isPdfProcessingActive(status: PdfProcessingStatus | string | null | undefined): boolean {
+  return status == null || status === 'Pending' || status === 'Normalizing';
+}
+
+/** Short bilingual chip for the failure/success surfaces. */
+export function pdfProcessingChipLabel(status: PdfProcessingStatus | string | null | undefined, isArabic: boolean): string | null {
+  if (status === 'Failed') return isArabic ? 'فشلت معالجة الخطوط' : 'Font processing failed';
+  const phase = pdfProcessingPhase(status);
+  if (!phase) return null;
+  if (status === 'Ready') return isArabic ? 'جاهز' : 'Ready';
+  return isArabic ? 'المعالجة: Ghostscript' : 'Processing: Ghostscript';
+}
+
 /** Short chip label for the episode list row (bilingual). */
 export function processingChipLabel(status: ProcessingStatus | null | undefined, isArabic: boolean): string | null {
   if (status === 'Failed') return isArabic ? 'فشلت المعالجة' : 'Processing failed';
