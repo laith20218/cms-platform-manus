@@ -13,14 +13,19 @@
  *  A. Happy pipeline (desktop 1280×800): login-restore → Library → hierarchy
  *     picks → upload panel → file pick (application/pdf) → presigned PUT →
  *     complete-upload (assert the body still binds fileId/fileKey) → the
- *     R22.3 friendly phase timeline appears (رفع الملف ✓ → جاري فحص وإصلاح
- *     الخطوط العربية… + the reassurance sub-text + the ? tooltip) → the list
- *     poll walks Pending → Normalizing → Ready → the panel closes on its own
- *     with the success notice → the R22.4 placeholder button announces Wave 12.
+ *     R22.5.2 FIVE-STEP literal timeline (رفع الملف → فحص سلامة الملف → جاري
+ *     دمج وإصلاح الخطوط العربية… + the reassurance sub-text + the ? tooltip
+ *     → جاري تحليل جودة العرض… → جاهز ✅) → the list poll walks Pending →
+ *     Normalizing → Ready → the panel STAYS OPEN and the YELLOW health badge
+ *     «ملف به مشاكل في النص، تم تفعيل وضع العرض الاحتياطي» settles (R22.5.1
+ *     BrokenArabic) → closing the panel hands the table back → the R22.4
+ *     placeholder button announces Wave 12.
  *  B. Failed processing (desktop): the pipeline lands on Failed with a
  *     diagnosticReport payload → ProcessingErrorModal (Push 10.4 pattern)
  *     with the R22.3 headline «تعذر معالجة الملف» + the collapsible
  *     «تفاصيل تقنية للدعم الفني» carrying the Arabic font report + GS evidence.
+ *  C. Healthy pipeline (desktop): Ready with NO diagnostics → the GREEN badge
+ *     «ملف سليم البنية 100%» (R22.5.1 Healthy) + the success notice.
  *
  * Run (admin dev server on 127.0.0.1:5174):
  *   node e2e/admin-upload-pdf-processing.e2e.mjs
@@ -104,6 +109,9 @@ const sampler = setInterval(() => {
 function makeWorld() {
   return {
     mode: 'ladder', // 'ladder' | 'failed'
+    /** R22.5.1 — the health classification the Ready row answers with
+     *  ('broken' → BrokenArabic + substitution report; 'healthy' → Healthy). */
+    health: 'broken', // 'broken' | 'healthy'
     listGets: 0,
     listGetsAfterComplete: 0,
     completeBodies: [],
@@ -118,6 +126,7 @@ function filesPayload(world) {
   let pdfProcessingStatus;
   let processingError = null;
   let diagnosticReport = null;
+  let healthStatus = null; // R22.5.1 — unclassified until Ready
   if (world.mode === 'failed') {
     // Poll 1 rides Pending (complete-upload's commit), then terminal failure.
     pdfProcessingStatus = world.listGetsAfterComplete === 1 ? 'Pending' : 'Failed';
@@ -131,9 +140,15 @@ function filesPayload(world) {
     const ladder = ['Pending', 'Pending', 'Normalizing', 'Normalizing', 'Ready'];
     pdfProcessingStatus = ladder[Math.min(world.listGetsAfterComplete - 1, ladder.length - 1)];
     if (pdfProcessingStatus === 'Ready') {
-      // R22.2 — a Ready row can carry a substitution report (exposed on the
-      // wire; the upload panel surfaces failures only).
-      diagnosticReport = 'الخط الأصلي (SakkalMajalla) غير مدمج، وتم استبداله بـ (Amiri).';
+      if (world.health === 'healthy') {
+        // R22.5.1 — a warning-free run: no report, Healthy classification.
+        healthStatus = 'Healthy';
+      } else {
+        // R22.2 — a Ready row whose run carried substitutions: the report
+        // rides the wire AND the classification flips to BrokenArabic.
+        diagnosticReport = 'الخط الأصلي (SakkalMajalla) غير مدمج، وتم استبداله بـ (Amiri).';
+        healthStatus = 'BrokenArabic';
+      }
     }
   }
 
@@ -154,6 +169,7 @@ function filesPayload(world) {
       pdfProcessingStatus,
       processingError,
       diagnosticReport,
+      healthStatus,
       fontPipelineFixed: pdfProcessingStatus === 'Ready',
     }],
     total: 1,
@@ -250,7 +266,7 @@ async function newAdminContext(browser, viewport, world) {
       tags: [], viewsCount: 0, favoritesCount: 0, createdAt: new Date().toISOString(),
       difficulty: 'Easy', processingStatus: null, processingError: null, hlsKey: null,
       targetQuality: 'Auto', pdfProcessingStatus: 'Pending', fontPipelineFixed: false,
-      fontProcessingError: null, diagnosticReport: null,
+      fontProcessingError: null, diagnosticReport: null, healthStatus: null,
     } });
   });
 
@@ -359,51 +375,99 @@ try {
     await openLibraryFiles(page);
     await runSimulatedPdfUpload(page, world, PDF_TITLE);
 
-    // 1 — The panel switched to the phase timeline (the form no longer closes on
-    //     upload). This is downstream of complete-upload, so the captured body
-    //     below is guaranteed to have landed (no ordering race).
+    // 1 — R22.5.2: the timeline now appears FROM THE FIRST SUBMIT (step 1
+    //     «جاري رفع الملف...» rides the local XHR), so visibility alone no
+    //     longer implies complete-upload has fired.
     await page.getByTestId('pdf-processing-timeline').waitFor({ state: 'visible', timeout: 15_000 });
     check('upload panel shows the Ghostscript phase timeline', true);
 
-    // 2 — The upload PUT really hit the presigned URL, and complete-upload bound
+    // 2 — R22.5.2: the FIVE literal steps. While the backend rides Pending,
+    //     the structure check (step 2) is the ACTIVE rung. (This wait also
+    //     guarantees complete-upload has FIRED — the timeline now appears
+    //     during the XHR, so the body assertion below must come after it.)
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="pdf-phase-structure"]')?.getAttribute('data-phase-state') === 'active',
+      undefined,
+      { timeout: 20_000 },
+    );
+    const structureLabel = await page.getByTestId('pdf-phase-structure').textContent();
+    check('structure step spins with the literal checking label',
+      (structureLabel ?? '').includes('جاري فحص سلامة الملف'), structureLabel ?? '');
+
+    // 3 — The upload PUT really hit the presigned URL, and complete-upload bound
     //     the identity pair the pipeline keys on.
     const body = world.completeBodies[0];
     check('complete-upload body binds fileId + fileKey',
       body?.fileId === FILE_ID && body?.fileKey === FILE_KEY,
       `body=${JSON.stringify(body)?.slice(0, 140) ?? '<missing>'}`);
 
-    // 3 — R22.3: the fonts step speaks HUMAN Arabic (no "Ghostscript" jargon)
-    //     and carries the reassurance sub-text while the pipeline runs.
+    // 3b — the fonts step speaks HUMAN Arabic (no "Ghostscript" jargon) and
+    //      carries the reassurance sub-text while the pipeline runs.
     await page.waitForFunction(
-      () => document.querySelector('[data-testid="pdf-phase-fonts"]')?.textContent?.includes('فحص وإصلاح الخطوط') ?? false,
+      () => document.querySelector('[data-testid="pdf-phase-fonts"]')?.getAttribute('data-phase-state') === 'active',
       undefined,
       { timeout: 20_000 },
     );
     const fontsLabel = await page.getByTestId('pdf-phase-fonts').textContent();
     check('fonts step uses the friendly Arabic label (jargon-free)',
-      (fontsLabel ?? '').includes('فحص وإصلاح الخطوط العربية'), fontsLabel ?? '');
+      (fontsLabel ?? '').includes('جاري دمج وإصلاح الخطوط العربية'), fontsLabel ?? '');
 
     await page.getByTestId('pdf-phase-fonts-sub').waitFor({ state: 'visible', timeout: 10_000 });
     const fontsSub = await page.getByTestId('pdf-phase-fonts-sub').textContent();
     check('fonts step carries the font-embedding sub-text',
       (fontsSub ?? '').includes('نقوم بدمج الخطوط لضمان أفضل جودة للعرض'), fontsSub ?? '');
 
-    // 3b — R22.3 UI polish: the ? tooltip next to «معالجة الخطوط» carries the
+    // 3c — R22.5.2: all FIVE literal labels are present in the timeline
+    //      (the quality rung exists even before it lights up).
+    const timelineText = await page.getByTestId('pdf-processing-timeline').textContent();
+    check('the timeline carries the five literal Arabic labels',
+      ['جاري رفع الملف', 'جاري فحص سلامة الملف', 'جاري دمج وإصلاح الخطوط العربية', 'جاري تحليل جودة العرض', 'جاهز ومتاح للطلاب']
+        .every((needle) => (timelineText ?? '').includes(needle)), (timelineText ?? '').slice(0, 120));
+
+    // 3d — R22.3 UI polish: the ? tooltip next to «معالجة الخطوط» carries the
     //      exact task-book sentence.
     const tooltipTitle = await page.getByTestId('pdf-fonts-tooltip')
       .getAttribute('title', { timeout: 10_000 }).catch(() => null);
     check('the ? tooltip carries the task-book sentence',
       (tooltipTitle ?? '').includes('متصلاً وسليماً على جميع الأجهزة'), tooltipTitle ?? '');
 
-    // 4 — The ladder resolves: the timeline unmounts when the completion effect
-    //     closes the panel (Ready at poll 5 → ~15s at the 3s cadence).
-    await page.getByTestId('pdf-processing-timeline').waitFor({ state: 'detached', timeout: 30_000 });
-    check('timeline resolves and the panel closes on Ready', true);
+    // 4 — R22.5.1/R22.5.2: the ladder resolves INTO THE BADGE — the panel STAYS
+    //     OPEN, every rung lands done, and the YELLOW BrokenArabic badge settles
+    //     (Ready at poll 5 → ~15s at the 3s cadence + the 0.9s quality beat).
+    await page.waitForFunction(
+      () => {
+        const badge = document.querySelector('[data-testid="pdf-health-badge"]');
+        const ready = document.querySelector('[data-testid="pdf-phase-ready"]');
+        return badge != null && ready?.getAttribute('data-phase-state') === 'done';
+      },
+      undefined,
+      { timeout: 30_000 },
+    );
+    const badgeText = await page.getByTestId('pdf-health-badge').textContent();
+    const badgeHealth = await page.getByTestId('pdf-health-badge').getAttribute('data-health');
+    check('the YELLOW BrokenArabic health badge settles on Ready',
+      (badgeText ?? '').includes('ملف به مشاكل في النص، تم تفعيل وضع العرض الاحتياطي') && badgeHealth === 'BrokenArabic',
+      `${badgeText ?? ''} [${badgeHealth ?? '—'}]`);
+    const stepStates = await page.evaluate(() =>
+      ['upload', 'structure', 'fonts', 'quality', 'ready']
+        .map((key) => document.querySelector(`[data-testid="pdf-phase-${key}"]`)?.getAttribute('data-phase-state') ?? 'missing'));
+    check('all five literal steps settle as done on Ready',
+      stepStates.every((state) => state === 'done'), stepStates.join(','));
 
-    // 5 — The success notice (sonner toast) + the fixed row is in the table.
+    // 5 — The BrokenArabic notice (sonner toast) fires while the panel stays open.
     const toastText = await page.locator('[data-sonner-toast]')
+      .filter({ hasText: 'وضع العرض الاحتياطي' })
       .first().textContent({ timeout: 10_000 }).catch(() => '');
-    check('success notice announces the font fix', (toastText ?? '').includes('تم إصلاح خطوط الملف'), toastText ?? '');
+    check('the BrokenArabic notice announces the fallback rendering',
+      (toastText ?? '').includes('وضع العرض الاحتياطي'), toastText ?? '');
+
+    // 5b — R22.5.2: the admin closes the panel manually (the X button) —
+    //      the timeline unmounts and the table becomes interactive again.
+    await page.getByTestId('upload-panel-close').click();
+    await page.getByTestId('pdf-processing-timeline').waitFor({ state: 'detached', timeout: 10_000 });
+    check('closing the panel unmounts the settled timeline', true);
+
+    // 6 — The fixed row is in the table.
     const rowVisible = await page.getByRole('cell', { name: PDF_TITLE }).first().isVisible().catch(() => false);
     check('the fixed file row is visible in the files table', rowVisible);
 
@@ -463,6 +527,49 @@ try {
       (headline ?? '').includes('تعذر معالجة الملف'), headline ?? '');
 
     await page.screenshot({ path: path.join(SHOT_DIR, 'admin-upload-09-pdf-processing-failed.png') });
+    await context.close();
+  }
+
+  /* ================= Flow C — healthy pipeline → GREEN badge (1280×800) ================= */
+  {
+    const world = makeWorld();
+    world.health = 'healthy'; // Ready with NO diagnostics → Healthy classification
+    const context = await newAdminContext(browser, { width: 1280, height: 800 }, world);
+    const page = await context.newPage();
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text().slice(0, 200));
+    });
+
+    await openLibraryFiles(page);
+    await runSimulatedPdfUpload(page, world, PDF_TITLE);
+
+    // 14 — R22.5.1: a warning-free run settles the GREEN Healthy badge.
+    await page.waitForFunction(
+      () => {
+        const badge = document.querySelector('[data-testid="pdf-health-badge"]');
+        const ready = document.querySelector('[data-testid="pdf-phase-ready"]');
+        return badge != null && ready?.getAttribute('data-phase-state') === 'done';
+      },
+      undefined,
+      { timeout: 30_000 },
+    );
+    const healthyBadgeText = await page.getByTestId('pdf-health-badge').textContent();
+    const healthyBadgeHealth = await page.getByTestId('pdf-health-badge').getAttribute('data-health');
+    const healthyBadgeClass = await page.getByTestId('pdf-health-badge').getAttribute('class');
+    check('the GREEN Healthy badge settles on a warning-free Ready',
+      (healthyBadgeText ?? '').includes('ملف سليم البنية 100%')
+      && healthyBadgeHealth === 'Healthy'
+      && (healthyBadgeClass ?? '').includes('emerald-700'),
+      `${healthyBadgeText ?? ''} [${healthyBadgeHealth ?? '—'}]`);
+
+    // 15 — The Healthy success notice (the R22 wording survives for clean runs).
+    const healthyToast = await page.locator('[data-sonner-toast]')
+      .filter({ hasText: 'تم إصلاح خطوط الملف' })
+      .first().textContent({ timeout: 10_000 }).catch(() => '');
+    check('the Healthy notice announces the font fix',
+      (healthyToast ?? '').includes('تم إصلاح خطوط الملف'), healthyToast ?? '');
+
+    await page.screenshot({ path: path.join(SHOT_DIR, 'admin-upload-10-pdf-processing-healthy.png') });
     await context.close();
   }
 

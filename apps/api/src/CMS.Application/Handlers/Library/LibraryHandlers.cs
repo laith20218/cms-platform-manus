@@ -559,6 +559,9 @@ public class LibraryHandlers :
         f.PdfProcessingStatus == PdfProcessingStatus.Failed ? f.ProcessingError : null,
         // R22.2 — the diagnostics surface: any row the PDF pipeline touched exposes
         // its stored report (Arabic substitution list on Ready; stderr tail on Failed).
-        f.PdfProcessingStatus == null ? null : f.ProcessingError
+        f.PdfProcessingStatus == null ? null : f.ProcessingError,
+        // R22.5.1 — the health badge classification: Ready + clean run → Healthy;
+        // Ready + diagnostics → BrokenArabic; never-processed / in-flight / Failed → null.
+        PdfHealthStatus.Classify(f.PdfProcessingStatus, f.PdfProcessingStatus == null ? null : f.ProcessingError)
     );
 }

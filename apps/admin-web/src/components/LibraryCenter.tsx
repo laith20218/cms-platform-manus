@@ -31,9 +31,12 @@
  *       2. PUT <presigned-url> — direct file upload via XHR w/ progress
  *       3. POST /api/v1/library/complete-upload — finalize (triggers scan +
  *          Wave 11.9: application/pdf enqueues the Ghostscript font pass)
- *       4. GET /api/v1/admin/content/files poll (3s) — phase timeline
- *          Uploading → Processing Fonts (Ghostscript) → Ready | Failed
- *          (+ ProcessingErrorModal on failure, Push 10.4 pattern)
+ *       4. GET /api/v1/admin/content/files poll (3s) — the R22.5.2 FIVE-STEP
+ *          literal timeline: رفع الملف → فحص سلامة الملف → دمج وإصلاح الخطوط
+ *          (Arabic) → تحليل جودة العرض → جاهز (+ the health badge: green
+ *          «ملف سليم البنية 100%» | yellow «ملف به مشاكل في النص، تم تفعيل
+ *          وضع العرض الاحتياطي») | Failed (+ ProcessingErrorModal, Push 10.4
+ *          pattern). The panel STAYS OPEN on Ready so the badge stays visible.
  *   • Publish — POST /api/v1/library/{id}/publish
  *   • Archive — POST /api/v1/library/{id}/archive
  *   • Delete — DELETE /api/v1/library/{id}
@@ -51,7 +54,7 @@ import {
   Trash2, Upload, X, Film,
 } from 'lucide-react';
 import { apiRequest, type PagedResult, type AdminLibraryFileListItem, type UploadUrlResponse } from '../lib/api';
-import { isPdfProcessingActive, pdfProcessingPhase, PDF_PROCESSING_PHASES } from '../lib/mediaProcessing';
+import { isPdfProcessingActive, pdfHealthBadge, pdfTimelineSteps } from '../lib/mediaProcessing';
 import { ProcessingErrorModal } from './ProcessingErrorModal';
 import { useUiPermissions } from '../hooks/useUiPermissions';
 import { CoursesCenter } from './CoursesCenter';
@@ -107,6 +110,9 @@ const formatBytes = (bytes: number) => {
 // 3-second interval + 15-minute watchdog so a wedged pipeline can't poll forever).
 const PDF_POLL_INTERVAL_MS = 3000;
 const PDF_POLL_TIMEOUT_MS = 15 * 60 * 1000;
+// R22.5.2 — the step-4 beat: «جاري تحليل جودة العرض...» spins briefly after
+// Ready lands before the health badge settles (a transition, not a phase).
+const PDF_QUALITY_STEP_MS = 900;
 
 // === Badge tone helpers (Tailwind utility classes — no custom CSS) ===
 // Type: Pdf=red, Html=sky, Image=violet, Video=amber, Audio=teal, default=slate.
@@ -239,6 +245,10 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   // pipeline + the failure modal payload (raw GS stderr tail).
   const [trackingFileId, setTrackingFileId] = useState<string | null>(null);
   const [pollTimedOut, setPollTimedOut] = useState(false);
+  // R22.5.2 — the local XHR phase feeds timeline step 1 («جاري رفع الملف...");
+  // qualityChecking is the step-4 beat (brief spinner before the badge settles).
+  const [uploadInFlight, setUploadInFlight] = useState(false);
+  const [qualityChecking, setQualityChecking] = useState(false);
   // R22.3 — the failure modal payload: the human sentence, the raw technical
   // evidence, and the backend's diagnosticReport (الخط الأصلي... report).
   const [fontErrorModal, setFontErrorModal] = useState<{
@@ -338,6 +348,17 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   const trackingStatus = trackedFile?.pdfProcessingStatus;
   const trackingActive = trackingFileId != null && isPdfProcessingActive(trackingStatus);
 
+  // R22.5.2 — the tracked row left the visible list (filter change / refresh
+  // race) while tracking: stop the poller + hide the timeline instead of letting
+  // the 15-minute watchdog spin on an unobservable row (the panel stays open;
+  // the R22.5.2 timeline now SURVIVES Ready by design, so this can happen).
+  useEffect(() => {
+    if (trackingFileId != null && !uploadInFlight && trackedFile == null) {
+      setTrackingFileId(null);
+      setPollTimedOut(false);
+    }
+  }, [trackingFileId, trackedFile, uploadInFlight]);
+
   // Poll every 3s while the pipeline runs (CoursesCenter pattern + watchdog).
   useEffect(() => {
     if (!trackingActive || pollTimedOut) return;
@@ -349,16 +370,30 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackingActive, pollTimedOut]);
 
-  // Terminal resolution: Ready → notice + close; Failed → error modal (the raw
+  // R22.5.2 — the step-4 beat: once Ready lands the quality step spins briefly,
+  // then the health badge settles (deterministic, timer-driven).
+  useEffect(() => {
+    if (!qualityChecking) return;
+    const timer = window.setTimeout(() => setQualityChecking(false), PDF_QUALITY_STEP_MS);
+    return () => window.clearTimeout(timer);
+  }, [qualityChecking]);
+
+  // Terminal resolution: Ready → the panel STAYS OPEN — the 5-step timeline
+  // settles into its completed state and the health badge renders (green | yellow)
+  // until the admin closes it (X / إلغاء). Failed → error modal (the raw
   // Ghostscript stderr tail rides `processingError` into the collapsible block).
   useEffect(() => {
     if (!trackingFileId || trackingStatus == null) return;
     if (trackingStatus === 'Ready') {
+      const broken = trackedFile?.healthStatus === 'BrokenArabic';
       onNotice(isArabic
-        ? `تم إصلاح خطوط الملف "${trackedFile?.title ?? ''}" بنجاح.`
-        : `Font processing finished for "${trackedFile?.title ?? ''}".`);
-      setTrackingFileId(null);
-      closeUpload();
+        ? broken
+          ? `تم تجهيز الملف "${trackedFile?.title ?? ''}" — به مشاكل في النص، تم تفعيل وضع العرض الاحتياطي.`
+          : `تم إصلاح خطوط الملف "${trackedFile?.title ?? ''}" بنجاح.`
+        : broken
+          ? `Prepared "${trackedFile?.title ?? ''}" — text issues detected; fallback rendering is active.`
+          : `Font processing finished for "${trackedFile?.title ?? ''}".`);
+      setQualityChecking(true); // brief «تحليل جودة العرض» beat, then the badge
     } else if (trackingStatus === 'Failed') {
       setFontErrorModal({
         human: isArabic
@@ -395,6 +430,8 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     }
     setBusy(true);
     setUploadProgress(0);
+    setUploadInFlight(true);
+    setQualityChecking(false);
     try {
       // 1. Request presigned PUT URL
       const uploadUrlResp = await request<UploadUrlResponse>('/api/v1/library/upload-url', {
@@ -440,18 +477,26 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         }),
       });
 
-      // Wave 11.9: complete-upload committed PdfProcessingStatus=Pending and the
-      // worker is picking the Ghostscript job up — DON'T close the panel: switch
-      // it to the phase timeline and poll the row to Ready | Failed.
       setUploadProgress(100);
-      setTrackingFileId(uploadUrlResp.fileId);
-      setPollTimedOut(false);
-      await loadFiles(1);
+      if (form.type === 'Pdf') {
+        // Wave 11.9: complete-upload committed PdfProcessingStatus=Pending and
+        // the worker is picking the Ghostscript job up — DON'T close the panel:
+        // walk the R22.5.2 five-step timeline to the Ready badge | Failed modal.
+        setTrackingFileId(uploadUrlResp.fileId);
+        setPollTimedOut(false);
+        await loadFiles(1);
+      } else {
+        // R22.5.2 guardrail — non-PDF rows never enter the Ghostscript pipeline;
+        // tracking them would spin the timeline forever (11.9 regression fix).
+        onNotice(isArabic ? 'تم رفع الملف بنجاح.' : 'File uploaded successfully.');
+        closeUpload();
+      }
     } catch (error) {
       onError(error instanceof Error ? error.message : 'فشل رفع الملف.');
       setUploadProgress(0);
     } finally {
       setBusy(false);
+      setUploadInFlight(false);
     }
   };
 
@@ -502,6 +547,8 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     setUploadProgress(0);
     setTrackingFileId(null);
     setPollTimedOut(false);
+    setUploadInFlight(false);
+    setQualityChecking(false);
     setFontErrorModal(null);
   }
 
@@ -545,6 +592,22 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
 
   const dir = isArabic ? 'rtl' : 'ltr';
   const hasFilters = Boolean(subjectId || statusFilter || query);
+
+  // ===== R22.5.2 — the five literal timeline steps (رفع → فحص سلامة → دمج وإصلاح
+  // الخطوط → تحليل جودة العرض → جاهز) + the health badge. Visible for PDF uploads
+  // from the first submit; on Ready it SETTLES (badge visible) until closed.
+  const pdfTimelineVisible = (uploadInFlight && form.type === 'Pdf') || trackingFileId != null;
+  const timelineSteps = pdfTimelineVisible
+    ? pdfTimelineSteps({
+        uploadInFlight,
+        status: trackingFileId != null ? trackingStatus : null,
+        qualityChecking,
+      })
+    : [];
+  const timelineActive = timelineSteps.find((step) => step.state === 'active');
+  const timelineSettled = timelineSteps.length > 0 && timelineSteps.every((step) => step.state === 'done');
+  const timelineFailed = trackingStatus === 'Failed';
+  const healthBadge = timelineSettled && !timelineFailed ? pdfHealthBadge(trackedFile?.healthStatus) : null;
 
   return (
     <section className="space-y-6" dir={dir}>
@@ -914,6 +977,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                   type="button"
                   onClick={closeUpload}
                   disabled={busy}
+                  data-testid="upload-panel-close"
                   className="p-1.5 rounded-md transition-colors disabled:opacity-50"
                   style={{ color: 'var(--cms-text-muted)' }}
                   onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-ivory-200)'; }}
@@ -1051,8 +1115,9 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                   />
                 </label>
 
-                {/* Upload progress */}
-                {uploadProgress > 0 && (
+                {/* Upload progress (non-PDF uploads — PDF uploads show the
+                    R22.5.2 five-step timeline instead) */}
+                {uploadProgress > 0 && !pdfTimelineVisible && (
                   <div className="space-y-1">
                     <div className="flex justify-between text-xs" style={{ color: 'var(--cms-text-soft)' }}>
                       <span>{copy.uploading}</span>
@@ -1067,9 +1132,10 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                   </div>
                 )}
 
-                {/* R22.3 — the FRIENDLY phase timeline (jargon-free):
-                    رفع الملف → معالجة الخطوط (+ sub-text, ? tooltip) → جاهز | فشل */}
-                {trackingFileId && (
+                {/* R22.5.2 — the 5-STEP LITERAL timeline (never combined):
+                    رفع الملف → فحص سلامة الملف → دمج وإصلاح الخطوط (+ sub-text,
+                    ? tooltip) → تحليل جودة العرض → جاهز + health badge | فشل */}
+                {pdfTimelineVisible && (
                   <div
                     className="space-y-2 rounded-lg border p-3"
                     data-testid="pdf-processing-timeline"
@@ -1093,53 +1159,60 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                           <HelpCircle className="w-3.5 h-3.5" style={{ color: 'var(--cms-text-muted)' }} />
                         </span>
                       </span>
-                      <span className="tabular-nums" style={{ color: 'var(--cms-text-soft)' }}>
-                        {trackingStatus === 'Failed'
+                      <span className="tabular-nums" style={{ color: 'var(--cms-text-soft)' }} data-testid="pdf-timeline-percent">
+                        {timelineFailed
                           ? '—'
-                          : `${pdfProcessingPhase(trackingStatus)?.progress ?? PDF_PROCESSING_PHASES[0].progress}%`}
+                          : uploadInFlight
+                            ? `${uploadProgress}%`
+                            : `${timelineActive?.progress ?? 100}%`}
                       </span>
                     </div>
-                    {[
-                      {
-                        key: 'upload',
-                        label: isArabic ? PDF_PROCESSING_PHASES[0].labelAr : PDF_PROCESSING_PHASES[0].labelEn,
-                        state: 'done' as const,
-                        sub: null as string | null,
-                      },
-                      {
-                        key: 'fonts',
-                        label: isArabic ? PDF_PROCESSING_PHASES[1].labelAr : PDF_PROCESSING_PHASES[1].labelEn,
-                        state: trackingStatus === 'Failed' ? ('failed' as const) : ('active' as const),
-                        sub: trackingStatus === 'Failed'
-                          ? null
-                          : (isArabic ? PDF_PROCESSING_PHASES[1].subTextAr : PDF_PROCESSING_PHASES[1].subTextEn) ?? null,
-                      },
-                      {
-                        key: 'ready',
-                        label: trackingStatus === 'Failed'
-                          ? (isArabic ? 'تعذر معالجة الملف ❌' : 'The file could not be processed ❌')
-                          : (isArabic ? PDF_PROCESSING_PHASES[2].labelAr : PDF_PROCESSING_PHASES[2].labelEn),
-                        state: trackingStatus === 'Failed'
-                          ? ('failed' as const)
-                          : trackingStatus === 'Ready' ? ('done' as const) : ('pending' as const),
-                        sub: null as string | null,
-                      },
-                    ].map((step) => (
-                      <div key={step.key} className="flex items-start gap-2 text-xs" data-testid={`pdf-phase-${step.key}`}>
-                        {step.state === 'done' && <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#059669' }} />}
-                        {step.state === 'active' && <LoaderCircle className="w-4 h-4 shrink-0 mt-0.5 animate-spin" style={{ color: 'var(--cms-teal-600)' }} />}
-                        {step.state === 'failed' && <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--cms-danger)' }} />}
-                        {step.state === 'pending' && <span className="w-4 h-4 shrink-0 mt-0.5 rounded-full border" style={{ borderColor: 'var(--cms-line-strong)' }} />}
-                        <div className="min-w-0">
-                          <span style={{ color: step.state === 'pending' ? 'var(--cms-text-soft)' : 'var(--cms-text)' }}>{step.label}</span>
-                          {step.sub && (
-                            <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: 'var(--cms-text-muted)' }} data-testid={`pdf-phase-${step.key}-sub`}>
-                              {step.sub}
-                            </p>
-                          )}
+                    {timelineSteps.map((step) => {
+                      const label = step.state === 'failed' && step.key === 'ready'
+                        ? (isArabic ? 'تعذر معالجة الملف ❌' : 'The file could not be processed ❌')
+                        : (isArabic ? step.labelAr : step.labelEn);
+                      const sub = step.state === 'active'
+                        ? (isArabic ? step.subTextAr : step.subTextEn) ?? null
+                        : null;
+                      return (
+                        <div
+                          key={step.key}
+                          className="flex items-start gap-2 text-xs"
+                          data-testid={`pdf-phase-${step.key}`}
+                          data-phase-state={step.state}
+                        >
+                          {step.state === 'done' && <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#059669' }} />}
+                          {step.state === 'active' && <LoaderCircle className="w-4 h-4 shrink-0 mt-0.5 animate-spin" style={{ color: 'var(--cms-teal-600)' }} />}
+                          {step.state === 'failed' && <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--cms-danger)' }} />}
+                          {step.state === 'pending' && <span className="w-4 h-4 shrink-0 mt-0.5 rounded-full border" style={{ borderColor: 'var(--cms-line-strong)' }} />}
+                          <div className="min-w-0">
+                            <span style={{ color: step.state === 'pending' ? 'var(--cms-text-soft)' : 'var(--cms-text)' }}>{label}</span>
+                            {sub && (
+                              <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: 'var(--cms-text-muted)' }} data-testid={`pdf-phase-${step.key}-sub`}>
+                                {sub}
+                              </p>
+                            )}
+                          </div>
                         </div>
+                      );
+                    })}
+                    {/* R22.5.1 / R22.5.2 — the health badge on the settled Ready state:
+                        Healthy → green «ملف سليم البنية 100%»; BrokenArabic → yellow
+                        «ملف به مشاكل في النص، تم تفعيل وضع العرض الاحتياطي». */}
+                    {healthBadge && (
+                      <div className="pt-1">
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${healthBadge.className}`}
+                          data-testid="pdf-health-badge"
+                          data-health={healthBadge.tone}
+                        >
+                          {healthBadge.tone === 'Healthy'
+                            ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                            : <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
+                          <span>{isArabic ? healthBadge.labelAr : healthBadge.labelEn}</span>
+                        </span>
                       </div>
-                    ))}
+                    )}
                     {pollTimedOut && trackingActive && (
                       <p className="text-xs" style={{ color: 'var(--cms-danger)' }}>
                         {isArabic

@@ -44,8 +44,40 @@ public record LibraryFileDto(
     // R22.2 — human-readable Ghostscript font diagnostics (the Arabic substitution
     // report on Ready rows; the raw GS stderr tail on Failed rows). Null when the
     // pipeline never ran or the run was warning-free.
-    string? DiagnosticReport = null
+    string? DiagnosticReport = null,
+    // R22.5.1 — the derived health classification the admin badge renders:
+    //   "Healthy"      (سليم البنية)          — Ready + warning-free run;
+    //   "BrokenArabic" (يحتاج معالجة بصرية)   — Ready + diagnostics present;
+    //   null           — pipeline never ran (non-PDF/legacy) or still running/failed
+    //                    (a Failed row's health is unclassifiable — the error modal
+    //                    carries the evidence instead).
+    string? HealthStatus = null
 );
+
+/// <summary>
+/// R22.5.1 — the PDF health classification (admin badge + diagnostic surfaces).
+/// Pure derivation off the EXISTING pipeline state — no schema change: the rule
+/// reads the same ProcessingError column GhostscriptDiagnostics writes.
+/// </summary>
+public static class PdfHealthStatus
+{
+    /// <summary>سليم البنية — the run finished warning-free (no missing/substituted fonts).</summary>
+    public const string Healthy = "Healthy";
+
+    /// <summary>يحتاج معالجة بصرية — the run reported font problems; the player's
+    /// R22 path rendering (fallback) is what keeps the text legible.</summary>
+    public const string BrokenArabic = "BrokenArabic";
+
+    /// <summary>
+    /// The binary rule the task book pins, scoped to the only state that consumes it:
+    /// Ready + empty diagnostics → Healthy; Ready + diagnostics → BrokenArabic.
+    /// Everything else (never-processed, in-flight, Failed) is null — unclassified.
+    /// </summary>
+    public static string? Classify(PdfProcessingStatus? status, string? diagnosticReport) =>
+        status == PdfProcessingStatus.Ready
+            ? (string.IsNullOrWhiteSpace(diagnosticReport) ? Healthy : BrokenArabic)
+            : null;
+}
 
 public record LibraryFileListItemDto(
     Guid Id,

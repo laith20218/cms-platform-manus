@@ -104,7 +104,13 @@ public sealed class AdminContentController : ControllerBase
             file.PdfProcessingStatus == CMS.Domain.Enums.PdfProcessingStatus.Ready
                 && file.FileUrl.EndsWith("-fixed", StringComparison.Ordinal),
             // R22.2 — the diagnostics report rides for any PDF-pipeline row.
-            file.PdfProcessingStatus == null ? null : file.ProcessingError), ct));
+            file.PdfProcessingStatus == null ? null : file.ProcessingError,
+            // R22.5.1 — the health badge classification (Ready + clean → Healthy;
+            // Ready + diagnostics → BrokenArabic; otherwise null). Client-evaluated
+            // in the top-level projection exactly like the adjacent .ToString() calls.
+            CMS.Application.DTOs.Library.PdfHealthStatus.Classify(
+                file.PdfProcessingStatus,
+                file.PdfProcessingStatus == null ? null : file.ProcessingError)), ct));
     }
 
     [HttpGet("academic/subjects/{subjectId:guid}/lectures")]
@@ -176,5 +182,7 @@ public record AdminLibraryFileListItem(Guid Id, Guid SubjectId, Guid? LectureId,
     string? PdfProcessingStatus = null, string? ProcessingError = null, bool FontPipelineFixed = false,
     // R22.2 — the human-readable font diagnostics report (ProcessingError doubles as
     // the diagnostics store: Arabic substitution list on Ready rows, GS stderr tail on Failed).
-    string? DiagnosticReport = null);
+    string? DiagnosticReport = null,
+    // R22.5.1 — the derived health badge classification ("Healthy" | "BrokenArabic" | null).
+    string? HealthStatus = null);
 public record AdminLectureListItem(Guid Id, Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, string? Description, string? InstructorName, string? SourceReference, string Status, bool IsArchived);
