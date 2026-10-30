@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getDocument, TextLayer, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { AlertTriangle, LoaderCircle, RotateCcw } from 'lucide-react';
 import { libraryApi } from '@/features/library/services/library-api';
 import { usePdfAnnotations } from './usePdfAnnotations';
 import { PdfControlsBar } from './PdfControlsBar';
 import { ensurePdfWorker } from './pdf-worker';
+import { normalizeArabicPresentationForms } from './pdf-text';
 import { clamp01, newAnnotationId, rectsFromRange, simplifyPoints, strokePathD } from './pdf-geometry';
 import type {
   NormalizedPoint, PdfAnnotation, PdfPlayerProps, PdfTool,
@@ -39,12 +40,8 @@ const DEFAULT_PEN_COLOR = '#111827';
 const DEFAULT_PEN_WIDTH = 2.5;
 interface PageDim { width: number; height: number }
 
-interface ActiveStroke {
-  pageNumber: number;
-  points: NormalizedPoint[];
-  color: string;
-  widthPx: number;
-}
+/** Stable empty list so memoized pages never see a fresh array identity. */
+const EMPTY_PAGE_ANNOTATIONS: PdfAnnotation[] = [];
 
 export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerProps) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
@@ -59,18 +56,27 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   const [highlightColor, setHighlightColor] = useState<string>(DEFAULT_HIGHLIGHT_COLOR);
   const [penColor, setPenColor] = useState<string>(DEFAULT_PEN_COLOR);
   const [penWidth, setPenWidth] = useState<number>(DEFAULT_PEN_WIDTH);
-  const [activeStroke, setActiveStroke] = useState<ActiveStroke | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const pagesRef = useRef<Map<number, HTMLElement>>(new Map());
   const visibleRef = useRef<Set<number>>(new Set());
   const docRef = useRef<PDFDocumentProxy | null>(null);
-  const strokePointsRef = useRef<NormalizedPoint[]>([]);
-  const strokeMetaRef = useRef<{ pageNumber: number; color: string; widthPx: number } | null>(null);
-  const strokeRafRef = useRef(0);
 
   const { annotations, upsert, saving } = usePdfAnnotations(assetId);
+
+  /* ---- Page-scoped annotation lists (hotfix R15.3): one memoized Map, so
+          memoized PageViews receive stable array identities across renders
+          that don't touch annotations (scroll, tool switches, pen commits). ---- */
+  const annotationsByPage = useMemo(() => {
+    const map = new Map<number, PdfAnnotation[]>();
+    for (const annotation of annotations.values()) {
+      const list = map.get(annotation.pageNumber);
+      if (list) list.push(annotation);
+      else map.set(annotation.pageNumber, [annotation]);
+    }
+    return map;
+  }, [annotations]);
 
   /* ---- Document load: same-origin blob via apiClient (auth plumbing reused;
           the storage presigned URL is not CORS-fetchable, the /content proxy
@@ -194,7 +200,13 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
     const pageEl = pagesRef.current.get(pageNumber);
     if (!pageEl) return;
-    const rects = rectsFromRange(selection.getRangeAt(0), pageEl.getBoundingClientRect());
+    // Hotfix R15.2: the CANVAS is the single geometry authority. Selection
+    // rects are normalized against its box — the overlay SVG and the page div
+    // are kept pixel-identical to it (same rounding, inset 0) — so highlight
+    // coordinates can never drift off the glyphs the user actually selected.
+    const canvas = pageEl.querySelector(':scope > canvas');
+    const surface = (canvas ?? pageEl).getBoundingClientRect();
+    const rects = rectsFromRange(selection.getRangeAt(0), surface);
     if (rects.length === 0) return;
     const textSnippet = selection.toString().replace(/\s+/g, ' ').trim().slice(0, 200) || undefined;
     upsert({
@@ -218,48 +230,24 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     });
   }, [tool, commitSelection]);
 
-  /* ---- Pen: pointer plumbing lives in the page view; the stroke buffer here. ---- */
-  const beginStroke = useCallback((pageNumber: number, point: NormalizedPoint, pageWidthPx: number) => {
-    strokePointsRef.current = [point];
-    strokeMetaRef.current = { pageNumber, color: penColor, widthPx: penWidth };
-    setActiveStroke({ pageNumber, points: [point], color: penColor, widthPx: penWidth * pageWidthPx });
-  }, [penColor, penWidth]);
-
-  const extendStroke = useCallback((points: NormalizedPoint[]) => {
-    strokePointsRef.current = strokePointsRef.current.concat(points);
-    if (strokeRafRef.current) return;
-    strokeRafRef.current = requestAnimationFrame(() => {
-      strokeRafRef.current = 0;
-      const meta = strokeMetaRef.current;
-      if (!meta) return;
-      setActiveStroke({ pageNumber: meta.pageNumber, points: [...strokePointsRef.current], color: meta.color, widthPx: meta.widthPx });
-    });
+  /* ---- Pen (hotfix R15.3): the stroke buffer and its live rendering live in
+          the PageView (refs + direct DOM), so pointermove NEVER touches React
+          state — the parent sees exactly one call per completed stroke. ---- */
+  const registerPage = useCallback((pageNumber: number, el: HTMLElement | null) => {
+    if (el) pagesRef.current.set(pageNumber, el);
+    else pagesRef.current.delete(pageNumber);
   }, []);
 
-  const endStroke = useCallback((pageWidthPx: number) => {
-    if (strokeRafRef.current) { cancelAnimationFrame(strokeRafRef.current); strokeRafRef.current = 0; }
-    const meta = strokeMetaRef.current;
-    const raw = strokePointsRef.current;
-    strokeMetaRef.current = null;
-    setActiveStroke(null);
-    strokePointsRef.current = [];
-    if (!meta || raw.length === 0) return;
-    // Store width normalized to the page width; points stay page-normalized.
-    const annotation: PdfAnnotation = {
+  const commitInk = useCallback((pageNumber: number, points: NormalizedPoint[], pageWidthPx: number) => {
+    if (points.length === 0) return;
+    // Width is stored normalized to the page width; points stay page-normalized.
+    upsert({
       id: newAnnotationId(),
-      pageNumber: meta.pageNumber,
+      pageNumber,
       annotationType: 'Ink',
-      payload: { points: simplifyPoints(raw), color: meta.color, width: meta.widthPx / pageWidthPx },
-    };
-    upsert(annotation);
-  }, [upsert]);
-
-  const cancelStroke = useCallback(() => {
-    if (strokeRafRef.current) { cancelAnimationFrame(strokeRafRef.current); strokeRafRef.current = 0; }
-    strokeMetaRef.current = null;
-    setActiveStroke(null);
-    strokePointsRef.current = [];
-  }, []);
+      payload: { points: simplifyPoints(points), color: penColor, width: penWidth / pageWidthPx },
+    });
+  }, [upsert, penColor, penWidth]);
 
   /* ---- Navigation / zoom callbacks ---- */
   const goToPage = useCallback((target: number) => {
@@ -337,8 +325,6 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
             const pageNumber = index + 1;
             const cssWidth = dim.width * renderScale;
             const cssHeight = dim.height * renderScale;
-            const pageAnnotations: PdfAnnotation[] = [];
-            annotations.forEach((a) => { if (a.pageNumber === pageNumber) pageAnnotations.push(a); });
             return (
               <PageView
                 key={pageNumber}
@@ -348,18 +334,13 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
                 renderScale={renderScale}
                 doc={doc}
                 visible={visiblePages.has(pageNumber)}
-                annotations={pageAnnotations}
-                activeStroke={activeStroke?.pageNumber === pageNumber ? activeStroke : null}
+                annotations={annotationsByPage.get(pageNumber) ?? EMPTY_PAGE_ANNOTATIONS}
                 tool={tool}
-                registerPage={(el) => {
-                  if (el) pagesRef.current.set(pageNumber, el);
-                  else pagesRef.current.delete(pageNumber);
-                }}
-                onTextPointerUp={tool === 'highlighter' ? () => commitSelection(pageNumber) : undefined}
-                onStrokeStart={(point) => beginStroke(pageNumber, point, cssWidth)}
-                onStrokeExtend={extendStroke}
-                onStrokeEnd={() => endStroke(cssWidth)}
-                onStrokeCancel={cancelStroke}
+                penColor={penColor}
+                penWidth={penWidth}
+                registerPage={registerPage}
+                onTextPointerUp={tool === 'highlighter' ? commitSelection : undefined}
+                onStrokeCommit={commitInk}
               />
             );
           })}
@@ -398,25 +379,35 @@ interface PageViewProps {
   doc: PDFDocumentProxy;
   visible: boolean;
   annotations: PdfAnnotation[];
-  activeStroke: ActiveStroke | null;
   tool: PdfTool;
-  registerPage: (el: HTMLElement | null) => void;
-  onTextPointerUp?: () => void;
-  onStrokeStart: (point: NormalizedPoint) => void;
-  onStrokeExtend: (points: NormalizedPoint[]) => void;
-  onStrokeEnd: () => void;
-  onStrokeCancel: () => void;
+  penColor: string;
+  penWidth: number;
+  registerPage: (pageNumber: number, el: HTMLElement | null) => void;
+  onTextPointerUp?: (pageNumber: number) => void;
+  onStrokeCommit: (pageNumber: number, points: NormalizedPoint[], pageWidthPx: number) => void;
 }
 
-function PageView({
+/** Hotfix R15.3 — memoized: every prop is a primitive, a stable callback, or a
+ *  reference that only changes when content actually changes, so unrelated
+ *  renders (scroll, saves on other pages) never re-render this page's canvas
+ *  or text layer. */
+const PageView = memo(function PageView({
   pageNumber, cssWidth, cssHeight, renderScale, doc, visible,
-  annotations, activeStroke, tool, registerPage, onTextPointerUp,
-  onStrokeStart, onStrokeExtend, onStrokeEnd, onStrokeCancel,
+  annotations, tool, penColor, penWidth, registerPage, onTextPointerUp, onStrokeCommit,
 }: PageViewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const layerRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<SVGSVGElement | null>(null);
   const [pageReady, setPageReady] = useState(false);
+
+  // Hotfix R15.3 — the active stroke lives in refs, never in React state:
+  // pointermove appends to the buffer and repaints ONE <path> via its d
+  // attribute (rAF-throttled); React state is touched exactly once, on
+  // pointerup, through onStrokeCommit. The per-move whole-player re-render
+  // that made the screen flicker while drawing is gone.
+  const strokeRef = useRef<{ points: NormalizedPoint[]; color: string; width: number } | null>(null);
+  const livePathRef = useRef<SVGPathElement | null>(null);
+  const strokeRafRef = useRef(0);
 
   // Canvas + text layer render whenever the page becomes visible or the
   // scale changes; cleanup cancels in-flight render tasks and frees pixels.
@@ -435,8 +426,10 @@ function PageView({
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         canvas.width = Math.floor(viewport.width * dpr);
         canvas.height = Math.floor(viewport.height * dpr);
-        canvas.style.width = `${Math.floor(viewport.width)}px`;
-        canvas.style.height = `${Math.floor(viewport.height)}px`;
+        // Hotfix R15.2: round the CSS box the same way the page div does —
+        // canvas, page box and overlay SVG must be pixel-identical surfaces.
+        canvas.style.width = `${Math.round(viewport.width)}px`;
+        canvas.style.height = `${Math.round(viewport.height)}px`;
         const context = canvas.getContext('2d');
         if (!context) return;
         const task = page.render({
@@ -449,9 +442,17 @@ function PageView({
         await task.promise;
         if (cancelled) return;
         // Text layer AFTER the paint so selection never lands on a blank page.
+        // Hotfix R15.1: the content is materialized through presentation-form
+        // normalization first — Arabic spans then carry BASE letters (shapable,
+        // joinable) instead of the fixed isolated glyphs the PDF's ToUnicode
+        // map emitted; the stylesheet's unicode-bidi: plaintext does the rest.
         layer.textContent = '';
+        const textContent = await page.getTextContent();
+        const items = textContent.items.map((item) => ('str' in item
+          ? { ...item, str: normalizeArabicPresentationForms(item.str) }
+          : item));
         const textLayer = new TextLayer({
-          textContentSource: page.streamTextContent(),
+          textContentSource: { lang: textContent.lang, items, styles: textContent.styles },
           container: layer,
           viewport,
         });
@@ -482,6 +483,11 @@ function PageView({
     return () => { cancelled = true; };
   }, [doc, pageNumber]);
 
+  const setPageRef = useCallback(
+    (el: HTMLElement | null) => registerPage(pageNumber, el),
+    [registerPage, pageNumber],
+  );
+
   const toNormalized = useCallback((clientX: number, clientY: number): NormalizedPoint => {
     const overlay = overlayRef.current;
     if (!overlay) return { x: 0, y: 0 };
@@ -489,42 +495,93 @@ function PageView({
     return { x: clamp01((clientX - rect.left) / rect.width), y: clamp01((clientY - rect.top) / rect.height) };
   }, []);
 
+  const paintLiveStroke = useCallback(() => {
+    if (strokeRafRef.current) return;
+    strokeRafRef.current = requestAnimationFrame(() => {
+      strokeRafRef.current = 0;
+      const live = livePathRef.current;
+      const stroke = strokeRef.current;
+      if (live && stroke && stroke.points.length > 0) {
+        live.setAttribute('d', strokePathD(stroke.points));
+      }
+    });
+  }, []);
+
+  const clearLiveStroke = useCallback(() => {
+    if (strokeRafRef.current) { cancelAnimationFrame(strokeRafRef.current); strokeRafRef.current = 0; }
+    livePathRef.current?.remove();
+    livePathRef.current = null;
+    strokeRef.current = null;
+  }, []);
+
+  // Teardown if the page unmounts mid-stroke (zoom/visibility flip).
+  useEffect(() => clearLiveStroke, [clearLiveStroke]);
+
   const handlePointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
     if (tool !== 'pen') return;
+    const svg = overlayRef.current;
+    if (!svg) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    onStrokeStart(toNormalized(event.clientX, event.clientY));
+    const point = toNormalized(event.clientX, event.clientY);
+    strokeRef.current = { points: [point], color: penColor, width: penWidth };
+    // Live path is created imperatively: screen-px stroke width (identical to
+    // the committed rendering), zero React involvement until the stroke ends.
+    // The old code fed React a per-move state update AND a strokeWidth of
+    // penWidth * pageWidth (≈2000 with non-scaling-stroke) — a screen-sized
+    // flash on every stroke; both defects die here.
+    const live = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    live.setAttribute('class', 'pdf-ink');
+    live.setAttribute('stroke', penColor);
+    live.setAttribute('stroke-width', String(penWidth));
+    live.setAttribute('vector-effect', 'non-scaling-stroke');
+    live.setAttribute('d', strokePathD([point]));
+    svg.appendChild(live);
+    livePathRef.current = live;
   };
 
   const handlePointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
-    if (tool !== 'pen' || !activeStroke) return;
+    if (tool !== 'pen' || !strokeRef.current) return;
     const native = event.nativeEvent as PointerEvent & { getCoalescedEvents?: () => PointerEvent[] };
     const coalesced = typeof native.getCoalescedEvents === 'function' ? native.getCoalescedEvents() : [];
     const sources = coalesced.length > 0 ? coalesced : [native];
-    onStrokeExtend(sources.map((e) => toNormalized(e.clientX, e.clientY)));
+    for (const source of sources) {
+      strokeRef.current.points.push(toNormalized(source.clientX, source.clientY));
+    }
+    paintLiveStroke();
   };
 
   const handlePointerUp = () => {
-    if (tool !== 'pen' || !activeStroke) return;
-    onStrokeEnd();
+    if (tool !== 'pen' || !strokeRef.current) return;
+    const stroke = strokeRef.current;
+    if (strokeRafRef.current) { cancelAnimationFrame(strokeRafRef.current); strokeRafRef.current = 0; }
+    livePathRef.current?.setAttribute('d', strokePathD(stroke.points));
+    clearLiveStroke();
+    onStrokeCommit(pageNumber, stroke.points, cssWidth);
   };
 
   const drawingSurface = tool === 'pen';
 
   return (
     <div
-      ref={registerPage}
+      ref={setPageRef}
       data-page-number={pageNumber}
       data-testid={`pdf-page-${pageNumber}`}
       className="pdf-page mb-4"
-      style={{ width: Math.round(cssWidth), height: Math.round(cssHeight) }}
+      /* --total-scale-factor feeds the pdf.js v6 span metric contract the text
+         layer CSS mirrors (hotfix R15.1): font-size = scale * --font-height. */
+      style={{
+        width: Math.round(cssWidth),
+        height: Math.round(cssHeight),
+        '--total-scale-factor': renderScale,
+      } as React.CSSProperties}
     >
       <canvas ref={canvasRef} aria-label={`صفحة ${pageNumber}`} />
 
       <div
         ref={layerRef}
-        className="pdf-text-layer"
+        className={`pdf-text-layer${tool === 'pen' ? ' is-dormant' : ''}`}
         data-pdf-text-layer="true"
-        onPointerUp={onTextPointerUp}
+        onPointerUp={onTextPointerUp ? () => onTextPointerUp(pageNumber) : undefined}
       />
 
       <svg
@@ -536,7 +593,7 @@ function PageView({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerCancel={onStrokeCancel}
+        onPointerCancel={clearLiveStroke}
       >
         {annotations.map((annotation) => {
           if (annotation.annotationType === 'Highlight') {
@@ -559,18 +616,9 @@ function PageView({
             />
           );
         })}
-        {activeStroke && (
-          <path
-            className="pdf-ink"
-            d={strokePathD(activeStroke.points)}
-            stroke={activeStroke.color}
-            strokeWidth={activeStroke.widthPx}
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
       </svg>
     </div>
   );
-}
+});
 
 export default PdfPlayer;

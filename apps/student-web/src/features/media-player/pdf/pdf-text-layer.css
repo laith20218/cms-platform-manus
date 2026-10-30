@@ -41,6 +41,44 @@
   /* D2: the carve-out surface — selectable even inside the select-none stage. */
   user-select: text;
   -webkit-user-select: text;
+  /* Hotfix R15.1 — pdf.js v6 TextLayer metric contract. The TextLayer emits
+     per-span custom properties (--font-height, --scale-x, --rotate) but the
+     CONSUMER stylesheet must turn them into the span font-size and transform
+     (pdf_viewer.css does; we mirror it). Without this chain the spans inherit
+     the app's font-size and never apply the width-matching scaleX, so every
+     selection rect drifts off the canvas glyphs (the R15.2 offset report). */
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor, 1) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  /* Hotfix R15.1 — Arabic shaping + bidi. The layer direction is RTL (the
+     player's audience), while unicode-bidi: plaintext on each span defers the
+     actual direction to the span's own content: Arabic runs shape and flow
+     RTL, Latin runs stay LTR, and the worker's per-item dir attribute can no
+     longer force mixed runs the wrong way. letter/word-spacing stay normal —
+     any tracking breaks Arabic contextual shaping. */
+  direction: rtl;
+  letter-spacing: normal;
+  word-spacing: normal;
+  font-kerning: normal;
+  font-feature-settings: "liga" 1, "calt" 1;
+  caret-color: CanvasText;
+}
+
+/* pdf.js v6 span metric contract (mirrors pdf_viewer.css) — font-size and the
+   width-matching transform are driven by the TextLayer's custom properties. */
+.pdf-text-layer > :not(.markedContent),
+.pdf-text-layer .markedContent span:not(.markedContent) {
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.pdf-text-layer .markedContent {
+  display: contents;
 }
 
 .pdf-text-layer > span {
@@ -49,10 +87,18 @@
   white-space: pre;
   cursor: text;
   transform-origin: 0% 0%;
+  /* Hotfix R15.1 — let the content decide its direction (see layer comment). */
+  unicode-bidi: plaintext;
 }
 
 .pdf-text-layer ::selection {
   background: rgba(13, 148, 136, 0.28);
+}
+
+.pdf-text-layer.is-dormant {
+  /* Hotfix R15.2: while the pen is the active tool the overlay (below this
+     layer) must receive the pointer events — see .pdf-annotation-layer. */
+  pointer-events: none;
 }
 
 /* ---- Annotation overlay (one SVG per page: highlights + ink) ---- */
@@ -60,7 +106,10 @@
 .pdf-annotation-layer {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  /* Hotfix R15.2: highlights render BEHIND the text layer, above the canvas —
+     z 0=canvas < 1=overlay < 2=text layer. The pen still works because the
+     text layer goes dormant (pointer-events: none) while the pen is active. */
+  z-index: 1;
   /* Pointer-events are driven per tool by PdfPlayer (auto only while the pen
      is active — otherwise the text layer must receive the events). */
   pointer-events: none;
@@ -74,8 +123,8 @@
   cursor: crosshair;
 }
 
-/* Highlights render ABOVE the text layer with multiply blending so glyphs
-   stay readable under every palette color. */
+/* Highlights sit between canvas and text layer (z-order above); multiply
+   blending keeps glyphs readable under every palette color. */
 .pdf-annotation-layer .pdf-highlight {
   mix-blend-mode: multiply;
   pointer-events: none;

@@ -90,8 +90,9 @@ export function simplifyPoints(points: NormalizedPoint[], tolerance = 0.0015): N
 
 /**
  * Converts a DOM selection range's client rects to page-normalized rects
- * (D.4d): visual boxes only — RTL-safe and zoom-independent. Rects that fall
- * outside this page (cross-page selections) are filtered by the clamped size.
+ * (D.4d): visual boxes only — RTL-safe and zoom-independent. Rects whose
+ * center falls outside this page (cross-page selections) are dropped
+ * outright (hotfix R15.2) instead of being clamped into border slivers.
  */
 export function rectsFromRange(range: Range, pageRect: DOMRect): NormalizedRect[] {
   const rects: NormalizedRect[] = [];
@@ -99,6 +100,16 @@ export function rectsFromRange(range: Range, pageRect: DOMRect): NormalizedRect[
   for (let i = 0; i < clientRects.length; i += 1) {
     const r = clientRects[i];
     if (r.width < 1 || r.height < 1) continue;
+    // Hotfix R15.2: a rect belongs to this page only if its CENTER lies inside
+    // the page box. Clamping alone let rects from neighbouring pages survive
+    // as zero-edge slivers hugging the border (the "covers the text" artifact
+    // from the production report).
+    const centerX = r.left + r.width / 2;
+    const centerY = r.top + r.height / 2;
+    if (
+      centerX < pageRect.left || centerX > pageRect.right ||
+      centerY < pageRect.top || centerY > pageRect.bottom
+    ) continue;
     const x = clamp01((r.left - pageRect.left) / pageRect.width);
     const y = clamp01((r.top - pageRect.top) / pageRect.height);
     const w = Math.min(1 - x, r.width / pageRect.width);
