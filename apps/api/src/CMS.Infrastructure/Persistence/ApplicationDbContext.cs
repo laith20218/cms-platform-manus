@@ -37,6 +37,8 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<LibraryFile> LibraryFiles => Set<LibraryFile>();
     public DbSet<LibraryView> LibraryViews => Set<LibraryView>();
     public DbSet<LectureCompletion> LectureCompletions => Set<LectureCompletion>();
+    // Wave 11.8 / F2: student PDF annotations (one row per annotation, client-id-keyed)
+    public DbSet<FileAnnotation> FileAnnotations => Set<FileAnnotation>();
 
     // Push 4 / Track 4: courses and episodes
     public DbSet<Course> Courses => Set<Course>();
@@ -248,6 +250,19 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        // Wave 11.8 / F2: student PDF annotations. Both FKs cascade (annotations are
+        // student-private derivatives — a hard-deleted file or student must not leave
+        // orphan rows). No unique constraint on (FileId, StudentId): many annotations
+        // per page are legal. The jsonb payload carries page-normalized geometry.
+        modelBuilder.Entity<FileAnnotation>(entity =>
+        {
+            entity.HasIndex(x => new { x.FileId, x.StudentId });
+            entity.HasIndex(x => new { x.StudentId, x.FileId, x.CreatedAt });
+            entity.Property(x => x.Payload).HasColumnType("jsonb");
+            entity.HasOne(x => x.File).WithMany().HasForeignKey(x => x.FileId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         // Push 10.3: rich media metadata + transcoding lifecycle. Title already existed on
         // both entities (no length ALTER — a live-data resize could fail the migration apply);
         // the caps below apply to NEW columns only. LibraryFile.Description predates 10.3 and
@@ -326,6 +341,13 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         {
             entity.ToTable(table => table.HasCheckConstraint("ck_media_bookmarks_range",
                 "(end_seconds > start_seconds AND start_seconds >= 0)"));
+        });
+
+        // Wave 11.8 / F2: a PDF annotation must anchor to a real (1-indexed) page.
+        modelBuilder.Entity<FileAnnotation>(entity =>
+        {
+            entity.ToTable(table => table.HasCheckConstraint("ck_file_annotations_page",
+                "(page_number >= 1)"));
         });
 
         // Push 10.3: partial indexes for the admin pipeline views (pending/failed sweeps).

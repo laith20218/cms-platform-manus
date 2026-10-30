@@ -1346,6 +1346,57 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CMS.Domain.Entities.FileAnnotation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AnnotationType")
+                        .HasColumnType("integer")
+                        .HasColumnName("annotation_type");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("FileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("file_id");
+
+                    b.Property<int>("PageNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("page_number");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("student_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_file_annotations");
+
+                    b.HasIndex("FileId", "StudentId")
+                        .HasDatabaseName("ix_file_annotations_file_id_student_id");
+
+                    b.HasIndex("StudentId", "FileId", "CreatedAt")
+                        .HasDatabaseName("ix_file_annotations_student_id_file_id_created_at");
+
+                    b.ToTable("file_annotations", t =>
+                        {
+                            t.HasCheckConstraint("ck_file_annotations_page", "(page_number >= 1)");
+                        });
+                });
+
             modelBuilder.Entity("CMS.Domain.Entities.Lecture", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3372,6 +3423,27 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Navigation("LibraryFile");
 
                     b.Navigation("Question");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.FileAnnotation", b =>
+                {
+                    b.HasOne("CMS.Domain.Entities.LibraryFile", "File")
+                        .WithMany()
+                        .HasForeignKey("FileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_file_annotations_library_files_file_id");
+
+                    b.HasOne("CMS.Domain.Entities.Student", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_file_annotations_students_student_id");
+
+                    b.Navigation("File");
 
                     b.Navigation("Student");
                 });
