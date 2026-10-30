@@ -6,7 +6,7 @@ import { usePdfAnnotations } from './usePdfAnnotations';
 import { PdfControlsBar } from './PdfControlsBar';
 import { ensurePdfWorker } from './pdf-worker';
 import { normalizeArabicPresentationForms } from './pdf-text';
-import { clamp01, newAnnotationId, rectsFromRange, simplifyPoints, strokePathD } from './pdf-geometry';
+import { clamp01, newAnnotationId, rectsFromRange, resolveInkStrokeWidth, simplifyPoints, strokePathD } from './pdf-geometry';
 import type {
   NormalizedPoint, PdfAnnotation, PdfPlayerProps, PdfTool,
 } from './pdf-types';
@@ -32,12 +32,27 @@ ensurePdfWorker();
  * Protection interplay (D2): the text layer carries data-pdf-text-layer —
  * usePlayerProtection lets selectstart through there while copy/cut/contextmenu
  * stay blocked app-wide. The invisible watermark overlay rides on top.
+ *
+ * Hotfix R16 (production feedback): R16.1 self-hosted pdf.js cmap/font/wasm
+ * assets + system-font fallback (canvas Arabic); R16.2/16.3 overlay strictly
+ * coextensive with the canvas + official span/br text-layer contract
+ * (highlight offset / bottom-of-page coverage); R16.4 ink strokeWidth as a
+ * page-relative fraction (no raw px, no vector-effect, legacy-payload guard).
  */
 
 const ZOOM_STEPS = [1, 1.25, 1.5, 2, 2.5, 3];
 const DEFAULT_HIGHLIGHT_COLOR = '#fde047';
 const DEFAULT_PEN_COLOR = '#111827';
 const DEFAULT_PEN_WIDTH = 2.5;
+
+/* Hotfix R16.1 — pdf.js runtime assets, self-hosted from public/ (copied from
+ * node_modules/pdfjs-dist at the pinned version; BASE_URL keeps it correct
+ * under any deploy base path). cMaps map character codes to Unicode for
+ * CID-keyed/embedded-encoding fonts (the Arabic isolated-glyph report on the
+ * CANVAS), standard_fonts cover the base-14 fallbacks, wasm covers JBIG2 /
+ * JPEG2000 / ICC image paths, and useSystemFonts lets non-embedded fonts
+ * fall back to system shaping fonts instead of isolated glyphs. */
+const PDFJS_ASSET_BASE = `${import.meta.env.BASE_URL}pdfjs-dist/`;
 interface PageDim { width: number; height: number }
 
 /** Stable empty list so memoized pages never see a fresh array identity. */
@@ -94,7 +109,18 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
         const blob = await libraryApi.getContentBlob(assetId);
         const buffer = await blob.arrayBuffer();
         // data: transfers the buffer to the pdf.js worker — single-use by design.
-        const loadingTask = getDocument({ data: new Uint8Array(buffer) });
+        // Hotfix R16.1: font/cmap resource URLs + system-font fallback (see
+        // PDFJS_ASSET_BASE above) — without them pdf.js cannot resolve CID
+        // mappings or base-14 fallbacks and the canvas bakes isolated letters.
+        const loadingTask = getDocument({
+          data: new Uint8Array(buffer),
+          cMapUrl: `${PDFJS_ASSET_BASE}cmaps/`,
+          cMapPacked: true,
+          standardFontDataUrl: `${PDFJS_ASSET_BASE}standard_fonts/`,
+          wasmUrl: `${PDFJS_ASSET_BASE}wasm/`,
+          iccUrl: `${PDFJS_ASSET_BASE}iccs/`,
+          useSystemFonts: true,
+        });
         task = loadingTask;
         const loaded = await loadingTask.promise;
         if (cancelled) { void loadingTask.destroy(); return; }
@@ -524,16 +550,20 @@ const PageView = memo(function PageView({
     event.currentTarget.setPointerCapture(event.pointerId);
     const point = toNormalized(event.clientX, event.clientY);
     strokeRef.current = { points: [point], color: penColor, width: penWidth };
-    // Live path is created imperatively: screen-px stroke width (identical to
-    // the committed rendering), zero React involvement until the stroke ends.
-    // The old code fed React a per-move state update AND a strokeWidth of
-    // penWidth * pageWidth (≈2000 with non-scaling-stroke) — a screen-sized
-    // flash on every stroke; both defects die here.
+    // Live path is created imperatively with the SAME geometry contract as
+    // committed ink (hotfix R16.4): stroke width is the page-relative FRACTION
+    // penWidth / pageWidth against the unit viewBox. The pre-R15.3 code fed
+    // React a per-move state update AND a strokeWidth of penWidth * pageWidth
+    // (≈2000 with non-scaling-stroke) — a screen-sized flash on every stroke;
+    // the R15.3 refactor swapped it to raw screen px, which still relies on
+    // vector-effect surviving the browser. A fraction is intrinsically safe:
+    // the worst units mistake renders ≤10% of the page, never a 2000px blob.
+    const overlayBox = svg.getBoundingClientRect();
+    const pageWidthPx = overlayBox.width > 0 ? overlayBox.width : cssWidth;
     const live = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     live.setAttribute('class', 'pdf-ink');
     live.setAttribute('stroke', penColor);
-    live.setAttribute('stroke-width', String(penWidth));
-    live.setAttribute('vector-effect', 'non-scaling-stroke');
+    live.setAttribute('stroke-width', String(penWidth / pageWidthPx));
     live.setAttribute('d', strokePathD([point]));
     svg.appendChild(live);
     livePathRef.current = live;
@@ -611,8 +641,9 @@ const PageView = memo(function PageView({
               className="pdf-ink"
               d={strokePathD(annotation.payload.points)}
               stroke={annotation.payload.color}
-              strokeWidth={annotation.payload.width * cssWidth}
-              vectorEffect="non-scaling-stroke"
+              /* Hotfix R16.4: page-relative fraction against the unit viewBox
+                 (see resolveInkStrokeWidth) — no raw px, no vector-effect. */
+              strokeWidth={resolveInkStrokeWidth(annotation.payload.width, cssWidth)}
             />
           );
         })}

@@ -93,9 +93,14 @@ export function simplifyPoints(points: NormalizedPoint[], tolerance = 0.0015): N
  * (D.4d): visual boxes only — RTL-safe and zoom-independent. Rects whose
  * center falls outside this page (cross-page selections) are dropped
  * outright (hotfix R15.2) instead of being clamped into border slivers.
+ *
+ * Hotfix R16.2: the caller MUST pass the CANVAS surface box (the geometry
+ * authority) — a degenerate (zero-sized, not-yet-laid-out) surface yields no
+ * rects rather than divide-by-zero garbage.
  */
 export function rectsFromRange(range: Range, pageRect: DOMRect): NormalizedRect[] {
   const rects: NormalizedRect[] = [];
+  if (!(pageRect.width > 0) || !(pageRect.height > 0)) return rects;
   const clientRects = range.getClientRects();
   for (let i = 0; i < clientRects.length; i += 1) {
     const r = clientRects[i];
@@ -118,4 +123,30 @@ export function rectsFromRange(range: Range, pageRect: DOMRect): NormalizedRect[
     rects.push({ x, y, w, h });
   }
   return rects;
+}
+
+/** Hotfix R16.4 — hard ceiling for a page-relative ink width: no legitimate
+ *  pen reaches 10% of the page width, so anything stored above this is legacy
+ *  or malformed RAW-PIXEL data (the pre-R15.3 live stroke emitted
+ *  penWidth * pageWidthPx ≈ 2000) and must never reach the renderer as-is. */
+const MAX_INK_WIDTH_FRACTION = 0.1;
+
+/**
+ * Hotfix R16.4 — single authority for ink stroke widths.
+ *
+ * Stored ink width is a PAGE-RELATIVE fraction (px ÷ pageWidth). With the
+ * overlay's viewBox="0 0 1 1" the strokeWidth attribute must be that same
+ * fraction — a raw pixel value against a unit viewBox is the production
+ * "giant shape" bug (2.5 px × viewBox scale ≈ a 2000 px stroke). Legacy
+ * payloads that carry a raw px value are recovered by dividing by the live
+ * page width, and every result is clamped so a corrupt payload can never
+ * paint more than MAX_INK_WIDTH_FRACTION of the page.
+ */
+export function resolveInkStrokeWidth(storedWidth: number, cssWidth: number): number {
+  if (!Number.isFinite(storedWidth) || storedWidth <= 0) return 0;
+  const pageWidth = Number.isFinite(cssWidth) && cssWidth > 0 ? cssWidth : 1;
+  const fraction = storedWidth <= MAX_INK_WIDTH_FRACTION
+    ? storedWidth
+    : storedWidth / pageWidth;
+  return Math.min(clamp01(fraction), MAX_INK_WIDTH_FRACTION);
 }

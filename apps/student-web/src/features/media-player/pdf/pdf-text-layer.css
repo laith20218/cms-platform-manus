@@ -81,7 +81,15 @@
   display: contents;
 }
 
-.pdf-text-layer > span {
+.pdf-text-layer > span,
+/* Hotfix R16.2 — mirror the official pdf.js contract EXACTLY: :is(span, br),
+   not just direct children. The TextLayer appends <br> (hasEOL) and, on some
+   documents, nested spans into the container; left inline they sit in the
+   flow at the layer's top-left corner and pollute Range.getClientRects()
+   with phantom rects — the residual "highlight covers the wrong text" report.
+   Out-of-flow (absolute) they contribute nothing to layout or selection
+   geometry, exactly as pdf_viewer.css intends. */
+.pdf-text-layer :is(span, br) {
   color: transparent;
   position: absolute;
   white-space: pre;
@@ -106,12 +114,18 @@
 .pdf-annotation-layer {
   position: absolute;
   inset: 0;
+  /* Hotfix R16.3 — explicit, content-independent size. The overlay must
+     stretch over the ENTIRE page box (pixel-identical to the canvas), not
+     inherit a height from the text layer or any flex/content heuristic —
+     the white space below the last text line stays drawable.
+     pointer-events are driven per tool by PdfPlayer (auto only while the pen
+     is active — otherwise the text layer must receive the events). */
+  width: 100%;
+  height: 100%;
   /* Hotfix R15.2: highlights render BEHIND the text layer, above the canvas —
      z 0=canvas < 1=overlay < 2=text layer. The pen still works because the
      text layer goes dormant (pointer-events: none) while the pen is active. */
   z-index: 1;
-  /* Pointer-events are driven per tool by PdfPlayer (auto only while the pen
-     is active — otherwise the text layer must receive the events). */
   pointer-events: none;
 }
 
