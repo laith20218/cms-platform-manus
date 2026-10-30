@@ -1,5 +1,5 @@
 /**
- * Wave 11.8 / F2 — PdfPlayer diagnostic flags (hotfix R18.1).
+ * Wave 11.8 / F2 — PdfPlayer diagnostic flags (hotfix R18.1 / R19.1).
  *
  * URL-driven, read ONCE per page load, zero UI surface. They exist so a field
  * engineer can split the canvas from the DOM text layer in production — the
@@ -12,27 +12,32 @@
  *                           production screenshot shows when span transparency
  *                           is lost: double render, spaced-out Latin ("W ebS
  *                           o ck et"), isolated Arabic glyphs.
- *   ?pdfFonts=system      → getDocument({ disableFontFace: true }) — bypasses
- *                           the browser @font-face registration entirely:
- *                           glyph outlines are drawn as paths straight from
- *                           the embedded font programs. If the canvas becomes
- *                           perfect under this flag, the @font-face pipeline
- *                           (synthetic cmap of subset fonts) was the culprit.
+ *   ?pdfFonts=embedded    → revert the CANVAS to the pre-R19 font pipeline
+ *                           (disableFontFace: false). Hotfix R19 made path
+ *                           rendering (glyph outlines drawn as paths straight
+ *                           from the embedded font programs) the DEFAULT,
+ *                           because the browser @font-face pipeline mis-maps
+ *                           the synthetic cmap of subset fonts: dropped
+ *                           glyphs ('i'), wrong glyphs ('a'→'ã'), inter-
+ *                           cluster gaps ("W ebS o ck et"). This override
+ *                           exists ONLY for field A/B regression of that
+ *                           diagnosis.
  *
- * Pure diagnostics: with no parameters the player behaves exactly as before.
+ * Pure diagnostics: with no parameters the player renders exactly as
+ * production defaults (path rendering, hard-transparent text layer).
  */
 
 export interface PdfDebugFlags {
   readonly textLayer: 'default' | 'hide' | 'visible';
-  readonly systemFontsOnly: boolean;
+  readonly embeddedFontFaceOverride: boolean;
 }
 
 function readFlags(search: string): PdfDebugFlags {
   const params = new URLSearchParams(search);
   const raw = (params.get('pdfDebugText') ?? '').trim().toLowerCase();
   const textLayer = raw === 'hide' || raw === 'visible' ? raw : 'default';
-  const systemFontsOnly = (params.get('pdfFonts') ?? '').trim().toLowerCase() === 'system';
-  return { textLayer, systemFontsOnly };
+  const embeddedFontFaceOverride = (params.get('pdfFonts') ?? '').trim().toLowerCase() === 'embedded';
+  return { textLayer, embeddedFontFaceOverride };
 }
 
 const PDF_DEBUG_SEARCH = typeof window !== 'undefined' ? window.location.search : '';

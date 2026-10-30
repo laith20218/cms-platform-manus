@@ -466,21 +466,20 @@ async function main() {
       await context.close();
     }
 
-    /* ===== S6 — R18.1 font A/B: disableFontFace (path-rendered glyphs) =====
-       The S1 canvas-only view already exposed glyph-mapping artifacts on the
-       CANVAS itself (dropped 'i's, 'a'→'ã', inter-cluster gaps) — the signature
-       of pdf.js's embedded-font→@font-face pipeline mis-mapping the synthetic
-       cmap of Chromium-printed subset fonts. disableFontFace: true bypasses
-       that pipeline (glyph outlines drawn as paths straight from the embedded
-       program). If the canvas is clean here, the embedded-font face-loading is
-       the production "W ebS o ck et" culprit — flip the default next round. */
+    /* ===== S6 — R18.1/R19 font A/B: the NON-default @font-face pipeline =====
+       Hotfix R19 made disableFontFace: true (path-rendered glyphs) the
+       DEFAULT after this suite's S1/S6 A/B proved the @font-face pipeline
+       mis-maps the synthetic cmap of Chromium-printed subset fonts (dropped
+       'i's, 'a'→'ã', cluster gaps). The old pipeline is reachable ONLY via
+       the ?pdfFonts=embedded field diagnostic — this scenario captures it so
+       the historical A/B evidence stays reproducible. */
     {
       const { context } = await newPdfContext(browser, { width: 1280, height: 800 });
       const page = await context.newPage();
-      await openPdfPlayer(page, { query: '?pdfFonts=system&pdfDebugText=hide', waitForTextSpans: false });
+      await openPdfPlayer(page, { query: '?pdfFonts=embedded&pdfDebugText=hide', waitForTextSpans: false });
       await page.waitForTimeout(800);
       await page.screenshot({ path: `${SHOT_DIR}/r18-s6-canvas-system-fonts.png` });
-      check('R18.1 ?pdfFonts=system (disableFontFace) canvas A/B captured', true, `${SHOT_DIR}/r18-s6-canvas-system-fonts.png`);
+      check('R18.1 ?pdfFonts=embedded (legacy @font-face pipeline) A/B captured', true, `${SHOT_DIR}/r18-s6-canvas-system-fonts.png`);
       await context.close();
     }
 
