@@ -48,9 +48,13 @@ D4 full toolbar UI shipped: pointer/highlighter/pen
 
 ## ─── VERIFICATION ─────────────────────────────────────
 - dotnet build: 0 errors / 0 warnings; dotnet test
-  (unit): 431/431.
+  (unit): 431/431; full solution (no filter): 547 total
+  = 520 passed + 27 skipped + 0 failed — the 27 skips
+  are [PostgresFact]-gated (no CMS_PHASE34_TEST_POSTGRES
+  connection string and no Docker endpoint for
+  Testcontainers in this sandbox) (remediation R10/R9).
 - tsc -b: 0; eslint --max-warnings=0: clean; vitest:
-  175/175 (pre-existing suites untouched).
+  14 files / 181 tests passed (remediation R10).
 - vite build: green; pdfjs isolated chunk ~140KB gz;
   worker separate ?url asset.
 - player-pdf.e2e.mjs: 18/18 checks × 3 consecutive local
