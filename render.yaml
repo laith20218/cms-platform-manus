@@ -64,7 +64,8 @@ services:
       - key: Cors__AdminApp
         value: https://cms-platform-manus-admin-web.vercel.app
 
-      # === S3-compatible storage (Cloudflare R2 by configuration) ===
+      # === S3-compatible storage (Backblaze B2 via its S3-compatible API — Push 10.9;
+      # bucket CMSmedia / region eu-central-003 live in the Render dashboard) ===
       - key: Storage__S3__Endpoint
         sync: false
       - key: Storage__S3__Region
