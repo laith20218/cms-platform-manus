@@ -1,3 +1,119 @@
+# WIP_STATUS — main (Wave 11.7.x CLOSED)
+
+## ─── STATUS ───────────────────────────────────────────
+Wave 11.7.x (Players Family — F1 + Root Fix) —
+STATUS: CLOSED
+Final merge: 94dc9b0d26d8294265d67e1a2aa7a41b8d7e2a2d (P4)
+Closed at: 2026-10-30
+
+Wave 11.7 / F1 (Audio Player) — STATUS: CLOSED
+(fully re-merged on main via P4, adapted to P1
+contract, no workarounds)
+
+## ─── ARC SUMMARY ─────────────────────────────────────
+Wave 11.7.x closed 10 race windows + 3 SWAPPING-phase
+residuals + 15 base-flow e2e read races, and landed
+AudioPlayer on main with:
+  - 5 hook methods (play/pause/seek/togglePlay/
+    seekBy) routed from VideoPlayer + AudioPlayer
+  - 1 queue (single-slot playPause+seek, merged plan)
+  - 1 lifecycle contract (swapId, isSwapActive,
+    refresh, SwapContext, 5s ack, 3s restore)
+  - 1 regression matrix (W-MATRIX.md, 32/32
+    grep-verified)
+  - 5 property suites (5000 randomized scenarios)
+  - 32-check player-audio e2e + 24-check player-video
+    e2e (both deterministic)
+
+## ─── PHASES ──────────────────────────────────────────
+P0 ✅ a2d66d5 — hook hygiene (W4/W5/W6/W8/W10)
+P1 ✅ a4be3e9 — atomic swap lifecycle
+     (W1/W2/W3/W7/W9)
+P2 ✅ bcf0b4e — deferred-intent queue + base-flow
+     sweep (SWAPPING-phase W1s/W7a/W7b)
+P3 ✅ 634952d — regression matrix + property suites
+P4 ✅ 94dc9b0 — AudioPlayer re-merge on P1
+     contract (Wave 11.7.x closed)
+
+## ─── DELIVERABLES ON MAIN ────────────────────────────
+- useMediaLease.ts: 784 lines (from 159). Public
+  contract: 5 intent methods + swapId + isSwapActive +
+  refresh + ackSwap + callbacks-as-parameters.
+- VideoPlayer.tsx: adapted to lifecycle; all
+  user play/pause/seek routed via hook.
+- AudioPlayer.tsx: re-merged; 940 lines; no
+  workarounds; all 6 features (waveform, speed+pitch,
+  A-B, bookmarks, resume, keyboard) on new contract.
+- W-MATRIX.md: 32/32 grep-verified.
+- 5 property suites: 5000 total randomized
+  scenarios.
+- CI: 6 e2e specs, all deterministic.
+
+## ─── CORRECTION OF PRIOR CLAIM ────────────────────────
+Prior P2/P3 push reports stated "player-audio 30/30
+in CI". This was incorrect on both counts:
+  (a) true count: 26 checks (not 30);
+  (b) player-audio.e2e.mjs was NEVER in CI — ci.yml's
+      e2e step hardcoded 5 specs. "30/30" belonged to
+      favorites-advanced. WIP_STATUS:183/316/381
+      recorded the correct local-only 26/26.
+P4 corrects: player-audio now in CI with a genuine
+32-check spec (26−2+8).
+
+## ─── KNOWN DEBT (deferred out of Wave 11.7.x) ────────
+- A10: volume/rate/mute during SWAPPING not queue-
+  protected (P2 scope). Residual ~5% on #8/#9 e2e
+  tests via bounded pair-retry.
+- Position-carry-on-swap-error: both players restart
+  from post-failure element state on terminal error.
+  Future hook-side improvement.
+- AudioStage (CoursePlayerPage.tsx, my-studies
+  course episodes): separate code path, unchanged.
+  Own lease trap, no waveform/speed/A-B. Future
+  audio-consistency wave.
+- DocumentViewer bare <video> (library, no lease):
+  separate defect family. Future wave.
+- Screenshot fonts-loading flake: infrastructure.
+  Rare. If it recurs, P3-or-later infra item.
+- swap-during-swap: unreachable-by-construction
+  (documented in W-MATRIX). Not tested.
+- VideoPlayer feature parity (speed/A-B/bookmarks):
+  out of scope for Wave 11.7.x. Future wave.
+
+## ─── DISCLOSURE ───────────────────────────────────────
+wip/11.7 branch ref absent on origin throughout
+Wave 11.7.x. AudioPlayer ported via `git show
+edb2637:` from the reachable pre-pivot commit. No
+branch recreation needed post-close.
+
+P4 re-execution disclosure (sandbox recovery): the
+original P4 branch (e8c630f/2abf2f9/e3673b8/038ad79)
+was lost in a sandbox reset before its push;
+re-executed from the PART X rev 2 + PART I design and
+the edb2637 sources as 8f28eff/ef342f5/e6240e8/1be4f01
+(content authoritative; SHAs differ by construction).
+The 5-rerun gate ran on the re-executed branch SHA
+1be4f01 (run 41022600078, attempts 1-5 all green);
+merge run 41028222422 on 94dc9b0 green.
+
+## ─── NEXT ────────────────────────────────────────────
+F2 (PDF Player) opens Wave 11.8. Before F2 kickoff:
+  - Supervisor + user review of Wave 11.7.x closure.
+  - DIAG on PDF library choice + annotation schema
+    (deferred from Wave 11.7 planning).
+  - Root-fix retrospective: what worked (DIAG-first,
+    property tests, W-MATRIX), what to keep (per-
+    phase 5-rerun gates, stop-gate discipline).
+
+## ─── RESUME_FROM ──────────────────────────────────────
+main @ 94dc9b0 (P4 merge) + this docs checkpoint (HEAD)
+— Wave 11.7.x CLOSED.
+Awaiting supervisor + user decision on Wave 11.8/F2
+(PDF Player) kickoff, or interim work (backend debts,
+AudioStage consolidation, DocumentViewer bare-video).
+
+# (history below — P4 branch checkpoint, then P3 closed on main, then the P3 branch checkpoint, then P2 closed, then P2 review, then P1 closed, then P1 review, then P0, then Wave 11.5.x, closed)
+
 # WIP_STATUS — wip/11.7.x-p4 (Wave 11.7.x, P4 re-executed, pre-push)
 
 ## ─── STATUS ───────────────────────────────────────────
