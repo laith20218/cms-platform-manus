@@ -1,0 +1,1 @@
+481803 bytes raw / 139802 bytes gzip @ commit 25290ad / pdfjs-dist@6.4.299 / legacy build
