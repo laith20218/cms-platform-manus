@@ -2011,3 +2011,9 @@ awaiting supervisor review of Phase58 SQL before any production application
   Security: trivy + CodeQL operating (2 inspectors).
 
 - Next: Wave 12 (Android Offline) — R1 DIAG pending approval.
+
+## §3 Disclosure — pnpm-lock.yaml modification (remediation R5)
+- File: pnpm-lock.yaml (+169 lines, commit 3f71503)
+- Cause: `pdfjs-dist@6.4.299` added as a dependency of apps/student-web.
+- Requested authorization: YES (retroactive — should have been requested pre-commit)
+- Reviewer: pending
