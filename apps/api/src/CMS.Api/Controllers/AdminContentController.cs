@@ -97,12 +97,20 @@ public sealed class AdminContentController : ControllerBase
             file.Id, file.SubjectId, file.LectureId, file.Subject.NameAr, file.Title, file.Type.ToString(),
             file.Category == null ? null : file.Category.ToString(),
             file.FileSize, file.DurationSeconds, file.Status.ToString(), file.VirusScanStatus.ToString(), file.CreatedAt,
-            // Wave 11.9 — the admin upload panel polls these three keys (phase timeline +
+            // Wave 11.9 — the admin upload panel polls these keys (phase timeline +
             // error modal). Same .ToString() enum contract as the adjacent status columns.
             file.PdfProcessingStatus == null ? null : file.PdfProcessingStatus.ToString(),
             file.PdfProcessingStatus == CMS.Domain.Enums.PdfProcessingStatus.Failed ? file.ProcessingError : null,
             file.PdfProcessingStatus == CMS.Domain.Enums.PdfProcessingStatus.Ready
-                && file.FileUrl.EndsWith("-fixed", StringComparison.Ordinal)), ct));
+                && file.FileUrl.EndsWith("-fixed", StringComparison.Ordinal),
+            // R22.2 — the diagnostics report rides for any PDF-pipeline row.
+            file.PdfProcessingStatus == null ? null : file.ProcessingError,
+            // R22.5.1 — the health badge classification (Ready + clean → Healthy;
+            // Ready + diagnostics → BrokenArabic; otherwise null). Client-evaluated
+            // in the top-level projection exactly like the adjacent .ToString() calls.
+            CMS.Application.DTOs.Library.PdfHealthStatus.Classify(
+                file.PdfProcessingStatus,
+                file.PdfProcessingStatus == null ? null : file.ProcessingError)), ct));
     }
 
     [HttpGet("academic/subjects/{subjectId:guid}/lectures")]
@@ -171,5 +179,10 @@ public record AdminQuestionListItem(Guid Id, string Text, Guid SubjectId, Guid? 
 public record AdminExamListItem(Guid Id, Guid SubjectId, string SubjectName, string TitleAr, string? TitleEn, string ExamType, int DurationMinutes, int TotalQuestions, string Status, DateTime CreatedAt);
 public record AdminLibraryFileListItem(Guid Id, Guid SubjectId, Guid? LectureId, string SubjectName, string Title, string Type, string? Category, long FileSize, int? DurationSeconds, string Status, string VirusScanStatus, DateTime CreatedAt,
     // Wave 11.9 — Ghostscript pipeline surface (additive, nullable → legacy rows unaffected).
-    string? PdfProcessingStatus = null, string? ProcessingError = null, bool FontPipelineFixed = false);
+    string? PdfProcessingStatus = null, string? ProcessingError = null, bool FontPipelineFixed = false,
+    // R22.2 — the human-readable font diagnostics report (ProcessingError doubles as
+    // the diagnostics store: Arabic substitution list on Ready rows, GS stderr tail on Failed).
+    string? DiagnosticReport = null,
+    // R22.5.1 — the derived health badge classification ("Healthy" | "BrokenArabic" | null).
+    string? HealthStatus = null);
 public record AdminLectureListItem(Guid Id, Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, string? Description, string? InstructorName, string? SourceReference, string Status, bool IsArchived);

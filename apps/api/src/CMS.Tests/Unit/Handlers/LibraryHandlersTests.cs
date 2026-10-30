@@ -1,5 +1,6 @@
 using CMS.Application.BackgroundJobs;
 using CMS.Application.Commands.Library;
+using CMS.Application.DTOs.Library;
 using CMS.Application.Handlers.Library;
 using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
@@ -495,6 +496,9 @@ public sealed class LibraryHandlersTests
             "application/pdf uploads enter the Ghostscript pipeline at complete-upload");
         result.FontPipelineFixed.Should().BeFalse("the worker has not produced the fixed object yet");
         result.FontProcessingError.Should().BeNull();
+        result.DiagnosticReport.Should().BeNull("a Pending row has no diagnostics yet");
+        result.HealthStatus.Should().BeNull(
+            "R22.5.1: an in-flight row is not classified yet — the badge only exists on Ready");
         db.LibraryFiles.AsNoTracking().Single(f => f.Id == file.Id).PdfProcessingStatus
             .Should().Be(PdfProcessingStatus.Pending, "the status commit precedes the enqueue (Push 10.3 rationale)");
         pdfQueue.Reader.TryPeek(out var job).Should().BeTrue("complete-upload must enqueue the Ghostscript pass after the commit");
@@ -513,6 +517,7 @@ public sealed class LibraryHandlersTests
         var result = await handler.Handle(CompleteCommand(file), CancellationToken.None);
 
         result.PdfProcessingStatus.Should().BeNull("non-PDF files never enter the Ghostscript pipeline");
+        result.HealthStatus.Should().BeNull("R22.5.1: no pipeline → no health classification");
         pdfQueue.Reader.TryPeek(out _).Should().BeFalse("no PDF job may be enqueued for an HTML upload");
     }
 
@@ -543,6 +548,8 @@ public sealed class LibraryHandlersTests
         var file = await SeedFileAsync(db, "library/pdf/fixedkey");
         file.PdfProcessingStatus = PdfProcessingStatus.Ready;
         file.FileUrl = "library/pdf/fixedkey-fixed";
+        // R22.2 — a Ready row whose run carried warnings carries the Arabic report.
+        file.ProcessingError = "الخط الأصلي (SakkalMajalla) غير مدمج، وتم استبداله بـ (Amiri).";
         await db.SaveChangesAsync();
         var (handler, _, _, _) = Create(db);
 
@@ -550,6 +557,10 @@ public sealed class LibraryHandlersTests
 
         result.PdfProcessingStatus.Should().Be(PdfProcessingStatus.Ready);
         result.FontPipelineFixed.Should().BeTrue("FileUrl now points at the {key}-fixed object");
+        result.DiagnosticReport.Should().Be(file.ProcessingError,
+            "R22.2: Ready rows expose the stored font report via diagnosticReport");
+        result.HealthStatus.Should().Be(PdfHealthStatus.BrokenArabic,
+            "R22.5.1: Ready + diagnostics present → BrokenArabic (يحتاج معالجة بصرية)");
     }
 
     [Fact]
@@ -566,5 +577,33 @@ public sealed class LibraryHandlersTests
         var result = await handler.Handle(new PublishLibraryFileCommand(file.Id, Guid.NewGuid()), CancellationToken.None);
 
         result.FontPipelineFixed.Should().BeFalse("no -fixed object was produced; the player keeps R19 path rendering");
+        result.DiagnosticReport.Should().BeNull("the ceiling skip runs no Ghostscript pass → no diagnostics");
+        result.HealthStatus.Should().Be(PdfHealthStatus.Healthy,
+            "R22.5.1: Ready + empty diagnostics → Healthy (سليم البنية)");
+    }
+
+    [Fact]
+    public void PdfHealthClassification_Matrix_CoversEveryPipelineState()
+    {
+        // R22.5.1 — the exact task-book binary rule, plus the unclassifiable states.
+        const string report = "الخط الأصلي (SakkalMajalla) غير مدمج، وتم استبداله بـ (Amiri).";
+
+        PdfHealthStatus.Classify(PdfProcessingStatus.Ready, null)
+            .Should().Be(PdfHealthStatus.Healthy, "Ready + no diagnostics → Healthy");
+        PdfHealthStatus.Classify(PdfProcessingStatus.Ready, "")
+            .Should().Be(PdfHealthStatus.Healthy, "empty diagnostics read as warning-free");
+        PdfHealthStatus.Classify(PdfProcessingStatus.Ready, "   ")
+            .Should().Be(PdfHealthStatus.Healthy, "whitespace-only diagnostics read as warning-free");
+        PdfHealthStatus.Classify(PdfProcessingStatus.Ready, report)
+            .Should().Be(PdfHealthStatus.BrokenArabic, "Ready + substitution report → BrokenArabic");
+
+        PdfHealthStatus.Classify(PdfProcessingStatus.Pending, null)
+            .Should().BeNull("in-flight rows are not classified yet");
+        PdfHealthStatus.Classify(PdfProcessingStatus.Normalizing, report)
+            .Should().BeNull("the Ghostscript pass is still running");
+        PdfHealthStatus.Classify(PdfProcessingStatus.Failed, "Ghostscript exited with code 1")
+            .Should().BeNull("a Failed row's health is unclassifiable — the error modal carries the evidence");
+        PdfHealthStatus.Classify(null, null)
+            .Should().BeNull("the pipeline never ran (non-PDF / legacy row)");
     }
 }

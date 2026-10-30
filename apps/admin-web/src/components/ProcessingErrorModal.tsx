@@ -30,8 +30,15 @@ export interface ProcessingErrorModalProps {
   isArabic: boolean;
   /** The API's Arabic humanMessage — falls back to a curated sentence. */
   humanMessage?: string | null;
+  /** Overrides the modal headline (R22.3: PDF failures say "الملف", not "الفيديو"). */
+  headline?: string | null;
   /** English technical payload (FFmpeg logs / ProblemDetails technicalDetails). */
   technicalDetails?: string | null;
+  /** R22.2 — the backend's diagnosticReport (Arabic font report / GS evidence).
+   *  Non-empty → the collapsible is relabeled «تفاصيل تقنية للدعم الفني» and
+   *  carries THIS payload; otherwise the raw technicalDetails keep the legacy
+   *  "Technical details" label (video flows unchanged). */
+  diagnosticReport?: string | null;
   /** Retry action — omitted → no retry button. */
   onRetry?: () => void;
   /** While the retry is running (spinner + dismiss guard). */
@@ -44,7 +51,9 @@ export function ProcessingErrorModal({
   onOpenChange,
   isArabic,
   humanMessage,
+  headline,
   technicalDetails,
+  diagnosticReport,
   onRetry,
   retrying = false,
   testId = 'processing-error-modal',
@@ -52,11 +61,23 @@ export function ProcessingErrorModal({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // R22.3 — ONE support collapsible: the structured diagnosticReport (when the
+  // backend shipped one) relabels it «تفاصيل تقنية للدعم الفني»; otherwise the
+  // raw technicalDetails keep the legacy label (CoursesCenter video flows).
+  const hasDiagnostics = Boolean(diagnosticReport && diagnosticReport.trim().length > 0);
+  const supportPayload = hasDiagnostics ? diagnosticReport : technicalDetails;
+  const hasTechnical = Boolean(supportPayload && supportPayload.trim().length > 0);
+  const headlineText = headline?.trim() || (isArabic ? 'عذراً، تعذر معالجة الفيديو.' : 'Sorry — the video could not be processed.');
+  const detailsLabel = hasDiagnostics
+    ? (isArabic ? 'تفاصيل تقنية للدعم الفني' : 'Technical details for support')
+    : 'Technical details';
+
   const copyError = async () => {
     const blob = [
       `CMS media processing failure`,
       humanMessage ? `humanMessage: ${humanMessage}` : null,
-      technicalDetails ? `technicalDetails:\n${technicalDetails}` : null,
+      hasDiagnostics ? `diagnosticReport:\n${diagnosticReport}` : null,
+      technicalDetails?.trim() ? `technicalDetails:\n${technicalDetails}` : null,
     ]
       .filter(Boolean)
       .join('\n\n');
@@ -83,8 +104,6 @@ export function ProcessingErrorModal({
     window.setTimeout(() => setCopied(false), 2200);
   };
 
-  const hasTechnical = Boolean(technicalDetails && technicalDetails.trim().length > 0);
-
   return (
     <AccessibleModal
       open={open}
@@ -92,7 +111,7 @@ export function ProcessingErrorModal({
       isArabic={isArabic}
       dismissGuard={retrying}
       testId={testId}
-      title={isArabic ? 'تعذّرت معالجة الفيديو' : 'Video processing failed'}
+      title={headlineText.trim() || (isArabic ? 'تعذّرت معالجة الفيديو' : 'Video processing failed')}
       description={isArabic ? 'الرسائل المبسّطة أولاً، والتفاصيل التقنية عند الحاجة' : 'Human message first, technical details on demand'}
     >
       <div className="space-y-4 px-5 py-5">
@@ -107,7 +126,7 @@ export function ProcessingErrorModal({
           </span>
           <div className="min-w-0">
             <p className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }} data-testid="processing-error-headline">
-              {isArabic ? 'عذراً، تعذر معالجة الفيديو.' : 'Sorry — the video could not be processed.'}
+              {headlineText}
             </p>
             <p className="mt-1 text-sm leading-relaxed" style={{ color: 'var(--cms-text-soft)' }} data-testid="processing-error-human">
               {humanMessage?.trim() || (isArabic
@@ -117,7 +136,10 @@ export function ProcessingErrorModal({
           </div>
         </div>
 
-        {/* Technical level — English, collapsible, LTR monospace. */}
+        {/* Support level — collapsible, LTR-safe monospace. R22.3: when the
+            backend shipped a diagnosticReport the section is labeled
+            «تفاصيل تقنية للدعم الفني» and shows it; video flows keep the
+            legacy "Technical details" label with the raw payload. */}
         {hasTechnical && (
           <div className="rounded-xl border" style={{ borderColor: 'var(--cms-line)' }}>
             <button
@@ -129,7 +151,7 @@ export function ProcessingErrorModal({
               className="flex w-full items-center justify-between gap-2 px-4 py-3 text-start text-sm font-medium transition-colors hover:bg-slate-50"
               style={{ color: 'var(--cms-text-soft)' }}
             >
-              <span dir="ltr" className="font-mono text-xs">{isArabic ? 'Technical details' : 'Technical details'}</span>
+              <span dir={hasDiagnostics ? undefined : 'ltr'} className={hasDiagnostics ? 'text-xs font-semibold' : 'font-mono text-xs'}>{detailsLabel}</span>
               <ChevronDown
                 className={`w-4 h-4 shrink-0 transition-transform ${detailsOpen ? 'rotate-180' : ''}`}
                 style={{ color: 'var(--cms-text-muted)' }}
@@ -138,11 +160,11 @@ export function ProcessingErrorModal({
             {detailsOpen && (
               <div id="processing-error-technical" className="border-t px-4 py-3" style={{ borderColor: 'var(--cms-line)' }}>
                 <pre
-                  dir="ltr"
+                  dir={hasDiagnostics ? 'auto' : 'ltr'}
                   data-testid="processing-error-technical-body"
                   className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950/95 p-3 text-left font-mono text-[11px] leading-relaxed text-slate-200"
                 >
-                  {technicalDetails}
+                  {supportPayload}
                 </pre>
                 <button
                   type="button"

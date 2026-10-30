@@ -186,6 +186,12 @@ export type AdminLibraryFileListItem = {
   processingError?: string | null;
   /** True only when the server actually produced the "{key}-fixed" object. */
   fontPipelineFixed?: boolean;
+  /** R22.2 — human-readable Ghostscript font diagnostics (Arabic substitution
+   *  report on Ready rows; the raw GS stderr tail on Failed rows). */
+  diagnosticReport?: string | null;
+  /** R22.5.1 — the derived health badge classification
+   *  ("Healthy" = سليم البنية | "BrokenArabic" = يحتاج معالجة بصرية | null). */
+  healthStatus?: string | null;
 };
 
 export type UploadUrlResponse = {
@@ -215,6 +221,10 @@ export type LibraryFileDetail = {
   pdfProcessingStatus?: 'Pending' | 'Normalizing' | 'Ready' | 'Failed' | null;
   processingError?: string | null;
   fontPipelineFixed?: boolean;
+  /** R22.2 — see AdminLibraryFileListItem.diagnosticReport. */
+  diagnosticReport?: string | null;
+  /** R22.5.1 — see AdminLibraryFileListItem.healthStatus. */
+  healthStatus?: string | null;
 };
 
 // ===== Push 3 / Track 3: advanced UI permissions =====

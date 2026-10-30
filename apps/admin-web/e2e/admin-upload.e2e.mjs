@@ -32,7 +32,23 @@
  *
  * Run (admin dev server on 127.0.0.1:5174):  node e2e/admin-upload.e2e.mjs
  */
-import { chromium } from 'file:///home/z/cms-recon/node_modules/.pnpm/playwright@1.58.2/node_modules/playwright/index.mjs';
+// Playwright resolution — R22: the old hard-coded absolute path pointed at a
+// previous machine layout (~/cms-recon) and could never load here. Same
+// candidate-list pattern as admin-upload-pdf-processing.e2e.mjs (env override
+// → this workspace's pnpm store → bare specifier).
+let chromium;
+const PLAYWRIGHT_CANDIDATES = [
+  process.env.E2E_PLAYWRIGHT_MODULE,
+  'file:///home/z/cms-diag/cms-platform-manus/node_modules/.pnpm/playwright@1.58.2/node_modules/playwright/index.mjs',
+  'playwright',
+].filter(Boolean);
+for (const candidate of PLAYWRIGHT_CANDIDATES) {
+  try { ({ chromium } = await import(candidate)); break; } catch { /* try next */ }
+}
+if (!chromium) {
+  console.error('playwright module not found — set E2E_PLAYWRIGHT_MODULE');
+  process.exit(1);
+}
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';

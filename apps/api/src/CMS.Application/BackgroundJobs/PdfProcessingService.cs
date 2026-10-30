@@ -66,12 +66,15 @@ public sealed class PdfProcessingChannelQueue : IPdfProcessingQueue
 /// <summary>
 /// Abstraction over the Ghostscript process so unit tests can assert the exact
 /// command vector without a real binary. The production runner executes the
-/// process with a per-job watchdog (GS_TIMEOUT_MINUTES) and surfaces the stderr
-/// tail as the Failure technical details.
+/// process with a per-job watchdog (GS_TIMEOUT_MINUTES), surfaces the stderr
+/// tail as the Failure technical details, and — R22.2 — RETURNS the captured
+/// combined console output on success so the worker can mine it for font
+/// substitution warnings (GhostscriptDiagnostics).
 /// </summary>
 public interface IGhostscriptRunner
 {
-    Task RunAsync(string gsPath, IReadOnlyList<string> args, TimeSpan timeout, CancellationToken ct);
+    /// <summary>Combined stdout+stderr capture (capped) on success; throws MediaProcessingException on failure.</summary>
+    Task<string> RunAsync(string gsPath, IReadOnlyList<string> args, TimeSpan timeout, CancellationToken ct);
 }
 
 /// <summary>Wave 11.9 — the exact Ghostscript argument vector (task book, part I.1.B):
@@ -97,10 +100,13 @@ public static class GhostscriptArgs
 /// <summary>Production Ghostscript runner: mirrors RunFfmpegAsync's process discipline
 /// (redirect stderr, watchdog CancelAfter, kill the whole process tree on timeout,
 /// exit-code 137 = OOM killer gets an explicit diagnosis). The stderr tail rides the
-/// MediaProcessingException so TryMarkFailed can persist it into ProcessingError.</summary>
+/// MediaProcessingException so TryMarkFailed can persist it into ProcessingError.
+/// R22.2: on success the FULL stdout+stderr capture (32 KB rolling window) is
+/// returned for the font-diagnostics parser; failure payloads keep the original
+/// 4 KB stderr tail so error modal text stays byte-identical to Wave 11.9.</summary>
 public sealed class ProcessGhostscriptRunner : IGhostscriptRunner
 {
-    public async Task RunAsync(string gsPath, IReadOnlyList<string> args, TimeSpan timeout, CancellationToken ct)
+    public async Task<string> RunAsync(string gsPath, IReadOnlyList<string> args, TimeSpan timeout, CancellationToken ct)
     {
         var psi = new ProcessStartInfo
         {
@@ -120,15 +126,25 @@ public sealed class ProcessGhostscriptRunner : IGhostscriptRunner
             throw new MediaProcessingException(technicalDetails: "Ghostscript process failed to start.");
 
         var stderrTail = new StringBuilder();
+        // R22.2 diagnostics capture — separate builders per stream (each continuation
+        // runs on the thread pool; one StringBuilder per stream keeps appends safe).
+        var stderrCapture = new StringBuilder();
+        var stdoutCapture = new StringBuilder();
         var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token)
-            .ContinueWith(t => { if (t.IsCompletedSuccessfully) AppendTail(stderrTail, t.Result); }, TaskScheduler.Default);
+            .ContinueWith(t =>
+            {
+                if (!t.IsCompletedSuccessfully) return;
+                AppendTail(stderrTail, t.Result);
+                AppendCapped(stderrCapture, t.Result);
+            }, TaskScheduler.Default);
 
         try
         {
             // Drain stdout concurrently so a chatty GS run can never deadlock on a
-            // full pipe buffer; the output carries nothing we act on (-dNOPAUSE -dBATCH
-            // progress pages only).
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+            // full pipe buffer; R22.2 additionally CAPTURES it — pdfwrite prints the
+            // font substitution / non-embeddable warnings there, not only on stderr.
+            var stdoutTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None)
+                .ContinueWith(t => { if (t.IsCompletedSuccessfully) AppendCapped(stdoutCapture, t.Result); }, TaskScheduler.Default);
 
             await process.WaitForExitAsync(timeoutCts.Token);
 
@@ -143,7 +159,11 @@ public sealed class ProcessGhostscriptRunner : IGhostscriptRunner
                 throw new MediaProcessingException(technicalDetails:
                     $"Ghostscript exited with code {process.ExitCode}: {stderrTail}");
             }
-            await stdoutTask; // observe (drained above); faults surface via ExitCode path
+            // R22.2 — both captures must finish before the return value is built
+            // (the return expression evaluates BEFORE finally runs).
+            await stdoutTask;
+            await stderrTask;
+            return string.Concat(stdoutCapture.ToString(), "\n", stderrCapture.ToString());
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -165,6 +185,14 @@ public sealed class ProcessGhostscriptRunner : IGhostscriptRunner
         // errors) land at the end of stderr.
         if (tail.Length + value.Length > 4000) tail.Remove(0, Math.Min(tail.Length, 2000));
         tail.Append(value);
+    }
+
+    /// <summary>R22.2 diagnostics window: keep the LAST 16 KB up to a 32 KB hard
+    /// ceiling — enough for the font-warning block of even pathological runs.</summary>
+    private static void AppendCapped(StringBuilder capture, string value)
+    {
+        if (capture.Length + value.Length > 32_000) capture.Remove(0, Math.Min(capture.Length, 16_000));
+        capture.Append(value);
     }
 
     private static void Kill(Process process)
@@ -314,7 +342,7 @@ public sealed class PdfProcessingService : BackgroundService
             var args = GhostscriptArgs.Build(sourcePath, fixedPath, ResolveFontsPath());
             _logger.LogInformation("PDF process {FileId}: gs starting ({Args})",
                 file.Id, string.Join(' ', args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a)));
-            await _runner.RunAsync(ResolveGsPath(), args, TimeSpan.FromMinutes(ParseTimeoutMinutes()), ct);
+            var gsOutput = await _runner.RunAsync(ResolveGsPath(), args, TimeSpan.FromMinutes(ParseTimeoutMinutes()), ct);
             if (!File.Exists(fixedPath))
                 throw new MediaProcessingException(technicalDetails:
                     $"Ghostscript reported success but produced no output file (expected at {fixedPath}).");
@@ -326,9 +354,21 @@ public sealed class PdfProcessingService : BackgroundService
             {
                 await storage.PutAsync(fixedKey, content, "application/pdf", ct);
             }
+            // ---- R22.2 — mine the GS console output for font warnings ----
+            // The player stays on R19 path rendering UNIVERSALLY (R22.1), so this
+            // report is the support/diagnostic surface, not a rendering switch.
+            var fontReport = GhostscriptDiagnostics.BuildReport(gsOutput);
+            if (fontReport is not null)
+                _logger.LogInformation("PDF font diagnostics for {FileId}:\n{Report}", file.Id, fontReport);
+
             file.FileUrl = fixedKey;
             file.PdfProcessingStatus = PdfProcessingStatus.Ready;
-            file.ProcessingError = null;
+            // R22.2 — the EXISTING ProcessingError column doubles as the diagnostics
+            // store on success (NO schema change): on a Ready row a non-null value is
+            // the human-readable Arabic font report, never an error. The DTOs expose
+            // it as diagnosticReport; the admin error modal keeps reading it only
+            // while the status is Failed. Null = a clean run (identical to 11.9).
+            file.ProcessingError = fontReport;
             await db.SaveChangesAsync(ct);
 
             _logger.LogInformation(

@@ -58,12 +58,21 @@ ensurePdfWorker();
  * useSystemFonts stays on (non-embedded fallbacks). Field A/B of the old
  * pipeline: ?pdfFonts=embedded (pdf-debug.ts).
  *
- * Wave 11.9: files the NEW server-side Ghostscript pipeline re-embedded
+ * Wave 11.9: files the server-side Ghostscript pipeline re-embedded
  * (LibraryFileDto.FontPipelineFixed — the "{key}-fixed" object with healthy
- * fonts) are safe for the standard @font-face pipeline, so the player flips
- * to disableFontFace: false ONLY for them (per-file, never global). Every
- * file that bypassed the pipeline — legacy rows, over-ceiling skips, failed
- * runs — keeps path rendering, which is the R16→R19 failure-mode guard.
+ * fonts) were initially SAFE for the standard @font-face pipeline, and the
+ * player flipped to disableFontFace: false for exactly those files.
+ *
+ * R22 (production feedback, approved phased strategy): some Word-generated
+ * PDFs carry pre-shaped/broken text streams that Ghostscript cannot fully
+ * repair — field evidence showed the @font-face pipeline still mis-maps them.
+ * Path rendering is therefore UNIVERSAL again: disableFontFace: true for EVERY
+ * file, regardless of FontPipelineFixed (the flag stays on the wire for
+ * audit/observability only). Ghostscript keeps running server-side — it
+ * embeds/substitutes fonts (the diagnostics report feeds the admin support
+ * view) — but the canvas always draws glyph outlines as paths. The only
+ * escape hatch remains the ?pdfFonts=embedded diagnostic override
+ * (pdf-debug.ts).
  */
 
 const ZOOM_STEPS = [1, 1.25, 1.5, 2, 2.5, 3];
@@ -84,7 +93,7 @@ interface PageDim { width: number; height: number }
 /** Stable empty list so memoized pages never see a fresh array identity. */
 const EMPTY_PAGE_ANNOTATIONS: PdfAnnotation[] = [];
 
-export function PdfPlayer({ assetId, pagesCount, watermark, fontPipelineFixed, testId }: PdfPlayerProps) {
+export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerProps) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [docStatus, setDocStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [reloadToken, setReloadToken] = useState(0);
@@ -153,10 +162,12 @@ export function PdfPlayer({ assetId, pagesCount, watermark, fontPipelineFixed, t
           // visual integrity of medical Arabic outweighs the render cost.
           // cMapUrl/cMapPacked above stay active for character mapping.
           //
-          // Wave 11.9 — per-file exception: the server's Ghostscript pass
-          // (FontPipelineFixed) re-embeds healthy fonts, so the standard
-          // @font-face pipeline is SAFE for exactly those files.
-          disableFontFace: fontPipelineFixed ? false : true,
+          // R22 — path rendering is UNIVERSAL: the Ghostscript pass cannot
+          // fully repair every Word-generated PDF (pre-shaped/broken text
+          // streams), so the Wave 11.9 per-file @font-face exception is rolled
+          // back. fontPipelineFixed stays on the DTO for audit only and does
+          // NOT influence rendering anymore.
+          disableFontFace: true,
           // Diagnostic ONLY (?pdfFonts=embedded): opt BACK into the old
           // @font-face pipeline to reproduce the broken canvas in the field.
           ...(PDF_DEBUG.embeddedFontFaceOverride ? { disableFontFace: false } : {}),
@@ -176,7 +187,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, fontPipelineFixed, t
       void task?.destroy();
       docRef.current = null;
     };
-  }, [assetId, reloadToken, fontPipelineFixed]);
+  }, [assetId, reloadToken]);
 
   /* ---- Page dimensions (scale-1 viewports; metadata only, no rendering). ---- */
   useEffect(() => {

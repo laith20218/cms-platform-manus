@@ -111,17 +111,29 @@ export interface PdfPhaseInfo {
   status: Exclude<PdfProcessingStatus, 'Failed'>;
   labelAr: string;
   labelEn: string;
+  /** R22.3 — the reassurance sub-text under the ACTIVE rung (font embedding). */
+  subTextAr?: string;
+  subTextEn?: string;
   /** Target width for the animated progress bar (0-100). */
   progress: number;
 }
 
-/** The Ghostscript ladder — the human sentences the upload panel timeline shows
- *  after the browser PUT completes. ("Uploading" is the local XHR phase and is
- *  rendered by the panel itself; these are the SERVER phases.) */
+/** The Ghostscript ladder — the task book's R22.3 human sentences (technical
+ *  jargon like "Ghostscript" stays OUT of the user-facing labels; the server
+ *  name lives in the API logs and the diagnostics report instead).
+ *  ("Uploading" is the local XHR phase and is rendered by the panel itself;
+ *  these are the SERVER phases.) */
 export const PDF_PROCESSING_PHASES: readonly PdfPhaseInfo[] = [
-  { status: 'Pending', labelAr: 'جاري تجهيز الملف في الخادم...', labelEn: 'Preparing the file on the server…', progress: 20 },
-  { status: 'Normalizing', labelAr: 'جاري إصلاح الخطوط العربية (Ghostscript)...', labelEn: 'Processing fonts (Ghostscript)…', progress: 60 },
-  { status: 'Ready', labelAr: 'الملف جاهز للنشر ✅', labelEn: 'The file is ready to publish ✅', progress: 100 },
+  { status: 'Pending', labelAr: 'جاري رفع الملف إلى السيرفر...', labelEn: 'Uploading the file to the server…', progress: 20 },
+  {
+    status: 'Normalizing',
+    labelAr: 'جاري فحص وإصلاح الخطوط العربية...',
+    labelEn: 'Inspecting and fixing the Arabic fonts…',
+    subTextAr: 'نقوم بدمج الخطوط لضمان أفضل جودة للعرض.',
+    subTextEn: 'We embed the fonts to ensure the best display quality.',
+    progress: 60,
+  },
+  { status: 'Ready', labelAr: 'الملف جاهز ومتاح للطلاب ✅', labelEn: 'The file is ready and available to students ✅', progress: 100 },
 ] as const;
 
 const PDF_PHASE_BY_STATUS = new Map<string, PdfPhaseInfo>(
@@ -145,13 +157,13 @@ export function isPdfProcessingActive(status: PdfProcessingStatus | string | nul
   return status == null || status === 'Pending' || status === 'Normalizing';
 }
 
-/** Short bilingual chip for the failure/success surfaces. */
+/** Short bilingual chip for the failure/success surfaces (R22.3 friendly wording). */
 export function pdfProcessingChipLabel(status: PdfProcessingStatus | string | null | undefined, isArabic: boolean): string | null {
-  if (status === 'Failed') return isArabic ? 'فشلت معالجة الخطوط' : 'Font processing failed';
+  if (status === 'Failed') return isArabic ? 'تعذر معالجة الملف' : 'Processing failed';
   const phase = pdfProcessingPhase(status);
   if (!phase) return null;
   if (status === 'Ready') return isArabic ? 'جاهز' : 'Ready';
-  return isArabic ? 'المعالجة: Ghostscript' : 'Processing: Ghostscript';
+  return isArabic ? 'جاري المعالجة...' : 'Processing…';
 }
 
 /** Short chip label for the episode list row (bilingual). */
@@ -164,6 +176,134 @@ export function processingChipLabel(status: ProcessingStatus | null | undefined,
   const rung = phase.status.startsWith('Transcoding_') ? phase.status.replace('Transcoding_', '') : '...';
   const rungLabel = RUNG_LABELS[rung] ?? rung;
   return isArabic ? `المعالجة: ${rungLabel}` : `Processing: ${rungLabel}`;
+}
+
+/* ============ R22.5.2 — the 5-step LITERAL PDF upload timeline ============ */
+
+export type PdfTimelineStepKey = 'upload' | 'structure' | 'fonts' | 'quality' | 'ready';
+export type PdfStepState = 'done' | 'active' | 'failed' | 'pending';
+
+export interface PdfTimelineStepInfo {
+  key: PdfTimelineStepKey;
+  labelAr: string;
+  labelEn: string;
+  /** The reassurance sub-text under the ACTIVE rung (font embedding). */
+  subTextAr?: string;
+  subTextEn?: string;
+  /** Progress-bar target while THIS step is the active one (0-100). */
+  progress: number;
+}
+
+/**
+ * The five literal rungs the task book pins (R22.5.2) — NEVER combined:
+ *   1. جاري رفع الملف...                (local XHR)
+ *   2. جاري فحص سلامة الملف...           (structure check — brief by design)
+ *   3. جاري دمج وإصلاح الخطوط العربية... (the Ghostscript pass)
+ *   4. جاري تحليل جودة العرض...          (the health classification beat)
+ *   5. جاهز ومتاح للطلاب ✅              (+ the health badge)
+ * Technical jargon ("Ghostscript") stays OUT of the user-facing labels; the
+ * server name lives in the API logs and the diagnostics report instead.
+ */
+export const PDF_TIMELINE_STEPS: readonly PdfTimelineStepInfo[] = [
+  { key: 'upload', labelAr: 'جاري رفع الملف...', labelEn: 'Uploading the file…', progress: 15 },
+  { key: 'structure', labelAr: 'جاري فحص سلامة الملف...', labelEn: 'Checking the file structure…', progress: 32 },
+  {
+    key: 'fonts',
+    labelAr: 'جاري دمج وإصلاح الخطوط العربية...',
+    labelEn: 'Merging and fixing the Arabic fonts…',
+    subTextAr: 'نقوم بدمج الخطوط لضمان أفضل جودة للعرض.',
+    subTextEn: 'We embed the fonts to ensure the best display quality.',
+    progress: 62,
+  },
+  { key: 'quality', labelAr: 'جاري تحليل جودة العرض...', labelEn: 'Analyzing the display quality…', progress: 86 },
+  { key: 'ready', labelAr: 'جاهز ومتاح للطلاب ✅', labelEn: 'Ready and available to students ✅', progress: 100 },
+] as const;
+
+export interface PdfTimelineStepView extends PdfTimelineStepInfo {
+  state: PdfStepState;
+}
+
+/**
+ * R22.5.2 — derives the five literal step states from the pipeline position:
+ *  • upload    — the local XHR (active while uploadInFlight; done afterwards);
+ *  • structure — the brief spinner between complete-upload and the first
+ *                Normalizing poll (backend Pending — "quick by design");
+ *  • fonts     — the Ghostscript pass (Normalizing); turns FAILED on failure;
+ *  • quality   — the health-classification beat: a short transition after Ready
+ *                lands (qualityChecking) before the badge settles;
+ *  • ready     — done + the health badge; on Failure the caller swaps its label
+ *                to «تعذر معالجة الملف ❌».
+ */
+export function pdfTimelineSteps(opts: {
+  uploadInFlight: boolean;
+  status: PdfProcessingStatus | string | null | undefined;
+  qualityChecking: boolean;
+}): PdfTimelineStepView[] {
+  const raw = opts.status == null ? null : String(opts.status);
+  const failed = raw === 'Failed';
+  const ready = raw === 'Ready';
+  const normalizing = raw === 'Normalizing';
+  const structureActive = !opts.uploadInFlight && (raw == null || raw === 'Pending');
+
+  return PDF_TIMELINE_STEPS.map((step): PdfTimelineStepView => {
+    switch (step.key) {
+      case 'upload':
+        return { ...step, state: opts.uploadInFlight ? 'active' : 'done' };
+      case 'structure':
+        return {
+          ...step,
+          state: opts.uploadInFlight ? 'pending' : structureActive ? 'active' : 'done',
+        };
+      case 'fonts':
+        return { ...step, state: failed ? 'failed' : normalizing ? 'active' : ready ? 'done' : 'pending' };
+      case 'quality':
+        return {
+          ...step,
+          state: ready && opts.qualityChecking ? 'active' : ready ? 'done' : 'pending',
+        };
+      case 'ready':
+        return { ...step, state: failed ? 'failed' : ready && !opts.qualityChecking ? 'done' : 'pending' };
+    }
+  });
+}
+
+/* ============ R22.5.1 — the health badge (Healthy | BrokenArabic) ============ */
+
+/** The wire values the backend's PdfHealthStatus.Classify emits. */
+export type PdfHealthStatusValue = 'Healthy' | 'BrokenArabic';
+
+export interface PdfHealthBadgeInfo {
+  tone: PdfHealthStatusValue;
+  labelAr: string;
+  labelEn: string;
+  /** Badge classes matching the center's statusBadge pattern (light theme). */
+  className: string;
+}
+
+/**
+ * R22.5.2 — the Ready-state badge, exactly the task-book sentences:
+ * Healthy → green «ملف سليم البنية 100%»; BrokenArabic → yellow
+ * «ملف به مشاكل في النص، تم تفعيل وضع العرض الاحتياطي». Null (in-flight /
+ * failed / legacy) → no badge.
+ */
+export function pdfHealthBadge(healthStatus: string | null | undefined): PdfHealthBadgeInfo | null {
+  if (healthStatus === 'Healthy') {
+    return {
+      tone: 'Healthy',
+      labelAr: 'ملف سليم البنية 100%',
+      labelEn: 'File structure is healthy 100%',
+      className: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+    };
+  }
+  if (healthStatus === 'BrokenArabic') {
+    return {
+      tone: 'BrokenArabic',
+      labelAr: 'ملف به مشاكل في النص، تم تفعيل وضع العرض الاحتياطي',
+      labelEn: 'File has text issues — fallback rendering is active',
+      className: 'text-amber-700 bg-amber-50 border-amber-200',
+    };
+  }
+  return null;
 }
 
 /* ============ target quality (Push 10.7 — Auto/P360/P720/P1080) ============ */

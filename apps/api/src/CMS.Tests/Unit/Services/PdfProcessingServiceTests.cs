@@ -189,7 +189,7 @@ public sealed class PdfProcessingServiceTests
                 var output = args.Single(a => a.StartsWith("-sOutputFile=", StringComparison.Ordinal))["-sOutputFile=".Length..];
                 File.WriteAllBytes(output, MinimalPdfBytes);
             })
-            .Returns(Task.CompletedTask);
+            .ReturnsAsync(string.Empty); // R22.2: the runner returns the captured GS console output
 
         await harness.Service.ProcessJobAsync(new PdfProcessingJob((await CurrentFileAsync(harness, key)).Id), CancellationToken.None);
 
@@ -215,6 +215,37 @@ public sealed class PdfProcessingServiceTests
                     && a[7].EndsWith("source.pdf", StringComparison.Ordinal)),
                 It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()),
             Times.Once, "the worker must run Ghostscript with the baked-in font pack path and the task-book flags");
+    }
+
+    // ================= R22.2 — font diagnostics report =================
+
+    [Fact]
+    public async Task ProcessJob_GhostscriptSubstitutionWarnings_PersistArabicReport()
+    {
+        const string key = "library/55/66";
+        var harness = CreateHarness();
+        await SeedPendingPdfAsync(harness, key);
+        harness.Storage.Seed(key, MinimalPdfBytes);
+        harness.Runner
+            .Setup(r => r.RunAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .Callback((string _, IReadOnlyList<string> args, TimeSpan _, CancellationToken _) =>
+            {
+                var output = args.Single(a => a.StartsWith("-sOutputFile=", StringComparison.Ordinal))["-sOutputFile=".Length..];
+                File.WriteAllBytes(output, MinimalPdfBytes);
+            })
+            .ReturnsAsync(
+                "Loading font SakkalMajalla from /app/ghostscript-fonts/SakkalMajalla.ttf...\n" +
+                "Substituting font Amiri for SakkalMajalla.\n" +
+                "Substituting font Amiri for SakkalMajalla."); // duplicate — must dedupe
+
+        await harness.Service.ProcessJobAsync(new PdfProcessingJob((await CurrentFileAsync(harness, key)).Id), CancellationToken.None);
+
+        var file = await CurrentFileAsync(harness, key);
+        file.PdfProcessingStatus.Should().Be(PdfProcessingStatus.Ready,
+            "font warnings are diagnostics, not failures — the file is still usable");
+        file.ProcessingError.Should().Be("الخط الأصلي (SakkalMajalla) غير مدمج، وتم استبداله بـ (Amiri).",
+            "R22.2: the human-readable Arabic report is stored in the EXISTING ProcessingError column (no schema change), deduped");
+        file.FileUrl.Should().Be($"{key}-fixed", "the pipeline still swaps FileUrl normally");
     }
 
     // ================= ceiling guard =================
