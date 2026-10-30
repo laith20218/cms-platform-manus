@@ -109,7 +109,14 @@ export default function AudioPlayer({
     error: leaseError,
     refreshing,
     ackSwap,
+    isSwapActive,
     refresh,
+    // P2/A9: the intent methods — every user play/pause/seek routes through
+    // the hook (swap-aware: during SWAPPING/RESTORING the hook's queue owns
+    // them, F1/F2; in IDLE they apply immediately, A8).
+    togglePlay: leaseTogglePlay,
+    seek: leaseSeek,
+    seekBy: leaseSeekBy,
   } = useMediaLease({
     assetType,
     assetId,
@@ -155,9 +162,6 @@ export default function AudioPlayer({
   const lastPositionRef = useRef(0);
   const lastDurationRef = useRef<number | null>(null);
   const lastMediaErrorAtRef = useRef(0);
-  // P2: play() retries issued after a lease-swap load-interrupt (AbortError).
-  // Mirrored onto the element's data-play-retries for e2e observability.
-  const playRetriesRef = useRef(0);
 
   const durationKnown = Number.isFinite(duration) && duration > 0;
   const loopActive = loopA != null && loopB != null && loopB > loopA;
@@ -252,9 +256,11 @@ export default function AudioPlayer({
     ws.on('audioprocess', (t: number) => {
       // A-B loop engine: wrap as soon as the playhead crosses B. Runs at
       // animation-frame cadence with ZERO setState (timeupdate repaints).
+      // A-B gate: never wrap out of a swap window — the element's position
+      // is mid-restore and the capture owns the truth until the terminal.
       const a = loopARef.current;
       const b = loopBRef.current;
-      if (a != null && b != null && b > a && t >= b) {
+      if (!isSwapActive() && a != null && b != null && b > a && t >= b) {
         try { wsRef.current?.setTime(a); } catch { /* ignore */ }
       }
     });
@@ -272,7 +278,7 @@ export default function AudioPlayer({
       lastMediaErrorAtRef.current = now;
       refreshRef.current('error');
     });
-  }, [info, cancelSwapWatch]);
+  }, [info, cancelSwapWatch, isSwapActive]);
 
   /* ============ deterministic playback tick (rAF-independent) ============ */
 
@@ -291,8 +297,10 @@ export default function AudioPlayer({
       const audioEl = audioRef.current;
       if (!audioEl) return;
       // Lease-swap window or in-flight seek: currentTime unreliable —
-      // do not poison lastPositionRef, do not drive the UI to 0.
-      if (audioEl.seeking || audioEl.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      // do not poison lastPositionRef, do not drive the UI to 0. G1
+      // augmented with isSwapActive (defense-in-depth for ws-driven reads:
+      // the element may transiently report stale data mid-load).
+      if (isSwapActive() || audioEl.seeking || audioEl.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
         return;
       }
       const pos = audioEl.currentTime;
@@ -307,13 +315,14 @@ export default function AudioPlayer({
       // Wrap only while PLAYING — mirrors the audioprocess semantics (it
       // fires during playback only), so a paused head at/after B (e.g. the
       // moment B is set, or a paused waveform seek past B) is never snapped.
-      if (a != null && b != null && b > a && !audioEl.paused && audioEl.currentTime >= b) {
+      if (!isSwapActive() && a != null && b != null && b > a && !audioEl.paused && audioEl.currentTime >= b) {
         audioEl.currentTime = a;
       }
     }, PLAYBACK_TICK_MS);
     return () => window.clearInterval(tickId);
-    // Mount-scoped: refs + stable setState only — no reactive deps.
-  }, []);
+    // Mount-scoped: refs + stable setState + the hook's STABLE isSwapActive
+    // callback (useCallback([]) — identity constant, so still one interval).
+  }, [isSwapActive]);
 
   // Destroy the engine on unmount (external media: the element is ours, React
   // removes it with the tree; destroy() releases the renderer + subscriptions).
@@ -338,8 +347,10 @@ export default function AudioPlayer({
   const getCurrentPosition = (): number => {
     const el = audioRef.current;
     if (!el) return lastPositionRef.current;
-    // Element in load()/seek window — currentTime untrusted.
-    if (el.seeking || el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    // Element in load()/seek window — currentTime untrusted. G1 augmented
+    // with isSwapActive: during a swap the capture (applied at ack) owns the
+    // position; the tick snapshot stands in until the element is live again.
+    if (isSwapActive() || el.seeking || el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
       return lastPositionRef.current;
     }
     const pos = el.currentTime;
@@ -497,74 +508,18 @@ export default function AudioPlayer({
     if (el) el.muted = muted;
   }, [muted]);
 
-  /* ============ transport ============ */
-
-  function safePlay(el: HTMLAudioElement) {
-    // Two races in useMediaLease's src-swap window:
-    //   (1) Reject side: load() interrupts play() → AbortError.
-    //   (2) Resolve side: play() resolves before load() lands,
-    //       leaving paused=true + rs<HAVE_CURRENT_DATA.
-    // Both arm a single one-shot retry on loadedmetadata.
-    // This is a workaround; root fix is in useMediaLease
-    // (see WIP_STATUS CRITICAL_DEBT).
-    const armRetry = () => {
-      console.info(`[AudioPlayer] play retry pending (rs=${el.readyState}, paused=${el.paused})`);
-      playRetriesRef.current += 1;
-      el.dataset.playRetries = String(playRetriesRef.current);
-      el.addEventListener('loadedmetadata', () => {
-        el.play().catch((retryReason: unknown) => {
-          console.warn('[AudioPlayer] retry play failed:', (retryReason as { name?: string } | null | undefined)?.name);
-          /* give up */
-        });
-      }, { once: true });
-    };
-    try {
-      const attempt = el.play();
-      if (attempt && typeof attempt.then === 'function') {
-        attempt
-          .then(() => {
-            // Race: play() resolved but the element was reset
-            // by a lease-swap load() in the same instant.
-            if (el.paused === true && el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-              armRetry();
-            }
-          })
-          .catch((reason: unknown) => {
-            if (
-              (reason as { name?: string } | null | undefined)?.name === 'AbortError'
-              && el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
-            ) {
-              armRetry();
-              return;
-            }
-            // Autoplay policy or other transient failure — give up silently
-            // (existing behavior, unchanged).
-          });
-      }
-    } catch { /* ignore */ }
-  }
-
-  const togglePlay = useCallback(() => {
-    const el = audioRef.current;
-    if (!el) return;
-    if (el.paused) safePlay(el);
-    else el.pause();
-  }, []);
-
-  const seekTo = useCallback((seconds: number) => {
-    const ws = wsRef.current;
-    if (!ws || !durationKnown) return;
-    const target = Math.min(Math.max(0, seconds), duration);
-    try { ws.setTime(target); } catch { return; }
-    setCurrentTime(target);
-    lastPositionRef.current = target;
-  }, [duration, durationKnown]);
-
-  const seekBy = useCallback((delta: number) => {
-    const el = audioRef.current;
-    if (!el) return;
-    seekTo(el.currentTime + delta);
-  }, [seekTo]);
+  /* ============ transport (P2/A9: intents route through the lease hook) ============
+   *
+   * Every user play/pause/seek delegates to the hook's intent methods —
+   * the element write is the hook's alone. During a swap the hook's queue
+   * owns the intent (classified against the capture, never the torn-down
+   * element: F1/F2); in IDLE it applies immediately (A8). The local
+   * element-direct helpers (togglePlay/seekTo/seekBy/safePlay +
+   * playRetriesRef/dataset.playRetries) are deleted — dead code
+   * post-routing; the G2/G2-ext retry arms are superseded by the hook's
+   * generalized play() swallow (P1 #12 semantics). The waveform's
+   * drag/click-seek stays DIRECT (wavesurfer's core interaction handler):
+   * P2 covers SWAPPING-window intents only. */
 
   const applyRate = useCallback((value: number) => {
     setRate(value);
@@ -596,15 +551,15 @@ export default function AudioPlayer({
     switch (event.key) {
       case ' ':
         event.preventDefault();
-        togglePlay();
+        leaseTogglePlay();
         break;
       case 'ArrowRight':
         event.preventDefault();
-        seekBy(KEYBOARD_SKIP_SECONDS);
+        leaseSeekBy(KEYBOARD_SKIP_SECONDS);
         break;
       case 'ArrowLeft':
         event.preventDefault();
-        seekBy(-KEYBOARD_SKIP_SECONDS);
+        leaseSeekBy(-KEYBOARD_SKIP_SECONDS);
         break;
       case 'm':
       case 'M':
@@ -613,7 +568,7 @@ export default function AudioPlayer({
       default:
         break;
     }
-  }, [togglePlay, seekBy]);
+  }, [leaseTogglePlay, leaseSeekBy]);
 
   /* ============ silent swap restore (lease refresh) ============ */
 
@@ -688,7 +643,7 @@ export default function AudioPlayer({
             data-testid="audio-bookmark-marker"
             aria-label={`الانتقال إلى العلامة: ${bookmarkItem.label}`}
             title={`${bookmarkItem.label} · ${formatMediaDuration(bookmarkItem.startSeconds)}`}
-            onClick={() => seekTo(bookmarkItem.startSeconds)}
+            onClick={() => leaseSeek(bookmarkItem.startSeconds)}
             // Physical left % — the waveform canvas is LTR by convention.
             className="absolute inset-y-0 z-10 w-1.5 -translate-x-1/2 rounded-full bg-amber-400/90 transition-colors hover:bg-amber-300 focus-visible:bg-amber-300 focus-visible:outline focus-visible:outline-teal-300"
             style={{ left: `${Math.min(100, Math.max(0, (bookmarkItem.startSeconds / duration) * 100))}%` }}
@@ -734,7 +689,7 @@ export default function AudioPlayer({
       <div dir="ltr" className="flex items-center justify-center gap-2 sm:gap-3" data-testid="audio-transport">
         <button
           type="button"
-          onClick={() => seekBy(-UI_SKIP_SECONDS)}
+          onClick={() => leaseSeekBy(-UI_SKIP_SECONDS)}
           aria-label="رجوع 15 ثانية"
           data-testid="audio-back-15"
           disabled={!ready}
@@ -744,7 +699,7 @@ export default function AudioPlayer({
         </button>
         <button
           type="button"
-          onClick={togglePlay}
+          onClick={leaseTogglePlay}
           aria-label={playing ? 'إيقاف مؤقت' : 'تشغيل'}
           data-testid="audio-play"
           disabled={!ready}
@@ -754,7 +709,7 @@ export default function AudioPlayer({
         </button>
         <button
           type="button"
-          onClick={() => seekBy(UI_SKIP_SECONDS)}
+          onClick={() => leaseSeekBy(UI_SKIP_SECONDS)}
           aria-label="تقديم 15 ثانية"
           data-testid="audio-fwd-15"
           disabled={!ready}
