@@ -138,3 +138,7 @@ apps/student-web/public/e2e-test-video.mp4
 
 # Push 11.7 — e2e WAV test asset (regenerable — see e2e/player-audio.e2e.mjs header)
 apps/student-web/public/e2e-test-audio.wav
+apps/student-web/public/e2e-test-doc.pdf
+
+# Wave 11.8 / F2 — e2e screenshots are artifacts, not source
+apps/student-web/e2e/screenshots/

@@ -1,5 +1,6 @@
 namespace CMS.Application.DTOs.Library;
 
+using System.Text.Json;
 using CMS.Domain.Enums;
 
 // ===== Library File DTOs =====
@@ -106,6 +107,36 @@ public record CompleteUploadDto(
     // binding gap: the command accepted it, this DTO dropped it). Absent = keep
     // the stored value (Auto).
     TargetQuality? TargetQuality = null
+);
+
+// ===== Wave 11.8 / F2: PDF annotations =====
+// Payload travels as a raw JSON object (System.Text.Json) and is stored 1:1 in the
+// jsonb column after size/shape validation — the server is schema-agnostic for the
+// geometry so the player can evolve rect/point shapes without a migration.
+public record FileAnnotationDto(
+    Guid Id,
+    int PageNumber,
+    string AnnotationType,   // "Highlight" | "Ink" (global JsonStringEnumConverter contract)
+    JsonElement Payload,
+    DateTime CreatedAt,
+    DateTime UpdatedAt
+);
+
+public record FileAnnotationUpsertDto(
+    Guid Id,
+    int PageNumber,
+    string AnnotationType,
+    JsonElement Payload
+);
+
+public record SaveFileAnnotationsDto(
+    List<FileAnnotationUpsertDto> Upserts,
+    List<Guid> DeletedIds
+);
+
+public record SaveFileAnnotationsResultDto(
+    int AppliedCount,
+    DateTime ServerTime
 );
 
 // ===== Admin: Update/Delete =====

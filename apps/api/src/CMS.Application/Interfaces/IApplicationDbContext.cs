@@ -29,6 +29,8 @@ public interface IApplicationDbContext
     DbSet<LibraryFile> LibraryFiles { get; }
     DbSet<LibraryView> LibraryViews { get; }
     DbSet<LectureCompletion> LectureCompletions { get; }
+    // Wave 11.8 / F2: student PDF annotations
+    DbSet<FileAnnotation> FileAnnotations { get; }
 
     // Push 4 / Track 4: courses and episodes
     DbSet<Course> Courses { get; }

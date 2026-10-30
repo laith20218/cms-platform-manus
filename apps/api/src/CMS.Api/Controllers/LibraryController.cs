@@ -168,6 +168,42 @@ public class LibraryController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Wave 11.8 / F2: list the calling student's own annotations on a PDF file.
+    /// Rows are strictly owner-scoped — the response never contains another
+    /// student's annotations.
+    /// </summary>
+    [HttpGet("{id:guid}/annotations")]
+    [Authorize]
+    public async Task<IActionResult> GetAnnotations(Guid id, CancellationToken ct)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+        var rejection = await EntitlementRejectionAsync(studentId.Value, await SubjectIdForFileAsync(id, ct), ct);
+        if (rejection is not null) return rejection;
+
+        return Ok(await _mediator.Send(new GetFileAnnotationsQuery(id, studentId.Value), ct));
+    }
+
+    /// <summary>
+    /// Wave 11.8 / F2: idempotent batch save — client-id-keyed upserts + owner-scoped
+    /// deletes in one commit. The 256 KB per-endpoint body cap matches the avatar
+    /// precedent: annotation strokes are small vectors, never blobs (the Kestrel
+    /// 16 MB global cap is far above what this route should ever accept).
+    /// </summary>
+    [HttpPost("{id:guid}/annotations")]
+    [Authorize]
+    [RequestSizeLimit(262_144)]
+    public async Task<IActionResult> SaveAnnotations(Guid id, [FromBody] SaveFileAnnotationsDto dto, CancellationToken ct)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+        var rejection = await EntitlementRejectionAsync(studentId.Value, await SubjectIdForFileAsync(id, ct), ct);
+        if (rejection is not null) return rejection;
+
+        return Ok(await _mediator.Send(new SaveFileAnnotationsCommand(id, studentId.Value, dto), ct));
+    }
+
     private async Task<Guid?> SubjectIdForFileAsync(Guid fileId, CancellationToken ct)
     {
         var db = HttpContext.RequestServices.GetRequiredService<CMS.Application.Interfaces.IApplicationDbContext>();

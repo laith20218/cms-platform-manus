@@ -55,6 +55,10 @@ export interface PlayerShellProps {
   children: ReactNode;
   /** Extra classes for the content column (e.g. max-w-5xl for readers). */
   contentClassName?: string;
+  /** Wave 11.8 / F2: let the content column fill the stage height — readers
+   *  that scroll internally (the PDF player). Default false: media players
+   *  keep their aspect-driven sizing (zero behavior change for audio/video). */
+  fill?: boolean;
   /** Push 10.4 — episode metadata card (title/description/difficulty/duration/
    * views) rendered under the player inside the shell. */
   metadata?: EpisodeMetadataData;
@@ -70,6 +74,7 @@ export function PlayerShell({
   protection = true,
   children,
   contentClassName,
+  fill = false,
   metadata,
   testId,
 }: PlayerShellProps) {
@@ -244,19 +249,31 @@ export function PlayerShell({
                       (auto margins collapse to zero on overflow). */}
                   <div
                     className={cn(
-                      'flex min-h-0 flex-1 px-4 pb-4 sm:px-6 sm:pb-6',
+                      'relative flex min-h-0 flex-1 px-4 pb-4 sm:px-6 sm:pb-6',
                       metadata ? 'flex-col overflow-y-auto' : 'items-center justify-center overflow-hidden',
                     )}
                   >
-                    <div className="m-auto flex w-full max-w-6xl flex-col items-center gap-4">
+                    {fill ? (
+                      /* Wave 11.8 / F2: readers that scroll internally (PDF).
+                      Absolute inset bypasses the nested auto-margin/percentage
+                      chain — the player gets an exactly-sized box, deterministically. */
                       <div
                         data-testid="player-content"
-                        className={cn('flex w-full items-center justify-center', contentClassName)}
+                        className={cn('absolute inset-0 flex flex-col', contentClassName)}
                       >
                         {children}
                       </div>
-                      {metadata && <EpisodeMetadata metadata={metadata} testId="player-shell-metadata" />}
-                    </div>
+                    ) : (
+                      <div className="m-auto flex w-full max-w-6xl flex-col items-center gap-4">
+                        <div
+                          data-testid="player-content"
+                          className={cn('flex w-full items-center justify-center', contentClassName)}
+                        >
+                          {children}
+                        </div>
+                        {metadata && <EpisodeMetadata metadata={metadata} testId="player-shell-metadata" />}
+                      </div>
+                    )}
                   </div>
                 </div>
               </motion.div>

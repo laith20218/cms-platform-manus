@@ -70,5 +70,11 @@ public record PublishLibraryFileCommand(Guid Id, Guid PublishedBy) : IRequest<Li
 public record ArchiveLibraryFileCommand(Guid Id, Guid ArchivedBy) : IRequest<LibraryFileDto>;
 public record DeleteLibraryFileCommand(Guid Id, Guid DeletedBy) : IRequest<Unit>;
 
+// ===== Wave 11.8 / F2: PDF annotations =====
+public record GetFileAnnotationsQuery(Guid FileId, Guid StudentId) : IRequest<List<FileAnnotationDto>>;
+
+/// <summary>Idempotent batch: client-id-keyed upserts + owner-scoped deletes, one commit.</summary>
+public record SaveFileAnnotationsCommand(Guid FileId, Guid StudentId, SaveFileAnnotationsDto Batch) : IRequest<SaveFileAnnotationsResultDto>;
+
 // ===== Paged Result =====
 public record PagedResult<T>(List<T> Items, int Total, int Page, int PageSize, int TotalPages);

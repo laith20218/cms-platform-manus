@@ -42,6 +42,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Reject committed secrets and mutable actions
         run: bash scripts/ci/verify-security-artifact.sh
+      - name: Secret scan (tree-wide)
+        run: |
+          ! git grep -nE 'gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{40,}' \
+            -- ':!*.md' ':!scripts/ci/verify-security-artifact.sh' ':!.githooks/pre-commit' ':!scripts/pre-deploy-check.sh'
 
   # =========================================================
   # JOB 1: Backend Tests
@@ -75,6 +79,46 @@ jobs:
           path: |
             apps/api/src/CMS.Tests/TestResults/
             apps/api/src/CMS.Tests/**/coverage.cobertura.xml
+
+  # =========================================================
+  # JOB 1b: Backend Integration Tests (real Postgres) — remediation R6
+  # =========================================================
+  backend-integration-test:
+    needs: [backend-test]
+    name: Backend Integration Tests (Postgres)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cms
+          POSTGRES_PASSWORD: cms_ci_only
+          POSTGRES_DB: cms_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # remediation R14: the EF design-time factory (CMS.Infrastructure/Persistence/
+      # ApplicationDbContextFactory.cs) reads CMS_EF_CONNECTION ?? ConnectionStrings__PostgreSQL.
+      # The previous name (ConnectionStrings__Default) matched neither, so
+      # "dotnet ef database update" failed with the missing-variable error.
+      CMS_EF_CONNECTION: "Host=localhost;Port=5432;Database=cms_ci;Username=cms;Password=cms_ci_only"
+      ConnectionStrings__PostgreSQL: "Host=localhost;Port=5432;Database=cms_ci;Username=cms;Password=cms_ci_only"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - run: dotnet restore apps/api/CMS.sln
+      # remediation R13: restore local tools (dotnet-ef, pinned in .config/dotnet-tools.json)
+      - run: dotnet tool restore
+      - run: dotnet build apps/api/CMS.sln --no-restore -c Release
+      - run: dotnet ef database update --project apps/api/src/CMS.Infrastructure --startup-project apps/api/src/CMS.Api
+      - run: dotnet test apps/api/CMS.sln --no-build -c Release --verbosity normal
 
   # =========================================================
   # JOB 2: Frontend Tests
@@ -181,6 +225,7 @@ jobs:
           node e2e/favorites-advanced.e2e.mjs
           node e2e/player-video.e2e.mjs
           node e2e/player-audio.e2e.mjs
+          node e2e/player-pdf.e2e.mjs
           node e2e/player-favorite-toggle.e2e.mjs
           node e2e/player-hls.e2e.mjs
           node e2e/player-hls-option-c.e2e.mjs

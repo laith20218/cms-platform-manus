@@ -46,6 +46,22 @@ function isEditableTarget(node: EventTarget | null): boolean {
   return INPUT_TAGS.includes(el.tagName) || el.isContentEditable === true;
 }
 
+/**
+ * Wave 11.8 / F2 (supervisor decision D2): the PDF player's text layer is the
+ * sanctioned SELECTION surface — selectstart passes through there so the text
+ * highlighter can work. Copy/cut/contextmenu deliberately do NOT consult this
+ * allowlist: selection without copying is the coherent middle ground between
+ * annotating and content extraction.
+ *
+ * selectstart's target can be a TEXT NODE (native mouse selection anchors on
+ * text), which has no `closest()` — resolve through parentElement first
+ * (verified in e2e: element-target dispatches alone are NOT enough).
+ */
+function isPdfTextLayerTarget(node: EventTarget | null): boolean {
+  const el = node instanceof Element ? node : node instanceof Node ? node.parentElement : null;
+  return typeof el?.closest === 'function' && el.closest('[data-pdf-text-layer]') !== null;
+}
+
 export function usePlayerProtection(options: PlayerProtectionOptions = {}): {
   /** Attach to the guarded container element (the player stage). */
   ref: RefObject<HTMLDivElement | null>;
@@ -113,7 +129,7 @@ export function usePlayerProtection(options: PlayerProtectionOptions = {}): {
     };
 
     const handleSelectStart = (event: Event) => {
-      if (isEditableTarget(event.target)) return;
+      if (isEditableTarget(event.target) || isPdfTextLayerTarget(event.target)) return;
       if (!isInside(event.target)) return;
       event.preventDefault();
       feedback('selection', 'تحديد النص معطّل داخل المشغّل');

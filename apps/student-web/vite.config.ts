@@ -54,9 +54,9 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist', sourcemap: false,
-      rollupOptions: { output: { manualChunks: { 'react-vendor': ['react', 'react-dom', 'react-router-dom'], 'query-vendor': ['@tanstack/react-query'], 'ui-vendor': ['framer-motion', 'lucide-react', 'sonner'] } } },
+      rollupOptions: { output: { manualChunks: { 'react-vendor': ['react', 'react-dom', 'react-router-dom'], 'query-vendor': ['@tanstack/react-query'], 'ui-vendor': ['framer-motion', 'lucide-react', 'sonner'], 'pdfjs': ['pdfjs-dist/legacy/build/pdf.mjs'] } } },
       minify: 'terser', terserOptions: { compress: { drop_console: true, drop_debugger: true } }, chunkSizeWarningLimit: 500, cssCodeSplit: true, assetsInlineLimit: 4096,
     },
-    optimizeDeps: { include: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query', 'axios', 'framer-motion', 'lucide-react', 'sonner', 'clsx', 'tailwind-merge'] },
+    optimizeDeps: { include: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query', 'axios', 'framer-motion', 'lucide-react', 'sonner', 'clsx', 'tailwind-merge', 'pdfjs-dist/legacy/build/pdf.mjs'] },
   };
 });

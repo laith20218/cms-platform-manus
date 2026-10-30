@@ -1,0 +1,282 @@
+import { useEffect, useState, type ReactNode } from 'react';
+import * as PopoverPrimitive from '@radix-ui/react-popover';
+import * as SliderPrimitive from '@radix-ui/react-slider';
+import {
+  Check, ChevronLeft, ChevronRight, Highlighter, Maximize, MousePointer2, Pencil, ZoomIn, ZoomOut,
+} from 'lucide-react';
+import { cn } from '@/utils';
+import type { PdfTool } from './pdf-types';
+import { HIGHLIGHT_COLORS, PEN_COLORS } from './pdf-palette';
+
+/**
+ * Wave 11.8 / F2 — the PDF player toolbar (supervisor D4: Phase 1 ships the
+ * FULL polished UI, not just the engine).
+ *
+ * Matches the PlayerShell aesthetic (glass buttons on the dark stage) and the
+ * ControlsBar conventions: 48px touch targets (supervisor floor for this
+ * toolbar), Radix primitives, physical-LTR clusters for page/zoom numerals
+ * (ControlsBar precedent) inside the app's RTL layout.
+ */
+
+const TOOLS: Array<{ id: PdfTool; icon: typeof MousePointer2; label: string }> = [
+  { id: 'pointer', icon: MousePointer2, label: 'تحديد وتنقّل' },
+  { id: 'highlighter', icon: Highlighter, label: 'تظليل النص' },
+  { id: 'pen', icon: Pencil, label: 'قلم الحبر' },
+];
+
+const TOOL_TEST_IDS: Record<PdfTool, string> = {
+  pointer: 'pdf-tool-pointer',
+  highlighter: 'pdf-tool-highlighter',
+  pen: 'pdf-tool-pen',
+};
+
+function ToolButton({ active, label, testId, onClick, children }: {
+  active: boolean;
+  label: string;
+  testId: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      data-testid={testId}
+      data-active={active ? 'true' : 'false'}
+      className={cn(
+        'press inline-flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors',
+        active
+          ? 'border-teal-400/40 bg-teal-400/15 text-teal-300'
+          : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Divider() {
+  return <span aria-hidden="true" className="mx-1 hidden h-8 w-px bg-white/10 sm:block" />;
+}
+
+function ColorPicker({ label, colors, value, onChange, testId }: {
+  label: string;
+  colors: readonly string[];
+  value: string;
+  onChange: (color: string) => void;
+  testId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
+      <PopoverPrimitive.Trigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          title={label}
+          data-testid="pdf-color-trigger"
+          className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 transition-colors hover:bg-white/10"
+        >
+          <span className="h-6 w-6 rounded-full border-2 border-white/30 shadow-inner" style={{ background: value }} />
+        </button>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          sideOffset={10}
+          align="center"
+          dir="rtl"
+          data-testid={testId}
+          className="z-[70] rounded-2xl border border-white/10 bg-[#0f172a] p-3 shadow-2xl"
+        >
+          <p className="mb-2 text-[11px] font-bold text-slate-400">{label}</p>
+          <div className="flex items-center gap-2">
+            {colors.map((color) => (
+              <button
+                key={color}
+                type="button"
+                onClick={() => { onChange(color); setOpen(false); }}
+                aria-label={`لون ${color}`}
+                aria-pressed={color === value}
+                className="press relative inline-flex h-10 w-10 items-center justify-center rounded-full border-2 transition-transform hover:scale-105"
+                style={{ background: color, borderColor: color === value ? '#ffffff' : 'transparent' }}
+              >
+                {color === value && <Check className="h-4 w-4 text-black/60" strokeWidth={3} />}
+              </button>
+            ))}
+          </div>
+          <PopoverPrimitive.Arrow className="fill-[#0f172a]" />
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
+  );
+}
+
+export interface PdfControlsBarProps {
+  tool: PdfTool;
+  onToolChange: (tool: PdfTool) => void;
+  highlightColor: string;
+  onHighlightColorChange: (color: string) => void;
+  penColor: string;
+  onPenColorChange: (color: string) => void;
+  penWidth: number;
+  onPenWidthChange: (width: number) => void;
+  page: number;
+  pageCount: number;
+  onPageChange: (page: number) => void;
+  onPrevPage: () => void;
+  onNextPage: () => void;
+  zoomPercent: number;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onZoomFit: () => void;
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  saving: boolean;
+}
+
+export function PdfControlsBar({
+  tool, onToolChange,
+  highlightColor, onHighlightColorChange,
+  penColor, onPenColorChange, penWidth, onPenWidthChange,
+  page, pageCount, onPageChange, onPrevPage, onNextPage,
+  zoomPercent, onZoomIn, onZoomOut, onZoomFit, canZoomIn, canZoomOut,
+  saving,
+}: PdfControlsBarProps) {
+  const [pageInput, setPageInput] = useState(String(page));
+
+  // Keep the input in sync when the page changes from scroll / prev / next.
+  useEffect(() => {
+    setPageInput(String(page));
+  }, [page]);
+
+  const commitPage = () => {
+    const parsed = Number.parseInt(pageInput, 10);
+    if (Number.isFinite(parsed) && pageInput !== '') {
+      onPageChange(Math.max(1, Math.min(pageCount, parsed)));
+    } else {
+      setPageInput(String(page));
+    }
+  };
+
+  return (
+    <div
+      data-testid="pdf-controls-bar"
+      className="flex w-full flex-wrap items-center justify-center gap-1 rounded-3xl border border-white/10 bg-[#0b1120]/90 px-2 py-2 shadow-2xl backdrop-blur sm:justify-between sm:px-3"
+    >
+      {/* Tools + contextual style controls */}
+      <div className="flex items-center gap-1">
+        {TOOLS.map(({ id, icon: Icon, label }) => (
+          <ToolButton key={id} active={tool === id} label={label} testId={TOOL_TEST_IDS[id]} onClick={() => onToolChange(id)}>
+            <Icon className="h-5 w-5" strokeWidth={1.75} />
+          </ToolButton>
+        ))}
+        <Divider />
+        {tool === 'pen' ? (
+          <>
+            <ColorPicker label="لون القلم" colors={PEN_COLORS} value={penColor} onChange={onPenColorChange} testId="pdf-pen-colors" />
+            <div className="flex h-12 min-w-32 items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3" data-testid="pdf-pen-thickness">
+              <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-slate-300" aria-hidden="true">
+                <line x1="3" y1="12" x2="21" y2="12" stroke="currentColor" strokeWidth={1 + (penWidth / 8) * 3} strokeLinecap="round" />
+              </svg>
+              <SliderPrimitive.Root
+                dir="ltr"
+                value={[penWidth]}
+                onValueChange={(values) => onPenWidthChange(values[0] ?? penWidth)}
+                min={1}
+                max={8}
+                step={0.5}
+                aria-label="سماكة القلم"
+                className="cms-slider-slider relative flex h-6 w-24 touch-none select-none items-center"
+              >
+                <SliderPrimitive.Track className="relative h-1.5 w-full grow rounded-full bg-white/15">
+                  <SliderPrimitive.Range className="absolute h-full rounded-full bg-teal-300" />
+                </SliderPrimitive.Track>
+                <SliderPrimitive.Thumb
+                  aria-label="سماكة القلم"
+                  className="block h-5 w-5 rounded-full border-2 border-[#0b1120] bg-teal-300 shadow-lg outline-none transition-transform hover:scale-110"
+                />
+              </SliderPrimitive.Root>
+            </div>
+          </>
+        ) : tool === 'highlighter' ? (
+          <ColorPicker label="لون التظليل" colors={HIGHLIGHT_COLORS} value={highlightColor} onChange={onHighlightColorChange} testId="pdf-highlight-colors" />
+        ) : (
+          <span className="hidden px-2 text-[11px] leading-tight text-slate-400 sm:block">
+            مرّر، ثم حدّد النص للتظليل
+          </span>
+        )}
+      </div>
+
+      {/* Page navigation — physical LTR cluster (numerals + arrows), ControlsBar precedent */}
+      <div dir="ltr" className="flex items-center gap-1">
+        <button
+          type="button" onClick={onPrevPage} disabled={page <= 1}
+          aria-label="الصفحة السابقة" data-testid="pdf-page-prev"
+          className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors hover:bg-white/10 disabled:opacity-40"
+        >
+          <ChevronLeft className="h-5 w-5" strokeWidth={1.75} />
+        </button>
+        <div className="flex h-12 items-center gap-1 rounded-2xl border border-white/10 bg-white/5 px-2">
+          <input
+            dir="ltr" lang="en" inputMode="numeric"
+            value={pageInput}
+            onChange={(event) => setPageInput(event.target.value.replace(/[^0-9]/g, ''))}
+            onBlur={commitPage}
+            onKeyDown={(event) => { if (event.key === 'Enter') { event.currentTarget.blur(); } }}
+            aria-label="رقم الصفحة"
+            data-testid="pdf-page-input"
+            className="h-8 w-10 rounded-lg bg-white/10 text-center text-sm font-bold tabular-nums text-white outline-none focus:ring-2 focus:ring-teal-400/40"
+          />
+          <span lang="en" className="text-sm font-bold tabular-nums text-slate-400">/ {pageCount || '–'}</span>
+        </div>
+        <button
+          type="button" onClick={onNextPage} disabled={page >= pageCount}
+          aria-label="الصفحة التالية" data-testid="pdf-page-next"
+          className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors hover:bg-white/10 disabled:opacity-40"
+        >
+          <ChevronRight className="h-5 w-5" strokeWidth={1.75} />
+        </button>
+      </div>
+
+      {/* Zoom + autosave status */}
+      <div className="flex items-center gap-1">
+        {saving && (
+          <span className="hidden items-center gap-1 text-[11px] text-teal-300/80 sm:inline-flex" data-testid="pdf-saving">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-teal-300" />
+            يتم الحفظ تلقائياً
+          </span>
+        )}
+        <Divider />
+        <div dir="ltr" className="flex items-center gap-1">
+          <button
+            type="button" onClick={onZoomOut} disabled={!canZoomOut}
+            aria-label="تصغير" data-testid="pdf-zoom-out"
+            className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors hover:bg-white/10 disabled:opacity-40"
+          >
+            <ZoomOut className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+          <span lang="en" data-testid="pdf-zoom-value" className="min-w-12 text-center text-sm font-bold tabular-nums text-slate-300">
+            {Math.round(zoomPercent)}%
+          </span>
+          <button
+            type="button" onClick={onZoomIn} disabled={!canZoomIn}
+            aria-label="تكبير" data-testid="pdf-zoom-in"
+            className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors hover:bg-white/10 disabled:opacity-40"
+          >
+            <ZoomIn className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+          <button
+            type="button" onClick={onZoomFit}
+            aria-label="ملاءمة العرض" data-testid="pdf-zoom-fit"
+            className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors hover:bg-white/10"
+          >
+            <Maximize className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
