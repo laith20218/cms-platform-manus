@@ -1,5 +1,6 @@
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
+import type { PdfAnnotation, SaveAnnotationsBatch, SaveAnnotationsResult } from '@/features/media-player/pdf/pdf-types';
 
 interface PagedLibraryFiles {
   items: LibraryFile[];
@@ -97,6 +98,20 @@ export const libraryApi = {
 
   recordView: async (id: string, durationSeconds: number, pagesViewed?: number, completionPercentage?: number) => {
     await apiClient.post(`/library/${id}/view`, { durationSeconds, pagesViewed, completionPercentage }, await entitlementRequestConfig());
+  },
+
+  // ===== Wave 11.8 / F2: PDF annotations =====
+
+  /** The calling student's own annotations on one PDF (owner-scoped server-side). */
+  getAnnotations: async (fileId: string): Promise<PdfAnnotation[]> => {
+    const res = await apiClient.get<PdfAnnotation[]>(`/library/${fileId}/annotations`, await entitlementRequestConfig());
+    return res.data;
+  },
+
+  /** Idempotent batch: client-id-keyed upserts + owner-scoped deletes, one commit. */
+  saveAnnotations: async (fileId: string, batch: SaveAnnotationsBatch): Promise<SaveAnnotationsResult> => {
+    const res = await apiClient.post<SaveAnnotationsResult>(`/library/${fileId}/annotations`, batch, await entitlementRequestConfig());
+    return res.data;
   },
 
   toggleFavorite: async (fileId: string, isFavorite: boolean) => {

@@ -55,6 +55,10 @@ export interface PlayerShellProps {
   children: ReactNode;
   /** Extra classes for the content column (e.g. max-w-5xl for readers). */
   contentClassName?: string;
+  /** Wave 11.8 / F2: let the content column fill the stage height — readers
+   *  that scroll internally (the PDF player). Default false: media players
+   *  keep their aspect-driven sizing (zero behavior change for audio/video). */
+  fill?: boolean;
   /** Push 10.4 — episode metadata card (title/description/difficulty/duration/
    * views) rendered under the player inside the shell. */
   metadata?: EpisodeMetadataData;
@@ -70,6 +74,7 @@ export function PlayerShell({
   protection = true,
   children,
   contentClassName,
+  fill = false,
   metadata,
   testId,
 }: PlayerShellProps) {
@@ -248,7 +253,7 @@ export function PlayerShell({
                       metadata ? 'flex-col overflow-y-auto' : 'items-center justify-center overflow-hidden',
                     )}
                   >
-                    <div className="m-auto flex w-full max-w-6xl flex-col items-center gap-4">
+                    <div className={cn('m-auto flex w-full max-w-6xl flex-col items-center gap-4', fill && 'h-full')}>
                       <div
                         data-testid="player-content"
                         className={cn('flex w-full items-center justify-center', contentClassName)}

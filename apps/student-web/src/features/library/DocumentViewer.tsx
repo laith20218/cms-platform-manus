@@ -9,10 +9,14 @@ import { libraryApi, type LibraryFile, type FileAccess } from './services/librar
 import { PlayerShell } from '@/features/media-player/PlayerShell';
 import { LazyPlayerMount, PlayerLoading } from '@/features/media-player/LazyPlayerMount';
 import type { AudioPlayerProps } from '@/features/media-player/audio/AudioPlayer';
+import type { PdfPlayerProps } from '@/features/media-player/pdf/pdf-types';
 
 /** Stable module-level loader — React.lazy is created exactly once per mount
  *  site, so the AudioPlayer (+ wavesurfer) ships as its own code-split chunk. */
 const loadAudioPlayer = () => import('@/features/media-player/audio/AudioPlayer');
+
+/** Wave 11.8 / F2 — same pattern for the PDF player (pdf.js + annotations). */
+const loadPdfPlayer = () => import('@/features/media-player/pdf/PdfPlayer');
 
 /**
  * Vercel-grade in-app document viewer (Push 9 Task 2).
@@ -260,6 +264,46 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
     );
   }
 
+  // ===== Wave 11.8 / F2 — PDF: the fullscreen PlayerShell (kind="pdf") hosts
+  // the code-split PdfPlayer (pdf.js canvas + selectable text layer + SVG
+  // annotations), mirroring the audio replace-not-nest z-index rationale.
+  // The invisible watermark moves INTO the player — the dialog overlay that
+  // used to carry it never mounts on this path.
+  if (kind === 'pdf') {
+    return (
+      <PlayerShell
+        open
+        onOpenChange={(next) => { if (!next) onClose(); }}
+        kind="pdf"
+        title={file.title}
+        subtitle={meta.label}
+        contentClassName="h-full max-w-none"
+        fill
+        testId="pdf-player-shell"
+      >
+        {loading ? (
+          <PlayerLoading label="جارٍ تجهيز ملف PDF…" />
+        ) : loadFailed || !access ? (
+          <ViewerError onClose={onClose} />
+        ) : (
+          <LazyPlayerMount<PdfPlayerProps>
+            active
+            loader={loadPdfPlayer}
+            playerProps={{
+              assetType: 'library-file',
+              assetId: file.id,
+              title: file.title,
+              pagesCount: file.pagesCount,
+              watermark: access.watermark,
+              testId: 'library-pdf-player',
+            }}
+            testId="pdf-player-mount"
+          />
+        )}
+      </PlayerShell>
+    );
+  }
+
   return (
     <DialogPrimitive.Root open onOpenChange={(next) => { if (!next) onClose(); }}>
       <DialogPrimitive.Portal>
@@ -350,9 +394,6 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
                   </div>
                 </div>
 
-                {kind === 'pdf' && (
-                  <PdfFrame url={access.accessUrl} zoom={zoom} onZoom={clampZoom} zoomIndex={zoomIndex} title={file.title} />
-                )}
                 {kind === 'txt' && (
                   <TextReader body={textBody} failed={textFailed} url={access.accessUrl} />
                 )}
@@ -393,29 +434,6 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
-  );
-}
-
-/** PDF: clean native embed + universal zoom controls. */
-function PdfFrame({ url, zoom, onZoom, zoomIndex, title }: { url: string; zoom: number; onZoom: (next: number) => void; zoomIndex: number; title: string }) {
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-auto bg-[var(--c-bg)]" style={{ touchAction: 'pinch-zoom' }}>
-        <div
-          className="mx-auto h-full origin-top transition-transform duration-200"
-          style={{ width: `${zoom * 100}%` }}
-        >
-          <iframe
-            src={`${url}#toolbar=0&navpanes=0&view=FitH`}
-            className="h-full w-full bg-white"
-            style={{ border: 'none' }}
-            title={title}
-            data-testid="viewer-pdf"
-          />
-        </div>
-      </div>
-      <ZoomBar zoom={zoom} zoomIndex={zoomIndex} onZoom={onZoom} />
-    </div>
   );
 }
 

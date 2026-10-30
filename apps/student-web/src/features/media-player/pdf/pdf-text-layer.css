@@ -1,0 +1,89 @@
+/*
+ * Wave 11.8 / F2 — PDF player surfaces (canvas + text layer + annotation SVG).
+ *
+ * Scoped to the PdfPlayer chunk (imported by PdfPlayer.tsx), so the rules never
+ * touch the rest of the app. The .textLayer block mirrors pdf.js's own viewer
+ * stylesheet (the subset the TextLayer class actually relies on) and re-enables
+ * text selection inside the layer even though the PlayerShell stage carries
+ * `select-none` — supervisor decision D2: selection is allowed, copy stays
+ * blocked (enforced by usePlayerProtection's copy/cut handlers, which do NOT
+ * carry the text-layer carve-out).
+ */
+
+.pdf-page {
+  position: relative;
+  overflow: hidden;
+  background: #ffffff;
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(2, 6, 23, 0.45);
+  margin-inline: auto;
+}
+
+.pdf-page > canvas {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+/* ---- Text layer (pdf.js TextLayer output) ---- */
+
+.pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  /* D2: the carve-out surface — selectable even inside the select-none stage. */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.pdf-text-layer > span {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.pdf-text-layer ::selection {
+  background: rgba(13, 148, 136, 0.28);
+}
+
+/* ---- Annotation overlay (one SVG per page: highlights + ink) ---- */
+
+.pdf-annotation-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  /* Pointer-events are driven per tool by PdfPlayer (auto only while the pen
+     is active — otherwise the text layer must receive the events). */
+  pointer-events: none;
+}
+
+.pdf-annotation-layer.is-drawing-surface {
+  pointer-events: auto;
+  /* Drawing surface only — the page/scroll container keeps its own gestures
+     (repo precedent: the media slider uses touch-action: none the same way). */
+  touch-action: none;
+  cursor: crosshair;
+}
+
+/* Highlights render ABOVE the text layer with multiply blending so glyphs
+   stay readable under every palette color. */
+.pdf-annotation-layer .pdf-highlight {
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+.pdf-annotation-layer .pdf-ink {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
