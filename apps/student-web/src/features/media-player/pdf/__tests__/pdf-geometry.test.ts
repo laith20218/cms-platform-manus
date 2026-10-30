@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clamp01, newAnnotationId, rectsFromRange, simplifyPoints, strokePathD } from '../pdf-geometry';
+import { clamp01, newAnnotationId, rectsFromRange, resolveInkStrokeWidth, simplifyPoints, strokePathD } from '../pdf-geometry';
 import type { NormalizedPoint } from '../pdf-types';
 
 /** Wave 11.8 / F2 — geometry helpers: stroke smoothing/simplification and
@@ -110,6 +110,42 @@ describe('rectsFromRange', () => {
   it('filters degenerate zero-size rects', () => {
     const range = fakeRange([{ left: 150, top: 280, width: 0, height: 0 }]);
     expect(rectsFromRange(range, pageRect)).toHaveLength(0);
+  });
+
+  it('hotfix R16.2: yields no rects for a degenerate (not-yet-laid-out) surface', () => {
+    const range = fakeRange([{ left: 150, top: 280, width: 200, height: 16 }]);
+    const empty = { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+    expect(rectsFromRange(range, empty)).toHaveLength(0);
+  });
+});
+
+describe('resolveInkStrokeWidth — hotfix R16.4 (page-relative fractions, never raw px)', () => {
+  it('passes modern fraction payloads through unchanged', () => {
+    // 2.5px pen on an ~800px page — the exact value commitInk stores.
+    expect(resolveInkStrokeWidth(2.5 / 800, 800)).toBeCloseTo(0.003125, 9);
+  });
+
+  it('recovers legacy raw-pixel payloads by dividing by the page width', () => {
+    // A pre-R15.3 payload that stored 2.5 RAW px must render 2.5px — i.e.
+    // 2.5/800 user units against the unit viewBox — never 2.5 units.
+    expect(resolveInkStrokeWidth(2.5, 800)).toBeCloseTo(2.5 / 800, 9);
+  });
+
+  it('neutralizes corrupt giant payloads (the 2000px black circle)', () => {
+    expect(resolveInkStrokeWidth(2000, 800)).toBeLessThanOrEqual(0.1);
+    expect(resolveInkStrokeWidth(2.5, 800)).toBeLessThan(0.01);
+  });
+
+  it('rejects non-finite, zero and negative widths', () => {
+    expect(resolveInkStrokeWidth(Number.NaN, 800)).toBe(0);
+    expect(resolveInkStrokeWidth(0, 800)).toBe(0);
+    expect(resolveInkStrokeWidth(-3, 800)).toBe(0);
+  });
+
+  it('degrades safely when the live page width is unavailable', () => {
+    // cssWidth ≤ 0 falls back to 1, and the ceiling clamp keeps a legacy px
+    // payload at ≤ 10% of the page — never a full-page stroke.
+    expect(resolveInkStrokeWidth(2.5, 0)).toBeLessThanOrEqual(0.1);
   });
 });
 
