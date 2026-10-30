@@ -42,6 +42,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Reject committed secrets and mutable actions
         run: bash scripts/ci/verify-security-artifact.sh
+      - name: Secret scan (tree-wide)
+        run: |
+          ! git grep -nE 'gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{40,}' \
+            -- ':!*.md' ':!scripts/ci/verify-security-artifact.sh' ':!.githooks/pre-commit' ':!scripts/pre-deploy-check.sh'
 
   # =========================================================
   # JOB 1: Backend Tests
