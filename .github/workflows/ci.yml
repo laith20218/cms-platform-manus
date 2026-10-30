@@ -77,6 +77,39 @@ jobs:
             apps/api/src/CMS.Tests/**/coverage.cobertura.xml
 
   # =========================================================
+  # JOB 1b: Backend Integration Tests (real Postgres) — remediation R6
+  # =========================================================
+  backend-integration-test:
+    needs: [backend-test]
+    name: Backend Integration Tests (Postgres)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cms
+          POSTGRES_PASSWORD: cms_ci_only
+          POSTGRES_DB: cms_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ConnectionStrings__Default: "Host=localhost;Port=5432;Database=cms_ci;Username=cms;Password=cms_ci_only"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - run: dotnet restore apps/api/CMS.sln
+      - run: dotnet build apps/api/CMS.sln --no-restore -c Release
+      - run: dotnet ef database update --project apps/api/src/CMS.Infrastructure --startup-project apps/api/src/CMS.Api
+      - run: dotnet test apps/api/CMS.sln --no-build -c Release --verbosity normal
+
+  # =========================================================
   # JOB 2: Frontend Tests
   # =========================================================
   frontend-test:
