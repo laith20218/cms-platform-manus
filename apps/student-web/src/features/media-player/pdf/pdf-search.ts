@@ -32,6 +32,12 @@ export interface SearchTextItem {
   transform: number[];
   width: number;
   height: number;
+  /** Wave 12.2.B (M2) — length of the RAW pdf.js string BEFORE Arabic
+   *  presentation-form normalization. Differs from str.length exactly when
+   *  a lam-alef-family ligature expanded (1 glyph → 2 chars), which is the
+   *  signal the data-only fallback uses to skip proportional slicing
+   *  (matchFallbackBoxes). Undefined on legacy fixtures only. */
+  rawLength?: number;
 }
 
 /** One positioned box entry of a match: the slice of ONE pdf.js text item
@@ -203,6 +209,52 @@ export function getCachedPageSearchViewport(
   return PAGE_TEXT_CACHE.get(`${docCacheKey(doc)}:${pageNumber}`)?.viewport ?? null;
 }
 
+/**
+ * Wave 12.2.B (M1) — the data-only fallback boxes for ONE match.
+ *
+ * Extracted from PdfPlayer's searchHitsByPage so the M1 gate is falsifiable
+ * in vitest: the slice fractions MUST be applied whenever the warm cache is
+ * available — INDEPENDENT of whether the DOM resolver produced rects. The
+ * old inline gate (`cachedItems = resolved ? getCachedPageSearchItems(...)`)
+ * silently downgraded warm-cache pages with no DOM resolution to whole-item
+ * boxes (the "highlight covers the whole line" regression class).
+ *
+ * M2 (ligature-safe, interim): items whose presentation-form normalization
+ * EXPANDED the string (lam-alef family: U+FEFB/FEFC/FEF5-FEF8 → 2 base
+ * chars) carry rawLength ≠ str.length. Slice fractions measured on the
+ * expanded length mis-place the box pixels, so such items keep the FULL-item
+ * box in the fallback only — position-anchored and slightly wide instead of
+ * confidently wrong. The DOM path stays slice-precise (spans carry the
+ * normalized string byte-equal to str).
+ * TODO(12.3): reverse-map for ligature items (normalized→original indices).
+ */
+export function matchFallbackBoxes(
+  match: SearchMatch,
+  cachedItems: readonly SearchTextItem[] | null,
+  viewport: { transform: readonly number[]; width: number; height: number } | null,
+): NormalizedBox[] {
+  const boxes: NormalizedBox[] = [];
+  if (!viewport) return boxes;
+  for (const box of match.boxes) {
+    const item = cachedItems?.[box.itemIndex];
+    const itemLength = item?.str.length ?? 0;
+    // M2 interim — full-item box when normalization changed the length.
+    // TODO(12.3): reverse-map for ligature items.
+    const ligatureExpanded = item?.rawLength !== undefined && item.rawLength !== itemLength;
+    const normalized = textBoxToNormalizedViewportBox(
+      box,
+      viewport.transform,
+      viewport.width,
+      viewport.height,
+      itemLength > 0 && !ligatureExpanded
+        ? { startFraction: box.sliceStart / itemLength, endFraction: box.sliceEnd / itemLength }
+        : undefined,
+    );
+    if (normalized) boxes.push(normalized);
+  }
+  return boxes;
+}
+
 /** pdf.js documents carry a content fingerprint — the cache key's doc part. */
 function docCacheKey(doc: PDFDocumentProxy): string {
   const fingerprints = (doc as unknown as { fingerprints?: readonly unknown[] }).fingerprints;
@@ -254,6 +306,9 @@ export async function getPageSearchItems(doc: PDFDocumentProxy, pageNumber: numb
       transform: item.transform,
       width: item.width,
       height: item.height,
+      // Wave 12.2.B (M2) — the raw length is the ligature-expansion signal
+      // the fallback needs later (str here is ALREADY normalized).
+      rawLength: item.str.length,
     });
   });
 

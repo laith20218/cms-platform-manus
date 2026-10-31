@@ -16,10 +16,10 @@ import { NoteLayer } from './pdf-note-layer';
 import { PdfSearchPanel } from './pdf-search-panel';
 import {
   documentSearchCacheKey, findMatches, getCachedPageSearchItems, getCachedPageSearchSourceIndexes,
-  getCachedPageSearchViewport, getPageSearchItems, textBoxToNormalizedViewportBox,
+  getCachedPageSearchViewport, getPageSearchItems, matchFallbackBoxes,
   type SearchHitBox, type SearchMatch,
 } from './pdf-search';
-import { createSearchSpanMap, resolveSearchMatchRects } from './pdf-search-dom';
+import { createSearchSpanMap, createSearchResolveStats, resolveSearchMatchRects, type SearchResolveStats } from './pdf-search-dom';
 import type {
   NormalizedPoint, NormalizedRect, NoteAnnotation, PdfAnnotation, PdfPlayerProps, PdfTool, ShapeKind,
 } from './pdf-types';
@@ -711,10 +711,12 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
       const cssHeight = dim.height * renderScale;
       // Wave 12.1 — per-match DOM rects (char-precise) when the page's text
       // layer has been resolved; null entries → proportional slice fallback
-      // for that match. Cached search items supply the ORIGINAL item lengths
-      // the fallback fractions need.
+      // for that match. Wave 12.2.B (M1) — the cached items feed the fallback
+      // slices whenever the sweep warmed the cache, INDEPENDENT of the DOM
+      // resolution outcome (the old `resolved ?` gate silently downgraded
+      // warm-cache pages with no resolution to whole-item boxes).
       const resolved = resolvedHitRects[`${fingerprint}:${page}`];
-      const cachedItems = resolved ? getCachedPageSearchItems(doc, page) : null;
+      const cachedItems = getCachedPageSearchItems(doc, page);
       const firstGlobal = matchesByPage.firstGlobalIndex.get(page) ?? 0;
       const target: SearchHitBox[] = [];
       pageMatches.forEach((match, matchIndex) => {
@@ -732,19 +734,10 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           }
           return;
         }
-        for (const box of match.boxes) {
-          const item = cachedItems?.[box.itemIndex];
-          const itemLength = item?.str.length ?? 0;
-          const normalized = textBoxToNormalizedViewportBox(
-            box,
-            viewport.transform,
-            viewport.width,
-            viewport.height,
-            itemLength > 0
-              ? { startFraction: box.sliceStart / itemLength, endFraction: box.sliceEnd / itemLength }
-              : undefined,
-          );
-          if (!normalized) continue;
+        // Wave 12.2.B (M1) — the fallback is the extracted pure helper: warm
+        // cache → proportional slices (M2 keeps ligature-expanded items
+        // whole-item); cold cache → whole-item boxes (the honest floor).
+        for (const normalized of matchFallbackBoxes(match, cachedItems, viewport)) {
           target.push({
             left: normalized.left * cssWidth,
             top: normalized.top * cssHeight,
@@ -949,8 +942,9 @@ interface PageViewProps {
   searchSlices: SearchMatch[];
   /** Wave 12.1 — sweep generation (query identity) guarding the resolver cache. */
   searchGeneration: number;
-  /** Wave 12.1 — reports per-match DOM-resolved rects (null = unresolved). */
-  onSearchRectsResolved: (pageNumber: number, rects: Array<NormalizedRect[] | null> | null) => void;
+  /** Wave 12.1 — reports per-match DOM-resolved rects (null = unresolved).
+   *  Wave 12.2.B (M3) — carries the optional per-run resolver stats. */
+  onSearchRectsResolved: (pageNumber: number, rects: Array<NormalizedRect[] | null> | null, stats?: SearchResolveStats) => void;
   /** Wave 11.11-C — reports text-layer presence after each page render. */
   onTextLayerState: (pageNumber: number, hasText: boolean) => void;
   registerPage: (pageNumber: number, el: HTMLElement | null) => void;
@@ -996,7 +990,6 @@ const PageView = memo(function PageView({
   const resolveStateRef = useRef<{ version: number; generation: number; count: number }>({
     version: -1, generation: -1, count: 0,
   });
-
   // Hotfix R15.3 — the active stroke lives in refs, never in React state:
   // pointermove appends to the buffer and repaints ONE <path> via its d
   // attribute (rAF-throttled); React state is touched exactly once, on
@@ -1148,9 +1141,20 @@ const PageView = memo(function PageView({
       };
       spanMapRef.current = spanMap;
     }
-    const rects = searchSlices.map((match) => resolveSearchMatchRects(spanMap.map.spanForItem, match, pageRect));
+    const stats = createSearchResolveStats();
+    const rects = searchSlices.map((match) => resolveSearchMatchRects(spanMap.map.spanForItem, match, pageRect, stats));
     resolveStateRef.current = { version: layerVersion, generation: searchGeneration, count: searchSlices.length };
-    onSearchRectsResolved(pageNumber, rects);
+    // Wave 12.2.B (M3) — resolver observability: per-run counters surfaced as
+    // a data attribute on the layer, a DEV console.warn, and the (optional)
+    // stats payload of onSearchRectsResolved for the future status bar.
+    layer.dataset.resolverNulls = String(stats.nullCount);
+    if (import.meta.env.DEV && stats.nullCount > 0) {
+      console.warn(
+        `[PdfPlayer] search resolver: ${stats.nullCount}/${searchSlices.length} matches unresolved on page ${pageNumber}`,
+        stats.reasons,
+      );
+    }
+    onSearchRectsResolved(pageNumber, rects, stats);
   }, [layerVersion, searchSlices, searchGeneration, doc, pageNumber, onSearchRectsResolved]);
 
   // The pdf.js getPage call needs the page proxy before the first render —
