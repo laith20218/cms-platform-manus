@@ -842,10 +842,13 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           canvas state, scroll position and the page IO observers. */}
       <div className="relative min-h-0 flex-1 flex flex-row">
         <StudyToolsPanel />
+        {/* Wave 12.2.C.2 (E2) — the page stage joins the dark ramp: the white
+            .pdf-page sheets are the ONLY light surface left (paper contract,
+            non-negotiable). #071426 = the approved stage token. */}
         <div
           ref={scrollRef}
           data-testid="pdf-scroll"
-          className="h-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden rounded-3xl bg-[#cbd5e1] px-3 py-4 sm:px-6"
+          className="h-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden rounded-3xl bg-[#071426] px-3 py-4 sm:px-6"
           style={{ touchAction: 'pan-y pinch-zoom' }}
         >
           {/* Wave 12.2.C.1 (E7) — max-w-4xl removed: the column fills the row

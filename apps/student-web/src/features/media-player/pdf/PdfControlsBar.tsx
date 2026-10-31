@@ -125,7 +125,7 @@ function ColorPicker({ label, colors, value, onChange, testId }: {
           align="center"
           dir="rtl"
           data-testid={testId}
-          className="z-[70] rounded-2xl border border-white/10 bg-[#0f172a] p-3 shadow-2xl"
+          className="z-[70] rounded-2xl border border-white/10 bg-[#0b1120] p-3 shadow-2xl"
         >
           <p className="mb-2 text-[11px] font-bold text-slate-400">{label}</p>
           <div className="flex items-center gap-2">
@@ -143,7 +143,7 @@ function ColorPicker({ label, colors, value, onChange, testId }: {
               </button>
             ))}
           </div>
-          <PopoverPrimitive.Arrow className="fill-[#0f172a]" />
+          <PopoverPrimitive.Arrow className="fill-[#0b1120]" />
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>

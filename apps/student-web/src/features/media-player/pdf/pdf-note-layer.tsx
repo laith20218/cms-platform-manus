@@ -101,7 +101,7 @@ function NoteEditor({ note, onCommit, onDelete, onClose }: NoteEditorProps) {
       /* Hook for PlayerShell's onEscapeKeyDown guard (Radix dismisses at
          document level before the editor's own keydown can run). */
       data-pdf-note-editor="true"
-      className="pdf-note-editor absolute w-60 rounded-2xl border border-white/15 bg-[#0f172a] p-2 shadow-2xl"
+      className="pdf-note-editor absolute w-60 rounded-2xl border border-white/15 bg-[#0b1120] p-2 shadow-2xl"
       style={{
         left: `${note.payload.x * 100}%`,
         top: `${note.payload.y * 100}%`,
