@@ -338,7 +338,7 @@ export function PdfControlsBar({
           <ColorPicker label="لون الملاحظة" colors={NOTE_COLORS} value={noteColor} onChange={onNoteColorChange} testId="pdf-note-colors" />
         ) : tool === 'eraser' ? (
           <span className="hidden px-2 text-[11px] leading-tight text-slate-400 sm:block">
-            مرّر فوق الحبر أو الأشكال أو الملاحظات لمحوها بالكامل
+            مرّر فوق التظليل أو الحبر أو الأشكال أو الملاحظات لمحوها بالكامل
           </span>
         ) : (
           <span className="hidden px-2 text-[11px] leading-tight text-slate-400 sm:block">

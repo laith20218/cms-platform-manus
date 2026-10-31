@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   collectEraserHitIds,
   densifyPath,
@@ -7,9 +10,20 @@ import {
   perpendicularDistance,
 } from '../pdf-geometry';
 import type { HighlightPayload, InkPayload, NotePayload, PdfAnnotation, ShapePayload } from '../pdf-types';
+import { usePdfAnnotations } from '../usePdfAnnotations';
+
+// The store test mounts the real hook: the network layer is mocked out (the
+// debounced flush never needs a server in jsdom).
+vi.mock('@/features/library/services/library-api', () => ({
+  libraryApi: {
+    getAnnotations: async () => [],
+    saveAnnotations: async () => ({ appliedCount: 0, serverTime: new Date().toISOString() }),
+  },
+}));
 
 /** Wave 11.11 — smart-eraser falsification: whole-annotation erase covers Ink
- *  + Shapes + Notes (highlights locked OUT of scope). The gesture path is
+ *  + Shapes + Notes, and since Wave 12.2.A (E1 lift-lock) Highlights too —
+ *  their stored rects are plain page-normalized geometry. The gesture path is
  *  densified before the per-point tests, so thin geometry can't be tunneled
  *  through, and legacy negative-w/h shape payloads must behave like the
  *  R25-corrected selection path. */
@@ -170,8 +184,90 @@ describe('eraserHitTest — Notes and Highlights', () => {
     expect(eraserHitTest(note, 0.508, 0.5, 0.01)).toBe(true);
   });
 
-  it('highlights are NEVER erased (locked scope)', () => {
-    expect(eraserHitTest(highlightPayload, 0.25, 0.115, 0.05)).toBe(false);
+  it('highlights ARE erasable (12.2.A lift-lock): contact inside a line rect hits', () => {
+    expect(eraserHitTest(highlightPayload, 0.25, 0.115, 0.05)).toBe(true);
+    expect(eraserHitTest(highlightPayload, 0.12, 0.105, 0.01)).toBe(true);
+  });
+});
+
+describe('eraserHitTest — Highlights (12.2.A)', () => {
+  it('hits inside the rect', () => {
+    expect(eraserHitTest(highlightPayload, 0.25, 0.115, 0.01)).toBe(true);
+    expect(eraserHitTest(highlightPayload, 0.39, 0.12, 0.01)).toBe(true);
+  });
+
+  it('misses outside the rect', () => {
+    expect(eraserHitTest(highlightPayload, 0.5, 0.115, 0.01)).toBe(false); // past the right edge
+    expect(eraserHitTest(highlightPayload, 0.25, 0.2, 0.01)).toBe(false); // below the rect
+    expect(eraserHitTest(highlightPayload, 0.05, 0.115, 0.01)).toBe(false); // past the left edge
+  });
+
+  it('pad edge: the contact radius widens the rect by exactly pad', () => {
+    // radius 0.02: a point 0.019 beyond the right edge hits; 0.03 misses.
+    expect(eraserHitTest(highlightPayload, 0.4 + 0.019, 0.115, 0.02)).toBe(true);
+    expect(eraserHitTest(highlightPayload, 0.4 + 0.03, 0.115, 0.02)).toBe(false);
+    // Zero radius: the top-level contact guard never hits anything (same
+    // contract as Ink/Shapes/Notes).
+    expect(eraserHitTest(highlightPayload, 0.25, 0.115, 0)).toBe(false);
+  });
+
+  it('multi-rect payloads hit through ANY stored line rect', () => {
+    const multi: HighlightPayload = {
+      rects: [
+        { x: 0.1, y: 0.1, w: 0.3, h: 0.03 },
+        { x: 0.1, y: 0.2, w: 0.5, h: 0.03 },
+      ],
+      color: '#fde047',
+    };
+    expect(eraserHitTest(multi, 0.5, 0.215, 0.01)).toBe(true); // second line only
+    expect(eraserHitTest(multi, 0.05, 0.215, 0.01)).toBe(false); // clear of both
+  });
+
+  it('zero radius never hits clear space', () => {
+    expect(eraserHitTest(highlightPayload, 0.5, 0.5, 0)).toBe(false);
+  });
+
+  it('collectEraserHitIds: ONE gesture erases every highlight it sweeps (multi-highlight)', () => {
+    const annotations: PdfAnnotation[] = [
+      ann('hl-a', highlightPayload),
+      ann('hl-b', { rects: [{ x: 0.1, y: 0.3, w: 0.4, h: 0.03 }], color: '#86efac' }),
+      ann('hl-far', { rects: [{ x: 0.7, y: 0.8, w: 0.2, h: 0.03 }], color: '#f9a8d4' }),
+    ];
+    // A vertical swipe through both first rects, well clear of the third.
+    const ids = collectEraserHitIds(annotations, [{ x: 0.25, y: 0.05 }, { x: 0.25, y: 0.35 }], 0.02, 800);
+    expect(ids).toContain('hl-a');
+    expect(ids).toContain('hl-b');
+    expect(ids).not.toContain('hl-far');
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe('eraser → undo restores a highlight (12.2.A store contract)', () => {
+  it('remove() of an erased highlight is one undo unit; undo() restores it whole', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const { result } = renderHook(() => usePdfAnnotations('file-hl-undo'), { wrapper });
+    // Hydration must land BEFORE the first mutation (the hydrate effect would
+    // otherwise overwrite the optimistic local map — same contract as prod,
+    // where the student can only touch the player after the fetch settles).
+    await waitFor(() => { expect(result.current.isLoading).toBe(false); });
+    expect(result.current.annotations.size).toBe(0);
+
+    const highlight: PdfAnnotation = {
+      id: 'hl-undo-1', pageNumber: 1, annotationType: 'Highlight', payload: highlightPayload,
+    };
+    await act(async () => { result.current.upsert(highlight); });
+    expect(result.current.annotations.get('hl-undo-1')?.annotationType).toBe('Highlight');
+
+    // The eraser gesture = ONE remove() call (the locked undo unit).
+    await act(async () => { result.current.remove(['hl-undo-1']); });
+    expect(result.current.annotations.has('hl-undo-1')).toBe(false);
+
+    await act(async () => { result.current.undo(); });
+    const restored = result.current.annotations.get('hl-undo-1');
+    expect(restored?.annotationType).toBe('Highlight');
+    expect(restored?.payload).toEqual(highlightPayload);
   });
 });
 

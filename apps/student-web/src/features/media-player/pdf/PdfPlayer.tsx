@@ -1252,12 +1252,16 @@ const PageView = memo(function PageView({
       const overlayBox = overlay.getBoundingClientRect();
       const pageWidthPx = overlayBox.width > 0 ? overlayBox.width : cssWidth;
       const hitSet = new Set(collectEraserHitIds(annotations, path, ERASER_RADIUS_PX / pageWidthPx, pageWidthPx));
-      overlay.querySelectorAll('[data-annotation-id]').forEach((el) => {
+      // Wave 12.2.A — PAGE-level query: committed highlights live in the
+      // sibling blend SVG (z 10), not the ink overlay, so the dim preview
+      // must sweep [data-annotation-id] across the whole page box — the same
+      // page-host pattern the note preview below already uses.
+      const pageEl = overlay.parentElement;
+      pageEl?.querySelectorAll('[data-annotation-id]').forEach((el) => {
         const id = el.getAttribute('data-annotation-id') ?? '';
         el.classList.toggle('pdf-erase-preview', hitSet.has(id));
       });
       // Notes live in the DOM layer above (z 25) — the page box hosts both.
-      const pageEl = overlay.parentElement;
       pageEl?.querySelectorAll('[data-note-id]').forEach((el) => {
         const id = el.getAttribute('data-note-id') ?? '';
         el.classList.toggle('pdf-erase-preview', hitSet.has(id));
@@ -1268,7 +1272,9 @@ const PageView = memo(function PageView({
   const clearLiveEraser = useCallback(() => {
     if (eraserRafRef.current) { cancelAnimationFrame(eraserRafRef.current); eraserRafRef.current = 0; }
     const overlay = overlayRef.current;
-    overlay?.querySelectorAll('.pdf-erase-preview').forEach((el) => el.classList.remove('pdf-erase-preview'));
+    // Wave 12.2.A — one PAGE-level sweep clears ink/shapes AND highlights
+    // (the z-10 blend SVG is a sibling of the overlay inside the page box);
+    // note icons ride the same host.
     overlay?.parentElement?.querySelectorAll('.pdf-erase-preview').forEach((el) => el.classList.remove('pdf-erase-preview'));
     eraserPathRef.current = null;
   }, []);
@@ -1461,7 +1467,9 @@ const PageView = memo(function PageView({
         {annotations.map((annotation) => {
           if (annotation.annotationType !== 'Highlight') return null;
           return (
-            <g key={annotation.id} className="pdf-highlight">
+            // Wave 12.2.A — data-annotation-id lets the eraser's page-level
+            // preview dim committed highlights exactly like ink/shapes/notes.
+            <g key={annotation.id} className="pdf-highlight" data-annotation-id={annotation.id}>
               {annotation.payload.rects.map((rect, index) => (
                 <rect key={index} x={rect.x} y={rect.y} width={rect.w} height={rect.h} fill={annotation.payload.color} />
               ))}
