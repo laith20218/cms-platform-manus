@@ -609,6 +609,10 @@ async function main() {
     }
 
     /* ============ S11 — Wave 11.10: shape drag → payload + DOM → delete ============ */
+    /* R25: the drag now runs BOTTOM-RIGHT → TOP-LEFT so the committed payload
+     * exercises the negative-coordinate path (commit normalizes, but the hit
+     * test used to test the raw box — hydrated/legacy payloads with negative
+     * w/h were unselectable). Selection + deletion run against that shape. */
     {
       const { context } = await newPdfContext(browser, viewportFor('desktop'));
       const page = await context.newPage();
@@ -619,11 +623,12 @@ async function main() {
       await page.locator('[data-testid="pdf-shape-kind-rect"]').click();
       check('S11-pre shape tool reveals the kind sub-picker', kindPicker === 1, `pickers=${kindPicker}`);
 
+      // BOTTOM-RIGHT → TOP-LEFT drag (negative w/h at the pointer level).
       const pageBox = await page.locator('[data-testid="pdf-page-1"]').boundingBox();
-      const sx = pageBox.x + pageBox.width * 0.15;
-      const sy = pageBox.y + pageBox.height * 0.18;
-      const ex = pageBox.x + pageBox.width * 0.45;
-      const ey = pageBox.y + pageBox.height * 0.33;
+      const sx = pageBox.x + pageBox.width * 0.45;
+      const sy = pageBox.y + pageBox.height * 0.33;
+      const ex = pageBox.x + pageBox.width * 0.15;
+      const ey = pageBox.y + pageBox.height * 0.18;
       await page.mouse.move(sx, sy);
       await page.mouse.down();
       await page.mouse.move(ex, ey, { steps: 10 });
@@ -640,12 +645,13 @@ async function main() {
         && p.strokeWidth > 0 && p.strokeWidth <= 0.1;
       const domShapes = await page.locator('[data-annotation-page="1"] rect.pdf-shape').count();
       check(
-        'S11a shape drag persists a normalized rect payload + renders',
+        'S11a BR→TL shape drag persists a normalized rect payload + renders',
         payloadOk && domShapes > 0,
         `shape=${p.shape} x=${p.x?.toFixed(3)} y=${p.y?.toFixed(3)} w=${p.w?.toFixed(3)} h=${p.h?.toFixed(3)} strokeWidth=${p.strokeWidth?.toFixed(5)} dom=${domShapes}`,
       );
 
-      // Select via pointer-tool click INSIDE the rect, then Delete key.
+      // S11b (R25): select the BR→TL shape via pointer click at its center,
+      // remove it with the Delete KEY.
       await page.locator('[data-testid="pdf-tool-pointer"]').click();
       await page.mouse.click((sx + ex) / 2, (sy + ey) / 2);
       await page.waitForTimeout(200);
@@ -654,9 +660,34 @@ async function main() {
       await waitFor(() => !Array.from(annotationStore.values()).some((a) => a.annotationType === 'Shape'));
       const domAfterDelete = await page.locator('[data-annotation-page="1"] rect.pdf-shape').count();
       check(
-        'S11b pointer click selects the shape (trash appears) + Delete key removes it',
+        'S11b BR→TL shape: pointer click selects (trash appears) + Delete key removes it',
         trashVisible === 1 && domAfterDelete === 0,
         `trash=${trashVisible} domAfter=${domAfterDelete}`,
+      );
+
+      // S11c (R25): draw again (BR→TL) and delete via the TRASH BUTTON this
+      // time — both sanctioned deletion paths must work on a negative-size drag.
+      await page.locator('[data-testid="pdf-tool-shape"]').click();
+      await page.locator('[data-testid="pdf-shape-kind-rect"]').click();
+      await page.mouse.move(sx, sy);
+      await page.mouse.down();
+      await page.mouse.move(ex, ey, { steps: 10 });
+      await page.mouse.up();
+      await page.waitForTimeout(400);
+      await waitFor(() => Array.from(annotationStore.values()).some((a) => a.annotationType === 'Shape'));
+      await page.locator('[data-testid="pdf-tool-pointer"]').click();
+      await page.mouse.click((sx + ex) / 2, (sy + ey) / 2);
+      await page.waitForTimeout(200);
+      // The trash button only exists in the DOM while a shape is selected
+      // (canDeleteSelected conditional render) — count=1 ⇔ enabled.
+      const trashPresent = await page.locator('[data-testid="pdf-delete-selected"]').count();
+      await page.locator('[data-testid="pdf-delete-selected"]').click();
+      await waitFor(() => !Array.from(annotationStore.values()).some((a) => a.annotationType === 'Shape'));
+      const domAfterTrash = await page.locator('[data-annotation-page="1"] rect.pdf-shape').count();
+      check(
+        'S11c BR→TL shape: trash button removes the selected shape',
+        trashPresent === 1 && domAfterTrash === 0,
+        `trashPresent=${trashPresent} domAfter=${domAfterTrash}`,
       );
       await page.screenshot({ path: `${SHOT_DIR}/pdf-s11-shape.png` });
       await context.close();

@@ -236,6 +236,14 @@ const SHAPE_HIT_PAD = 0.012;
  * (no DOM hit-testing: the text layer owns real pointer events in pointer
  * mode, exactly as the R18 blend contract requires). Thin shapes grow by
  * SHAPE_HIT_PAD so a click NEAR the stroke still selects.
+ *
+ * R25 fix — normalize the drag box BEFORE testing. The commit path stores
+ * positive boxes, but payloads hydrated from the server (FileAnnotations
+ * jsonb, older clients) may carry negative w/h: the previous raw test made
+ * the padded box invert (left > right) and the ellipse branch bail on
+ * rx <= 0, so such shapes rendered but could never be selected or deleted.
+ * The arrow keeps its raw signed endpoints — the segment distance is
+ * direction-agnostic by construction.
  */
 export function hitTestShape(payload: ShapePayload, nx: number, ny: number): boolean {
   const pad = SHAPE_HIT_PAD;
@@ -256,17 +264,22 @@ export function hitTestShape(payload: ShapePayload, nx: number, ny: number): boo
     return Math.hypot(nx - cx, ny - cy) <= Math.max(pad, payload.strokeWidth * 3);
   }
   if (payload.w === undefined || payload.h === undefined) return false;
-  const left = payload.x - pad;
-  const top = payload.y - pad;
-  const right = payload.x + payload.w + pad;
-  const bottom = payload.y + payload.h + pad;
+  // R25 fix: (x, y, w, h) → positive top-left box, whatever sign the drag (or
+  // the persisted payload) carried.
+  const box = normalizeBox(payload.x, payload.y, payload.x + payload.w, payload.y + payload.h);
+  const left = box.x - pad;
+  const top = box.y - pad;
+  const right = box.x + box.w + pad;
+  const bottom = box.y + box.h + pad;
   if (nx < left || nx > right || ny < top || ny > bottom) return false;
   if (payload.shape === 'ellipse') {
-    const rx = payload.w / 2 + pad;
-    const ry = payload.h / 2 + pad;
+    // Standard ellipse equation on the NORMALIZED box, radii widened by the
+    // pad so the outline band stays tappable.
+    const rx = box.w / 2 + pad;
+    const ry = box.h / 2 + pad;
     if (rx <= 0 || ry <= 0) return false;
-    const cx = payload.x + payload.w / 2;
-    const cy = payload.y + payload.h / 2;
+    const cx = box.x + box.w / 2;
+    const cy = box.y + box.h / 2;
     return ((nx - cx) / rx) ** 2 + ((ny - cy) / ry) ** 2 <= 1;
   }
   // rect + star: the padded bounding box (star vertices stay inside the box).
