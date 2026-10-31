@@ -235,13 +235,24 @@ async function openPdfPlayer(page) {
   await page.waitForTimeout(800);
 }
 
-/** Canvas-box-relative drag on page 1 (fractions of the live overlay box). */
+/** Canvas-box-relative drag on page 1 (fractions of the VISIBLE overlay band).
+ *  Wave 12.2 — with the full-width column (E7) and the status bar (C.5) a
+ *  page can extend far below the fold; pointer events only land inside
+ *  pdf-scroll, so fractions map onto the canvas ∩ pdf-scroll band. */
 async function dragOnPage(page, [fx0, fy0], [fx1, fy1], steps = 16) {
   const box = await page.locator('[data-testid="pdf-page-1"] canvas').boundingBox();
   if (!box) throw new Error('page-1 canvas box not found');
-  await page.mouse.move(box.x + box.width * fx0, box.y + box.height * fy0);
+  const scrollBox = await page.locator('[data-testid="pdf-scroll"]').boundingBox();
+  if (!scrollBox) throw new Error('pdf-scroll box not found');
+  const top = Math.max(box.y, scrollBox.y);
+  const bottom = Math.min(box.y + box.height, scrollBox.y + scrollBox.height);
+  const left = Math.max(box.x, scrollBox.x);
+  const right = Math.min(box.x + box.width, scrollBox.x + scrollBox.width);
+  const band = { x: left, y: top, width: right - left, height: bottom - top };
+  if (!(band.width > 0) || !(band.height > 0)) throw new Error('page-1 canvas has no visible band');
+  await page.mouse.move(band.x + band.width * fx0, band.y + band.height * fy0);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width * fx1, box.y + box.height * fy1, { steps });
+  await page.mouse.move(band.x + band.width * fx1, band.y + band.height * fy1, { steps });
   await page.mouse.up();
 }
 

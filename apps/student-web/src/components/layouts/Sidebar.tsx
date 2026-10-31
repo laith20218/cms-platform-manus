@@ -55,10 +55,10 @@ export function Sidebar() {
             'press group relative mb-4 flex min-h-12 items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-bold',
             isActive
               ? 'text-white shadow-md'
-              : 'text-white/95 hover:shadow-md'
+              : 'text-white hover:shadow-md'
           )
         }
-        style={{ background: 'var(--cms-teal-600)' }}
+        style={{ background: 'var(--cms-teal-700)' }}
       >
         {({ isActive }) => (
           <>
@@ -66,7 +66,7 @@ export function Sidebar() {
               <motion.span
                 layoutId="sidebar-hero-glow"
                 className="absolute inset-0 rounded-2xl"
-                style={{ background: 'var(--cms-teal-700)' }}
+                style={{ background: 'var(--cms-teal-800)' }}
                 transition={{ type: 'spring', stiffness: 400, damping: 32 }}
               />
             )}
@@ -92,8 +92,8 @@ export function Sidebar() {
                   cn(
                     'press flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm border-s-2 border-transparent',
                     isActive
-                      ? 'bg-[var(--cms-teal-50)] text-[var(--cms-teal-700)] font-semibold border-s-[var(--cms-teal-600)]'
-                      : 'font-medium text-[var(--cms-text-soft)] hover:bg-[var(--cms-teal-50)] hover:text-[var(--cms-teal-700)]'
+                      ? 'bg-[var(--cms-teal-50)] text-[var(--cms-teal-800)] font-semibold border-s-[var(--cms-teal-600)]'
+                      : 'font-medium text-[var(--cms-text-soft)] hover:bg-[var(--cms-teal-50)] hover:text-[var(--cms-teal-800)]'
                   )
                 }
               >

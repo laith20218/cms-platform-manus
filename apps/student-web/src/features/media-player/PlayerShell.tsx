@@ -231,6 +231,7 @@ export function PlayerShell({
                       </div>
                       {protection && (
                         <span
+                          role="img"
                           title="الحماية من النسخ مفعّلة داخل المشغّل"
                           aria-label="الحماية من النسخ مفعّلة داخل المشغّل"
                           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-teal-400/20 bg-teal-400/10 text-teal-300"

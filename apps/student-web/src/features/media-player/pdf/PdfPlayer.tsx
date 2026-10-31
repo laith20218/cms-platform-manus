@@ -911,7 +911,12 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
         <div
           ref={scrollRef}
           data-testid="pdf-scroll"
-          className="h-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden rounded-3xl bg-[#071426] px-3 py-4 sm:px-6"
+          /* Wave 12.2.D (axe) — focusable scroll region: keyboard users can
+             scroll the document column (axe scrollable-region-focusable). */
+          tabIndex={0}
+          role="region"
+          aria-label="تمرير صفحات المستند"
+          className="h-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden rounded-3xl bg-[#071426] px-3 py-4 outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8] sm:px-6"
           style={{ touchAction: 'pan-y pinch-zoom' }}
         >
           {/* Wave 12.2.C.1 (E7) — max-w-4xl removed: the column fills the row
