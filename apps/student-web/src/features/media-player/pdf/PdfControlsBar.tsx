@@ -2,11 +2,12 @@ import { useEffect, useState, type ReactNode } from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import * as SliderPrimitive from '@radix-ui/react-slider';
 import {
-  Check, ChevronLeft, ChevronRight, Highlighter, Maximize, MousePointer2, Pencil, ZoomIn, ZoomOut,
+  ArrowUpRight, Check, ChevronLeft, ChevronRight, Circle, Highlighter, Maximize, MousePointer2,
+  Pencil, Shapes, Square, Star, StickyNote, Trash2, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { cn } from '@/utils';
-import type { PdfTool } from './pdf-types';
-import { HIGHLIGHT_COLORS, PEN_COLORS } from './pdf-palette';
+import type { PdfTool, ShapeKind } from './pdf-types';
+import { HIGHLIGHT_COLORS, NOTE_COLORS, PEN_COLORS, SHAPE_COLORS } from './pdf-palette';
 
 /**
  * Wave 11.8 / F2 — the PDF player toolbar (supervisor D4: Phase 1 ships the
@@ -16,19 +17,35 @@ import { HIGHLIGHT_COLORS, PEN_COLORS } from './pdf-palette';
  * ControlsBar conventions: 48px touch targets (supervisor floor for this
  * toolbar), Radix primitives, physical-LTR clusters for page/zoom numerals
  * (ControlsBar precedent) inside the app's RTL layout.
+ *
+ * Wave 11.10 (F2 Phase 2): 'shape' (diagram shapes — rect/ellipse/arrow/star
+ * sub-picker + palette) and 'note' (sticky notes — palette) join the Phase 1
+ * tools, and a delete button appears while a shape is selected.
  */
 
 const TOOLS: Array<{ id: PdfTool; icon: typeof MousePointer2; label: string }> = [
   { id: 'pointer', icon: MousePointer2, label: 'تحديد وتنقّل' },
   { id: 'highlighter', icon: Highlighter, label: 'تظليل النص' },
   { id: 'pen', icon: Pencil, label: 'قلم الحبر' },
+  { id: 'shape', icon: Shapes, label: 'أشكال توضيحية' },
+  { id: 'note', icon: StickyNote, label: 'ملاحظة لاصقة' },
 ];
 
 const TOOL_TEST_IDS: Record<PdfTool, string> = {
   pointer: 'pdf-tool-pointer',
   highlighter: 'pdf-tool-highlighter',
   pen: 'pdf-tool-pen',
+  shape: 'pdf-tool-shape',
+  note: 'pdf-tool-note',
 };
+
+/** Wave 11.10 — the shape-kind sub-picker shown while the shape tool is active. */
+const SHAPE_KINDS: Array<{ id: ShapeKind; icon: typeof Square; label: string }> = [
+  { id: 'rect', icon: Square, label: 'مستطيل' },
+  { id: 'ellipse', icon: Circle, label: 'دائرة' },
+  { id: 'arrow', icon: ArrowUpRight, label: 'سهم' },
+  { id: 'star', icon: Star, label: 'نجمة' },
+];
 
 function ToolButton({ active, label, testId, onClick, children }: {
   active: boolean;
@@ -123,6 +140,17 @@ export interface PdfControlsBarProps {
   onPenColorChange: (color: string) => void;
   penWidth: number;
   onPenWidthChange: (width: number) => void;
+  /** Wave 11.10 — shape tool state. */
+  shapeKind: ShapeKind;
+  onShapeKindChange: (kind: ShapeKind) => void;
+  shapeColor: string;
+  onShapeColorChange: (color: string) => void;
+  /** Wave 11.10 — sticky note state. */
+  noteColor: string;
+  onNoteColorChange: (color: string) => void;
+  /** Wave 11.10 — a shape is selected in pointer mode → offer the trash. */
+  canDeleteSelected: boolean;
+  onDeleteSelected: () => void;
   page: number;
   pageCount: number;
   onPageChange: (page: number) => void;
@@ -141,6 +169,9 @@ export function PdfControlsBar({
   tool, onToolChange,
   highlightColor, onHighlightColorChange,
   penColor, onPenColorChange, penWidth, onPenWidthChange,
+  shapeKind, onShapeKindChange, shapeColor, onShapeColorChange,
+  noteColor, onNoteColorChange,
+  canDeleteSelected, onDeleteSelected,
   page, pageCount, onPageChange, onPrevPage, onNextPage,
   zoomPercent, onZoomIn, onZoomOut, onZoomFit, canZoomIn, canZoomOut,
   saving,
@@ -173,6 +204,18 @@ export function PdfControlsBar({
             <Icon className="h-5 w-5" strokeWidth={1.75} />
           </ToolButton>
         ))}
+        {canDeleteSelected && (
+          <button
+            type="button"
+            onClick={onDeleteSelected}
+            aria-label="حذف الشكل المحدد"
+            title="حذف الشكل المحدد"
+            data-testid="pdf-delete-selected"
+            className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-red-400/40 bg-red-500/15 text-red-300 transition-colors hover:bg-red-500/25"
+          >
+            <Trash2 className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+        )}
         <Divider />
         {tool === 'pen' ? (
           <>
@@ -203,6 +246,33 @@ export function PdfControlsBar({
           </>
         ) : tool === 'highlighter' ? (
           <ColorPicker label="لون التظليل" colors={HIGHLIGHT_COLORS} value={highlightColor} onChange={onHighlightColorChange} testId="pdf-highlight-colors" />
+        ) : tool === 'shape' ? (
+          <>
+            <div className="flex items-center gap-1 rounded-2xl border border-white/10 bg-white/5 p-1" data-testid="pdf-shape-kinds">
+              {SHAPE_KINDS.map(({ id, icon: Icon, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => onShapeKindChange(id)}
+                  aria-label={label}
+                  aria-pressed={shapeKind === id}
+                  title={label}
+                  data-testid={`pdf-shape-kind-${id}`}
+                  className={cn(
+                    'press inline-flex h-10 w-10 items-center justify-center rounded-xl transition-colors',
+                    shapeKind === id
+                      ? 'bg-teal-400/20 text-teal-300'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white',
+                  )}
+                >
+                  <Icon className="h-5 w-5" strokeWidth={1.75} />
+                </button>
+              ))}
+            </div>
+            <ColorPicker label="لون الشكل" colors={SHAPE_COLORS} value={shapeColor} onChange={onShapeColorChange} testId="pdf-shape-colors" />
+          </>
+        ) : tool === 'note' ? (
+          <ColorPicker label="لون الملاحظة" colors={NOTE_COLORS} value={noteColor} onChange={onNoteColorChange} testId="pdf-note-colors" />
         ) : (
           <span className="hidden px-2 text-[11px] leading-tight text-slate-400 sm:block">
             مرّر، ثم حدّد النص للتظليل

@@ -1,4 +1,4 @@
-import type { NormalizedPoint, NormalizedRect } from './pdf-types';
+import type { NormalizedPoint, NormalizedRect, ShapePayload } from './pdf-types';
 
 /**
  * Wave 11.8 / F2 — pure geometry helpers for the PDF annotation layer.
@@ -149,4 +149,136 @@ export function resolveInkStrokeWidth(storedWidth: number, cssWidth: number): nu
     ? storedWidth
     : storedWidth / pageWidth;
   return Math.min(clamp01(fraction), MAX_INK_WIDTH_FRACTION);
+}
+
+/* ===== Wave 11.10 — shape geometry (F2 Phase 2) =====
+ * Same purity contract as the ink helpers: dependency-free, unit-testable,
+ * page-normalized 0..1 coordinates. */
+
+/** Smallest drag (normalized) that commits a shape — shorter gestures are taps, not draws. */
+export const MIN_SHAPE_SIZE = 0.012;
+
+/** Turns a raw drag (start → end) into a positive top-left box. */
+export function normalizeBox(x1: number, y1: number, x2: number, y2: number): NormalizedRect {
+  const x = Math.min(x1, x2);
+  const y = Math.min(y1, y2);
+  return { x, y, w: Math.max(x1, x2) - x, h: Math.max(y1, y2) - y };
+}
+
+/**
+ * 10-point star polygon (5 outer + 5 inner vertices, alternating) inscribed in
+ * the drag box. The first outer vertex sits at the TOP-CENTER of the box; the
+ * star stretches with the box (the same visual contract as rect/ellipse — you
+ * drag a box, the shape fills it). Inner radius ratio 0.42 ≈ the classic
+ * five-point star silhouette.
+ */
+export function starPolygonPoints(box: NormalizedRect, innerRatio = 0.42): NormalizedPoint[] {
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  const rx = box.w / 2;
+  const ry = box.h / 2;
+  const points: NormalizedPoint[] = [];
+  for (let i = 0; i < 10; i += 1) {
+    const angle = -Math.PI / 2 + (i * Math.PI) / 5;
+    const scale = i % 2 === 0 ? 1 : innerRatio;
+    points.push({ x: cx + rx * scale * Math.cos(angle), y: cy + ry * scale * Math.sin(angle) });
+  }
+  return points;
+}
+
+/** SVG `points` attribute for a polygon of normalized points. */
+export function polygonPointsAttr(points: NormalizedPoint[]): string {
+  return points.map((p) => `${p.x},${p.y}`).join(' ');
+}
+
+/**
+ * Arrowhead triangle for an arrow tail→head given in page-normalized coords.
+ *
+ * The head is laid out in PIXEL space (using the live page box) and converted
+ * back to normalized coordinates — the overlay's unit viewBox is stretched by
+ * `preserveAspectRatio="none"`, so a triangle computed directly in normalized
+ * space would shear with the page aspect (the same class of units bug the R16.4
+ * ink-width hotfix eliminated). Returns [wing1, tip, wing2]; the shaft should
+ * stop at the wing midpoint, not the tip.
+ */
+export function arrowHeadPoints(
+  x1: number, y1: number, x2: number, y2: number,
+  pageWidthPx: number, pageHeightPx: number,
+  headLengthPx = 14, halfWidthPx = 5,
+): NormalizedPoint[] {
+  const w = Number.isFinite(pageWidthPx) && pageWidthPx > 0 ? pageWidthPx : 1;
+  const h = Number.isFinite(pageHeightPx) && pageHeightPx > 0 ? pageHeightPx : 1;
+  const tip: NormalizedPoint = { x: clamp01(x2), y: clamp01(y2) };
+  const dxPx = (x2 - x1) * w;
+  const dyPx = (y2 - y1) * h;
+  const lengthPx = Math.hypot(dxPx, dyPx);
+  if (lengthPx === 0) return [tip, tip, tip];
+  const ux = dxPx / lengthPx;
+  const uy = dyPx / lengthPx;
+  const basePxX = x2 * w - ux * headLengthPx;
+  const basePxY = y2 * h - uy * headLengthPx;
+  const perpX = -uy;
+  const perpY = ux;
+  const toNormalized = (px: number, py: number): NormalizedPoint => ({ x: clamp01(px / w), y: clamp01(py / h) });
+  return [
+    toNormalized(basePxX + perpX * halfWidthPx, basePxY + perpY * halfWidthPx),
+    tip,
+    toNormalized(basePxX - perpX * halfWidthPx, basePxY - perpY * halfWidthPx),
+  ];
+}
+
+/** Hit-test padding (normalized) so thin strokes stay tappable in select mode. */
+const SHAPE_HIT_PAD = 0.012;
+
+/**
+ * Pure hit test for "did a page-normalized click land on this shape" — used by
+ * the pointer tool's select flow. Runs against the payload geometry directly
+ * (no DOM hit-testing: the text layer owns real pointer events in pointer
+ * mode, exactly as the R18 blend contract requires). Thin shapes grow by
+ * SHAPE_HIT_PAD so a click NEAR the stroke still selects.
+ */
+export function hitTestShape(payload: ShapePayload, nx: number, ny: number): boolean {
+  const pad = SHAPE_HIT_PAD;
+  if (payload.shape === 'arrow') {
+    if (payload.x1 === undefined || payload.y1 === undefined || payload.x2 === undefined || payload.y2 === undefined) return false;
+    // Point-to-segment distance in normalized space (aspect distortion is
+    // irrelevant at hit-test scale; the pad dominates).
+    const sx = payload.x1;
+    const sy = payload.y1;
+    const ex = payload.x2;
+    const ey = payload.y2;
+    const dx = ex - sx;
+    const dy = ey - sy;
+    const lengthSq = dx * dx + dy * dy;
+    const t = lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((nx - sx) * dx + (ny - sy) * dy) / lengthSq));
+    const cx = sx + t * dx;
+    const cy = sy + t * dy;
+    return Math.hypot(nx - cx, ny - cy) <= Math.max(pad, payload.strokeWidth * 3);
+  }
+  if (payload.w === undefined || payload.h === undefined) return false;
+  const left = payload.x - pad;
+  const top = payload.y - pad;
+  const right = payload.x + payload.w + pad;
+  const bottom = payload.y + payload.h + pad;
+  if (nx < left || nx > right || ny < top || ny > bottom) return false;
+  if (payload.shape === 'ellipse') {
+    const rx = payload.w / 2 + pad;
+    const ry = payload.h / 2 + pad;
+    if (rx <= 0 || ry <= 0) return false;
+    const cx = payload.x + payload.w / 2;
+    const cy = payload.y + payload.h / 2;
+    return ((nx - cx) / rx) ** 2 + ((ny - cy) / ry) ** 2 <= 1;
+  }
+  // rect + star: the padded bounding box (star vertices stay inside the box).
+  return true;
+}
+
+/** True when a committed box shape is too small to be intentional (a tap). */
+export function isDegenerateBox(box: NormalizedRect): boolean {
+  return box.w < MIN_SHAPE_SIZE || box.h < MIN_SHAPE_SIZE;
+}
+
+/** True when an arrow's tail/head are too close to be intentional. */
+export function isDegenerateArrow(x1: number, y1: number, x2: number, y2: number): boolean {
+  return Math.hypot(x2 - x1, y2 - y1) < MIN_SHAPE_SIZE * 2;
 }

@@ -7,9 +7,14 @@ import { PdfControlsBar } from './PdfControlsBar';
 import { ensurePdfWorker } from './pdf-worker';
 import { normalizeArabicPresentationForms } from './pdf-text';
 import { PDF_DEBUG, textLayerDebugClass } from './pdf-debug';
-import { clamp01, newAnnotationId, rectsFromRange, resolveInkStrokeWidth, simplifyPoints, strokePathD } from './pdf-geometry';
+import {
+  arrowHeadPoints, clamp01, hitTestShape, isDegenerateArrow, isDegenerateBox, newAnnotationId,
+  normalizeBox, polygonPointsAttr, rectsFromRange, resolveInkStrokeWidth, simplifyPoints,
+  starPolygonPoints, strokePathD,
+} from './pdf-geometry';
+import { NoteLayer } from './pdf-note-layer';
 import type {
-  NormalizedPoint, PdfAnnotation, PdfPlayerProps, PdfTool,
+  NormalizedPoint, NoteAnnotation, PdfAnnotation, PdfPlayerProps, PdfTool, ShapeKind,
 } from './pdf-types';
 import './pdf-text-layer.css';
 ensurePdfWorker();
@@ -73,12 +78,32 @@ ensurePdfWorker();
  * view) — but the canvas always draws glyph outlines as paths. The only
  * escape hatch remains the ?pdfFonts=embedded diagnostic override
  * (pdf-debug.ts).
+ *
+ * Wave 11.10 (F2 Phase 2): 'shape' (rect/ellipse/arrow/star — committed into
+ * the SAME z-11 SVG as ink, unit-viewBox fraction strokes, arrowheads computed
+ * in pixel space so the non-uniform viewBox cannot shear them) and 'note'
+ * (sticky notes — a DOM layer at z 25 ABOVE the text layer; the container
+ * never takes the pointer, icons/editor opt back in, so text selection keeps
+ * working). Shape selection in pointer mode is a pure geometry hit test (the
+ * text layer owns real pointer events per R18); Delete/Backspace or the
+ * toolbar trash removes the selection. All geometry stays page-normalized 0..1
+ * and persists through the SAME batch upsert contract — no backend changes
+ * beyond the enum members Shape=2 / Note=3.
  */
 
 const ZOOM_STEPS = [1, 1.25, 1.5, 2, 2.5, 3];
 const DEFAULT_HIGHLIGHT_COLOR = '#fde047';
 const DEFAULT_PEN_COLOR = '#111827';
 const DEFAULT_PEN_WIDTH = 2.5;
+
+/* Wave 11.10 — shapes/notes defaults. Shape strokes reuse the R16.4 ink width
+ * contract: the committed strokeWidth is SHAPE_STROKE_PX ÷ live page width, a
+ * page-relative fraction against the unit viewBox (never raw px). */
+const DEFAULT_SHAPE_COLOR = '#dc2626';
+const DEFAULT_NOTE_COLOR = '#fde047';
+const SHAPE_STROKE_PX = 3;
+const ARROW_HEAD_LENGTH_PX = 14;
+const ARROW_HEAD_HALF_WIDTH_PX = 5;
 
 /* Hotfix R16.1 — pdf.js runtime assets, self-hosted from public/ (copied from
  * node_modules/pdfjs-dist at the pinned version; BASE_URL keeps it correct
@@ -106,6 +131,12 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   const [highlightColor, setHighlightColor] = useState<string>(DEFAULT_HIGHLIGHT_COLOR);
   const [penColor, setPenColor] = useState<string>(DEFAULT_PEN_COLOR);
   const [penWidth, setPenWidth] = useState<number>(DEFAULT_PEN_WIDTH);
+  /* Wave 11.10 — shape/note tool state + selection. */
+  const [shapeKind, setShapeKind] = useState<ShapeKind>('rect');
+  const [shapeColor, setShapeColor] = useState<string>(DEFAULT_SHAPE_COLOR);
+  const [noteColor, setNoteColor] = useState<string>(DEFAULT_NOTE_COLOR);
+  const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
+  const [openNoteId, setOpenNoteId] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -113,7 +144,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   const visibleRef = useRef<Set<number>>(new Set());
   const docRef = useRef<PDFDocumentProxy | null>(null);
 
-  const { annotations, upsert, saving } = usePdfAnnotations(assetId);
+  const { annotations, upsert, remove, saving } = usePdfAnnotations(assetId);
 
   /* ---- Page-scoped annotation lists (hotfix R15.3): one memoized Map, so
           memoized PageViews receive stable array identities across renders
@@ -326,6 +357,120 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     });
   }, [upsert, penColor, penWidth]);
 
+  /* ---- Wave 11.10 — shape commits (F2 Phase 2): box kinds store the drag
+          box, the arrow stores both endpoints; degenerate taps commit nothing.
+          Stroke width follows the R16.4 ink contract (fraction of page width). ---- */
+  const commitShape = useCallback((pageNumber: number, kind: ShapeKind, sx: number, sy: number, ex: number, ey: number, pageWidthPx: number) => {
+    const strokeWidth = SHAPE_STROKE_PX / (pageWidthPx > 0 ? pageWidthPx : 1);
+    if (kind === 'arrow') {
+      if (isDegenerateArrow(sx, sy, ex, ey)) return;
+      upsert({
+        id: newAnnotationId(),
+        pageNumber,
+        annotationType: 'Shape',
+        payload: { shape: 'arrow', x: sx, y: sy, x1: sx, y1: sy, x2: ex, y2: ey, color: shapeColor, strokeWidth },
+      });
+      return;
+    }
+    const box = normalizeBox(sx, sy, ex, ey);
+    if (isDegenerateBox(box)) return;
+    upsert({
+      id: newAnnotationId(),
+      pageNumber,
+      annotationType: 'Shape',
+      payload: { shape: kind, x: box.x, y: box.y, w: box.w, h: box.h, color: shapeColor, strokeWidth },
+    });
+  }, [upsert, shapeColor]);
+
+  /* ---- Wave 11.10 — sticky notes: a tap on the page (note tool) places a
+          note and opens its inline editor immediately; the editor commits on
+          blur/save and an EMPTY note is removed instead of persisted. ---- */
+  const createNote = useCallback((pageNumber: number, clientX: number, clientY: number) => {
+    const pageEl = pagesRef.current.get(pageNumber);
+    if (!pageEl) return;
+    const canvas = pageEl.querySelector(':scope > canvas');
+    const surface = (canvas ?? pageEl).getBoundingClientRect();
+    if (!(surface.width > 0) || !(surface.height > 0)) return;
+    const x = clamp01((clientX - surface.left) / surface.width);
+    const y = clamp01((clientY - surface.top) / surface.height);
+    const note: NoteAnnotation = {
+      id: newAnnotationId(),
+      pageNumber,
+      annotationType: 'Note',
+      payload: { x, y, text: '', color: noteColor },
+    };
+    upsert(note);
+    setSelectedShapeId(null);
+    setOpenNoteId(note.id);
+  }, [noteColor, upsert]);
+
+  const commitNoteText = useCallback((note: NoteAnnotation, text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      remove([note.id]);
+      return;
+    }
+    upsert({ ...note, payload: { ...note.payload, text: trimmed } });
+  }, [remove, upsert]);
+
+  const deleteNote = useCallback((id: string) => {
+    remove([id]);
+    setOpenNoteId(null);
+  }, [remove]);
+
+  const closeNote = useCallback(() => setOpenNoteId(null), []);
+
+  /* ---- Wave 11.10 — pointer-tool routing on the text layer: highlighter
+          commits the selection; pointer mode runs the pure-geometry shape hit
+          test (select / deselect). A selection DRAG (collapsed = false) is
+          never treated as a shape click. ---- */
+  const handleTextPointerUp = useCallback((pageNumber: number, clientX: number, clientY: number) => {
+    if (tool === 'highlighter') {
+      commitSelection(pageNumber);
+      return;
+    }
+    if (tool !== 'pointer') return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    const pageEl = pagesRef.current.get(pageNumber);
+    if (!pageEl) return;
+    const canvas = pageEl.querySelector(':scope > canvas');
+    const surface = (canvas ?? pageEl).getBoundingClientRect();
+    if (!(surface.width > 0) || !(surface.height > 0)) return;
+    const nx = clamp01((clientX - surface.left) / surface.width);
+    const ny = clamp01((clientY - surface.top) / surface.height);
+    const shapes = annotationsByPage.get(pageNumber) ?? [];
+    let hitId: string | null = null;
+    for (let i = shapes.length - 1; i >= 0; i -= 1) {
+      const shape = shapes[i];
+      if (shape.annotationType === 'Shape' && hitTestShape(shape.payload, nx, ny)) {
+        hitId = shape.id;
+        break;
+      }
+    }
+    setSelectedShapeId(hitId);
+  }, [tool, commitSelection, annotationsByPage]);
+
+  /* ---- Wave 11.10 — Delete/Backspace removes the selected shape; Escape
+          deselects. Editable targets (inputs/textareas) never trigger it. ---- */
+  useEffect(() => {
+    if (!selectedShapeId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSelectedShapeId(null);
+        return;
+      }
+      if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      event.preventDefault();
+      remove([selectedShapeId]);
+      setSelectedShapeId(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedShapeId, remove]);
+
   /* ---- Navigation / zoom callbacks ---- */
   const goToPage = useCallback((target: number) => {
     const clamped = Math.max(1, Math.min(dims?.length ?? 1, target));
@@ -370,13 +515,26 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     <div className="flex h-full w-full flex-col gap-3" data-testid={testId ?? 'pdf-player'}>
       <PdfControlsBar
         tool={tool}
-        onToolChange={setTool}
+        onToolChange={(next) => { setTool(next); setSelectedShapeId(null); }}
         highlightColor={highlightColor}
         onHighlightColorChange={setHighlightColor}
         penColor={penColor}
         onPenColorChange={setPenColor}
         penWidth={penWidth}
         onPenWidthChange={setPenWidth}
+        shapeKind={shapeKind}
+        onShapeKindChange={setShapeKind}
+        shapeColor={shapeColor}
+        onShapeColorChange={setShapeColor}
+        noteColor={noteColor}
+        onNoteColorChange={setNoteColor}
+        canDeleteSelected={selectedShapeId !== null}
+        onDeleteSelected={() => {
+          if (selectedShapeId) {
+            remove([selectedShapeId]);
+            setSelectedShapeId(null);
+          }
+        }}
         page={currentPage}
         pageCount={pageCount}
         onPageChange={goToPage}
@@ -415,9 +573,19 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
                 tool={tool}
                 penColor={penColor}
                 penWidth={penWidth}
+                shapeKind={shapeKind}
+                shapeColor={shapeColor}
+                selectedShapeId={selectedShapeId}
+                openNoteId={openNoteId}
                 registerPage={registerPage}
-                onTextPointerUp={tool === 'highlighter' ? commitSelection : undefined}
+                onTextPointerUp={handleTextPointerUp}
                 onStrokeCommit={commitInk}
+                onShapeCommit={commitShape}
+                onNotePlace={createNote}
+                onNoteOpen={setOpenNoteId}
+                onNoteCommit={commitNoteText}
+                onNoteDelete={deleteNote}
+                onNoteClose={closeNote}
               />
             );
           })}
@@ -459,9 +627,22 @@ interface PageViewProps {
   tool: PdfTool;
   penColor: string;
   penWidth: number;
+  /* Wave 11.10 — shape + note state and callbacks. */
+  shapeKind: ShapeKind;
+  shapeColor: string;
+  selectedShapeId: string | null;
+  openNoteId: string | null;
   registerPage: (pageNumber: number, el: HTMLElement | null) => void;
-  onTextPointerUp?: (pageNumber: number) => void;
+  /** Pointer/highlighter routing on the text layer (see handleTextPointerUp). */
+  onTextPointerUp: (pageNumber: number, clientX: number, clientY: number) => void;
   onStrokeCommit: (pageNumber: number, points: NormalizedPoint[], pageWidthPx: number) => void;
+  onShapeCommit: (pageNumber: number, kind: ShapeKind, sx: number, sy: number, ex: number, ey: number, pageWidthPx: number) => void;
+  /** Note tool: a tap on the page places a note (called with page coords). */
+  onNotePlace: (pageNumber: number, clientX: number, clientY: number) => void;
+  onNoteOpen: (id: string) => void;
+  onNoteCommit: (note: NoteAnnotation, text: string) => void;
+  onNoteDelete: (id: string) => void;
+  onNoteClose: () => void;
 }
 
 /** Hotfix R15.3 — memoized: every prop is a primitive, a stable callback, or a
@@ -470,7 +651,10 @@ interface PageViewProps {
  *  or text layer. */
 const PageView = memo(function PageView({
   pageNumber, cssWidth, cssHeight, renderScale, doc, visible,
-  annotations, tool, penColor, penWidth, registerPage, onTextPointerUp, onStrokeCommit,
+  annotations, tool, penColor, penWidth,
+  shapeKind, shapeColor, selectedShapeId, openNoteId,
+  registerPage, onTextPointerUp, onStrokeCommit,
+  onShapeCommit, onNotePlace, onNoteOpen, onNoteCommit, onNoteDelete, onNoteClose,
 }: PageViewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const layerRef = useRef<HTMLDivElement | null>(null);
@@ -485,6 +669,25 @@ const PageView = memo(function PageView({
   const strokeRef = useRef<{ points: NormalizedPoint[]; color: string; width: number } | null>(null);
   const livePathRef = useRef<SVGPathElement | null>(null);
   const strokeRafRef = useRef(0);
+
+  /* Wave 11.10 — the shape drag preview uses the SAME ref-buffer pattern: the
+   * live nodes are created imperatively and updated rAF-throttled; React
+   * state is touched exactly once, on pointerup, through onShapeCommit. */
+  const shapeDraftRef = useRef<{
+    kind: ShapeKind;
+    sx: number;
+    sy: number;
+    group: SVGGElement;
+    main: SVGElement;
+    head: SVGPolygonElement | null;
+    pw: number;
+    ph: number;
+  } | null>(null);
+  const shapeRafRef = useRef(0);
+  const shapeCurRef = useRef<NormalizedPoint>({ x: 0, y: 0 });
+  /* Wave 11.10 — note tool: pointerdown anchor on the canvas, so a tap (not a
+   * drag/scroll gesture) places the note. */
+  const noteDownRef = useRef<{ x: number; y: number } | null>(null);
 
   // Canvas + text layer render whenever the page becomes visible or the
   // scale changes; cleanup cancels in-flight render tasks and frees pixels.
@@ -594,53 +797,157 @@ const PageView = memo(function PageView({
   // Teardown if the page unmounts mid-stroke (zoom/visibility flip).
   useEffect(() => clearLiveStroke, [clearLiveStroke]);
 
+  const paintLiveShape = useCallback(() => {
+    if (shapeRafRef.current) return;
+    shapeRafRef.current = requestAnimationFrame(() => {
+      shapeRafRef.current = 0;
+      const draft = shapeDraftRef.current;
+      if (!draft) return;
+      const { x, y } = shapeCurRef.current;
+      if (draft.kind === 'arrow') {
+        const line = draft.main as SVGLineElement;
+        line.setAttribute('x2', String(x));
+        line.setAttribute('y2', String(y));
+        draft.head?.setAttribute('points', polygonPointsAttr(
+          arrowHeadPoints(draft.sx, draft.sy, x, y, draft.pw, draft.ph, ARROW_HEAD_LENGTH_PX, ARROW_HEAD_HALF_WIDTH_PX),
+        ));
+      } else {
+        const box = normalizeBox(draft.sx, draft.sy, x, y);
+        if (draft.kind === 'rect') {
+          const rect = draft.main as SVGRectElement;
+          rect.setAttribute('x', String(box.x));
+          rect.setAttribute('y', String(box.y));
+          rect.setAttribute('width', String(box.w));
+          rect.setAttribute('height', String(box.h));
+        } else if (draft.kind === 'ellipse') {
+          const ellipse = draft.main as SVGEllipseElement;
+          ellipse.setAttribute('cx', String(box.x + box.w / 2));
+          ellipse.setAttribute('cy', String(box.y + box.h / 2));
+          ellipse.setAttribute('rx', String(box.w / 2));
+          ellipse.setAttribute('ry', String(box.h / 2));
+        } else {
+          (draft.main as SVGPolygonElement).setAttribute('points', polygonPointsAttr(starPolygonPoints(box)));
+        }
+      }
+    });
+  }, []);
+
+  const clearLiveShape = useCallback(() => {
+    if (shapeRafRef.current) { cancelAnimationFrame(shapeRafRef.current); shapeRafRef.current = 0; }
+    shapeDraftRef.current?.group.remove();
+    shapeDraftRef.current = null;
+  }, []);
+
+  // Teardown if the page unmounts mid-drag.
+  useEffect(() => clearLiveShape, [clearLiveShape]);
+
   const handlePointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
-    if (tool !== 'pen') return;
     const svg = overlayRef.current;
     if (!svg) return;
+    if (tool === 'pen') {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      const point = toNormalized(event.clientX, event.clientY);
+      strokeRef.current = { points: [point], color: penColor, width: penWidth };
+      // Live path is created imperatively with the SAME geometry contract as
+      // committed ink (hotfix R16.4): stroke width is the page-relative FRACTION
+      // penWidth / pageWidth against the unit viewBox. The pre-R15.3 code fed
+      // React a per-move state update AND a strokeWidth of penWidth * pageWidth
+      // (≈2000 with non-scaling-stroke) — a screen-sized flash on every stroke;
+      // the R15.3 refactor swapped it to raw screen px, which still relies on
+      // vector-effect surviving the browser. A fraction is intrinsically safe:
+      // the worst units mistake renders ≤10% of the page, never a 2000px blob.
+      const overlayBox = svg.getBoundingClientRect();
+      const pageWidthPx = overlayBox.width > 0 ? overlayBox.width : cssWidth;
+      const live = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      live.setAttribute('class', 'pdf-ink');
+      live.setAttribute('stroke', penColor);
+      live.setAttribute('stroke-width', String(penWidth / pageWidthPx));
+      live.setAttribute('d', strokePathD([point]));
+      svg.appendChild(live);
+      livePathRef.current = live;
+      return;
+    }
+    if (tool !== 'shape') return;
+    /* Wave 11.10 — shape drag: same imperative live-node contract as the pen. */
     event.currentTarget.setPointerCapture(event.pointerId);
-    const point = toNormalized(event.clientX, event.clientY);
-    strokeRef.current = { points: [point], color: penColor, width: penWidth };
-    // Live path is created imperatively with the SAME geometry contract as
-    // committed ink (hotfix R16.4): stroke width is the page-relative FRACTION
-    // penWidth / pageWidth against the unit viewBox. The pre-R15.3 code fed
-    // React a per-move state update AND a strokeWidth of penWidth * pageWidth
-    // (≈2000 with non-scaling-stroke) — a screen-sized flash on every stroke;
-    // the R15.3 refactor swapped it to raw screen px, which still relies on
-    // vector-effect surviving the browser. A fraction is intrinsically safe:
-    // the worst units mistake renders ≤10% of the page, never a 2000px blob.
+    const start = toNormalized(event.clientX, event.clientY);
+    shapeCurRef.current = start;
     const overlayBox = svg.getBoundingClientRect();
     const pageWidthPx = overlayBox.width > 0 ? overlayBox.width : cssWidth;
-    const live = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    live.setAttribute('class', 'pdf-ink');
-    live.setAttribute('stroke', penColor);
-    live.setAttribute('stroke-width', String(penWidth / pageWidthPx));
-    live.setAttribute('d', strokePathD([point]));
-    svg.appendChild(live);
-    livePathRef.current = live;
+    const pageHeightPx = overlayBox.height > 0 ? overlayBox.height : cssHeight;
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const group = document.createElementNS(svgNS, 'g');
+    group.setAttribute('class', 'pdf-shape-live');
+    let main: SVGElement;
+    let head: SVGPolygonElement | null = null;
+    if (shapeKind === 'rect') {
+      main = document.createElementNS(svgNS, 'rect');
+    } else if (shapeKind === 'ellipse') {
+      main = document.createElementNS(svgNS, 'ellipse');
+    } else if (shapeKind === 'star') {
+      main = document.createElementNS(svgNS, 'polygon');
+    } else {
+      main = document.createElementNS(svgNS, 'line');
+      main.setAttribute('x1', String(start.x));
+      main.setAttribute('y1', String(start.y));
+      head = document.createElementNS(svgNS, 'polygon');
+      head.setAttribute('class', 'pdf-arrow-head');
+      head.setAttribute('fill', shapeColor);
+      group.appendChild(head);
+    }
+    main.setAttribute('class', 'pdf-shape');
+    main.setAttribute('stroke', shapeColor);
+    main.setAttribute('stroke-width', String(SHAPE_STROKE_PX / pageWidthPx));
+    main.setAttribute('fill', 'none');
+    group.appendChild(main);
+    svg.appendChild(group);
+    shapeDraftRef.current = { kind: shapeKind, sx: start.x, sy: start.y, group, main, head, pw: pageWidthPx, ph: pageHeightPx };
   };
 
   const handlePointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
-    if (tool !== 'pen' || !strokeRef.current) return;
+    if (tool === 'pen') {
+      if (!strokeRef.current) return;
+      const native = event.nativeEvent as PointerEvent & { getCoalescedEvents?: () => PointerEvent[] };
+      const coalesced = typeof native.getCoalescedEvents === 'function' ? native.getCoalescedEvents() : [];
+      const sources = coalesced.length > 0 ? coalesced : [native];
+      for (const source of sources) {
+        strokeRef.current.points.push(toNormalized(source.clientX, source.clientY));
+      }
+      paintLiveStroke();
+      return;
+    }
+    if (tool !== 'shape' || !shapeDraftRef.current) return;
     const native = event.nativeEvent as PointerEvent & { getCoalescedEvents?: () => PointerEvent[] };
     const coalesced = typeof native.getCoalescedEvents === 'function' ? native.getCoalescedEvents() : [];
     const sources = coalesced.length > 0 ? coalesced : [native];
     for (const source of sources) {
-      strokeRef.current.points.push(toNormalized(source.clientX, source.clientY));
+      shapeCurRef.current = toNormalized(source.clientX, source.clientY);
     }
-    paintLiveStroke();
+    paintLiveShape();
   };
 
   const handlePointerUp = () => {
-    if (tool !== 'pen' || !strokeRef.current) return;
-    const stroke = strokeRef.current;
-    if (strokeRafRef.current) { cancelAnimationFrame(strokeRafRef.current); strokeRafRef.current = 0; }
-    livePathRef.current?.setAttribute('d', strokePathD(stroke.points));
-    clearLiveStroke();
-    onStrokeCommit(pageNumber, stroke.points, cssWidth);
+    if (tool === 'pen') {
+      if (!strokeRef.current) return;
+      const stroke = strokeRef.current;
+      if (strokeRafRef.current) { cancelAnimationFrame(strokeRafRef.current); strokeRafRef.current = 0; }
+      livePathRef.current?.setAttribute('d', strokePathD(stroke.points));
+      clearLiveStroke();
+      onStrokeCommit(pageNumber, stroke.points, cssWidth);
+      return;
+    }
+    if (tool !== 'shape' || !shapeDraftRef.current) return;
+    const draft = shapeDraftRef.current;
+    clearLiveShape();
+    onShapeCommit(pageNumber, draft.kind, draft.sx, draft.sy, shapeCurRef.current.x, shapeCurRef.current.y, draft.pw);
   };
 
-  const drawingSurface = tool === 'pen';
+  const handlePointerCancel = () => {
+    clearLiveStroke();
+    clearLiveShape();
+  };
+
+  const drawingSurface = tool === 'pen' || tool === 'shape';
 
   return (
     <div
@@ -656,7 +963,21 @@ const PageView = memo(function PageView({
         '--total-scale-factor': renderScale,
       } as React.CSSProperties}
     >
-      <canvas ref={canvasRef} aria-label={`صفحة ${pageNumber}`} />
+      <canvas
+        ref={canvasRef}
+        aria-label={`صفحة ${pageNumber}`}
+        /* Wave 11.10 — note placement rides the canvas: in note mode the text
+         * layer is dormant (per the supervisor contract), so a tap lands here —
+         * the deepest interactive surface of the page. Icons/editor above still
+         * get their own events. A drag (>8px) is a gesture, not a placement. */
+        onPointerDown={tool === 'note' ? (event) => { noteDownRef.current = { x: event.clientX, y: event.clientY }; } : undefined}
+        onPointerUp={tool === 'note' ? (event) => {
+          const start = noteDownRef.current;
+          noteDownRef.current = null;
+          if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 8) return;
+          onNotePlace(pageNumber, event.clientX, event.clientY);
+        } : undefined}
+      />
 
       {/* Hotfix R18.2 — highlights live on their OWN blend surface. mix-blend-
           mode composites an element against its backdrop, but blending stops
@@ -694,32 +1015,102 @@ const PageView = memo(function PageView({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerCancel={clearLiveStroke}
+        onPointerCancel={handlePointerCancel}
       >
         {annotations.map((annotation) => {
-          if (annotation.annotationType !== 'Ink') return null;
-          return (
-            <path
-              key={annotation.id}
-              className="pdf-ink"
-              d={strokePathD(annotation.payload.points)}
-              stroke={annotation.payload.color}
-              /* Hotfix R16.4: page-relative fraction against the unit viewBox
-                 (see resolveInkStrokeWidth) — no raw px, no vector-effect. */
-              strokeWidth={resolveInkStrokeWidth(annotation.payload.width, cssWidth)}
-            />
-          );
+          if (annotation.annotationType === 'Ink') {
+            return (
+              <path
+                key={annotation.id}
+                className="pdf-ink"
+                d={strokePathD(annotation.payload.points)}
+                stroke={annotation.payload.color}
+                /* Hotfix R16.4: page-relative fraction against the unit viewBox
+                   (see resolveInkStrokeWidth) — no raw px, no vector-effect. */
+                strokeWidth={resolveInkStrokeWidth(annotation.payload.width, cssWidth)}
+              />
+            );
+          }
+          if (annotation.annotationType === 'Shape') {
+            return (
+              <ShapeNodes
+                key={annotation.id}
+                annotation={annotation}
+                cssWidth={cssWidth}
+                cssHeight={cssHeight}
+                selected={annotation.id === selectedShapeId}
+              />
+            );
+          }
+          /* Highlight → the blend layer above; Note → the DOM note layer. */
+          return null;
         })}
       </svg>
 
       <div
         ref={layerRef}
-        className={`pdf-text-layer${tool === 'pen' ? ' is-dormant' : ''}${textLayerDebugClass()}`}
+        className={`pdf-text-layer${tool === 'pen' || tool === 'shape' || tool === 'note' ? ' is-dormant' : ''}${textLayerDebugClass()}`}
         data-pdf-text-layer="true"
-        onPointerUp={onTextPointerUp ? () => onTextPointerUp(pageNumber) : undefined}
+        /* Pointer + highlighter modes only: the layer is dormant in pen/shape
+           (the ink SVG must receive the drag) and note mode (the canvas receives
+           the tap). The parent routes highlight-commit vs shape hit-test. */
+        onPointerUp={tool === 'pointer' || tool === 'highlighter'
+          ? (event) => onTextPointerUp(pageNumber, event.clientX, event.clientY)
+          : undefined}
+      />
+
+      {/* Wave 11.10 — sticky notes: DOM layer ABOVE the text layer (z 25);
+          container pointer-events none, icons/editor opt back in. */}
+      <NoteLayer
+        annotations={annotations}
+        openNoteId={openNoteId}
+        onOpen={onNoteOpen}
+        onCommit={onNoteCommit}
+        onDelete={onNoteDelete}
+        onClose={onNoteClose}
       />
     </div>
   );
 });
+
+/* ===== Wave 11.10 — committed shape rendering (inside the z-11 ink SVG) =====
+ * Box kinds read the drag box; the arrow computes its head in pixel space and
+ * stops the shaft at the wing midpoint so the tip stays sharp. Geometry that
+ * fails validation (e.g. a legacy/corrupt payload without w/h) renders null. */
+function ShapeNodes({ annotation, cssWidth, cssHeight, selected }: {
+  annotation: Extract<PdfAnnotation, { annotationType: 'Shape' }>;
+  cssWidth: number;
+  cssHeight: number;
+  selected: boolean;
+}) {
+  const p = annotation.payload;
+  const stroke = resolveInkStrokeWidth(p.strokeWidth, cssWidth);
+  const className = `pdf-shape${selected ? ' is-selected' : ''}`;
+
+  if (p.shape === 'arrow') {
+    if (p.x1 === undefined || p.y1 === undefined || p.x2 === undefined || p.y2 === undefined) return null;
+    const head = arrowHeadPoints(p.x1, p.y1, p.x2, p.y2, cssWidth, cssHeight, ARROW_HEAD_LENGTH_PX, ARROW_HEAD_HALF_WIDTH_PX);
+    const baseX = (head[0].x + head[2].x) / 2;
+    const baseY = (head[0].y + head[2].y) / 2;
+    return (
+      <g className={className}>
+        <line x1={p.x1} y1={p.y1} x2={baseX} y2={baseY} stroke={p.color} strokeWidth={stroke} />
+        <polygon className="pdf-arrow-head" points={polygonPointsAttr(head)} fill={p.color} stroke={p.color} strokeWidth={stroke} />
+      </g>
+    );
+  }
+
+  if (p.w === undefined || p.h === undefined) return null;
+  if (p.shape === 'rect') {
+    return <rect className={className} x={p.x} y={p.y} width={p.w} height={p.h} stroke={p.color} strokeWidth={stroke} />;
+  }
+  if (p.shape === 'ellipse') {
+    return <ellipse className={className} cx={p.x + p.w / 2} cy={p.y + p.h / 2} rx={p.w / 2} ry={p.h / 2} stroke={p.color} strokeWidth={stroke} />;
+  }
+  if (p.shape === 'star') {
+    return <polygon className={className} points={polygonPointsAttr(starPolygonPoints({ x: p.x, y: p.y, w: p.w, h: p.h }))} stroke={p.color} strokeWidth={stroke} />;
+  }
+  return null;
+}
 
 export default PdfPlayer;

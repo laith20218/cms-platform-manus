@@ -5,7 +5,8 @@
  * Drives the PRODUCTION library route (/subjects/:slug/library → LibraryPage →
  * DocumentViewer → PlayerShell kind="pdf" → code-split PdfPlayer) with a PDF
  * file: pdf.js canvas + selectable text layer + annotation toolbar (pointer /
- * highlighter / pen), page navigation, zoom, and server-persisted annotations.
+ * highlighter / pen / shape / note — Wave 11.10 adds diagram shapes and sticky
+ * notes), page navigation, zoom, and server-persisted annotations.
  *
  * RAM contract (hard rule §4): ONE Chromium instance, --headless=new
  * --disable-gpu --disable-dev-shm-usage, scenarios in browser.newContext()s,
@@ -350,6 +351,10 @@ async function main() {
       check('S1b pen tool reveals thickness slider + color palette', penExtras.thickness === 1 && penExtras.color === 1,
         `thickness=${penExtras.thickness} color=${penExtras.color}`);
 
+      // Wave 11.10 — the two new tools exist alongside the Phase 1 set.
+      const allTools = await page.locator('[data-testid^="pdf-tool-"]').count();
+      check('S1c Wave 11.10 — shape + note tools present (5 tools total)', allTools === 5, `all=${allTools}`);
+
       await page.screenshot({ path: `${SHOT_DIR}/pdf-s1b-pen.png` });
       await context.close();
     }
@@ -600,6 +605,135 @@ async function main() {
         `barY=${bar?.y} height=${bar?.height} bigTargets=${tapTargets}`,
       );
       await page.screenshot({ path: `${SHOT_DIR}/pdf-s10-mobile.png` });
+      await context.close();
+    }
+
+    /* ============ S11 — Wave 11.10: shape drag → payload + DOM → delete ============ */
+    {
+      const { context } = await newPdfContext(browser, viewportFor('desktop'));
+      const page = await context.newPage();
+      await openPdfPlayer(page);
+
+      await page.locator('[data-testid="pdf-tool-shape"]').click();
+      const kindPicker = await page.locator('[data-testid="pdf-shape-kinds"]').count();
+      await page.locator('[data-testid="pdf-shape-kind-rect"]').click();
+      check('S11-pre shape tool reveals the kind sub-picker', kindPicker === 1, `pickers=${kindPicker}`);
+
+      const pageBox = await page.locator('[data-testid="pdf-page-1"]').boundingBox();
+      const sx = pageBox.x + pageBox.width * 0.15;
+      const sy = pageBox.y + pageBox.height * 0.18;
+      const ex = pageBox.x + pageBox.width * 0.45;
+      const ey = pageBox.y + pageBox.height * 0.33;
+      await page.mouse.move(sx, sy);
+      await page.mouse.down();
+      await page.mouse.move(ex, ey, { steps: 10 });
+      await page.mouse.up();
+      await page.waitForTimeout(400);
+
+      await waitFor(() => Array.from(annotationStore.values()).some((a) => a.annotationType === 'Shape'));
+      const shape = Array.from(annotationStore.values()).find((a) => a.annotationType === 'Shape');
+      const p = shape?.payload ?? {};
+      const payloadOk = p.shape === 'rect'
+        && typeof p.x === 'number' && typeof p.y === 'number'
+        && p.w > 0.01 && p.h > 0.01
+        && p.x >= 0 && p.y >= 0 && p.x + p.w <= 1.001 && p.y + p.h <= 1.001
+        && p.strokeWidth > 0 && p.strokeWidth <= 0.1;
+      const domShapes = await page.locator('[data-annotation-page="1"] rect.pdf-shape').count();
+      check(
+        'S11a shape drag persists a normalized rect payload + renders',
+        payloadOk && domShapes > 0,
+        `shape=${p.shape} x=${p.x?.toFixed(3)} y=${p.y?.toFixed(3)} w=${p.w?.toFixed(3)} h=${p.h?.toFixed(3)} strokeWidth=${p.strokeWidth?.toFixed(5)} dom=${domShapes}`,
+      );
+
+      // Select via pointer-tool click INSIDE the rect, then Delete key.
+      await page.locator('[data-testid="pdf-tool-pointer"]').click();
+      await page.mouse.click((sx + ex) / 2, (sy + ey) / 2);
+      await page.waitForTimeout(200);
+      const trashVisible = await page.locator('[data-testid="pdf-delete-selected"]').count();
+      await page.keyboard.press('Delete');
+      await waitFor(() => !Array.from(annotationStore.values()).some((a) => a.annotationType === 'Shape'));
+      const domAfterDelete = await page.locator('[data-annotation-page="1"] rect.pdf-shape').count();
+      check(
+        'S11b pointer click selects the shape (trash appears) + Delete key removes it',
+        trashVisible === 1 && domAfterDelete === 0,
+        `trash=${trashVisible} domAfter=${domAfterDelete}`,
+      );
+      await page.screenshot({ path: `${SHOT_DIR}/pdf-s11-shape.png` });
+      await context.close();
+    }
+
+    /* ============ S12 — Wave 11.10: note tap → type → commit → reopen ============ */
+    {
+      const { context } = await newPdfContext(browser, viewportFor('desktop'));
+      const page = await context.newPage();
+      await openPdfPlayer(page);
+
+      await page.locator('[data-testid="pdf-tool-note"]').click();
+      const pageBox = await page.locator('[data-testid="pdf-page-1"]').boundingBox();
+      // The A4 page is ~1450px tall on a fit-width desktop viewport — keep the
+      // anchor inside the visible 800px window or the click is a silent no-op.
+      const noteX = pageBox.x + pageBox.width * 0.3;
+      const noteY = Math.min(pageBox.y + pageBox.height * 0.28, 700);
+      await page.mouse.click(noteX, noteY);
+      await page.locator('[data-testid="pdf-note-editor"]').waitFor({ state: 'visible', timeout: 5000 });
+      await page.locator('[data-testid="pdf-note-textarea"]').fill('ملاحظة تشريحية للمراجعة قبل الامتحان');
+      await page.keyboard.press('Escape'); // commit + close (blur/save path)
+      await page.waitForTimeout(300);
+
+      await waitFor(() => Array.from(annotationStore.values()).some(
+        (a) => a.annotationType === 'Note' && (a.payload?.text ?? '').includes('تشريحية'),
+      ));
+      const note = Array.from(annotationStore.values()).find((a) => a.annotationType === 'Note');
+      const noteOk = note
+        && typeof note.payload?.x === 'number' && typeof note.payload?.y === 'number'
+        && note.payload.x >= 0 && note.payload.x <= 1 && note.payload.y >= 0 && note.payload.y <= 1;
+      const iconsBefore = await page.locator('[data-testid="pdf-note-icon"]').count();
+      check(
+        'S12a note tap opens the editor; committed text persists with normalized anchor',
+        noteOk && iconsBefore >= 1,
+        `x=${note?.payload?.x?.toFixed(3)} y=${note?.payload?.y?.toFixed(3)} icons=${iconsBefore} text=${JSON.stringify((note?.payload?.text ?? '').slice(0, 24))}`,
+      );
+      await page.screenshot({ path: `${SHOT_DIR}/pdf-s12-note.png` });
+      await context.close();
+
+      /* Persistence leg — the S9 contract on the new types: the open player is
+       * component state, so "reload" is a FULL player remount against the same
+       * shared store (fresh context = fresh mount = fresh hydration). */
+      const reopened = await newPdfContext(browser, viewportFor('desktop'));
+      const page2 = await reopened.context.newPage();
+      await openPdfPlayer(page2);
+      await page2.locator('[data-testid="pdf-note-icon"]').first().waitFor({ state: 'visible', timeout: 15_000 });
+      const iconsAfter = await page2.locator('[data-testid="pdf-note-icon"]').count();
+      check('S12b reopen → note re-hydrated from the store and rendered', iconsAfter >= 1, `icons=${iconsAfter}`);
+
+      await page2.locator('[data-testid="pdf-note-icon"]').first().click();
+      await page2.locator('[data-testid="pdf-note-editor"]').waitFor({ state: 'visible', timeout: 5000 });
+      const restored = await page2.locator('[data-testid="pdf-note-textarea"]').inputValue();
+      check('S12c reopening the note restores its text', restored.includes('تشريحية'), JSON.stringify(restored.slice(0, 24)));
+      await page2.screenshot({ path: `${SHOT_DIR}/pdf-s12-note-reopen.png` });
+      await reopened.context.close();
+    }
+
+    /* ============ S13 — Wave 11.10: note trash icon deletes ============ */
+    {
+      const { context } = await newPdfContext(browser, viewportFor('desktop'));
+      const page = await context.newPage();
+      await openPdfPlayer(page);
+      await page.locator('[data-testid="pdf-note-icon"]').first().waitFor({ state: 'visible', timeout: 15_000 });
+      const notesBefore = Array.from(annotationStore.values()).filter((a) => a.annotationType === 'Note').length;
+
+      await page.locator('[data-testid="pdf-note-icon"]').first().click();
+      await page.locator('[data-testid="pdf-note-editor"]').waitFor({ state: 'visible', timeout: 5000 });
+      await page.locator('[data-testid="pdf-note-delete"]').click();
+      await waitFor(() => Array.from(annotationStore.values()).filter((a) => a.annotationType === 'Note').length < notesBefore);
+      await page.waitForTimeout(300);
+      const iconsAfter = await page.locator('[data-testid="pdf-note-icon"]').count();
+      check(
+        'S13 note trash icon deletes the note and unrenders the icon',
+        iconsAfter === 0,
+        `before=${notesBefore} iconsAfter=${iconsAfter}`,
+      );
+      await page.screenshot({ path: `${SHOT_DIR}/pdf-s13-note-delete.png` });
       await context.close();
     }
   } finally {

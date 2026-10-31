@@ -168,6 +168,19 @@ export function PlayerShell({
             <DialogPrimitive.Content
               asChild
               forceMount
+              /* Wave 11.10 — the sticky-note editor lives INSIDE the shell and
+                 uses Escape to commit+close. Radix's document-level Escape
+                 dismissal runs ahead of the editor's own keydown (the layer
+                 unmounts the whole shell mid-dispatch), so the dismissal is
+                 suppressed when the key originates inside the note editor —
+                 the editor's handler then commits and closes itself. Any
+                 other Escape target keeps the stock shell-dismiss behavior. */
+              onEscapeKeyDown={(event) => {
+                const target = event.target as HTMLElement | null;
+                if (target?.closest?.('[data-pdf-note-editor]')) {
+                  event.preventDefault();
+                }
+              }}
               {...(subtitle ? {} : { 'aria-describedby': undefined })}
             >
               <motion.div

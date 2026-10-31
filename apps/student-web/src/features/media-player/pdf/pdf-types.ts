@@ -40,9 +40,38 @@ export interface InkPayload {
   width: number;
 }
 
-export type PdfAnnotationPayload = HighlightPayload | InkPayload;
+/** Wave 11.10 — the drawable diagram shapes. Box kinds (rect | ellipse | star)
+ *  store the drag bounding box; the arrow stores both endpoints. strokeWidth
+ *  follows the ink contract: a fraction of the page width (0..0.1]. */
+export type ShapeKind = 'rect' | 'ellipse' | 'arrow' | 'star';
 
-export type PdfAnnotationTypeValue = 'Highlight' | 'Ink';
+export interface ShapePayload {
+  shape: ShapeKind;
+  /** Drag box — top-left corner + size (box kinds). */
+  x: number;
+  y: number;
+  w?: number;
+  h?: number;
+  /** Arrow endpoints (tail → head). x/y mirror the tail for a uniform contract. */
+  x1?: number;
+  y1?: number;
+  x2?: number;
+  y2?: number;
+  color: string;
+  strokeWidth: number;
+}
+
+/** Wave 11.10 — sticky note: icon anchor + the medical note text. */
+export interface NotePayload {
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+}
+
+export type PdfAnnotationPayload = HighlightPayload | InkPayload | ShapePayload | NotePayload;
+
+export type PdfAnnotationTypeValue = 'Highlight' | 'Ink' | 'Shape' | 'Note';
 
 /** Wire/entity shape (matches backend FileAnnotationDto camelCase).
  *  Type alias (not interface) — LazyPlayerMount's `Record<string, unknown>`
@@ -62,6 +91,22 @@ export type PdfAnnotation =
       pageNumber: number;
       annotationType: 'Ink';
       payload: InkPayload;
+      createdAt?: string;
+      updatedAt?: string;
+    }
+  | {
+      id: string;
+      pageNumber: number;
+      annotationType: 'Shape';
+      payload: ShapePayload;
+      createdAt?: string;
+      updatedAt?: string;
+    }
+  | {
+      id: string;
+      pageNumber: number;
+      annotationType: 'Note';
+      payload: NotePayload;
       createdAt?: string;
       updatedAt?: string;
     };
@@ -85,7 +130,11 @@ export interface PdfWatermark {
   siteName: string;
 }
 
-export type PdfTool = 'pointer' | 'highlighter' | 'pen';
+/** Wave 11.10 — 'shape' (diagram shapes) and 'note' (sticky notes) join Phase 1's tools. */
+export type PdfTool = 'pointer' | 'highlighter' | 'pen' | 'shape' | 'note';
+
+/** Convenience alias for sticky-note annotations (NoteLayer/editor contract). */
+export type NoteAnnotation = Extract<PdfAnnotation, { annotationType: 'Note' }>;
 
 /** Props contract for the code-split PdfPlayer (LazyPlayerMount). */
 export type PdfPlayerProps = {
