@@ -14,6 +14,8 @@ import {
 } from './pdf-geometry';
 import { NoteLayer } from './pdf-note-layer';
 import { PdfSearchPanel } from './pdf-search-panel';
+import { StudyToolsPanel } from './StudyToolsPanel';
+import { ThumbnailsRail } from './ThumbnailsRail';
 import {
   documentSearchCacheKey, findMatches, getCachedPageSearchItems, getCachedPageSearchSourceIndexes,
   getCachedPageSearchViewport, getPageSearchItems, matchFallbackBoxes,
@@ -830,14 +832,26 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
         saving={saving}
       />
 
-      <div className="relative min-h-0 flex-1">
+      {/* Wave 12.2.C.1 — MAIN ROW: [StudyToolsPanel] [CenterScroll] [ThumbnailsRail].
+          The flex-row order is LOGICAL (inline-start → inline-end): in the app's
+          RTL layout study tools land RIGHT, the center column MIDDLE, and the
+          thumbnails rail LEFT — the approved mockup. The row is the positioned
+          ancestor of the floating search panel (z-30, internal to the row).
+          RED LINE: the center scroll column is ALWAYS mounted and NEVER
+          collapses (no display:none / w-0) — unmounting it would destroy
+          canvas state, scroll position and the page IO observers. */}
+      <div className="relative min-h-0 flex-1 flex flex-row">
+        <StudyToolsPanel />
         <div
           ref={scrollRef}
           data-testid="pdf-scroll"
-          className="h-full overflow-y-auto overflow-x-hidden rounded-3xl bg-[#cbd5e1] px-3 py-4 sm:px-6"
+          className="h-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden rounded-3xl bg-[#cbd5e1] px-3 py-4 sm:px-6"
           style={{ touchAction: 'pan-y pinch-zoom' }}
         >
-          <div ref={contentRef} className="mx-auto w-full max-w-4xl">
+          {/* Wave 12.2.C.1 (E7) — max-w-4xl removed: the column fills the row
+              (fitScale + ResizeObserver already cap the page width); px-2/
+              sm:px-4 keep breathing room against the rail edges. */}
+          <div ref={contentRef} className="mx-auto w-full px-2 sm:px-4">
             {fitScale !== null && renderScale !== null && dims.map((dim, index) => {
               const pageNumber = index + 1;
               const cssWidth = dim.width * renderScale;
@@ -880,8 +894,12 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           </div>
         </div>
 
-        {/* Wave 11.11 — floating search panel: overlays the scroll column
-            (top-right), never the toolbar; z-30 inside this wrapper only. */}
+        {/* Wave 12.2.C.3 — inline-end rail slot (LEFT in RTL). */}
+        <ThumbnailsRail />
+
+        {/* Wave 11.11 — floating search panel: now anchored to the MAIN ROW
+            (12.2.C.1), so it floats over the center column between the rails;
+            z-30 internal to this wrapper. */}
         {searchOpen && (
           <PdfSearchPanel
             query={searchQuery}
