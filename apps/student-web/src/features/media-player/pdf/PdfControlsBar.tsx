@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import * as SliderPrimitive from '@radix-ui/react-slider';
 import {
-  ArrowUpRight, Check, ChevronLeft, ChevronRight, Circle, MoveHorizontal,
+  ArrowUpRight, Check, ChevronLeft, ChevronRight, Circle, Focus, MoveHorizontal,
   Redo, Search, Square, Star, Trash2, Undo, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { cn } from '@/utils';
@@ -146,6 +146,9 @@ export interface PdfControlsBarProps {
   canZoomIn: boolean;
   canZoomOut: boolean;
   saving: boolean;
+  /** Wave 12.2.C.5 — focus-mode toggle lives in the top bar (48px). */
+  focusMode: boolean;
+  onToggleFocus: () => void;
 }
 
 export function PdfControlsBar({
@@ -158,7 +161,7 @@ export function PdfControlsBar({
   canUndo, canRedo, onUndo, onRedo,
   page, pageCount, onPageChange, onPrevPage, onNextPage, onSearchOpen, scannedPage, scannedTitle,
   zoomPercent, onZoomIn, onZoomOut, onZoomFit, canZoomIn, canZoomOut,
-  saving,
+  saving, focusMode, onToggleFocus,
 }: PdfControlsBarProps) {
   const [pageInput, setPageInput] = useState(String(page));
 
@@ -366,6 +369,22 @@ export function PdfControlsBar({
             className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors hover:bg-white/10"
           >
             <MoveHorizontal className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+          {/* Wave 12.2.C.5 — focus mode: collapses chrome around the page;
+              exits via this toggle, the floating pill, Escape or F. */}
+          <button
+            type="button" onClick={onToggleFocus}
+            aria-pressed={focusMode}
+            aria-label={focusMode ? 'إنهاء وضع التركيز' : 'وضع التركيز'}
+            title="وضع التركيز (F)"
+            data-testid="pdf-focus-toggle"
+            className={`press inline-flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8] ${
+              focusMode
+                ? 'border-[#1685F8] bg-[#1685F8]/15 text-[#25C7E8] ring-2 ring-[#1685F8]'
+                : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <Focus className="h-5 w-5" strokeWidth={1.75} />
           </button>
         </div>
       </div>

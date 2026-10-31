@@ -108,13 +108,22 @@ export function StudyToolsPanel({
 
   return (
     <>
-      {/* Desktop rail (≥ lg): a 48px-button vertical stack, its own surface. */}
+      {/* Desktop rail (≥ lg): a 48px-button vertical stack, its own surface.
+          Focus mode (12.2.C.5) animates the WIDTH to 0 — keep-mounted,
+          overflow-hidden, border dropped; the inner fixed-width column keeps
+          every button mounted (never display:none, never unmount). */}
       <nav
         data-testid="pdf-study-tools"
         aria-label="أدوات الدراسة"
-        className={focusMode ? 'hidden' : 'hidden h-full w-14 shrink-0 flex-col items-center gap-1 border-e border-[#1e293b] bg-[#0b1120] py-2 lg:flex'}
+        aria-hidden={focusMode || undefined}
+        className={cn(
+          'hidden h-full shrink-0 overflow-hidden border-e transition-all duration-200 ease-out motion-reduce:transition-none lg:block',
+          focusMode ? 'w-0 border-transparent' : 'w-14 border-[#1e293b]',
+        )}
       >
-        {stack}
+        <div className="flex h-full w-14 flex-col items-center gap-1 bg-[#0b1120] py-2">
+          {stack}
+        </div>
       </nav>
 
       {/* Mobile (< lg): floating 48px trigger + inline-start Dialog drawer. */}

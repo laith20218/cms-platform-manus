@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getDocument, TextLayer, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { AlertTriangle, LoaderCircle, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Focus, LoaderCircle, RotateCcw } from 'lucide-react';
 import { libraryApi } from '@/features/library/services/library-api';
 import { usePdfAnnotations } from './usePdfAnnotations';
 import { PdfControlsBar } from './PdfControlsBar';
@@ -14,6 +14,7 @@ import {
 } from './pdf-geometry';
 import { NoteLayer } from './pdf-note-layer';
 import { PdfSearchPanel } from './pdf-search-panel';
+import { PdfStatusBar } from './PdfStatusBar';
 import { StudyToolsPanel } from './StudyToolsPanel';
 import { ThumbnailsRail } from './ThumbnailsRail';
 import {
@@ -180,6 +181,12 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
    * proportional slice box (layer not built, or span verification failed). */
   const [resolvedHitRects, setResolvedHitRects] = useState<Record<string, Array<NormalizedRect[] | null>>>({});
   const docFingerprint = useMemo(() => (doc ? documentSearchCacheKey(doc) : ''), [doc]);
+
+  /* ---- Wave 12.2.C.5 — focus mode: chrome collapses around the page. The
+          center scroll column NEVER collapses (red line); the rails, top bar
+          and status bar animate away while staying mounted. ---- */
+  const [focusMode, setFocusMode] = useState(false);
+  const toggleFocusMode = useCallback(() => setFocusMode((mode) => !mode), []);
   const lastNavIndexRef = useRef(-1);
   const currentPageRef = useRef(currentPage);
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
@@ -558,6 +565,30 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [undo, redo]);
 
+  /* ---- Wave 12.2.C.5 — Escape exits focus mode; F toggles it. Editable
+          targets (inputs/textareas) are guarded exactly like the history
+          chords above. Escape ALSO lands in PlayerShell's onEscapeKeyDown,
+          which suppresses the Radix shell dismissal while the player root
+          carries [data-pdf-focus-mode] (state re-renders one tick later, so
+          the attribute is still present during this very keypress). ---- */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && focusMode) {
+        event.preventDefault();
+        setFocusMode(false);
+        return;
+      }
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key.toLowerCase() !== 'f') return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      event.preventDefault();
+      setFocusMode((mode) => !mode);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [focusMode]);
+
   /* ---- Navigation / zoom callbacks ---- */
   const goToPage = useCallback((target: number) => {
     const clamped = Math.max(1, Math.min(dims?.length ?? 1, target));
@@ -788,7 +819,19 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   }
 
   return (
-    <div className="flex h-full w-full flex-col gap-3" data-testid={testId ?? 'pdf-player'}>
+    <div
+      className="flex h-full w-full flex-col gap-3"
+      data-testid={testId ?? 'pdf-player'}
+      data-pdf-focus-mode={focusMode ? 'true' : undefined}
+    >
+      {/* Wave 12.2.C.5 — the top bar collapses to max-h-0/opacity-0 in focus
+          mode (keep-mounted, overflow clipped, never display:none); the
+          floating exit pill takes over as the visible chrome. */}
+      <div
+        className={`shrink-0 overflow-hidden transition-all duration-200 ease-out motion-reduce:transition-none ${
+          focusMode ? 'max-h-0 -translate-y-3 opacity-0' : 'max-h-60 translate-y-0 opacity-100'
+        }`}
+      >
       <PdfControlsBar
         tool={tool}
         highlightColor={highlightColor}
@@ -829,7 +872,10 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
         canZoomIn={zoomIndex < ZOOM_STEPS.length - 1}
         canZoomOut={zoomIndex > 0}
         saving={saving}
+        focusMode={focusMode}
+        onToggleFocus={toggleFocusMode}
       />
+      </div>
 
       {/* Wave 12.2.C.1 — MAIN ROW: [StudyToolsPanel] [CenterScroll] [ThumbnailsRail].
           The flex-row order is LOGICAL (inline-start → inline-end): in the app's
@@ -857,6 +903,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           onSearchToggle={searchOpen ? closeSearch : openSearch}
           scannedPage={scannedPage}
           scannedTitle={SCANNED_PAGE_TOOLTIP}
+          focusMode={focusMode}
         />
         {/* Wave 12.2.C.2 (E2) — the page stage joins the dark ramp: the white
             .pdf-page sheets are the ONLY light surface left (paper contract,
@@ -921,7 +968,27 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           activePage={currentPage}
           cacheKey={docFingerprint}
           onGoToPage={goToPage}
+          focusMode={focusMode}
         />
+
+        {/* Wave 12.2.C.5 — focus-mode floating exit pill (the top bar is
+            collapsed; Escape/F work as well). Centered via inset-x so no
+            physical left/right offsets ever enter the tree. */}
+        {focusMode && (
+          <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center">
+            <button
+              type="button"
+              onClick={toggleFocusMode}
+              aria-label="إنهاء وضع التركيز (Esc)"
+              title="إنهاء وضع التركيز (Esc)"
+              data-testid="pdf-focus-exit"
+              className="press pointer-events-auto inline-flex h-12 items-center gap-2 rounded-full border border-[#1e293b] bg-[#0b1120]/90 px-4 text-xs font-bold text-slate-200 shadow-2xl backdrop-blur transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+            >
+              <Focus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+              إنهاء وضع التركيز
+            </button>
+          </div>
+        )}
 
         {/* Wave 11.11 — floating search panel: now anchored to the MAIN ROW
             (12.2.C.1), so it floats over the center column between the rails;
@@ -939,6 +1006,19 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           />
         )}
       </div>
+
+      {/* Wave 12.2.C.5 — status bar: page x/y · zoom % · saving · search i/n;
+          hides through the same keep-mounted animation in focus mode. */}
+      <PdfStatusBar
+        page={currentPage}
+        pageCount={pageCount}
+        zoomPercent={zoomPercent}
+        saving={saving}
+        searchOpen={searchOpen}
+        matchCount={searchMatches.length}
+        activeMatchIndex={safeActiveMatchIndex}
+        focusMode={focusMode}
+      />
 
       {/* Invisible watermark layer — silent protection (mirrors DocumentViewer). */}
       {watermark && (

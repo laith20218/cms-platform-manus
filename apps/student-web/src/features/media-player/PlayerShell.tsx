@@ -181,6 +181,15 @@ export function PlayerShell({
                 const target = event.target as HTMLElement | null;
                 if (target?.closest?.('[data-pdf-note-editor]') || target?.closest?.('[data-pdf-search-panel]')) {
                   event.preventDefault();
+                  return;
+                }
+                /* Wave 12.2.C.5 — focus mode consumes Escape: it exits focus,
+                   never the shell. The player root carries
+                   [data-pdf-focus-mode="true"] while focus mode is active
+                   (PdfPlayer), so the DOM query is authoritative even when the
+                   focused element is the body. */
+                if (document.querySelector('[data-pdf-focus-mode="true"]')) {
+                  event.preventDefault();
                 }
               }}
               {...(subtitle ? {} : { 'aria-describedby': undefined })}
