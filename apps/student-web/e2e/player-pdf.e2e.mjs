@@ -351,9 +351,14 @@ async function main() {
       check('S1b pen tool reveals thickness slider + color palette', penExtras.thickness === 1 && penExtras.color === 1,
         `thickness=${penExtras.thickness} color=${penExtras.color}`);
 
-      // Wave 11.10 — the two new tools exist alongside the Phase 1 set.
+      // Wave 11.10 added shape + note; Wave 11.11 added the eraser — 6 tools total.
       const allTools = await page.locator('[data-testid^="pdf-tool-"]').count();
-      check('S1c Wave 11.10 — shape + note tools present (5 tools total)', allTools === 5, `all=${allTools}`);
+      const eraserTool = await page.locator('[data-testid="pdf-tool-eraser"]').count();
+      check(
+        'S1c Wave 11.11 — shape + note + eraser tools present (6 tools total)',
+        allTools === 6 && eraserTool === 1,
+        `all=${allTools} eraser=${eraserTool}`,
+      );
 
       await page.screenshot({ path: `${SHOT_DIR}/pdf-s1b-pen.png` });
       await context.close();
