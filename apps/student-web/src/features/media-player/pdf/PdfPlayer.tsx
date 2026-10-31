@@ -897,8 +897,15 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           </div>
         </div>
 
-        {/* Wave 12.2.C.3 — inline-end rail slot (LEFT in RTL). */}
-        <ThumbnailsRail />
+        {/* Wave 12.2.C.3 — inline-end rail slot (LEFT in RTL). Lazy 96px
+            thumbnails, module-level offscreen canvas, FIFO-120 cache. */}
+        <ThumbnailsRail
+          doc={doc}
+          dims={dims}
+          activePage={currentPage}
+          cacheKey={docFingerprint}
+          onGoToPage={goToPage}
+        />
 
         {/* Wave 11.11 — floating search panel: now anchored to the MAIN ROW
             (12.2.C.1), so it floats over the center column between the rails;
