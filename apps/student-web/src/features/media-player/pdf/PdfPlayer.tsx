@@ -791,7 +791,6 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     <div className="flex h-full w-full flex-col gap-3" data-testid={testId ?? 'pdf-player'}>
       <PdfControlsBar
         tool={tool}
-        onToolChange={(next) => { setTool(next); setSelectedShapeId(null); }}
         highlightColor={highlightColor}
         onHighlightColorChange={setHighlightColor}
         penColor={penColor}
@@ -841,7 +840,24 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           collapses (no display:none / w-0) — unmounting it would destroy
           canvas state, scroll position and the page IO observers. */}
       <div className="relative min-h-0 flex-1 flex flex-row">
-        <StudyToolsPanel />
+        <StudyToolsPanel
+          tool={tool}
+          onToolChange={(next) => { setTool(next); setSelectedShapeId(null); }}
+          highlightColor={highlightColor}
+          onHighlightColorChange={setHighlightColor}
+          penColor={penColor}
+          onPenColorChange={setPenColor}
+          shapeKind={shapeKind}
+          onShapeKindChange={setShapeKind}
+          shapeColor={shapeColor}
+          onShapeColorChange={setShapeColor}
+          noteColor={noteColor}
+          onNoteColorChange={setNoteColor}
+          searchOpen={searchOpen}
+          onSearchToggle={searchOpen ? closeSearch : openSearch}
+          scannedPage={scannedPage}
+          scannedTitle={SCANNED_PAGE_TOOLTIP}
+        />
         {/* Wave 12.2.C.2 (E2) — the page stage joins the dark ramp: the white
             .pdf-page sheets are the ONLY light surface left (paper contract,
             non-negotiable). #071426 = the approved stage token. */}

@@ -1,9 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import * as SliderPrimitive from '@radix-ui/react-slider';
 import {
-  ArrowUpRight, Check, ChevronLeft, ChevronRight, Circle, Eraser, Highlighter, MousePointer2,
-  MoveHorizontal, Pencil, Redo, Search, Shapes, Square, Star, StickyNote, Trash2, Undo, ZoomIn, ZoomOut,
+  ArrowUpRight, Check, ChevronLeft, ChevronRight, Circle, MoveHorizontal,
+  Redo, Search, Square, Star, Trash2, Undo, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import type { PdfTool, ShapeKind } from './pdf-types';
@@ -31,25 +31,14 @@ import { HIGHLIGHT_COLORS, NOTE_COLORS, PEN_COLORS, SHAPE_COLORS } from './pdf-p
  * API, stage-targeted by design). The old zoom-fit button carried lucide's
  * `Maximize` glyph and read as a second fullscreen control — it now uses
  * `MoveHorizontal` (fit WIDTH, what it actually does).
+ *
+ * Wave 12.2.C.4 — the six TOOL buttons moved to the StudyToolsPanel rail
+ * (the rail now owns the canonical `pdf-tool-*` testids so the S1/S1c e2e
+ * contract counts stay exact). This bar keeps everything else: the
+ * contextual rows (pen thickness, palettes, shape kinds) driven by the
+ * shared tool state, delete-selected, undo/redo, search-open, page nav and
+ * zoom.
  */
-
-const TOOLS: Array<{ id: PdfTool; icon: typeof MousePointer2; label: string }> = [
-  { id: 'pointer', icon: MousePointer2, label: 'تحديد وتنقّل' },
-  { id: 'highlighter', icon: Highlighter, label: 'تظليل النص' },
-  { id: 'pen', icon: Pencil, label: 'قلم الحبر' },
-  { id: 'shape', icon: Shapes, label: 'أشكال توضيحية' },
-  { id: 'note', icon: StickyNote, label: 'ملاحظة لاصقة' },
-  { id: 'eraser', icon: Eraser, label: 'ممحاة ذكية' },
-];
-
-const TOOL_TEST_IDS: Record<PdfTool, string> = {
-  pointer: 'pdf-tool-pointer',
-  highlighter: 'pdf-tool-highlighter',
-  pen: 'pdf-tool-pen',
-  shape: 'pdf-tool-shape',
-  note: 'pdf-tool-note',
-  eraser: 'pdf-tool-eraser',
-};
 
 /** Wave 11.10 — the shape-kind sub-picker shown while the shape tool is active. */
 const SHAPE_KINDS: Array<{ id: ShapeKind; icon: typeof Square; label: string }> = [
@@ -58,41 +47,6 @@ const SHAPE_KINDS: Array<{ id: ShapeKind; icon: typeof Square; label: string }> 
   { id: 'arrow', icon: ArrowUpRight, label: 'سهم' },
   { id: 'star', icon: Star, label: 'نجمة' },
 ];
-
-function ToolButton({ active, label, testId, onClick, disabled = false, disabledTitle, children }: {
-  active: boolean;
-  label: string;
-  testId: string;
-  onClick: () => void;
-  /** Wave 11.11-C — scanned-page gating: disabled, NEVER hidden. */
-  disabled?: boolean;
-  /** Replaces the tooltip while disabled (the scanned-page reason). */
-  disabledTitle?: string;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      aria-pressed={active}
-      aria-disabled={disabled || undefined}
-      title={disabled && disabledTitle ? disabledTitle : label}
-      data-testid={testId}
-      data-active={active ? 'true' : 'false'}
-      className={cn(
-        'press inline-flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors',
-        active
-          ? 'border-teal-400/40 bg-teal-400/15 text-teal-300'
-          : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
-        disabled && 'cursor-not-allowed opacity-40',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 function Divider() {
   return <span aria-hidden="true" className="mx-1 hidden h-8 w-px bg-white/10 sm:block" />;
@@ -152,7 +106,6 @@ function ColorPicker({ label, colors, value, onChange, testId }: {
 
 export interface PdfControlsBarProps {
   tool: PdfTool;
-  onToolChange: (tool: PdfTool) => void;
   highlightColor: string;
   onHighlightColorChange: (color: string) => void;
   penColor: string;
@@ -196,7 +149,7 @@ export interface PdfControlsBarProps {
 }
 
 export function PdfControlsBar({
-  tool, onToolChange,
+  tool,
   highlightColor, onHighlightColorChange,
   penColor, onPenColorChange, penWidth, onPenWidthChange,
   shapeKind, onShapeKindChange, shapeColor, onShapeColorChange,
@@ -228,21 +181,10 @@ export function PdfControlsBar({
       data-testid="pdf-controls-bar"
       className="flex w-full flex-wrap items-center justify-center gap-1 rounded-3xl border border-white/10 bg-[#0b1120]/90 px-2 py-2 shadow-2xl backdrop-blur sm:justify-between sm:px-3"
     >
-      {/* Tools + contextual style controls */}
+      {/* Wave 12.2.C.4 — contextual controls only (the tool buttons moved to
+          the StudyToolsPanel rail): pen thickness/palette, shape kinds +
+          palette, note palette, eraser hint — driven by the shared tool state. */}
       <div className="flex items-center gap-1">
-        {TOOLS.map(({ id, icon: Icon, label }) => (
-          <ToolButton
-            key={id}
-            active={tool === id}
-            label={label}
-            testId={TOOL_TEST_IDS[id]}
-            onClick={() => onToolChange(id)}
-            disabled={scannedPage && id === 'highlighter'}
-            disabledTitle={scannedTitle}
-          >
-            <Icon className="h-5 w-5" strokeWidth={1.75} />
-          </ToolButton>
-        ))}
         {canDeleteSelected && (
           <button
             type="button"
