@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import {
-  clearSearchCache, findMatches, getCachedPageSearchViewport, getPageSearchItems,
+  caseFoldItem, clearSearchCache, findMatches, getCachedPageSearchViewport, getPageSearchItems,
   textBoxToNormalizedViewportBox, type SearchTextItem,
 } from '../pdf-search';
 import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
@@ -106,6 +106,69 @@ describe('findMatches', () => {
     const both = findMatches([...items, { ...items[0] }], 'diagnosis', 3);
     expect(both.map((m) => m.page)).toEqual([3, 3]);
     expect(both).toHaveLength(2);
+  });
+});
+
+/* ===== Wave 12.1 — char-level slices (R12.1.a) =====
+ * Matches now carry the ORIGINAL-string slice per covered item — the exact
+ * domain the text-layer spans carry. The whole-item boxes pre-12.1 emitted
+ * were the production "highlight covers the whole line" offset. */
+describe('findMatches slices (Wave 12.1)', () => {
+  it('reports the FULL original slice for a single-item match', () => {
+    const matches = findMatches(items, 'differential', 1);
+    expect(matches[0].boxes[0]).toMatchObject({ itemIndex: 0, sliceStart: 0, sliceEnd: 12 });
+  });
+
+  it('reports the PARTIAL original slice inside one item (the whole-line offset fix)', () => {
+    // 'Differential Diagnosis — Page One' — 'diagnosis' starts at char 13, 9 chars.
+    const matches = findMatches(items, 'diagnosis', 1);
+    expect(matches).toHaveLength(1);
+    expect(matches[0].boxes[0]).toMatchObject({ itemIndex: 0, sliceStart: 13, sliceEnd: 22 });
+  });
+
+  it('slices multi-item matches per covered item (partial first, full middle, full last)', () => {
+    const matches = findMatches(glyphItems, 'differential diagnosis', 1);
+    expect(matches[0].boxes).toHaveLength(3);
+    expect(matches[0].boxes[0]).toMatchObject({ itemIndex: 0, sliceStart: 0, sliceEnd: 4 });
+    expect(matches[0].boxes[1]).toMatchObject({ itemIndex: 1, sliceStart: 0, sliceEnd: 8 });
+    expect(matches[0].boxes[2]).toMatchObject({ itemIndex: 2, sliceStart: 0, sliceEnd: 10 });
+  });
+
+  it('case-fold round-trip: İ (U+0130) expands to two lowered units — slices map back 1:1', () => {
+    const istanbul: SearchTextItem[] = [
+      { str: 'İstanbul', transform: [1, 0, 0, 1, 10, 20], width: 40, height: 12 },
+    ];
+    // 'İSTANBUL'.toLowerCase() === 'i̇stanbul' (9 lowered units vs 8 original).
+    const full = findMatches(istanbul, 'İSTANBUL', 1);
+    expect(full).toHaveLength(1);
+    expect(full[0].boxes[0]).toMatchObject({ itemIndex: 0, sliceStart: 0, sliceEnd: 8 });
+    // Partial match ending mid-haystack: 'i̇st' (4 lowered units) → the
+    // original slice [0, 3) = 'İst' (the fold map walks back the expansion).
+    const partial = findMatches(istanbul, '\u0069\u0307st', 1);
+    expect(partial).toHaveLength(1);
+    expect(partial[0].boxes[0]).toMatchObject({ itemIndex: 0, sliceStart: 0, sliceEnd: 3 });
+  });
+
+  it('caseFoldItem: identity map for Arabic (no case), explicit map for İ', () => {
+    expect(caseFoldItem(ARABIC_BASE).fold).toBeNull();
+    const folded = caseFoldItem('İa');
+    expect(folded.lowered).toBe('\u0069\u0307a');
+    expect(folded.fold).toEqual([0, 0, 1]);
+  });
+
+  it('Arabic lowercasing is identity — slices stay positional', () => {
+    const matches = findMatches(items, ARABIC_BASE.slice(0, 3), 2);
+    expect(matches).toHaveLength(1);
+    expect(matches[0].boxes[0]).toMatchObject({ itemIndex: 1, sliceStart: 0, sliceEnd: 3 });
+  });
+
+  it('a boundary inside one expansion covers zero original chars — no phantom box', () => {
+    // Query 'i' matches only the first half of the lowered İ; the original
+    // slice would be empty, so the match is dropped entirely.
+    const single: SearchTextItem[] = [
+      { str: 'İ', transform: [1, 0, 0, 1, 10, 20], width: 8, height: 12 },
+    ];
+    expect(findMatches(single, 'i', 1)).toEqual([]);
   });
 });
 
@@ -238,6 +301,14 @@ describe('textBoxToNormalizedViewportBox (R30.1)', () => {
     expect(box.height).toBeCloseTo(36 / 842.88, 5);
   });
 
+  it('returns null for degenerate inputs (zero viewport, short matrix, zero glyph height)', () => {
+    const item = { transform: [21, 0, 0, 21, 10, 10], width: 20, height: 21 };
+    expect(textBoxToNormalizedViewportBox(item, VT, 0, VH)).toBeNull();
+    expect(textBoxToNormalizedViewportBox(item, VT, VW, 0)).toBeNull();
+    expect(textBoxToNormalizedViewportBox({ ...item, transform: [21, 0, 0, 21] }, VT, VW, VH)).toBeNull();
+    expect(textBoxToNormalizedViewportBox({ ...item, transform: [0, 0, 0, 0, 10, 10] }, VT, VW, VH)).toBeNull();
+  });
+
   it('keeps every mapped box inside [0, 1] for a full fixture page', () => {
     const pageItems = [
       { transform: [21, 0, 0, 21, 57.75, 757.38], width: 21.25, height: 21 },
@@ -252,13 +323,47 @@ describe('textBoxToNormalizedViewportBox (R30.1)', () => {
       expect(box.top + box.height).toBeLessThanOrEqual(1);
     }
   });
+});
 
-  it('returns null for degenerate inputs (zero viewport, short matrix, zero glyph height)', () => {
-    const item = { transform: [21, 0, 0, 21, 10, 10], width: 20, height: 21 };
-    expect(textBoxToNormalizedViewportBox(item, VT, 0, VH)).toBeNull();
-    expect(textBoxToNormalizedViewportBox(item, VT, VW, 0)).toBeNull();
-    expect(textBoxToNormalizedViewportBox({ ...item, transform: [21, 0, 0, 21] }, VT, VW, VH)).toBeNull();
-    expect(textBoxToNormalizedViewportBox({ ...item, transform: [0, 0, 0, 0, 10, 10] }, VT, VW, VH)).toBeNull();
+/* ===== Wave 12.1 — proportional slice fallback (R12.1.c) =====
+ * For pages whose text layer is not built, the box advances the run
+ * proportionally (item.width × slice fractions along the run direction)
+ * before corner folding — supervisor-locked formula. */
+describe('textBoxToNormalizedViewportBox slice fallback (Wave 12.1)', () => {
+  const IDENTITY = [1, 0, 0, 1, 0, 0];
+  const item = { transform: [2, 0, 0, 2, 100, 700], width: 100, height: 10 };
+
+  it('advances the run proportionally along the run direction', () => {
+    const box = textBoxToNormalizedViewportBox(item, IDENTITY, 1000, 1000, { startFraction: 0.25, endFraction: 0.75 })!;
+    // fontHeight 2 (tx[2], tx[3] = 0, 2); run x 125 → 175; glyph body 700 → 702.
+    expect(box.left).toBeCloseTo(0.125, 6);
+    expect(box.width).toBeCloseTo(0.05, 6);
+    expect(box.top).toBeCloseTo(0.7, 6);
+    expect(box.height).toBeCloseTo(0.002, 6);
+  });
+
+  it('clamps inverted / out-of-range fractions (degenerate slice collapses safely)', () => {
+    const box = textBoxToNormalizedViewportBox(item, IDENTITY, 1000, 1000, { startFraction: 0.9, endFraction: -2 })!;
+    expect(box.left).toBeCloseTo(0.19, 6);
+    expect(box.width).toBeCloseTo(0, 6);
+    expect(box.top).toBeCloseTo(0.7, 6);
+  });
+
+  it('mirrored run: the slice advances in the RUN direction (visual right → left)', () => {
+    // t[0] = −2: the run extends LEFT from the origin; slice 0→0.5 covers
+    // the FIRST half of the string, i.e. the visual RIGHT half of the run.
+    const mirrored = { transform: [-2, 0, 0, 2, 400, 700], width: 100, height: 10 };
+    const box = textBoxToNormalizedViewportBox(mirrored, IDENTITY, 1000, 1000, { startFraction: 0, endFraction: 0.5 })!;
+    expect(box.left).toBeCloseTo(0.35, 6); // x 350 → 400
+    expect(box.width).toBeCloseTo(0.05, 6);
+  });
+
+  it('without a slice the box is the FULL item (R30.1 behavior unchanged)', () => {
+    const box = textBoxToNormalizedViewportBox(item, IDENTITY, 1000, 1000)!;
+    expect(box.left).toBeCloseTo(0.1, 6);
+    expect(box.width).toBeCloseTo(0.1, 6);
+    expect(box.top).toBeCloseTo(0.7, 6);
+    expect(box.height).toBeCloseTo(0.002, 6);
   });
 });
 

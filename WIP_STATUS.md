@@ -1,3 +1,92 @@
+# WIP_STATUS — feat/12.1-search-char-precision (Wave 12.1, pre-push)
+
+## ─── STATUS ───────────────────────────────────────────
+Wave 12.1 (Search Char-Level Precision) IMPLEMENTED on
+branch feat/12.1-search-char-precision (1 commit on top
+of main 0ebda10). NOT pushed, NOT merged — push is a
+separate supervisor-authorized step (PAT withheld until
+after local verification per PART I deliverable).
+
+## ─── COMMITS ──────────────────────────────────────────
+1. fix(pdf): char-level search hit boxes via TextLayer
+   DOM ranges (12.1)
+   - pdf-search.ts: SearchMatch.boxes entries now carry
+     { itemIndex, sliceStart, sliceEnd } in the ORIGINAL
+     string domain (R12.1.a); case-fold index map
+     (caseFoldItem) maps lowered-domain match indices back
+     1:1 (İ-class expansions; Arabic = identity). textBox
+     ToNormalizedViewportBox gained the optional
+     proportional BoxSliceFractions run advance (the
+     supervisor-locked fallback formula; no-slice path is
+     bit-identical to R30.1). Cache entries now store
+     sourceIndexes (kept item → raw str-bearing item) and
+     expose getCachedPageSearchItems / getCachedPageSearch
+     SourceIndexes / documentSearchCacheKey.
+   - pdf-search-dom.ts (NEW): createSearchSpanMap walks
+     the TextLayer's leaf spans ONCE per layer build and
+     pins filtered items to spans via strict text
+     verification; resolveSearchMatchRects builds ONE DOM
+     Range per match and normalizes range.getClientRects()
+     with the production rectsFromRange (reuse, not a
+     reimplementation). pdf.js 6.4.299 span contract
+     verified from node_modules source
+     (legacy/build/pdf.mjs:21507-21576 — one span per
+     str-bearing item, textContent = item.str verbatim,
+     '' items get no span :21512/:21568, whitespace items
+     do, <br> siblings for hasEOL).
+   - PdfPlayer.tsx: PageView render effect captures the
+     raw span-text domain (rawStringsRef) and bumps
+     layerVersion after each textLayer.render(); a NEW
+     resolve effect (R12.1.b) resolves per-match rects and
+     reports to the parent (state keyed
+     `docFingerprint:pageNumber`, invalidated per query
+     generation and per document). searchHitsByPage (R12.1.c)
+     consumes DOM rects first, proportional-slice fallback
+     second. z-stack 0/10/11/15/20/25 unchanged; highlight/
+     pen/shape/note/eraser logic untouched; renderer divs
+     unchanged.
+   - e2e: player-pdf-11.11.e2e.mjs S5 gained the 12.1
+     char-precision gate (widthRatio ≤ 1.35 AND run
+     coverage ≥ 0.6 against a DOM Range over
+     'Differential') — the pre-12.1 whole-line boxes fail
+     it by ≈ 4×.
+
+## ─── VERIFICATION ─────────────────────────────────────
+- tsc -b: 0 errors.
+- eslint --max-warnings=0: clean.
+- vitest run: 20 files / 294 tests passed, 0 failed
+  (12.1 additions: slice math single/multi-item,
+  case-fold round-trip İ + Arabic identity,
+  expansion-boundary no-phantom-box, proportional slice
+  fallback incl. mirrored run + clamp, jsdom DOM-resolver
+  suite with Range.getClientRects stub + real
+  rectsFromRange).
+- e2e player-pdf-11.11.e2e.mjs: 19/19 passed, 0 console
+  errors, 0 page errors — NEW gate PASS:
+  widthRatio=1, runCoverage=1.211 (char-exact).
+- e2e player-pdf.e2e.mjs: 27/27 passed, 0 console errors,
+  0 page errors, Peak Chromium RSS 1015 MB (< 1600 §4).
+- Sandbox note: pnpm 9.12.0 via corepack, install
+  --frozen-lockfile (lockfile untouched, §3 held).
+
+## ─── UNVERIFIED / OPEN ────────────────────────────────
+- Production Arabic offset improvement is NOT verified in
+  a real browser here: the e2e Arabic fixture is
+  documented-corrupted (R25/S6 comment) — per PART I,
+  jsdom resolver tests are the Arabic authority. The
+  Latin e2e anchor proves the DOM pipeline end-to-end
+  (widthRatio = 1).
+- Vite dev server in this sandbox requires
+  E2E_WEB_URL=http://127.0.0.1:PORT (localhost v4/v6
+  binding quirk); no repo change needed.
+
+RESUME_FROM: Wave 12.1 committed locally on
+feat/12.1-search-char-precision @ (SHA in report) —
+awaiting supervisor PAT to push; then Wave 12.2 (layout
+restructure + dark theme) after its PART prompt.
+
+## ─── PRIOR STATE (Wave 11.8 / F2 Phase 1) ─────────────
+
 # WIP_STATUS — wip/11.8-f2-p1 (Wave 11.8 / F2 Phase 1, pre-push)
 
 ## ─── STATUS ───────────────────────────────────────────

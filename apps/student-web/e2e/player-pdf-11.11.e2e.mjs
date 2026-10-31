@@ -494,6 +494,76 @@ async function main() {
         align.ratio >= 0.5,
         JSON.stringify(align),
       );
+
+      // Wave 12.1 — CHAR-PRECISION gate: the highlight must cover the query
+      // run itself ('Differential' ≈ 12 of ~57 line chars), not the whole
+      // line. The DOM resolver rewrites the boxes right after the layer
+      // build, so the gate polls until the geometry is char-precise (the
+      // pre-12.1 whole-item boxes fail the widthRatio ≤ 1.35 arm by ≈ 4×).
+      let preciseInfo = { ok: false, note: 'precision gate did not resolve' };
+      try {
+        const preciseHandle = await page.waitForFunction(() => {
+          const pageEl = document.querySelector('[data-testid="pdf-page-1"]');
+          const hits = Array.from(pageEl?.querySelectorAll('.pdf-search-hit') ?? [])
+            .map((el) => el.getBoundingClientRect());
+          if (hits.length === 0) return false;
+          // The query run, measured from the SAME text-layer DOM the
+          // resolver used: a DOM Range over the chars 'Differential'.
+          const layer = pageEl?.querySelector('.pdf-text-layer');
+          if (!layer) return false;
+          const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
+          const query = 'Differential';
+          let joined = '';
+          const nodes = [];
+          let node = walker.nextNode();
+          while (node) {
+            nodes.push({ node, start: joined.length });
+            joined += node.nodeValue ?? '';
+            node = walker.nextNode();
+          }
+          const at = joined.indexOf(query);
+          if (at === -1) return false;
+          let startEntry = null;
+          let endEntry = null;
+          for (const entry of nodes) {
+            const end = entry.start + (entry.node.nodeValue?.length ?? 0);
+            if (!startEntry && at < end) startEntry = entry;
+            if (!endEntry && at + query.length <= end) endEntry = entry;
+          }
+          if (!startEntry || !endEntry) return false;
+          const runRange = document.createRange();
+          runRange.setStart(startEntry.node, at - startEntry.start);
+          runRange.setEnd(endEntry.node, at + query.length - endEntry.start);
+          const runRects = Array.from(runRange.getClientRects()).filter((r) => r.width > 1 && r.height > 1);
+          if (runRects.length === 0) return false;
+          const runWidth = Math.max(...runRects.map((r) => r.right)) - Math.min(...runRects.map((r) => r.left));
+          const inter = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left))
+            * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+          let hitArea = 0;
+          let covered = 0;
+          let maxRight = -Infinity;
+          let minLeft = Infinity;
+          for (const h of hits) {
+            hitArea += h.width * h.height;
+            minLeft = Math.min(minLeft, h.left);
+            maxRight = Math.max(maxRight, h.right);
+            for (const r of runRects) covered += inter(h, r);
+          }
+          const widthRatio = (maxRight - minLeft) / Math.max(1, runWidth);
+          const runCoverage = covered / Math.max(1, hitArea);
+          return widthRatio <= 1.35 && runCoverage >= 0.6
+            ? { ok: true, hits: hits.length, widthRatio: Number(widthRatio.toFixed(3)), runCoverage: Number(runCoverage.toFixed(3)) }
+            : false;
+        }, null, { timeout: 8000 });
+        preciseInfo = await preciseHandle.jsonValue();
+      } catch {
+        preciseInfo = { ok: false, note: 'boxes never became char-precise within 8s' };
+      }
+      check(
+        '12.1 S5: hit boxes are char-precise (cover the query run, not the whole line)',
+        preciseInfo?.ok === true,
+        JSON.stringify(preciseInfo),
+      );
       await page.screenshot({ path: `${SHOT_DIR}/w11.11-s5-search-latin.png` });
 
       // Close clears every transient layer.
