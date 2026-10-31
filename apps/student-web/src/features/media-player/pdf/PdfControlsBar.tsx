@@ -49,20 +49,26 @@ const SHAPE_KINDS: Array<{ id: ShapeKind; icon: typeof Square; label: string }> 
   { id: 'star', icon: Star, label: 'نجمة' },
 ];
 
-function ToolButton({ active, label, testId, onClick, children }: {
+function ToolButton({ active, label, testId, onClick, disabled = false, disabledTitle, children }: {
   active: boolean;
   label: string;
   testId: string;
   onClick: () => void;
+  /** Wave 11.11-C — scanned-page gating: disabled, NEVER hidden. */
+  disabled?: boolean;
+  /** Replaces the tooltip while disabled (the scanned-page reason). */
+  disabledTitle?: string;
   children: ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       aria-pressed={active}
-      title={label}
+      aria-disabled={disabled || undefined}
+      title={disabled && disabledTitle ? disabledTitle : label}
       data-testid={testId}
       data-active={active ? 'true' : 'false'}
       className={cn(
@@ -70,6 +76,7 @@ function ToolButton({ active, label, testId, onClick, children }: {
         active
           ? 'border-teal-400/40 bg-teal-400/15 text-teal-300'
           : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
+        disabled && 'cursor-not-allowed opacity-40',
       )}
     >
       {children}
@@ -160,6 +167,10 @@ export interface PdfControlsBarProps {
   onNextPage: () => void;
   /** Wave 11.11 — opens the floating search panel. */
   onSearchOpen: () => void;
+  /** Wave 11.11-C — the current page has no text layer (scanned). */
+  scannedPage: boolean;
+  /** Tooltip shown on text-dependent controls while scanned. */
+  scannedTitle: string;
   zoomPercent: number;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -176,7 +187,7 @@ export function PdfControlsBar({
   shapeKind, onShapeKindChange, shapeColor, onShapeColorChange,
   noteColor, onNoteColorChange,
   canDeleteSelected, onDeleteSelected,
-  page, pageCount, onPageChange, onPrevPage, onNextPage, onSearchOpen,
+  page, pageCount, onPageChange, onPrevPage, onNextPage, onSearchOpen, scannedPage, scannedTitle,
   zoomPercent, onZoomIn, onZoomOut, onZoomFit, canZoomIn, canZoomOut,
   saving,
 }: PdfControlsBarProps) {
@@ -204,7 +215,15 @@ export function PdfControlsBar({
       {/* Tools + contextual style controls */}
       <div className="flex items-center gap-1">
         {TOOLS.map(({ id, icon: Icon, label }) => (
-          <ToolButton key={id} active={tool === id} label={label} testId={TOOL_TEST_IDS[id]} onClick={() => onToolChange(id)}>
+          <ToolButton
+            key={id}
+            active={tool === id}
+            label={label}
+            testId={TOOL_TEST_IDS[id]}
+            onClick={() => onToolChange(id)}
+            disabled={scannedPage && id === 'highlighter'}
+            disabledTitle={scannedTitle}
+          >
             <Icon className="h-5 w-5" strokeWidth={1.75} />
           </ToolButton>
         ))}
@@ -293,10 +312,11 @@ export function PdfControlsBar({
         <button
           type="button"
           onClick={onSearchOpen}
-          aria-label="بحث في المستند"
-          title="بحث في المستند"
+          disabled={scannedPage}
+          aria-label={scannedPage ? scannedTitle : 'بحث في المستند'}
+          title={scannedPage ? scannedTitle : 'بحث في المستند'}
           data-testid="pdf-search-open"
-          className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors hover:bg-white/10"
+          className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Search className="h-5 w-5" strokeWidth={1.75} />
         </button>

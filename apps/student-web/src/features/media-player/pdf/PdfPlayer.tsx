@@ -119,6 +119,12 @@ const ERASER_RADIUS_PX = 12;
  * JPEG2000 / ICC image paths, and useSystemFonts lets non-embedded fonts
  * fall back to system shaping fonts instead of isolated glyphs. */
 const PDFJS_ASSET_BASE = `${import.meta.env.BASE_URL}pdfjs-dist/`;
+
+/* Wave 11.11-C — scanned pages are a FINAL state for now (OCR is Wave 13):
+ * the highlighter and search depend entirely on a text layer, so they are
+ * disabled — never hidden — with an explanatory tooltip on scanned pages. */
+const SCANNED_PAGE_TOOLTIP = 'هذه الصفحة ممسوحة ضوئياً — لا توجد طبقة نصية';
+
 interface PageDim { width: number; height: number }
 
 /** Stable empty list so memoized pages never see a fresh array identity. */
@@ -159,6 +165,15 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   const currentPageRef = useRef(currentPage);
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
 
+  /* Wave 11.11-C — per-page text-layer presence, fed by every page render.
+   * Unknown (undefined) = not yet rendered → tools stay ENABLED; only an
+   * explicit false (a rendered page with zero non-whitespace text items)
+   * gates the text-dependent tools. */
+  const [pageHasText, setPageHasText] = useState<Record<number, boolean>>({});
+  const handleTextLayerState = useCallback((pageNumber: number, hasText: boolean) => {
+    setPageHasText((prev) => (prev[pageNumber] === hasText ? prev : { ...prev, [pageNumber]: hasText }));
+  }, []);
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const pagesRef = useRef<Map<number, HTMLElement>>(new Map());
@@ -189,6 +204,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     setDocStatus('loading');
     setDoc(null);
     setDims(null);
+    setPageHasText({}); // per-page text-layer facts are per-document
     pagesRef.current = new Map();
     visibleRef.current = new Set();
     (async () => {
@@ -617,6 +633,8 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   }, [searchOpen, searchMatches, safeActiveMatchIndex, renderScale]);
 
   const pageCount = doc?.numPages ?? pagesCount ?? 0;
+  /* Wave 11.11-C — the ACTIVE page is scanned (rendered, zero text items). */
+  const scannedPage = pageHasText[currentPage] === false;
 
   if (docStatus === 'error') {
     return (
@@ -677,6 +695,8 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
         onPrevPage={() => goToPage(currentPage - 1)}
         onNextPage={() => goToPage(currentPage + 1)}
         onSearchOpen={openSearch}
+        scannedPage={scannedPage}
+        scannedTitle={SCANNED_PAGE_TOOLTIP}
         zoomPercent={zoomPercent}
         onZoomIn={() => setZoomIndex((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
         onZoomOut={() => setZoomIndex((i) => Math.max(0, i - 1))}
@@ -718,6 +738,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
                   searchHits={searchHitsByPage.get(pageNumber) ?? EMPTY_SEARCH_HITS}
                   registerPage={registerPage}
                   onTextPointerUp={handleTextPointerUp}
+                  onTextLayerState={handleTextLayerState}
                   onStrokeCommit={commitInk}
                   onShapeCommit={commitShape}
                   onNotePlace={createNote}
@@ -790,6 +811,8 @@ interface PageViewProps {
   openNoteId: string | null;
   /** Wave 11.11 — transient search-hit boxes for THIS page (page px space). */
   searchHits: SearchHitBox[];
+  /** Wave 11.11-C — reports text-layer presence after each page render. */
+  onTextLayerState: (pageNumber: number, hasText: boolean) => void;
   registerPage: (pageNumber: number, el: HTMLElement | null) => void;
   /** Pointer/highlighter routing on the text layer (see handleTextPointerUp). */
   onTextPointerUp: (pageNumber: number, clientX: number, clientY: number) => void;
@@ -813,7 +836,7 @@ const PageView = memo(function PageView({
   pageNumber, cssWidth, cssHeight, renderScale, doc, visible,
   annotations, tool, penColor, penWidth,
   shapeKind, shapeColor, selectedShapeId, openNoteId, searchHits,
-  registerPage, onTextPointerUp, onStrokeCommit,
+  registerPage, onTextPointerUp, onTextLayerState, onStrokeCommit,
   onShapeCommit, onNotePlace, onNoteOpen, onNoteCommit, onNoteDelete, onNoteClose, onEraseCommit,
 }: PageViewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -902,6 +925,12 @@ const PageView = memo(function PageView({
           viewport,
         });
         await textLayer.render();
+        // Wave 11.11-C — scanned-page detection: a page whose text content
+        // carries zero non-whitespace items has no usable text layer
+        // (image-only scans). Reported once per render; the parent gates the
+        // text-dependent tools on the CURRENT page's fact.
+        const hasTextLayer = items.some((item) => 'str' in item && item.str.trim().length > 0);
+        onTextLayerState(pageNumber, hasTextLayer);
       } catch (renderError) {
         // Cancellations (zoom/scroll teardown) are routine; anything else is a
         // real render failure and must be observable in the console.
@@ -918,7 +947,7 @@ const PageView = memo(function PageView({
       canvas.height = 0;
       layer.textContent = '';
     };
-  }, [visible, pageReady, renderScale, pageNumber, doc]);
+  }, [visible, pageReady, renderScale, pageNumber, doc, onTextLayerState]);
 
   // The pdf.js getPage call needs the page proxy before the first render —
   // resolve readiness once per (doc, pageNumber).

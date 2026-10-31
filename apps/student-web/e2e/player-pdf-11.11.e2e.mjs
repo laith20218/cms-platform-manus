@@ -471,6 +471,53 @@ async function main() {
       );
       await context.close();
     }
+
+    /* ===== S7 — scanned page (zero text items): text tools disable, others live ===== */
+    {
+      const { context } = await newPdfContext(browser, { width: 1280, height: 800 });
+      const page = await context.newPage();
+      await openPdfPlayer(page);
+
+      // Contrast on page 1 (a text page): both text-dependent controls on.
+      const hlOnText = page.locator('[data-testid="pdf-tool-highlighter"]');
+      const seOnText = page.locator('[data-testid="pdf-search-open"]');
+      await hlOnText.waitFor({ state: 'visible', timeout: 8000 });
+      const textPageOk = !(await hlOnText.isDisabled()) && !(await seOnText.isDisabled());
+      check(
+        '11.11-C S7: text page keeps highlighter + search enabled',
+        textPageOk,
+        `hl=${!(await hlOnText.isDisabled())} search=${!(await seOnText.isDisabled())}`,
+      );
+
+      // Navigate to page 3 — the fixture's SVG-only page (zero text items).
+      const pageInput = page.locator('[data-testid="pdf-page-input"]');
+      await pageInput.fill('3');
+      await pageInput.press('Enter');
+      await page.locator('[data-testid="pdf-page-3"] canvas').waitFor({ state: 'visible', timeout: 20000 });
+      await page.waitForFunction(() => {
+        const hl = document.querySelector('[data-testid="pdf-tool-highlighter"]');
+        const se = document.querySelector('[data-testid="pdf-search-open"]');
+        return (hl instanceof HTMLButtonElement && hl.disabled === true)
+          && (se instanceof HTMLButtonElement && se.disabled === true);
+      }, null, { timeout: 8000 });
+
+      const tooltips = await page.evaluate(() => ({
+        hl: document.querySelector('[data-testid="pdf-tool-highlighter"]')?.getAttribute('title') ?? '',
+        se: document.querySelector('[data-testid="pdf-search-open"]')?.getAttribute('title') ?? '',
+        visible: {
+          hl: !!(document.querySelector('[data-testid="pdf-tool-highlighter"]')),
+          se: !!(document.querySelector('[data-testid="pdf-search-open"]')),
+        },
+      }));
+      check(
+        '11.11-C S7: scanned page DISABLES (not hides) with the Arabic tooltip',
+        tooltips.hl.includes('ممسوحة') && tooltips.se.includes('ممسوحة')
+          && tooltips.visible.hl && tooltips.visible.se,
+        JSON.stringify(tooltips),
+      );
+      await page.screenshot({ path: `${SHOT_DIR}/w11.11-s7-scanned.png` });
+      await context.close();
+    }
   } finally {
     await browser.close();
   }
