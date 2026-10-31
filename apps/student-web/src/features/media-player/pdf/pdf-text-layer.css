@@ -250,3 +250,28 @@
 .pdf-note-layer.is-passive .pdf-note-editor {
   pointer-events: none;
 }
+
+/* ---- Wave 11.11 — text search (F2 Phase 3) ----
+   Transient search-hit layer: z-15 slots BETWEEN ink (11) and text (20) — the
+   ONLY new z-index this wave (0/10/11/20/25 unchanged). Transparent amber
+   boxes; the text layer above is color:transparent, so hits underneath stay
+   fully readable. Ephemeral by contract: never persisted, cleared on close. */
+
+.pdf-search-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  pointer-events: none;
+}
+
+.pdf-search-hit {
+  position: absolute;
+  background: rgba(251, 191, 36, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.45);
+  border-radius: 2px;
+}
+
+.pdf-search-hit.is-active {
+  background: rgba(251, 191, 36, 0.65);
+  box-shadow: inset 0 0 0 2px rgba(245, 158, 11, 0.9);
+}

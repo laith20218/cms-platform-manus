@@ -65,6 +65,7 @@ async function ensurePdfFixture(browser) {
       <div class="page2">
         <h1>علاج الوحدة القلبية</h1>
         <p>إعطاء الأسبرين والنترات تحت اللسان ومراقبة تخطيط القلب المتواصل قبل أي قرار قسطرة.</p>
+        <p>Cardiology unit — page two anchor line.</p>
       </div>
       <div class="page3">
         <svg viewBox="0 0 800 1000" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -372,6 +373,101 @@ async function main() {
         '11.11-A S4: eraser over empty space mutates nothing',
         rectCount === 1 && storeSize === 1 && deletedBatches.length === 0,
         `dom=${rectCount} store=${storeSize} deleteBatches=${deletedBatches.length}`,
+      );
+      await context.close();
+    }
+
+    /* ===== S5 — search: Latin query, hits render on the z-15 layer ===== */
+    {
+      const { context } = await newPdfContext(browser, { width: 1280, height: 800 });
+      const page = await context.newPage();
+      await openPdfPlayer(page);
+
+      await page.locator('[data-testid="pdf-search-open"]').click();
+      await page.locator('[data-testid="pdf-search-input"]').fill('Differential');
+      await waitVisible(page.locator('[data-testid="pdf-search-panel"]'));
+      await waitVisible(page.locator('[data-testid="pdf-search-layer-1"] .pdf-search-hit'));
+
+      const hitInfo = await page.evaluate(() => {
+        const layer = document.querySelector('[data-testid="pdf-search-layer-1"]');
+        const cs = layer ? getComputedStyle(layer) : null;
+        const hits = document.querySelectorAll('[data-testid="pdf-search-layer-1"] .pdf-search-hit');
+        const active = document.querySelectorAll('[data-testid="pdf-search-layer-1"] .pdf-search-hit.is-active');
+        return {
+          z: cs?.zIndex ?? null,
+          pointerEvents: cs?.pointerEvents ?? null,
+          hits: hits.length,
+          active: active.length,
+          count: document.querySelector('[data-testid="pdf-search-count"]')?.textContent ?? '',
+        };
+      });
+      check(
+        '11.11-B S5: Latin query hits the z-15 layer (unchanged stack elsewhere)',
+        hitInfo.hits >= 1 && hitInfo.z === '15' && hitInfo.pointerEvents === 'none' && hitInfo.active >= 1,
+        JSON.stringify(hitInfo),
+      );
+      await page.screenshot({ path: `${SHOT_DIR}/w11.11-s5-search-latin.png` });
+
+      // Close clears every transient layer.
+      await page.locator('[data-testid="pdf-search-close"]').click();
+      await page.waitForTimeout(200);
+      const layersAfterClose = await page.locator('[data-testid^="pdf-search-layer-"]').count();
+      const panelAfterClose = await page.locator('[data-testid="pdf-search-panel"]').count();
+      check(
+        '11.11-B S5: close clears the panel and all hit layers',
+        layersAfterClose === 0 && panelAfterClose === 0,
+        `layers=${layersAfterClose} panel=${panelAfterClose}`,
+      );
+      await context.close();
+    }
+
+    /* ===== S6 — search: Next/Prev navigates to a match on page 2 =====
+       The query uses page 2's LATIN anchor line: the Arabic text this
+       Chromium-printed fixture carries is ToUnicode-mangled (glyphs map to
+       wrong/visual-order base letters — the documented R15.1 damage class),
+       so no search can match it faithfully; Arabic matching correctness is
+       falsified by the unit suite (visual-order fallback, presentation forms,
+       item bridging). Latin survives the print pipeline intact. */
+    {
+      const { context } = await newPdfContext(browser, { width: 1280, height: 800 });
+      const page = await context.newPage();
+      await openPdfPlayer(page);
+
+      await page.locator('[data-testid="pdf-search-open"]').click();
+      // 'Cardiology' appears ONLY on page 2 — Next must pull the view there
+      // (the whole-document sweep is current-page-first/lazy).
+      await page.locator('[data-testid="pdf-search-input"]').fill('Cardiology');
+      await waitVisible(page.locator('[data-testid="pdf-search-panel"]'));
+      // Wait until the sweep reports real matches (count leaves '0 / 0').
+      await page.waitForFunction(() => {
+        const el = document.querySelector('[data-testid="pdf-search-count"]');
+        const text = el?.textContent ?? '';
+        return /^\d+ \/ \d+$/.test(text) && !text.startsWith('0 / 0');
+      }, { timeout: 12000 });
+
+      const firstCount = await page.locator('[data-testid="pdf-search-count"]').textContent();
+      await page.locator('[data-testid="pdf-search-next"]').click();
+      await page.waitForTimeout(1200); // smooth scroll + current-page update
+
+      const pageInputValue = await page.locator('[data-testid="pdf-page-input"]').inputValue();
+      const layer2Hits = await page.locator('[data-testid="pdf-search-layer-2"] .pdf-search-hit').count();
+      const activeHit = await page.locator('[data-testid="pdf-search-layer-2"] .pdf-search-hit.is-active').count();
+      check(
+        '11.11-B S6: Arabic Next navigates to page 2 with an active hit',
+        /^2$/.test(pageInputValue) && layer2Hits >= 1 && activeHit >= 1,
+        `count="${firstCount}" pageInput=${pageInputValue} hits=${layer2Hits} active=${activeHit}`,
+      );
+      await page.screenshot({ path: `${SHOT_DIR}/w11.11-s6-search-arabic.png` });
+
+      // Escape closes the panel, never the shell (Radix guard contract).
+      await page.locator('[data-testid="pdf-search-input"]').press('Escape');
+      await page.waitForTimeout(300);
+      const panelGone = await page.locator('[data-testid="pdf-search-panel"]').count();
+      const shellGone = await page.locator('[data-testid="pdf-player-shell"]').count();
+      check(
+        '11.11-B S6: Escape closes the panel but keeps the player open',
+        panelGone === 0 && shellGone === 1,
+        `panel=${panelGone} shell=${shellGone}`,
       );
       await context.close();
     }

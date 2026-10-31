@@ -3,7 +3,7 @@ import * as PopoverPrimitive from '@radix-ui/react-popover';
 import * as SliderPrimitive from '@radix-ui/react-slider';
 import {
   ArrowUpRight, Check, ChevronLeft, ChevronRight, Circle, Eraser, Highlighter, Maximize, MousePointer2,
-  Pencil, Shapes, Square, Star, StickyNote, Trash2, ZoomIn, ZoomOut,
+  Pencil, Search, Shapes, Square, Star, StickyNote, Trash2, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import type { PdfTool, ShapeKind } from './pdf-types';
@@ -158,6 +158,8 @@ export interface PdfControlsBarProps {
   onPageChange: (page: number) => void;
   onPrevPage: () => void;
   onNextPage: () => void;
+  /** Wave 11.11 — opens the floating search panel. */
+  onSearchOpen: () => void;
   zoomPercent: number;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -174,7 +176,7 @@ export function PdfControlsBar({
   shapeKind, onShapeKindChange, shapeColor, onShapeColorChange,
   noteColor, onNoteColorChange,
   canDeleteSelected, onDeleteSelected,
-  page, pageCount, onPageChange, onPrevPage, onNextPage,
+  page, pageCount, onPageChange, onPrevPage, onNextPage, onSearchOpen,
   zoomPercent, onZoomIn, onZoomOut, onZoomFit, canZoomIn, canZoomOut,
   saving,
 }: PdfControlsBarProps) {
@@ -288,6 +290,16 @@ export function PdfControlsBar({
 
       {/* Page navigation — physical LTR cluster (numerals + arrows), ControlsBar precedent */}
       <div dir="ltr" className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onSearchOpen}
+          aria-label="بحث في المستند"
+          title="بحث في المستند"
+          data-testid="pdf-search-open"
+          className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors hover:bg-white/10"
+        >
+          <Search className="h-5 w-5" strokeWidth={1.75} />
+        </button>
         <button
           type="button" onClick={onPrevPage} disabled={page <= 1}
           aria-label="الصفحة السابقة" data-testid="pdf-page-prev"

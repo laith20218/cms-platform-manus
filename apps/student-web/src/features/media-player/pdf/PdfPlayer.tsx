@@ -13,6 +13,8 @@ import {
   starPolygonPoints, strokePathD,
 } from './pdf-geometry';
 import { NoteLayer } from './pdf-note-layer';
+import { PdfSearchPanel } from './pdf-search-panel';
+import { findMatches, getPageSearchItems, type SearchHitBox, type SearchMatch } from './pdf-search';
 import type {
   NormalizedPoint, NoteAnnotation, PdfAnnotation, PdfPlayerProps, PdfTool, ShapeKind,
 } from './pdf-types';
@@ -121,6 +123,8 @@ interface PageDim { width: number; height: number }
 
 /** Stable empty list so memoized pages never see a fresh array identity. */
 const EMPTY_PAGE_ANNOTATIONS: PdfAnnotation[] = [];
+/** Stable empty search-hit list (same memo-identity contract). */
+const EMPTY_SEARCH_HITS: SearchHitBox[] = [];
 
 export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerProps) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
@@ -141,6 +145,19 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   const [noteColor, setNoteColor] = useState<string>(DEFAULT_NOTE_COLOR);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
   const [openNoteId, setOpenNoteId] = useState<string | null>(null);
+
+  /* Wave 11.11 — text search (B): ENTIRELY transient state — never persisted,
+   * never broadcast; the sweep is cancellable via a token, current page first,
+   * then the rest ascending. */
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMatches, setSearchMatches] = useState<SearchMatch[]>([]);
+  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const [searchProgress, setSearchProgress] = useState<{ done: number; total: number } | null>(null);
+  const searchSweepTokenRef = useRef(0);
+  const lastNavIndexRef = useRef(-1);
+  const currentPageRef = useRef(currentPage);
+  useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -491,8 +508,113 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     pagesRef.current.get(clamped)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [dims]);
 
+  /* ---- Wave 11.11 — search sweep (B): debounced, cancellable, whole-doc
+          lazy. Current page is searched first; the remaining pages stream in
+          ascending order with a live done/total counter. ---- */
+  const runSearchSweep = useCallback(async (rawQuery: string, token: number) => {
+    if (!doc) return;
+    const total = doc.numPages;
+    const first = currentPageRef.current;
+    const order = [first, ...Array.from({ length: total }, (_, i) => i + 1).filter((n) => n !== first)];
+    const collected: SearchMatch[] = [];
+    lastNavIndexRef.current = -1;
+    setSearchMatches([]);
+    setActiveMatchIndex(0);
+    setSearchProgress({ done: 0, total });
+    for (let i = 0; i < order.length; i += 1) {
+      if (searchSweepTokenRef.current !== token) return;
+      try {
+        const items = await getPageSearchItems(doc, order[i]);
+        if (searchSweepTokenRef.current !== token) return;
+        collected.push(...findMatches(items, rawQuery, order[i]));
+        setSearchMatches(collected.slice());
+      } catch {
+        /* a page that fails to extract is skipped; the sweep continues */
+      }
+      if (searchSweepTokenRef.current !== token) return;
+      setSearchProgress({ done: i + 1, total });
+    }
+    setSearchProgress(null);
+  }, [doc]);
+
+  useEffect(() => {
+    if (!searchOpen || !doc) return;
+    const token = ++searchSweepTokenRef.current;
+    const query = searchQuery.trim();
+    if (!query) {
+      lastNavIndexRef.current = -1;
+      setSearchMatches([]);
+      setActiveMatchIndex(0);
+      setSearchProgress(null);
+      return;
+    }
+    const timer = setTimeout(() => { void runSearchSweep(query, token); }, 250);
+    return () => clearTimeout(timer);
+  }, [searchOpen, searchQuery, doc, runSearchSweep]);
+
+  const safeActiveMatchIndex = searchMatches.length > 0
+    ? Math.min(activeMatchIndex, searchMatches.length - 1)
+    : 0;
+
+  /* Next/Prev navigates EXACTLY when the active index changes — never when
+     the student scrolls manually (that must not yank the view back). */
+  useEffect(() => {
+    if (!searchOpen || searchMatches.length === 0) return;
+    if (lastNavIndexRef.current === safeActiveMatchIndex) return;
+    lastNavIndexRef.current = safeActiveMatchIndex;
+    const match = searchMatches[safeActiveMatchIndex];
+    if (match && match.page !== currentPage) goToPage(match.page);
+  }, [searchOpen, safeActiveMatchIndex, searchMatches, currentPage, goToPage]);
+
+  const searchNext = useCallback(() => {
+    setActiveMatchIndex((index) => (searchMatches.length > 0 ? (index + 1) % searchMatches.length : 0));
+  }, [searchMatches.length]);
+
+  const searchPrev = useCallback(() => {
+    setActiveMatchIndex((index) => (searchMatches.length > 0 ? (index - 1 + searchMatches.length) % searchMatches.length : 0));
+  }, [searchMatches.length]);
+
+  const openSearch = useCallback(() => {
+    lastNavIndexRef.current = -1;
+    setSearchOpen(true);
+  }, []);
+
+  const closeSearch = useCallback(() => {
+    searchSweepTokenRef.current += 1; // cancel any in-flight sweep
+    lastNavIndexRef.current = -1;
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchMatches([]);
+    setActiveMatchIndex(0);
+    setSearchProgress(null);
+  }, []);
+
   const renderScale = fitScale !== null ? fitScale * (ZOOM_STEPS[zoomIndex] ?? 1) : null;
   const zoomPercent = (ZOOM_STEPS[zoomIndex] ?? 1) * 100;
+
+  /* Wave 11.11 — per-page highlight boxes (page pixel space, render scale
+         applied). A match may span several pdf.js items → one box per
+         covered item, all sharing the match's active state. Pages without
+         hits receive the stable empty list. */
+  const searchHitsByPage = useMemo(() => {
+    const map = new Map<number, SearchHitBox[]>();
+    if (!searchOpen || renderScale === null) return map;
+    searchMatches.forEach((match, matchIndex) => {
+      const list = map.get(match.page);
+      const target = list ?? [];
+      for (const box of match.boxes) {
+        target.push({
+          left: box.transform[4] * renderScale,
+          top: (box.transform[5] - box.height) * renderScale,
+          width: box.width * renderScale,
+          height: box.height * renderScale,
+          active: matchIndex === safeActiveMatchIndex,
+        });
+      }
+      if (!list) map.set(match.page, target);
+    });
+    return map;
+  }, [searchOpen, searchMatches, safeActiveMatchIndex, renderScale]);
 
   const pageCount = doc?.numPages ?? pagesCount ?? 0;
 
@@ -554,6 +676,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
         onPageChange={goToPage}
         onPrevPage={() => goToPage(currentPage - 1)}
         onNextPage={() => goToPage(currentPage + 1)}
+        onSearchOpen={openSearch}
         zoomPercent={zoomPercent}
         onZoomIn={() => setZoomIndex((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
         onZoomOut={() => setZoomIndex((i) => Math.max(0, i - 1))}
@@ -563,48 +686,66 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
         saving={saving}
       />
 
-      <div
-        ref={scrollRef}
-        data-testid="pdf-scroll"
-        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-3xl bg-[#cbd5e1] px-3 py-4 sm:px-6"
-        style={{ touchAction: 'pan-y pinch-zoom' }}
-      >
-        <div ref={contentRef} className="mx-auto w-full max-w-4xl">
-          {fitScale !== null && renderScale !== null && dims.map((dim, index) => {
-            const pageNumber = index + 1;
-            const cssWidth = dim.width * renderScale;
-            const cssHeight = dim.height * renderScale;
-            return (
-              <PageView
-                key={pageNumber}
-                pageNumber={pageNumber}
-                cssWidth={cssWidth}
-                cssHeight={cssHeight}
-                renderScale={renderScale}
-                doc={doc}
-                visible={visiblePages.has(pageNumber)}
-                annotations={annotationsByPage.get(pageNumber) ?? EMPTY_PAGE_ANNOTATIONS}
-                tool={tool}
-                penColor={penColor}
-                penWidth={penWidth}
-                shapeKind={shapeKind}
-                shapeColor={shapeColor}
-                selectedShapeId={selectedShapeId}
-                openNoteId={openNoteId}
-                registerPage={registerPage}
-                onTextPointerUp={handleTextPointerUp}
-                onStrokeCommit={commitInk}
-                onShapeCommit={commitShape}
-                onNotePlace={createNote}
-                onNoteOpen={setOpenNoteId}
-                onNoteCommit={commitNoteText}
-                onNoteDelete={deleteNote}
-                onNoteClose={closeNote}
-                onEraseCommit={eraseAnnotations}
-              />
-            );
-          })}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scrollRef}
+          data-testid="pdf-scroll"
+          className="h-full overflow-y-auto overflow-x-hidden rounded-3xl bg-[#cbd5e1] px-3 py-4 sm:px-6"
+          style={{ touchAction: 'pan-y pinch-zoom' }}
+        >
+          <div ref={contentRef} className="mx-auto w-full max-w-4xl">
+            {fitScale !== null && renderScale !== null && dims.map((dim, index) => {
+              const pageNumber = index + 1;
+              const cssWidth = dim.width * renderScale;
+              const cssHeight = dim.height * renderScale;
+              return (
+                <PageView
+                  key={pageNumber}
+                  pageNumber={pageNumber}
+                  cssWidth={cssWidth}
+                  cssHeight={cssHeight}
+                  renderScale={renderScale}
+                  doc={doc}
+                  visible={visiblePages.has(pageNumber)}
+                  annotations={annotationsByPage.get(pageNumber) ?? EMPTY_PAGE_ANNOTATIONS}
+                  tool={tool}
+                  penColor={penColor}
+                  penWidth={penWidth}
+                  shapeKind={shapeKind}
+                  shapeColor={shapeColor}
+                  selectedShapeId={selectedShapeId}
+                  openNoteId={openNoteId}
+                  searchHits={searchHitsByPage.get(pageNumber) ?? EMPTY_SEARCH_HITS}
+                  registerPage={registerPage}
+                  onTextPointerUp={handleTextPointerUp}
+                  onStrokeCommit={commitInk}
+                  onShapeCommit={commitShape}
+                  onNotePlace={createNote}
+                  onNoteOpen={setOpenNoteId}
+                  onNoteCommit={commitNoteText}
+                  onNoteDelete={deleteNote}
+                  onNoteClose={closeNote}
+                  onEraseCommit={eraseAnnotations}
+                />
+              );
+            })}
+          </div>
         </div>
+
+        {/* Wave 11.11 — floating search panel: overlays the scroll column
+            (top-right), never the toolbar; z-30 inside this wrapper only. */}
+        {searchOpen && (
+          <PdfSearchPanel
+            query={searchQuery}
+            onQueryChange={setSearchQuery}
+            matchCount={searchMatches.length}
+            activeIndex={safeActiveMatchIndex}
+            progress={searchProgress}
+            onNext={searchNext}
+            onPrev={searchPrev}
+            onClose={closeSearch}
+          />
+        )}
       </div>
 
       {/* Invisible watermark layer — silent protection (mirrors DocumentViewer). */}
@@ -647,6 +788,8 @@ interface PageViewProps {
   shapeColor: string;
   selectedShapeId: string | null;
   openNoteId: string | null;
+  /** Wave 11.11 — transient search-hit boxes for THIS page (page px space). */
+  searchHits: SearchHitBox[];
   registerPage: (pageNumber: number, el: HTMLElement | null) => void;
   /** Pointer/highlighter routing on the text layer (see handleTextPointerUp). */
   onTextPointerUp: (pageNumber: number, clientX: number, clientY: number) => void;
@@ -669,7 +812,7 @@ interface PageViewProps {
 const PageView = memo(function PageView({
   pageNumber, cssWidth, cssHeight, renderScale, doc, visible,
   annotations, tool, penColor, penWidth,
-  shapeKind, shapeColor, selectedShapeId, openNoteId,
+  shapeKind, shapeColor, selectedShapeId, openNoteId, searchHits,
   registerPage, onTextPointerUp, onStrokeCommit,
   onShapeCommit, onNotePlace, onNoteOpen, onNoteCommit, onNoteDelete, onNoteClose, onEraseCommit,
 }: PageViewProps) {
@@ -1135,6 +1278,25 @@ const PageView = memo(function PageView({
           return null;
         })}
       </svg>
+
+      {/* Wave 11.11 — transient search-hit layer (z 15, between ink and text;
+          pointer-events none, never persisted, driven by search state only). */}
+      {searchHits.length > 0 && (
+        <div
+          className="pdf-search-layer"
+          data-testid={`pdf-search-layer-${pageNumber}`}
+          aria-hidden="true"
+        >
+          {searchHits.map((hit, index) => (
+            <div
+              key={index}
+              className={`pdf-search-hit${hit.active ? ' is-active' : ''}`}
+              data-active={hit.active ? 'true' : 'false'}
+              style={{ left: hit.left, top: hit.top, width: hit.width, height: hit.height }}
+            />
+          ))}
+        </div>
+      )}
 
       <div
         ref={layerRef}
