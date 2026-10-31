@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { Util, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { normalizeArabicPresentationForms } from './pdf-text';
 
 /**
@@ -48,9 +48,112 @@ export interface SearchHitBox {
   active: boolean;
 }
 
-const PAGE_TEXT_CACHE = new Map<string, SearchTextItem[]>();
+/** A positioned rectangle in normalized [0, 1] viewport space (R30.1) —
+ *  multiply by the canvas CSS size to land on exact page pixels. */
+export interface NormalizedBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** One cached page: searchable items + the scale-1 viewport that maps their
+ *  transforms to page space (R30.1 — the mapping authority is captured ONCE
+ *  at extraction so highlight math and the render pipeline share one source). */
+interface PageSearchCacheEntry {
+  items: SearchTextItem[];
+  viewport: { transform: number[]; width: number; height: number } | null;
+}
+
+const PAGE_TEXT_CACHE = new Map<string, PageSearchCacheEntry>();
 /** generous ceiling: extraction is the cost, entries are tiny */
 const PAGE_TEXT_CACHE_MAX_ENTRIES = 600;
+
+/**
+ * R30.1 — converts one pdf.js text item into a normalized [0, 1] rectangle
+ * relative to the page canvas, through the SAME pipeline the pdf.js TextLayer
+ * itself uses: `Util.transform(viewport.transform, item.transform)`.
+ *
+ * The old math (`left = transform[4]`, `top = transform[5] - height`) ignored
+ * the viewport entirely — user space is y-UP (origin bottom-left) while the
+ * canvas is y-DOWN, so every box landed near the page bottom (fixture item:
+ * oldTop=736px vs true top=64.5px on an 843px page — the reported
+ * "shifted right and down").
+ *
+ * RTL CONTRACT (fixture-proven, pdfjs-dist 6.4.299 text_layer.mjs): pdf.js
+ * sets the span's `dir` ATTRIBUTE but never flips POSITIONING for it — and
+ * for the visual-order Arabic streams this platform serves (Chromium/Word
+ * print pipelines), `dir === 'rtl'` items still advance in +x with the
+ * transform origin at the visual LEFT edge (glyph "ﻲ" e=57.75 → "ﻘ" e=79 …
+ * across one word). A dir-based right-edge flip would therefore MISALIGN
+ * exactly the documents in production. The transform matrix itself encodes
+ * the true geometry: mirrored runs (t[0] < 0) put the origin at the visual
+ * RIGHT edge — the min/max corner normalization below folds that out with
+ * no dir special-case.
+ *
+ * Height spans one FULL font height above the baseline (pdf.js positions
+ * spans at `tx[5] - fontAscent`; we use the metric-free `fontHeight` so the
+ * wash covers ascenders/tashkeel without probing fontFamily metrics).
+ */
+export function textBoxToNormalizedViewportBox(
+  item: { transform: number[]; width: number; height: number },
+  viewportTransform: readonly number[],
+  viewportWidth: number,
+  viewportHeight: number,
+): NormalizedBox | null {
+  if (!(viewportWidth > 0) || !(viewportHeight > 0)) return null;
+  const t = item.transform;
+  if (!Array.isArray(t) || t.length < 6) return null;
+  const vt = viewportTransform as number[];
+  // Viewport-space baseline origin + device glyph height (TextLayer math).
+  const tx = Util.transform(vt, [t[0], t[1], t[2], t[3], t[4], t[5]]);
+  const fontHeight = Math.hypot(tx[2], tx[3]);
+  if (!(fontHeight > 0)) return null;
+  // Run end = origin advanced by item.width along the run direction in USER
+  // space (item.width is user-space advance), then mapped through the
+  // viewport. min/max over the glyph-body corners makes left/width correct
+  // for +x runs, mirrored runs, and rotated viewports alike.
+  const runLength = Math.hypot(t[0], t[1]) || 1;
+  const runEnd = [t[4] + (item.width * t[0]) / runLength, t[5] + (item.width * t[1]) / runLength];
+  Util.applyTransform(runEnd, vt);
+  // Glyph-body lift: the transformed (0, fontSize) vector (tx[2], tx[3]) IS
+  // the text-space up direction with magnitude fontHeight — exact for
+  // mirrored/rotated runs, where angle-based sin/cos would lift the wrong
+  // way (x-mirrored text: atan2(tx1, tx0) = π flips the perpendicular).
+  const liftX = tx[2];
+  const liftY = tx[3];
+  const corners = [
+    tx[4], tx[5],
+    runEnd[0], runEnd[1],
+    tx[4] + liftX, tx[5] + liftY,
+    runEnd[0] + liftX, runEnd[1] + liftY,
+  ];
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < corners.length; i += 2) {
+    minX = Math.min(minX, corners[i]);
+    maxX = Math.max(maxX, corners[i]);
+    minY = Math.min(minY, corners[i + 1]);
+    maxY = Math.max(maxY, corners[i + 1]);
+  }
+  return {
+    left: minX / viewportWidth,
+    top: minY / viewportHeight,
+    width: (maxX - minX) / viewportWidth,
+    height: (maxY - minY) / viewportHeight,
+  };
+}
+
+/** The cached scale-1 viewport of a page that has already been swept —
+ *  null when the page was never extracted (or the viewport is degenerate). */
+export function getCachedPageSearchViewport(
+  doc: PDFDocumentProxy,
+  pageNumber: number,
+): { transform: number[]; width: number; height: number } | null {
+  return PAGE_TEXT_CACHE.get(`${docCacheKey(doc)}:${pageNumber}`)?.viewport ?? null;
+}
 
 /** pdf.js documents carry a content fingerprint — the cache key's doc part. */
 function docCacheKey(doc: PDFDocumentProxy): string {
@@ -67,9 +170,12 @@ function docCacheKey(doc: PDFDocumentProxy): string {
 export async function getPageSearchItems(doc: PDFDocumentProxy, pageNumber: number): Promise<SearchTextItem[]> {
   const key = `${docCacheKey(doc)}:${pageNumber}`;
   const cached = PAGE_TEXT_CACHE.get(key);
-  if (cached) return cached;
+  if (cached) return cached.items;
 
   const page = await doc.getPage(pageNumber);
+  // R30.1 — capture the scale-1 viewport alongside the items: it is the
+  // single authority that maps item transforms onto the canvas.
+  const viewport = page.getViewport({ scale: 1 });
   const content = await page.getTextContent();
   const items: SearchTextItem[] = [];
   for (const item of content.items) {
@@ -88,7 +194,12 @@ export async function getPageSearchItems(doc: PDFDocumentProxy, pageNumber: numb
     const oldest = PAGE_TEXT_CACHE.keys().next();
     if (!oldest.done) PAGE_TEXT_CACHE.delete(oldest.value);
   }
-  PAGE_TEXT_CACHE.set(key, items);
+  PAGE_TEXT_CACHE.set(key, {
+    items,
+    viewport: viewport.width > 0 && viewport.height > 0
+      ? { transform: Array.from(viewport.transform), width: viewport.width, height: viewport.height }
+      : null,
+  });
   return items;
 }
 

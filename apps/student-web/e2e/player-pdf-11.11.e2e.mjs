@@ -287,6 +287,67 @@ async function main() {
       await context.close();
     }
 
+    /* ===== S1b — R30.2: undo restores an erased shape, redo re-erases =====
+       The exact production ask: eraser strokes must be reversible. Undo runs
+       through the KEYBOARD chord (Ctrl+Z), redo through the TOOLBAR button —
+       both paths covered in one scenario. */
+    {
+      const { context } = await newPdfContext(browser, { width: 1280, height: 800 });
+      const page = await context.newPage();
+      await openPdfPlayer(page);
+
+      // Fresh session: both history controls disabled (never hidden).
+      const undoDisabled = await page.locator('[data-testid="pdf-undo"]').isDisabled();
+      const redoDisabled = await page.locator('[data-testid="pdf-redo"]').isDisabled();
+      check(
+        '11.11-A S1b: undo/redo disabled (not hidden) on a fresh session',
+        undoDisabled && redoDisabled,
+        `undoDisabled=${undoDisabled} redoDisabled=${redoDisabled}`,
+      );
+
+      // Draw a rect, let the upsert flush, then erase it like S1.
+      await page.locator('[data-testid="pdf-tool-shape"]').click();
+      await dragOnPage(page, [0.20, 0.20], [0.45, 0.35]);
+      await waitVisible(page.locator('[data-testid="pdf-page-1"] rect.pdf-shape'));
+      await page.waitForTimeout(1300);
+      await page.locator('[data-testid="pdf-tool-eraser"]').click();
+      await dragOnPage(page, [0.17, 0.20], [0.48, 0.20], 20);
+      await waitDetached(page.locator('[data-testid="pdf-page-1"] rect.pdf-shape'));
+      await page.waitForTimeout(1300);
+
+      // Ctrl+Z → the pre-erase snapshot returns (original id, DOM + store).
+      await page.keyboard.press('Control+z');
+      await waitVisible(page.locator('[data-testid="pdf-page-1"] rect.pdf-shape'));
+      await page.waitForTimeout(1300);
+      const rectUndone = await page.locator('[data-testid="pdf-page-1"] rect.pdf-shape').count();
+      const shapesUndone = Array.from(annotationStore.values()).filter((a) => a.annotationType === 'Shape').length;
+      // After ONE undo the past stack still holds the initial empty-state
+      // snapshot — undo stays armed for it; redo is armed by the future entry.
+      const undoStillEnabled = !(await page.locator('[data-testid="pdf-undo"]').isDisabled());
+      const redoNowEnabled = !(await page.locator('[data-testid="pdf-redo"]').isDisabled());
+      check(
+        '11.11-A S1b: Ctrl+Z restores the erased shape (DOM + store), redo armed',
+        rectUndone === 1 && shapesUndone === 1 && undoStillEnabled && redoNowEnabled,
+        `dom=${rectUndone} store=${shapesUndone} undoEnabled=${undoStillEnabled} redoEnabled=${redoNowEnabled}`,
+      );
+      await page.screenshot({ path: `${SHOT_DIR}/w11.11-s1b-undo-shape.png` });
+
+      // Toolbar redo → back to the erased state.
+      await page.locator('[data-testid="pdf-redo"]').click();
+      await waitDetached(page.locator('[data-testid="pdf-page-1"] rect.pdf-shape'));
+      await page.waitForTimeout(1300);
+      const rectRedone = await page.locator('[data-testid="pdf-page-1"] rect.pdf-shape').count();
+      const shapesRedone = Array.from(annotationStore.values()).filter((a) => a.annotationType === 'Shape').length;
+      const redoExhausted = await page.locator('[data-testid="pdf-redo"]').isDisabled();
+      check(
+        '11.11-A S1b: toolbar redo re-erases the shape (DOM + store + wire), redo exhausted',
+        rectRedone === 0 && shapesRedone === 0 && redoExhausted,
+        `dom=${rectRedone} store=${shapesRedone} redoDisabled=${redoExhausted}`,
+      );
+      await page.screenshot({ path: `${SHOT_DIR}/w11.11-s1b-redo-shape.png` });
+      await context.close();
+    }
+
     /* ===== S2 — erase an ink stroke ===== */
     {
       const { context } = await newPdfContext(browser, { width: 1280, height: 800 });
@@ -405,6 +466,33 @@ async function main() {
         '11.11-B S5: Latin query hits the z-15 layer (unchanged stack elsewhere)',
         hitInfo.hits >= 1 && hitInfo.z === '15' && hitInfo.pointerEvents === 'none' && hitInfo.active >= 1,
         JSON.stringify(hitInfo),
+      );
+
+      // R30.1 — GEOMETRY gate: every hit box must land ON the text-layer
+      // spans. The pre-R30.1 math (raw transform[4]/[5], user space y-up)
+      // painted near the page BOTTOM while the text sits at the top — this
+      // ratio was ≈ 0 there. Alignment ≥ 50% proves the viewport mapping.
+      const align = await page.evaluate(() => {
+        const pageEl = document.querySelector('[data-testid="pdf-page-1"]');
+        const hits = Array.from(pageEl.querySelectorAll('.pdf-search-hit')).map((el) => el.getBoundingClientRect());
+        const spans = Array.from(pageEl.querySelectorAll('.pdf-text-layer span'))
+          .map((el) => el.getBoundingClientRect())
+          .filter((r) => r.width > 1 && r.height > 1);
+        if (hits.length === 0 || spans.length === 0) return { ratio: 0, hits: hits.length, spans: spans.length };
+        const inter = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left))
+          * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+        let hitArea = 0;
+        let covered = 0;
+        for (const h of hits) {
+          hitArea += h.width * h.height;
+          for (const s of spans) covered += inter(h, s);
+        }
+        return { ratio: covered / hitArea, hits: hits.length, spans: spans.length };
+      });
+      check(
+        '11.11-B S5: R30.1 hit boxes land ON the text-layer spans (alignment ≥ 50%)',
+        align.ratio >= 0.5,
+        JSON.stringify(align),
       );
       await page.screenshot({ path: `${SHOT_DIR}/w11.11-s5-search-latin.png` });
 

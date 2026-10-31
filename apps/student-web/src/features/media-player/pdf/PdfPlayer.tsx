@@ -14,7 +14,7 @@ import {
 } from './pdf-geometry';
 import { NoteLayer } from './pdf-note-layer';
 import { PdfSearchPanel } from './pdf-search-panel';
-import { findMatches, getPageSearchItems, type SearchHitBox, type SearchMatch } from './pdf-search';
+import { findMatches, getCachedPageSearchViewport, getPageSearchItems, textBoxToNormalizedViewportBox, type SearchHitBox, type SearchMatch } from './pdf-search';
 import type {
   NormalizedPoint, NoteAnnotation, PdfAnnotation, PdfPlayerProps, PdfTool, ShapeKind,
 } from './pdf-types';
@@ -180,7 +180,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   const visibleRef = useRef<Set<number>>(new Set());
   const docRef = useRef<PDFDocumentProxy | null>(null);
 
-  const { annotations, upsert, remove, saving } = usePdfAnnotations(assetId);
+  const { annotations, upsert, remove, undo, redo, canUndo, canRedo, saving } = usePdfAnnotations(assetId);
 
   /* ---- Page-scoped annotation lists (hotfix R15.3): one memoized Map, so
           memoized PageViews receive stable array identities across renders
@@ -518,6 +518,26 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [selectedShapeId, remove]);
 
+  /* ---- R30.2 — Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y drive the annotation history.
+          Editable targets (note textarea, search + page inputs) keep their
+          NATIVE undo — the guard mirrors the Delete/Backspace routing above.
+          macCmdKey (metaKey) included; alt is never a history chord. ---- */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key !== 'z' && key !== 'y') return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      event.preventDefault();
+      if (key === 'z' && event.shiftKey) redo();
+      else if (key === 'z') undo();
+      else redo();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [undo, redo]);
+
   /* ---- Navigation / zoom callbacks ---- */
   const goToPage = useCallback((target: number) => {
     const clamped = Math.max(1, Math.min(dims?.length ?? 1, target));
@@ -611,26 +631,39 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   /* Wave 11.11 — per-page highlight boxes (page pixel space, render scale
          applied). A match may span several pdf.js items → one box per
          covered item, all sharing the match's active state. Pages without
-         hits receive the stable empty list. */
+         hits receive the stable empty list.
+
+         R30.1 — the boxes are mapped through the page's cached scale-1
+         viewport (Util.transform, the TextLayer's own pipeline) into
+         normalized [0, 1] rects, then scaled by the SAME dims the canvas
+         uses (dim × renderScale) — no more raw transform[4]/[5] mapping
+         (user space is y-up; the canvas is y-down). */
   const searchHitsByPage = useMemo(() => {
     const map = new Map<number, SearchHitBox[]>();
-    if (!searchOpen || renderScale === null) return map;
+    if (!searchOpen || renderScale === null || !doc || !dims) return map;
     searchMatches.forEach((match, matchIndex) => {
+      const viewport = getCachedPageSearchViewport(doc, match.page);
+      const dim = dims[match.page - 1];
+      if (!viewport || !dim) return;
+      const cssWidth = dim.width * renderScale;
+      const cssHeight = dim.height * renderScale;
       const list = map.get(match.page);
       const target = list ?? [];
       for (const box of match.boxes) {
+        const normalized = textBoxToNormalizedViewportBox(box, viewport.transform, viewport.width, viewport.height);
+        if (!normalized) continue;
         target.push({
-          left: box.transform[4] * renderScale,
-          top: (box.transform[5] - box.height) * renderScale,
-          width: box.width * renderScale,
-          height: box.height * renderScale,
+          left: normalized.left * cssWidth,
+          top: normalized.top * cssHeight,
+          width: normalized.width * cssWidth,
+          height: normalized.height * cssHeight,
           active: matchIndex === safeActiveMatchIndex,
         });
       }
-      if (!list) map.set(match.page, target);
+      if (!list && target.length > 0) map.set(match.page, target);
     });
     return map;
-  }, [searchOpen, searchMatches, safeActiveMatchIndex, renderScale]);
+  }, [searchOpen, searchMatches, safeActiveMatchIndex, renderScale, doc, dims]);
 
   const pageCount = doc?.numPages ?? pagesCount ?? 0;
   /* Wave 11.11-C — the ACTIVE page is scanned (rendered, zero text items). */
@@ -689,6 +722,10 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
             setSelectedShapeId(null);
           }
         }}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={undo}
+        onRedo={redo}
         page={currentPage}
         pageCount={pageCount}
         onPageChange={goToPage}

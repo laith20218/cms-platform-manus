@@ -1,5 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { clearSearchCache, findMatches, getPageSearchItems, type SearchTextItem } from '../pdf-search';
+import {
+  clearSearchCache, findMatches, getCachedPageSearchViewport, getPageSearchItems,
+  textBoxToNormalizedViewportBox, type SearchTextItem,
+} from '../pdf-search';
 import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 /** Wave 11.11 — search-engine falsification: Arabic presentation-form
@@ -106,18 +109,24 @@ describe('findMatches', () => {
   });
 });
 
-/** Minimal PDFDocumentProxy stub for the extraction cache. */
+/** Minimal PDFDocumentProxy stub for the extraction cache. The page stub
+ *  carries the R30.1 scale-1 viewport (the box-mapping authority). */
 function stubDoc(fingerprint: string, payload: SearchTextItem['str'][]) {
   const getTextContent = vi.fn(async () => ({
     styles: {},
     items: payload.map((str) => ({ str, dir: 'ltr', width: 100, height: 10, transform: [1, 0, 0, 1, 10, 20], fontName: 'g_d0', hasEOL: false })),
   }));
+  const getViewport = vi.fn(() => ({
+    width: 595.92,
+    height: 842.88,
+    transform: [1, 0, 0, -1, 0, 842.88],
+  }));
   const doc = {
     fingerprints: [fingerprint, null],
     numPages: payload.length,
-    getPage: vi.fn(async () => ({ getTextContent })),
+    getPage: vi.fn(async () => ({ getTextContent, getViewport })),
   } as unknown as PDFDocumentProxy;
-  return { doc, getTextContent, getPage: (doc as unknown as { getPage: ReturnType<typeof vi.fn> }).getPage };
+  return { doc, getTextContent, getViewport, getPage: (doc as unknown as { getPage: ReturnType<typeof vi.fn> }).getPage };
 }
 
 describe('getPageSearchItems', () => {
@@ -158,5 +167,123 @@ describe('getPageSearchItems', () => {
     await getPageSearchItems(doc, 1);
     await getPageSearchItems(doc, 2);
     expect(getPage).toHaveBeenCalledTimes(2);
+  });
+});
+
+/* ===== R30.1 — viewport-authoritative box mapping (textBoxToNormalizedViewportBox) =====
+ * Values below are REAL items dumped from the e2e fixture
+ * (public/e2e-test-doc.pdf, Chromium print, page 1: 595.92 × 842.88,
+ * viewport.transform = [1, 0, 0, -1, 0, 842.88]) — the exact document class
+ * behind the production "highlights shifted right and down" report. */
+describe('textBoxToNormalizedViewportBox (R30.1)', () => {
+  const VT = [1, 0, 0, -1, 0, 842.88];
+  const VW = 595.92;
+  const VH = 842.88;
+
+  it('maps a REAL fixture item to the true normalized glyph box (y-flip + baseline lift)', () => {
+    // Arabic glyph "ﻲ" — pdf.js reports the USER-space baseline origin
+    // (57.75, 757.38) y-UP; the canvas is y-DOWN.
+    const box = textBoxToNormalizedViewportBox(
+      { transform: [21, 0, 0, 21, 57.75, 757.38], width: 21.25, height: 21 },
+      VT, VW, VH,
+    );
+    expect(box).not.toBeNull();
+    expect(box!.left).toBeCloseTo(57.75 / 595.92, 5);
+    // 85.5 (viewport-space baseline) − 21 (fontHeight) = 64.5 — NOT the old
+    // math's (757.38 − 21) = 736.38, which painted near the page bottom.
+    expect(box!.top).toBeCloseTo(64.5 / 842.88, 5);
+    expect(box!.width).toBeCloseTo(21.25 / 595.92, 5);
+    expect(box!.height).toBeCloseTo(21 / 842.88, 5);
+    // Explicit regression guard: the pre-R30.1 formula.
+    expect(box!.top).not.toBeCloseTo((757.38 - 21) / 842.88, 3);
+  });
+
+  it('RTL visual-order run: dir === "rtl" items keep their LEFT-edge origins (no flip)', () => {
+    // Fixture rows 1–2 of the word "التفريقي": dir:"rtl" glyphs still advance
+    // in +x from the visual LEFT edge (e: 57.75 → 79). A dir-based right-edge
+    // flip would misalign exactly these production documents.
+    const first = textBoxToNormalizedViewportBox(
+      { transform: [21, 0, 0, 21, 57.75, 757.38], width: 21.25, height: 21 }, VT, VW, VH,
+    )!;
+    const second = textBoxToNormalizedViewportBox(
+      { transform: [21, 0, 0, 21, 79, 757.38], width: 15.11, height: 21 }, VT, VW, VH,
+    )!;
+    expect(second.left).toBeGreaterThan(first.left);
+    expect(second.top).toBeCloseTo(first.top, 6);
+  });
+
+  it('mirrored run (transform[0] < 0): origin at the visual RIGHT edge folds out via min/max', () => {
+    // t[0] = −12: the run extends LEFT from the origin. width stays 60.
+    const box = textBoxToNormalizedViewportBox(
+      { transform: [-12, 0, 0, 12, 400, 700], width: 60, height: 12 },
+      VT, VW, VH,
+    )!;
+    expect(box.left).toBeCloseTo(340 / 595.92, 5);
+    expect(box.width).toBeCloseTo(60 / 595.92, 5);
+    expect(box.top).toBeCloseTo((842.88 - 700 - 12) / 842.88, 5);
+    expect(box.height).toBeCloseTo(12 / 842.88, 5);
+  });
+
+  it('rotation 90 viewport: run + glyph body land through Util.transform', () => {
+    // pdf.js-style 90° rotation matrix: user (x, y) → viewport (y, x).
+    const box = textBoxToNormalizedViewportBox(
+      { transform: [12, 0, 0, 12, 100, 200], width: 36, height: 12 },
+      [0, 1, 1, 0, 0, 0], 595.92, 842.88,
+    )!;
+    // Baseline origin → (200, 100); run end (136, 200) → (200, 136);
+    // fontHeight 12 lifts +x (sin 90° = 1). Bounding box: x 200..212, y 100..136.
+    expect(box.left).toBeCloseTo(200 / 595.92, 5);
+    expect(box.top).toBeCloseTo(100 / 842.88, 5);
+    expect(box.width).toBeCloseTo(12 / 595.92, 5);
+    expect(box.height).toBeCloseTo(36 / 842.88, 5);
+  });
+
+  it('keeps every mapped box inside [0, 1] for a full fixture page', () => {
+    const pageItems = [
+      { transform: [21, 0, 0, 21, 57.75, 757.38], width: 21.25, height: 21 },
+      { transform: [14, 0, 0, 14, 50, 500], width: 200, height: 14 },
+      { transform: [14, 0, 0, 14, 460.92, 60], width: 90, height: 14 },
+    ];
+    for (const item of pageItems) {
+      const box = textBoxToNormalizedViewportBox(item, VT, VW, VH)!;
+      expect(box.left).toBeGreaterThanOrEqual(0);
+      expect(box.top).toBeGreaterThanOrEqual(0);
+      expect(box.left + box.width).toBeLessThanOrEqual(1);
+      expect(box.top + box.height).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('returns null for degenerate inputs (zero viewport, short matrix, zero glyph height)', () => {
+    const item = { transform: [21, 0, 0, 21, 10, 10], width: 20, height: 21 };
+    expect(textBoxToNormalizedViewportBox(item, VT, 0, VH)).toBeNull();
+    expect(textBoxToNormalizedViewportBox(item, VT, VW, 0)).toBeNull();
+    expect(textBoxToNormalizedViewportBox({ ...item, transform: [21, 0, 0, 21] }, VT, VW, VH)).toBeNull();
+    expect(textBoxToNormalizedViewportBox({ ...item, transform: [0, 0, 0, 0, 10, 10] }, VT, VW, VH)).toBeNull();
+  });
+});
+
+describe('getCachedPageSearchViewport (R30.1)', () => {
+  beforeEach(() => {
+    clearSearchCache();
+  });
+
+  it('exposes the scale-1 viewport of an already-extracted page', async () => {
+    const { doc, getViewport } = stubDoc('fp-vp', ['Differential']);
+    expect(getCachedPageSearchViewport(doc, 1)).toBeNull(); // not swept yet
+    await getPageSearchItems(doc, 1);
+    const viewport = getCachedPageSearchViewport(doc, 1);
+    expect(viewport).not.toBeNull();
+    expect(viewport!.width).toBe(595.92);
+    expect(viewport!.height).toBe(842.88);
+    expect(viewport!.transform).toEqual([1, 0, 0, -1, 0, 842.88]);
+    expect(getViewport).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays null for unknown pages/documents', async () => {
+    const { doc } = stubDoc('fp-vp2', ['one']);
+    await getPageSearchItems(doc, 1);
+    expect(getCachedPageSearchViewport(doc, 2)).toBeNull();
+    const other = stubDoc('fp-vp3', ['one']).doc;
+    expect(getCachedPageSearchViewport(other, 1)).toBeNull();
   });
 });

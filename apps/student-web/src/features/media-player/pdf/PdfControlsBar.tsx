@@ -2,8 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import * as SliderPrimitive from '@radix-ui/react-slider';
 import {
-  ArrowUpRight, Check, ChevronLeft, ChevronRight, Circle, Eraser, Highlighter, Maximize, MousePointer2,
-  Pencil, Search, Shapes, Square, Star, StickyNote, Trash2, ZoomIn, ZoomOut,
+  ArrowUpRight, Check, ChevronLeft, ChevronRight, Circle, Eraser, Highlighter, MousePointer2,
+  MoveHorizontal, Pencil, Redo, Search, Shapes, Square, Star, StickyNote, Trash2, Undo, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import type { PdfTool, ShapeKind } from './pdf-types';
@@ -21,6 +21,16 @@ import { HIGHLIGHT_COLORS, NOTE_COLORS, PEN_COLORS, SHAPE_COLORS } from './pdf-p
  * Wave 11.10 (F2 Phase 2): 'shape' (diagram shapes — rect/ellipse/arrow/star
  * sub-picker + palette) and 'note' (sticky notes — palette) join the Phase 1
  * tools, and a delete button appears while a shape is selected.
+ *
+ * R30.2: undo/redo buttons for the annotation history (strokes, shapes,
+ * notes, eraser gestures) — disabled at the stack edges, mirrored by
+ * Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y. Test ids deliberately sit OUTSIDE the
+ * `pdf-tool-` prefix: that prefix is the 6-tool S1c e2e contract.
+ *
+ * R30.3: the fullscreen toggle lives ONLY in PlayerShell (native Fullscreen
+ * API, stage-targeted by design). The old zoom-fit button carried lucide's
+ * `Maximize` glyph and read as a second fullscreen control — it now uses
+ * `MoveHorizontal` (fit WIDTH, what it actually does).
  */
 
 const TOOLS: Array<{ id: PdfTool; icon: typeof MousePointer2; label: string }> = [
@@ -160,6 +170,11 @@ export interface PdfControlsBarProps {
   /** Wave 11.10 — a shape is selected in pointer mode → offer the trash. */
   canDeleteSelected: boolean;
   onDeleteSelected: () => void;
+  /** R30.2 — annotation history (strokes/shapes/notes/eraser). */
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
   page: number;
   pageCount: number;
   onPageChange: (page: number) => void;
@@ -187,6 +202,7 @@ export function PdfControlsBar({
   shapeKind, onShapeKindChange, shapeColor, onShapeColorChange,
   noteColor, onNoteColorChange,
   canDeleteSelected, onDeleteSelected,
+  canUndo, canRedo, onUndo, onRedo,
   page, pageCount, onPageChange, onPrevPage, onNextPage, onSearchOpen, scannedPage, scannedTitle,
   zoomPercent, onZoomIn, onZoomOut, onZoomFit, canZoomIn, canZoomOut,
   saving,
@@ -239,6 +255,30 @@ export function PdfControlsBar({
             <Trash2 className="h-5 w-5" strokeWidth={1.75} />
           </button>
         )}
+        {/* R30.2 — history controls: disabled (never hidden) at the stack
+            edges, matching the scanned-page gating convention. */}
+        <button
+          type="button"
+          onClick={onUndo}
+          disabled={!canUndo}
+          aria-label="تراجع"
+          title="تراجع (Ctrl+Z)"
+          data-testid="pdf-undo"
+          className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Undo className="h-5 w-5" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onClick={onRedo}
+          disabled={!canRedo}
+          aria-label="إعادة"
+          title="إعادة (Ctrl+Y)"
+          data-testid="pdf-redo"
+          className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Redo className="h-5 w-5" strokeWidth={1.75} />
+        </button>
         <Divider />
         {tool === 'pen' ? (
           <>
@@ -379,9 +419,11 @@ export function PdfControlsBar({
           <button
             type="button" onClick={onZoomFit}
             aria-label="ملاءمة العرض" data-testid="pdf-zoom-fit"
+            /* R30.3 — this is FIT-WIDTH, not fullscreen: the Maximize glyph
+               read as a second fullscreen toggle next to PlayerShell's. */
             className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors hover:bg-white/10"
           >
-            <Maximize className="h-5 w-5" strokeWidth={1.75} />
+            <MoveHorizontal className="h-5 w-5" strokeWidth={1.75} />
           </button>
         </div>
       </div>
