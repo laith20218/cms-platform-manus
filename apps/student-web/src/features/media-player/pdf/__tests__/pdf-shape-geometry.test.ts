@@ -182,6 +182,62 @@ describe('hitTestShape', () => {
   });
 });
 
+/* R25 — shapes with NEGATIVE w/h (drags bottom-right → top-left, or payloads
+ * hydrated from FileAnnotations jsonb written by older clients) rendered but
+ * could never be selected or deleted: the raw padded box inverted and the
+ * ellipse branch bailed on rx <= 0. hitTestShape must normalize first. */
+describe('hitTestShape — R25 negative-size payloads (normalized before testing)', () => {
+  /** Same visual box as `rect` above, drawn bottom-right → top-left. */
+  const negRect: ShapePayload = { shape: 'rect', x: 0.5, y: 0.4, w: -0.3, h: -0.2, color: '#000', strokeWidth: 0.004 };
+
+  it('rect with negative w/h: interior hits, outside misses', () => {
+    expect(hitTestShape(negRect, 0.35, 0.3)).toBe(true);
+    expect(hitTestShape(negRect, 0.7, 0.3)).toBe(false);
+    expect(hitTestShape(negRect, 0.35, 0.7)).toBe(false);
+  });
+
+  it('rect with negative w/h: padding ring still works symmetrically', () => {
+    expect(hitTestShape(negRect, 0.2 - 0.008, 0.3)).toBe(true);
+    expect(hitTestShape(negRect, 0.5 + 0.008, 0.3)).toBe(true); // box right edge is x=0.5
+    expect(hitTestShape(negRect, 0.5 + 0.02, 0.3)).toBe(false); // beyond the pad
+  });
+
+  const negEllipse: ShapePayload = { shape: 'ellipse', x: 0.6, y: 0.5, w: -0.4, h: -0.2, color: '#000', strokeWidth: 0.004 };
+
+  it('ellipse with negative w/h: standard equation on the normalized box', () => {
+    // Center of the normalized box (0.2..0.6 × 0.3..0.5) — previously ALWAYS
+    // false because rx came out negative and the rx <= 0 guard bailed.
+    expect(hitTestShape(negEllipse, 0.4, 0.4)).toBe(true);
+    // Bbox corner stays OUTSIDE the ellipse (equation, not bbox).
+    expect(hitTestShape(negEllipse, 0.2 + 0.002, 0.3 + 0.002)).toBe(false);
+    // Padded outline band just beyond the right vertex still catches.
+    expect(hitTestShape(negEllipse, 0.6 + 0.004, 0.4)).toBe(true);
+  });
+
+  const negStar: ShapePayload = { shape: 'star', x: 0.5, y: 0.5, w: -0.3, h: -0.3, color: '#000', strokeWidth: 0.004 };
+
+  it('star with negative w/h selects like its normalized bounding box', () => {
+    expect(hitTestShape(negStar, 0.35, 0.35)).toBe(true);
+    expect(hitTestShape(negStar, 0.8, 0.8)).toBe(false);
+  });
+
+  it('mixed-sign rect (right→left drag with downward h) normalizes per axis', () => {
+    const mixed: ShapePayload = { shape: 'rect', x: 0.4, y: 0.2, w: -0.3, h: 0.3, color: '#000', strokeWidth: 0.004 };
+    expect(hitTestShape(mixed, 0.25, 0.35)).toBe(true);
+    expect(hitTestShape(mixed, 0.45, 0.35)).toBe(false);
+  });
+
+  it('arrow keeps its signed endpoints (direction-agnostic segment test)', () => {
+    // Head at the TOP-LEFT (bottom-right → top-left drag).
+    const upLeft: ShapePayload = {
+      shape: 'arrow', x: 0.7, y: 0.7, x1: 0.7, y1: 0.7, x2: 0.2, y2: 0.2,
+      color: '#000', strokeWidth: 0.004,
+    };
+    expect(hitTestShape(upLeft, 0.45, 0.445)).toBe(true);  // near the shaft
+    expect(hitTestShape(upLeft, 0.45, 0.6)).toBe(false);   // clearly off-shaft
+  });
+});
+
 describe('degeneracy guards', () => {
   it('a tap-sized box does not commit', () => {
     expect(isDegenerateBox({ x: 0.5, y: 0.5, w: MIN_SHAPE_SIZE / 2, h: 0.2 })).toBe(true);
