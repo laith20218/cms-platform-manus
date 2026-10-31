@@ -22,20 +22,24 @@ export interface NoteLayerProps {
   /** ALL annotations of this page — Note entries are filtered internally. */
   annotations: PdfAnnotation[];
   openNoteId: string | null;
+  /** Wave 11.11 — eraser mode: the layer goes FULLY passive (even the icons
+   *  lose pointer-events) so eraser gestures over a note reach the ink SVG
+   *  and the geometry hit test, instead of opening the editor. */
+  passive?: boolean;
   onOpen: (id: string) => void;
   onCommit: (note: NoteAnnotation, text: string) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
 }
 
-export function NoteLayer({ annotations, openNoteId, onOpen, onCommit, onDelete, onClose }: NoteLayerProps) {
+export function NoteLayer({ annotations, openNoteId, passive = false, onOpen, onCommit, onDelete, onClose }: NoteLayerProps) {
   const notes = annotations.filter((a) => a.annotationType === 'Note');
   const openNote = openNoteId
     ? notes.find((n) => n.id === openNoteId && n.annotationType === 'Note')
     : undefined;
 
   return (
-    <div className="pdf-note-layer" data-testid={`pdf-note-layer`}>
+    <div className={`pdf-note-layer${passive ? ' is-passive' : ''}`} data-testid={`pdf-note-layer`}>
       {notes.map((note) => (
         <button
           key={note.id}

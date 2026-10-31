@@ -130,8 +130,9 @@ export interface PdfWatermark {
   siteName: string;
 }
 
-/** Wave 11.10 — 'shape' (diagram shapes) and 'note' (sticky notes) join Phase 1's tools. */
-export type PdfTool = 'pointer' | 'highlighter' | 'pen' | 'shape' | 'note';
+/** Wave 11.10 — 'shape' (diagram shapes) and 'note' (sticky notes) join Phase 1's tools.
+ *  Wave 11.11 — 'eraser' (smart whole-annotation erase: ink + shapes + notes). */
+export type PdfTool = 'pointer' | 'highlighter' | 'pen' | 'shape' | 'note' | 'eraser';
 
 /** Convenience alias for sticky-note annotations (NoteLayer/editor contract). */
 export type NoteAnnotation = Extract<PdfAnnotation, { annotationType: 'Note' }>;

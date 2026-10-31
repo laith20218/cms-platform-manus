@@ -8,7 +8,7 @@ import { ensurePdfWorker } from './pdf-worker';
 import { normalizeArabicPresentationForms } from './pdf-text';
 import { PDF_DEBUG, textLayerDebugClass } from './pdf-debug';
 import {
-  arrowHeadPoints, clamp01, hitTestShape, isDegenerateArrow, isDegenerateBox, newAnnotationId,
+  arrowHeadPoints, clamp01, collectEraserHitIds, hitTestShape, isDegenerateArrow, isDegenerateBox, newAnnotationId,
   normalizeBox, polygonPointsAttr, rectsFromRange, resolveInkStrokeWidth, simplifyPoints,
   starPolygonPoints, strokePathD,
 } from './pdf-geometry';
@@ -104,6 +104,10 @@ const DEFAULT_NOTE_COLOR = '#fde047';
 const SHAPE_STROKE_PX = 3;
 const ARROW_HEAD_LENGTH_PX = 14;
 const ARROW_HEAD_HALF_WIDTH_PX = 5;
+
+/* Wave 11.11 — smart eraser: the tip is a fixed-px circle, normalized against
+ * the live page width (the same fraction contract as the ink/shape strokes). */
+const ERASER_RADIUS_PX = 12;
 
 /* Hotfix R16.1 — pdf.js runtime assets, self-hosted from public/ (copied from
  * node_modules/pdfjs-dist at the pinned version; BASE_URL keeps it correct
@@ -420,6 +424,16 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
 
   const closeNote = useCallback(() => setOpenNoteId(null), []);
 
+  /* ---- Wave 11.11 — smart eraser: the PageView owns the gesture refs and the
+          geometry hit test; the parent owns the store. Commit-on-up: ONE
+          gesture = ONE remove() = ONE debounced batch flush (the supervisor
+          locked undo unit). Erasing the selected shape clears the selection. ---- */
+  const eraseAnnotations = useCallback((_pageNumber: number, ids: string[]) => {
+    if (ids.length === 0) return;
+    remove(ids);
+    setSelectedShapeId((selected) => (selected !== null && ids.includes(selected) ? null : selected));
+  }, [remove]);
+
   /* ---- Wave 11.10 — pointer-tool routing on the text layer: highlighter
           commits the selection; pointer mode runs the pure-geometry shape hit
           test (select / deselect). A selection DRAG (collapsed = false) is
@@ -586,6 +600,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
                 onNoteCommit={commitNoteText}
                 onNoteDelete={deleteNote}
                 onNoteClose={closeNote}
+                onEraseCommit={eraseAnnotations}
               />
             );
           })}
@@ -643,6 +658,8 @@ interface PageViewProps {
   onNoteCommit: (note: NoteAnnotation, text: string) => void;
   onNoteDelete: (id: string) => void;
   onNoteClose: () => void;
+  /** Wave 11.11 — eraser: called ONCE per gesture with the touched ids. */
+  onEraseCommit: (pageNumber: number, ids: string[]) => void;
 }
 
 /** Hotfix R15.3 — memoized: every prop is a primitive, a stable callback, or a
@@ -654,7 +671,7 @@ const PageView = memo(function PageView({
   annotations, tool, penColor, penWidth,
   shapeKind, shapeColor, selectedShapeId, openNoteId,
   registerPage, onTextPointerUp, onStrokeCommit,
-  onShapeCommit, onNotePlace, onNoteOpen, onNoteCommit, onNoteDelete, onNoteClose,
+  onShapeCommit, onNotePlace, onNoteOpen, onNoteCommit, onNoteDelete, onNoteClose, onEraseCommit,
 }: PageViewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const layerRef = useRef<HTMLDivElement | null>(null);
@@ -688,6 +705,11 @@ const PageView = memo(function PageView({
   /* Wave 11.10 — note tool: pointerdown anchor on the canvas, so a tap (not a
    * drag/scroll gesture) places the note. */
   const noteDownRef = useRef<{ x: number; y: number } | null>(null);
+  /* Wave 11.11 — eraser gesture: same ref-buffer contract (no React state in
+   * pointermove). The preview dims annotation nodes a commit would delete;
+   * React state is touched exactly once, on pointerup, via onEraseCommit. */
+  const eraserPathRef = useRef<NormalizedPoint[] | null>(null);
+  const eraserRafRef = useRef(0);
 
   // Canvas + text layer render whenever the page becomes visible or the
   // scale changes; cleanup cancels in-flight render tasks and frees pixels.
@@ -841,6 +863,43 @@ const PageView = memo(function PageView({
   // Teardown if the page unmounts mid-drag.
   useEffect(() => clearLiveShape, [clearLiveShape]);
 
+  /* Wave 11.11 — live erase preview: rAF-throttled hit test of the gesture
+   * path against this page's annotations, dimming the doomed nodes via a CSS
+   * class (imperative, like the pen/shape live nodes). */
+  const paintLiveEraser = useCallback(() => {
+    if (eraserRafRef.current) return;
+    eraserRafRef.current = requestAnimationFrame(() => {
+      eraserRafRef.current = 0;
+      const overlay = overlayRef.current;
+      const path = eraserPathRef.current;
+      if (!overlay || !path) return;
+      const overlayBox = overlay.getBoundingClientRect();
+      const pageWidthPx = overlayBox.width > 0 ? overlayBox.width : cssWidth;
+      const hitSet = new Set(collectEraserHitIds(annotations, path, ERASER_RADIUS_PX / pageWidthPx, pageWidthPx));
+      overlay.querySelectorAll('[data-annotation-id]').forEach((el) => {
+        const id = el.getAttribute('data-annotation-id') ?? '';
+        el.classList.toggle('pdf-erase-preview', hitSet.has(id));
+      });
+      // Notes live in the DOM layer above (z 25) — the page box hosts both.
+      const pageEl = overlay.parentElement;
+      pageEl?.querySelectorAll('[data-note-id]').forEach((el) => {
+        const id = el.getAttribute('data-note-id') ?? '';
+        el.classList.toggle('pdf-erase-preview', hitSet.has(id));
+      });
+    });
+  }, [annotations, cssWidth]);
+
+  const clearLiveEraser = useCallback(() => {
+    if (eraserRafRef.current) { cancelAnimationFrame(eraserRafRef.current); eraserRafRef.current = 0; }
+    const overlay = overlayRef.current;
+    overlay?.querySelectorAll('.pdf-erase-preview').forEach((el) => el.classList.remove('pdf-erase-preview'));
+    overlay?.parentElement?.querySelectorAll('.pdf-erase-preview').forEach((el) => el.classList.remove('pdf-erase-preview'));
+    eraserPathRef.current = null;
+  }, []);
+
+  // Teardown if the page unmounts mid-gesture.
+  useEffect(() => clearLiveEraser, [clearLiveEraser]);
+
   const handlePointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
     const svg = overlayRef.current;
     if (!svg) return;
@@ -865,6 +924,11 @@ const PageView = memo(function PageView({
       live.setAttribute('d', strokePathD([point]));
       svg.appendChild(live);
       livePathRef.current = live;
+      return;
+    }
+    if (tool === 'eraser') {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      eraserPathRef.current = [toNormalized(event.clientX, event.clientY)];
       return;
     }
     if (tool !== 'shape') return;
@@ -916,6 +980,17 @@ const PageView = memo(function PageView({
       paintLiveStroke();
       return;
     }
+    if (tool === 'eraser') {
+      if (!eraserPathRef.current) return;
+      const native = event.nativeEvent as PointerEvent & { getCoalescedEvents?: () => PointerEvent[] };
+      const coalesced = typeof native.getCoalescedEvents === 'function' ? native.getCoalescedEvents() : [];
+      const sources = coalesced.length > 0 ? coalesced : [native];
+      for (const source of sources) {
+        eraserPathRef.current.push(toNormalized(source.clientX, source.clientY));
+      }
+      paintLiveEraser();
+      return;
+    }
     if (tool !== 'shape' || !shapeDraftRef.current) return;
     const native = event.nativeEvent as PointerEvent & { getCoalescedEvents?: () => PointerEvent[] };
     const coalesced = typeof native.getCoalescedEvents === 'function' ? native.getCoalescedEvents() : [];
@@ -936,6 +1011,16 @@ const PageView = memo(function PageView({
       onStrokeCommit(pageNumber, stroke.points, cssWidth);
       return;
     }
+    if (tool === 'eraser') {
+      const path = eraserPathRef.current;
+      clearLiveEraser();
+      if (!path || path.length === 0) return;
+      const overlayBox = overlayRef.current?.getBoundingClientRect();
+      const pageWidthPx = overlayBox && overlayBox.width > 0 ? overlayBox.width : cssWidth;
+      const ids = collectEraserHitIds(annotations, path, ERASER_RADIUS_PX / pageWidthPx, pageWidthPx);
+      if (ids.length > 0) onEraseCommit(pageNumber, ids);
+      return;
+    }
     if (tool !== 'shape' || !shapeDraftRef.current) return;
     const draft = shapeDraftRef.current;
     clearLiveShape();
@@ -945,9 +1030,12 @@ const PageView = memo(function PageView({
   const handlePointerCancel = () => {
     clearLiveStroke();
     clearLiveShape();
+    clearLiveEraser();
   };
 
-  const drawingSurface = tool === 'pen' || tool === 'shape';
+  /* Wave 11.11 — the eraser joins the pen/shape as a full drawing surface:
+   * the z-11 overlay takes the pointer, the text layer goes dormant. */
+  const drawingSurface = tool === 'pen' || tool === 'shape' || tool === 'eraser';
 
   return (
     <div
@@ -1023,6 +1111,7 @@ const PageView = memo(function PageView({
               <path
                 key={annotation.id}
                 className="pdf-ink"
+                data-annotation-id={annotation.id}
                 d={strokePathD(annotation.payload.points)}
                 stroke={annotation.payload.color}
                 /* Hotfix R16.4: page-relative fraction against the unit viewBox
@@ -1049,7 +1138,7 @@ const PageView = memo(function PageView({
 
       <div
         ref={layerRef}
-        className={`pdf-text-layer${tool === 'pen' || tool === 'shape' || tool === 'note' ? ' is-dormant' : ''}${textLayerDebugClass()}`}
+        className={`pdf-text-layer${tool === 'pen' || tool === 'shape' || tool === 'note' || tool === 'eraser' ? ' is-dormant' : ''}${textLayerDebugClass()}`}
         data-pdf-text-layer="true"
         /* Pointer + highlighter modes only: the layer is dormant in pen/shape
            (the ink SVG must receive the drag) and note mode (the canvas receives
@@ -1064,6 +1153,7 @@ const PageView = memo(function PageView({
       <NoteLayer
         annotations={annotations}
         openNoteId={openNoteId}
+        passive={tool === 'eraser'}
         onOpen={onNoteOpen}
         onCommit={onNoteCommit}
         onDelete={onNoteDelete}
@@ -1093,7 +1183,7 @@ function ShapeNodes({ annotation, cssWidth, cssHeight, selected }: {
     const baseX = (head[0].x + head[2].x) / 2;
     const baseY = (head[0].y + head[2].y) / 2;
     return (
-      <g className={className}>
+      <g className={className} data-annotation-id={annotation.id}>
         <line x1={p.x1} y1={p.y1} x2={baseX} y2={baseY} stroke={p.color} strokeWidth={stroke} />
         <polygon className="pdf-arrow-head" points={polygonPointsAttr(head)} fill={p.color} stroke={p.color} strokeWidth={stroke} />
       </g>
@@ -1102,13 +1192,13 @@ function ShapeNodes({ annotation, cssWidth, cssHeight, selected }: {
 
   if (p.w === undefined || p.h === undefined) return null;
   if (p.shape === 'rect') {
-    return <rect className={className} x={p.x} y={p.y} width={p.w} height={p.h} stroke={p.color} strokeWidth={stroke} />;
+    return <rect className={className} data-annotation-id={annotation.id} x={p.x} y={p.y} width={p.w} height={p.h} stroke={p.color} strokeWidth={stroke} />;
   }
   if (p.shape === 'ellipse') {
-    return <ellipse className={className} cx={p.x + p.w / 2} cy={p.y + p.h / 2} rx={p.w / 2} ry={p.h / 2} stroke={p.color} strokeWidth={stroke} />;
+    return <ellipse className={className} data-annotation-id={annotation.id} cx={p.x + p.w / 2} cy={p.y + p.h / 2} rx={p.w / 2} ry={p.h / 2} stroke={p.color} strokeWidth={stroke} />;
   }
   if (p.shape === 'star') {
-    return <polygon className={className} points={polygonPointsAttr(starPolygonPoints({ x: p.x, y: p.y, w: p.w, h: p.h }))} stroke={p.color} strokeWidth={stroke} />;
+    return <polygon className={className} data-annotation-id={annotation.id} points={polygonPointsAttr(starPolygonPoints({ x: p.x, y: p.y, w: p.w, h: p.h }))} stroke={p.color} strokeWidth={stroke} />;
   }
   return null;
 }

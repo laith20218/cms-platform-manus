@@ -1,4 +1,4 @@
-import type { NormalizedPoint, NormalizedRect, ShapePayload } from './pdf-types';
+import type { NormalizedPoint, NormalizedRect, PdfAnnotation, PdfAnnotationPayload, ShapePayload } from './pdf-types';
 
 /**
  * Wave 11.8 / F2 — pure geometry helpers for the PDF annotation layer.
@@ -39,7 +39,9 @@ export function strokePathD(points: NormalizedPoint[]): string {
   return d;
 }
 
-function perpendicularDistance(point: NormalizedPoint, start: NormalizedPoint, end: NormalizedPoint): number {
+/** Wave 11.11 — exported for the smart-eraser hit tests (same clamped
+ *  point-to-segment distance the RDP simplifier uses internally). */
+export function perpendicularDistance(point: NormalizedPoint, start: NormalizedPoint, end: NormalizedPoint): number {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const lengthSq = dx * dx + dy * dy;
@@ -294,4 +296,186 @@ export function isDegenerateBox(box: NormalizedRect): boolean {
 /** True when an arrow's tail/head are too close to be intentional. */
 export function isDegenerateArrow(x1: number, y1: number, x2: number, y2: number): boolean {
   return Math.hypot(x2 - x1, y2 - y1) < MIN_SHAPE_SIZE * 2;
+}
+
+/* ===== Wave 11.11 — smart eraser (F2 Phase 3) =====
+ * Whole-annotation erase (supervisor-locked scope: Ink + Shapes + Notes —
+ * highlights stay text-anchored and are NOT erasable). The eraser gesture is
+ * a page-normalized polyline; an annotation is erased when ANY point of the
+ * densified gesture path comes within the eraser contact radius of its drawn
+ * geometry. Pure and dependency-free per the module contract above. */
+
+/** On-screen half-size of a sticky-note icon (h-9 w-9 → 18px). The icon is
+ *  fixed-px DOM (it does not scale with the page), so the caller passes the
+ *  live page width to normalize it into the contact radius. */
+export const NOTE_ICON_RADIUS_PX = 18;
+
+/**
+ * Inserts intermediate samples so consecutive path points are at most
+ * `maxStep` apart. Fast pointer swipes sample coarsely; without densifying,
+ * a thin stroke between two samples would be tunneled through.
+ */
+export function densifyPath(points: readonly NormalizedPoint[], maxStep: number): NormalizedPoint[] {
+  if (points.length === 0) return [];
+  const copy = points.slice() as NormalizedPoint[];
+  if (!(maxStep > 0)) return copy;
+  const out: NormalizedPoint[] = [copy[0]];
+  for (let i = 1; i < copy.length; i += 1) {
+    const a = copy[i - 1];
+    const b = copy[i];
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    const steps = Math.max(1, Math.ceil(length / maxStep));
+    for (let s = 1; s <= steps; s += 1) {
+      out.push({ x: a.x + ((b.x - a.x) * s) / steps, y: a.y + ((b.y - a.y) * s) / steps });
+    }
+  }
+  return out;
+}
+
+/** True when any polyline segment (optionally closed) lies within `distance`
+ *  of the point. Empty/degenerate polynomials never match. */
+function segmentsWithinDistance(
+  points: readonly NormalizedPoint[],
+  nx: number,
+  ny: number,
+  distance: number,
+  closed = false,
+): boolean {
+  if (points.length === 0) return false;
+  if (points.length === 1) return Math.hypot(nx - points[0].x, ny - points[0].y) <= distance;
+  const point: NormalizedPoint = { x: nx, y: ny };
+  for (let i = 1; i < points.length; i += 1) {
+    if (perpendicularDistance(point, points[i - 1], points[i]) <= distance) return true;
+  }
+  if (closed && perpendicularDistance(point, points[points.length - 1], points[0]) <= distance) return true;
+  return false;
+}
+
+/** Samples an ellipse outline (normalized box) as a closed polygon. The chord
+ *  sag at 32 samples (≈0.5% of the radius) is far below any contact radius. */
+function ellipseOutlinePoints(box: NormalizedRect, samples = 32): NormalizedPoint[] {
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  const rx = box.w / 2;
+  const ry = box.h / 2;
+  const points: NormalizedPoint[] = [];
+  for (let i = 0; i < samples; i += 1) {
+    const angle = (i * 2 * Math.PI) / samples;
+    points.push({ x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) });
+  }
+  return points;
+}
+
+/** The 4 outline segments of a (already positive) box, as a closed polygon. */
+function rectOutlinePoints(box: NormalizedRect): NormalizedPoint[] {
+  return [
+    { x: box.x, y: box.y },
+    { x: box.x + box.w, y: box.y },
+    { x: box.x + box.w, y: box.y + box.h },
+    { x: box.x, y: box.y + box.h },
+  ];
+}
+
+/**
+ * Pure eraser hit test for ONE gesture-path point against ONE annotation
+ * payload. Mirrors the geometry contracts of the renderer/selection:
+ *  - Ink: any stroke segment within (radius + half ink width);
+ *  - Shape: outline segments within (radius + half stroke width) — outline
+ *    contact only, exactly like the selection hit test (the interior of a
+ *    rect/ellipse is not geometry); the arrow tests its shaft segment, which
+ *    with the contact radius covers the pixel-space head wings (≤5px lateral);
+ *  - Note: the anchor point, widened by the fixed-px icon radius;
+ *  - Highlight: never erased (text-anchored, out of the locked scope).
+ * All shapes reuse normalizeBox so legacy negative-w/h payloads behave like
+ * the R25-corrected selection path. Box shapes are bbox-prefiltered (with
+ * chord slack for the ellipse sampling) before edge iteration.
+ */
+export function eraserHitTest(
+  payload: PdfAnnotationPayload,
+  nx: number,
+  ny: number,
+  radius: number,
+  pageWidthPx = 0,
+): boolean {
+  const contact = Math.max(0, radius);
+  if (contact <= 0) return false;
+
+  if ('points' in payload) {
+    // Ink — bbox prefilter over the stroke skeleton.
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (const p of payload.points) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const pad = contact + payload.width / 2;
+    if (nx < minX - pad || nx > maxX + pad || ny < minY - pad || ny > maxY + pad) return false;
+    return segmentsWithinDistance(payload.points, nx, ny, pad);
+  }
+
+  if ('shape' in payload) {
+    const contactWithStroke = contact + payload.strokeWidth / 2;
+    if (payload.shape === 'arrow') {
+      if (payload.x1 === undefined || payload.y1 === undefined || payload.x2 === undefined || payload.y2 === undefined) return false;
+      // Cheap two-endpoint prefilter; the pad absorbs the pixel-space head.
+      const pad = Math.max(contactWithStroke, 0.02);
+      const left = Math.min(payload.x1, payload.x2) - pad;
+      const right = Math.max(payload.x1, payload.x2) + pad;
+      const top = Math.min(payload.y1, payload.y2) - pad;
+      const bottom = Math.max(payload.y1, payload.y2) + pad;
+      if (nx < left || nx > right || ny < top || ny > bottom) return false;
+      // Same effective radius the selection hit test uses for arrows.
+      return perpendicularDistance(
+        { x: nx, y: ny },
+        { x: payload.x1, y: payload.y1 },
+        { x: payload.x2, y: payload.y2 },
+      ) <= Math.max(contactWithStroke, payload.strokeWidth * 3);
+    }
+    if (payload.w === undefined || payload.h === undefined) return false;
+    // R25-consistent: normalize legacy negative-w/h payloads before testing.
+    const box = normalizeBox(payload.x, payload.y, payload.x + payload.w, payload.y + payload.h);
+    const pad = contactWithStroke + 0.005;
+    if (nx < box.x - pad || nx > box.x + box.w + pad || ny < box.y - pad || ny > box.y + box.h + pad) return false;
+    if (payload.shape === 'rect') return segmentsWithinDistance(rectOutlinePoints(box), nx, ny, contactWithStroke, true);
+    if (payload.shape === 'ellipse') return segmentsWithinDistance(ellipseOutlinePoints(box), nx, ny, contactWithStroke, true);
+    return segmentsWithinDistance(starPolygonPoints(box), nx, ny, contactWithStroke, true);
+  }
+
+  if ('text' in payload) {
+    const iconPad = pageWidthPx > 0 ? NOTE_ICON_RADIUS_PX / pageWidthPx : 0;
+    return Math.hypot(nx - payload.x, ny - payload.y) <= contact + iconPad;
+  }
+
+  // Highlight — the eraser does not remove highlights (locked scope).
+  return false;
+}
+
+/**
+ * Collects the ids of every annotation touched by an eraser gesture. The
+ * gesture path is densified to half the contact radius, so per-point tests
+ * cannot tunnel through thin geometry (worst-case overreach ≤ radius/8).
+ * Pure and allocation-honest: returns ids in annotation order, no duplicates.
+ */
+export function collectEraserHitIds(
+  annotations: ReadonlyArray<PdfAnnotation>,
+  gesturePath: readonly NormalizedPoint[],
+  radius: number,
+  pageWidthPx: number,
+): string[] {
+  const ids: string[] = [];
+  if (gesturePath.length === 0 || !(radius > 0)) return ids;
+  const path = densifyPath(gesturePath, radius / 2);
+  for (const annotation of annotations) {
+    for (const point of path) {
+      if (eraserHitTest(annotation.payload, point.x, point.y, radius, pageWidthPx)) {
+        ids.push(annotation.id);
+        break;
+      }
+    }
+  }
+  return ids;
 }

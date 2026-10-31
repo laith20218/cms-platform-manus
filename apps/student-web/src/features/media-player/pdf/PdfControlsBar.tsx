@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import * as SliderPrimitive from '@radix-ui/react-slider';
 import {
-  ArrowUpRight, Check, ChevronLeft, ChevronRight, Circle, Highlighter, Maximize, MousePointer2,
+  ArrowUpRight, Check, ChevronLeft, ChevronRight, Circle, Eraser, Highlighter, Maximize, MousePointer2,
   Pencil, Shapes, Square, Star, StickyNote, Trash2, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { cn } from '@/utils';
@@ -29,6 +29,7 @@ const TOOLS: Array<{ id: PdfTool; icon: typeof MousePointer2; label: string }> =
   { id: 'pen', icon: Pencil, label: 'قلم الحبر' },
   { id: 'shape', icon: Shapes, label: 'أشكال توضيحية' },
   { id: 'note', icon: StickyNote, label: 'ملاحظة لاصقة' },
+  { id: 'eraser', icon: Eraser, label: 'ممحاة ذكية' },
 ];
 
 const TOOL_TEST_IDS: Record<PdfTool, string> = {
@@ -37,6 +38,7 @@ const TOOL_TEST_IDS: Record<PdfTool, string> = {
   pen: 'pdf-tool-pen',
   shape: 'pdf-tool-shape',
   note: 'pdf-tool-note',
+  eraser: 'pdf-tool-eraser',
 };
 
 /** Wave 11.10 — the shape-kind sub-picker shown while the shape tool is active. */
@@ -273,6 +275,10 @@ export function PdfControlsBar({
           </>
         ) : tool === 'note' ? (
           <ColorPicker label="لون الملاحظة" colors={NOTE_COLORS} value={noteColor} onChange={onNoteColorChange} testId="pdf-note-colors" />
+        ) : tool === 'eraser' ? (
+          <span className="hidden px-2 text-[11px] leading-tight text-slate-400 sm:block">
+            مرّر فوق الحبر أو الأشكال أو الملاحظات لمحوها بالكامل
+          </span>
         ) : (
           <span className="hidden px-2 text-[11px] leading-tight text-slate-400 sm:block">
             مرّر، ثم حدّد النص للتظليل

@@ -232,3 +232,21 @@
 .pdf-note-layer .pdf-note-editor {
   pointer-events: auto;
 }
+
+/* ---- Wave 11.11 — smart eraser (F2 Phase 3) ----
+   Live erase preview: annotation nodes (ink paths, shapes, note icons) the
+   current gesture will delete are dimmed imperatively (rAF-throttled class
+   toggling — no React state in the pointermove path, same contract as the
+   pen/shape live buffers). */
+
+.pdf-erase-preview {
+  opacity: 0.3;
+}
+
+/* Eraser mode: the note layer must be FULLY passive — even the icons and the
+   open editor lose pointer-events so an eraser drag across a note reaches the
+   z-11 ink SVG (the geometry hit test), not the editor. */
+.pdf-note-layer.is-passive .pdf-note-icon,
+.pdf-note-layer.is-passive .pdf-note-editor {
+  pointer-events: none;
+}
