@@ -14,9 +14,14 @@ import {
 } from './pdf-geometry';
 import { NoteLayer } from './pdf-note-layer';
 import { PdfSearchPanel } from './pdf-search-panel';
-import { findMatches, getCachedPageSearchViewport, getPageSearchItems, textBoxToNormalizedViewportBox, type SearchHitBox, type SearchMatch } from './pdf-search';
+import {
+  documentSearchCacheKey, findMatches, getCachedPageSearchItems, getCachedPageSearchSourceIndexes,
+  getCachedPageSearchViewport, getPageSearchItems, textBoxToNormalizedViewportBox,
+  type SearchHitBox, type SearchMatch,
+} from './pdf-search';
+import { createSearchSpanMap, resolveSearchMatchRects } from './pdf-search-dom';
 import type {
-  NormalizedPoint, NoteAnnotation, PdfAnnotation, PdfPlayerProps, PdfTool, ShapeKind,
+  NormalizedPoint, NormalizedRect, NoteAnnotation, PdfAnnotation, PdfPlayerProps, PdfTool, ShapeKind,
 } from './pdf-types';
 import './pdf-text-layer.css';
 ensurePdfWorker();
@@ -131,6 +136,8 @@ interface PageDim { width: number; height: number }
 const EMPTY_PAGE_ANNOTATIONS: PdfAnnotation[] = [];
 /** Stable empty search-hit list (same memo-identity contract). */
 const EMPTY_SEARCH_HITS: SearchHitBox[] = [];
+/** Stable empty per-page match list (same memo-identity contract). */
+const EMPTY_SEARCH_MATCHES: SearchMatch[] = [];
 
 export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerProps) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
@@ -161,6 +168,16 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [searchProgress, setSearchProgress] = useState<{ done: number; total: number } | null>(null);
   const searchSweepTokenRef = useRef(0);
+  /* Wave 12.1 — the sweep token as state: PageView's DOM resolver keys its
+   * cache by (layer build, generation), so a new query can never reuse rects
+   * resolved for the previous one. */
+  const [searchGeneration, setSearchGeneration] = useState(0);
+  /* Wave 12.1 — char-level resolved hit rects, keyed `fingerprint:pageNumber`
+   * (R12.1.b state contract). Values are per-match arrays in the page's
+   * SearchMatch order; null entries = matches that fell back to the
+   * proportional slice box (layer not built, or span verification failed). */
+  const [resolvedHitRects, setResolvedHitRects] = useState<Record<string, Array<NormalizedRect[] | null>>>({});
+  const docFingerprint = useMemo(() => (doc ? documentSearchCacheKey(doc) : ''), [doc]);
   const lastNavIndexRef = useRef(-1);
   const currentPageRef = useRef(currentPage);
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
@@ -205,6 +222,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     setDoc(null);
     setDims(null);
     setPageHasText({}); // per-page text-layer facts are per-document
+    setResolvedHitRects({}); // Wave 12.1 — resolved hit rects are per-document
     pagesRef.current = new Map();
     visibleRef.current = new Set();
     (async () => {
@@ -576,6 +594,8 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   useEffect(() => {
     if (!searchOpen || !doc) return;
     const token = ++searchSweepTokenRef.current;
+    setSearchGeneration(token); // Wave 12.1 — invalidate PageView rect caches
+    setResolvedHitRects({});    // Wave 12.1 — rects are per-query
     const query = searchQuery.trim();
     if (!query) {
       lastNavIndexRef.current = -1;
@@ -623,47 +643,121 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     setSearchMatches([]);
     setActiveMatchIndex(0);
     setSearchProgress(null);
+    setResolvedHitRects({});
+    setSearchGeneration((generation) => generation + 1);
   }, []);
+
+  /* ---- Wave 12.1 — PageView reports char-level rects resolved against the
+          live text layer (R12.1.b). Identity-stable dedupe keeps sweep-tick
+          re-renders cheap. ---- */
+  const handleSearchRectsResolved = useCallback((pageNumber: number, rects: Array<NormalizedRect[] | null> | null) => {
+    const key = `${docFingerprint}:${pageNumber}`;
+    setResolvedHitRects((prev) => {
+      if (rects === null) {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      const existing = prev[key];
+      if (existing && existing.length === rects.length && existing.every((entry, i) => entry === rects[i])) return prev;
+      return { ...prev, [key]: rects };
+    });
+  }, [docFingerprint]);
 
   const renderScale = fitScale !== null ? fitScale * (ZOOM_STEPS[zoomIndex] ?? 1) : null;
   const zoomPercent = (ZOOM_STEPS[zoomIndex] ?? 1) * 100;
 
   /* Wave 11.11 — per-page highlight boxes (page pixel space, render scale
-         applied). A match may span several pdf.js items → one box per
-         covered item, all sharing the match's active state. Pages without
-         hits receive the stable empty list.
+         applied); Wave 12.1 — each match consumes its DOM-resolved rects
+         when the page's text layer has been resolved (char-precise, the
+         same getClientRects pipeline as the text highlighter), and only
+         falls back to the viewport-mapped boxes — now SLICE-aware
+         (proportional run advance) — for matches the resolver could not
+         pin. Pages without hits receive the stable empty list.
 
          R30.1 — the boxes are mapped through the page's cached scale-1
          viewport (Util.transform, the TextLayer's own pipeline) into
          normalized [0, 1] rects, then scaled by the SAME dims the canvas
          uses (dim × renderScale) — no more raw transform[4]/[5] mapping
          (user space is y-up; the canvas is y-down). */
+  /* Wave 12.1 — matches grouped per page (the sweep emits a page's matches
+         complete in one tick, so each page's array is append-only and stable
+         in order) + the GLOBAL index of each page's first match, so the
+         active highlight keeps its searchMatches-order semantics. */
+  const matchesByPage = useMemo(() => {
+    const matches = new Map<number, SearchMatch[]>();
+    const firstGlobalIndex = new Map<number, number>();
+    searchMatches.forEach((match, globalIndex) => {
+      const list = matches.get(match.page);
+      if (list) list.push(match);
+      else {
+        matches.set(match.page, [match]);
+        firstGlobalIndex.set(match.page, globalIndex);
+      }
+    });
+    return { matches, firstGlobalIndex };
+  }, [searchMatches]);
+
   const searchHitsByPage = useMemo(() => {
     const map = new Map<number, SearchHitBox[]>();
     if (!searchOpen || renderScale === null || !doc || !dims) return map;
-    searchMatches.forEach((match, matchIndex) => {
-      const viewport = getCachedPageSearchViewport(doc, match.page);
-      const dim = dims[match.page - 1];
+    const fingerprint = documentSearchCacheKey(doc);
+    matchesByPage.matches.forEach((pageMatches, page) => {
+      const viewport = getCachedPageSearchViewport(doc, page);
+      const dim = dims[page - 1];
       if (!viewport || !dim) return;
       const cssWidth = dim.width * renderScale;
       const cssHeight = dim.height * renderScale;
-      const list = map.get(match.page);
-      const target = list ?? [];
-      for (const box of match.boxes) {
-        const normalized = textBoxToNormalizedViewportBox(box, viewport.transform, viewport.width, viewport.height);
-        if (!normalized) continue;
-        target.push({
-          left: normalized.left * cssWidth,
-          top: normalized.top * cssHeight,
-          width: normalized.width * cssWidth,
-          height: normalized.height * cssHeight,
-          active: matchIndex === safeActiveMatchIndex,
-        });
-      }
-      if (!list && target.length > 0) map.set(match.page, target);
+      // Wave 12.1 — per-match DOM rects (char-precise) when the page's text
+      // layer has been resolved; null entries → proportional slice fallback
+      // for that match. Cached search items supply the ORIGINAL item lengths
+      // the fallback fractions need.
+      const resolved = resolvedHitRects[`${fingerprint}:${page}`];
+      const cachedItems = resolved ? getCachedPageSearchItems(doc, page) : null;
+      const firstGlobal = matchesByPage.firstGlobalIndex.get(page) ?? 0;
+      const target: SearchHitBox[] = [];
+      pageMatches.forEach((match, matchIndex) => {
+        const active = firstGlobal + matchIndex === safeActiveMatchIndex;
+        const rects = resolved && matchIndex < resolved.length ? resolved[matchIndex] : null;
+        if (rects && rects.length > 0) {
+          for (const rect of rects) {
+            target.push({
+              left: rect.x * cssWidth,
+              top: rect.y * cssHeight,
+              width: rect.w * cssWidth,
+              height: rect.h * cssHeight,
+              active,
+            });
+          }
+          return;
+        }
+        for (const box of match.boxes) {
+          const item = cachedItems?.[box.itemIndex];
+          const itemLength = item?.str.length ?? 0;
+          const normalized = textBoxToNormalizedViewportBox(
+            box,
+            viewport.transform,
+            viewport.width,
+            viewport.height,
+            itemLength > 0
+              ? { startFraction: box.sliceStart / itemLength, endFraction: box.sliceEnd / itemLength }
+              : undefined,
+          );
+          if (!normalized) continue;
+          target.push({
+            left: normalized.left * cssWidth,
+            top: normalized.top * cssHeight,
+            width: normalized.width * cssWidth,
+            height: normalized.height * cssHeight,
+            active,
+          });
+        }
+      });
+      if (target.length > 0) map.set(page, target);
     });
     return map;
-  }, [searchOpen, searchMatches, safeActiveMatchIndex, renderScale, doc, dims]);
+  }, [searchOpen, matchesByPage, safeActiveMatchIndex, renderScale, doc, dims, resolvedHitRects]);
 
   const pageCount = doc?.numPages ?? pagesCount ?? 0;
   /* Wave 11.11-C — the ACTIVE page is scanned (rendered, zero text items). */
@@ -773,6 +867,9 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
                   selectedShapeId={selectedShapeId}
                   openNoteId={openNoteId}
                   searchHits={searchHitsByPage.get(pageNumber) ?? EMPTY_SEARCH_HITS}
+                  searchSlices={matchesByPage.matches.get(pageNumber) ?? EMPTY_SEARCH_MATCHES}
+                  searchGeneration={matchesByPage.matches.has(pageNumber) ? searchGeneration : 0}
+                  onSearchRectsResolved={handleSearchRectsResolved}
                   registerPage={registerPage}
                   onTextPointerUp={handleTextPointerUp}
                   onTextLayerState={handleTextLayerState}
@@ -848,6 +945,12 @@ interface PageViewProps {
   openNoteId: string | null;
   /** Wave 11.11 — transient search-hit boxes for THIS page (page px space). */
   searchHits: SearchHitBox[];
+  /** Wave 12.1 — this page's search matches (slice domain) for DOM resolution. */
+  searchSlices: SearchMatch[];
+  /** Wave 12.1 — sweep generation (query identity) guarding the resolver cache. */
+  searchGeneration: number;
+  /** Wave 12.1 — reports per-match DOM-resolved rects (null = unresolved). */
+  onSearchRectsResolved: (pageNumber: number, rects: Array<NormalizedRect[] | null> | null) => void;
   /** Wave 11.11-C — reports text-layer presence after each page render. */
   onTextLayerState: (pageNumber: number, hasText: boolean) => void;
   registerPage: (pageNumber: number, el: HTMLElement | null) => void;
@@ -873,6 +976,7 @@ const PageView = memo(function PageView({
   pageNumber, cssWidth, cssHeight, renderScale, doc, visible,
   annotations, tool, penColor, penWidth,
   shapeKind, shapeColor, selectedShapeId, openNoteId, searchHits,
+  searchSlices, searchGeneration, onSearchRectsResolved,
   registerPage, onTextPointerUp, onTextLayerState, onStrokeCommit,
   onShapeCommit, onNotePlace, onNoteOpen, onNoteCommit, onNoteDelete, onNoteClose, onEraseCommit,
 }: PageViewProps) {
@@ -880,6 +984,18 @@ const PageView = memo(function PageView({
   const layerRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<SVGSVGElement | null>(null);
   const [pageReady, setPageReady] = useState(false);
+  /* Wave 12.1 — bumped after every successful text-layer build so the DOM
+   * resolver re-runs against the fresh spans (zoom/visibility rebuilds). */
+  const [layerVersion, setLayerVersion] = useState(0);
+  /* Wave 12.1 — the RAW str-bearing item strings of the last getTextContent
+   * (the span-text domain pdf.js paints; '' included, no span for it).
+   * Ref, not state: only the resolver effect reads it. */
+  const rawStringsRef = useRef<string[] | null>(null);
+  /* Wave 12.1 — span map + resolution bookkeeping, keyed by layer build. */
+  const spanMapRef = useRef<{ version: number; map: ReturnType<typeof createSearchSpanMap> } | null>(null);
+  const resolveStateRef = useRef<{ version: number; generation: number; count: number }>({
+    version: -1, generation: -1, count: 0,
+  });
 
   // Hotfix R15.3 — the active stroke lives in refs, never in React state:
   // pointermove appends to the buffer and repaints ONE <path> via its d
@@ -956,12 +1072,21 @@ const PageView = memo(function PageView({
         const items = textContent.items.map((item) => ('str' in item
           ? { ...item, str: normalizeArabicPresentationForms(item.str) }
           : item));
+        // Wave 12.1 — the span-text domain pdf.js is about to paint: EVERY
+        // str-bearing item verbatim ('' included — pdf.mjs:21512/21568 skips
+        // its span). Byte-identical to the search cache's strings (both run
+        // normalizeArabicPresentationForms), which is what makes the
+        // resolver's strict per-span verification valid.
+        rawStringsRef.current = items.flatMap((item) => ('str' in item ? [item.str] : []));
         const textLayer = new TextLayer({
           textContentSource: { lang: textContent.lang, items, styles: textContent.styles },
           container: layer,
           viewport,
         });
         await textLayer.render();
+        if (cancelled) return;
+        // Wave 12.1 — the layer is fresh: DOM re-resolution may proceed.
+        setLayerVersion((version) => version + 1);
         // Wave 11.11-C — scanned-page detection: a page whose text content
         // carries zero non-whitespace items has no usable text layer
         // (image-only scans). Reported once per render; the parent gates the
@@ -983,8 +1108,50 @@ const PageView = memo(function PageView({
       canvas.width = 0;
       canvas.height = 0;
       layer.textContent = '';
+      // Wave 12.1 — the span domain is gone with the layer.
+      rawStringsRef.current = null;
+      spanMapRef.current = null;
     };
   }, [visible, pageReady, renderScale, pageNumber, doc, onTextLayerState]);
+
+  /* ---- Wave 12.1 — char-level search rects through the text-layer DOM
+          (R12.1.b): a Range over the pinned spans, normalized with the
+          production rectsFromRange pipeline. Runs when the layer is (re)built
+          (layerVersion) or when this page's matches arrive (the sweep emits a
+          page's matches complete in one tick). The strict
+          version+generation+count guard keeps sweep ticks for OTHER pages
+          from re-resolving this one. ---- */
+  useEffect(() => {
+    if (searchSlices.length === 0) return;
+    const layer = layerRef.current;
+    const canvas = canvasRef.current;
+    const rawStrings = rawStringsRef.current;
+    if (!layer || !canvas || !rawStrings || rawStrings.length === 0) return;
+    if (layer.textContent === '') return; // wiped / not yet built — fallback boxes show
+    const state = resolveStateRef.current;
+    if (state.version === layerVersion && state.generation === searchGeneration && state.count === searchSlices.length) return;
+    const pageRect = canvas.getBoundingClientRect();
+    if (!(pageRect.width > 0) || !(pageRect.height > 0)) return;
+    // Both cache reads are warm the moment matches exist: the sweep extracts
+    // (and caches) a page before findMatches ever runs on it.
+    const cachedItems = getCachedPageSearchItems(doc, pageNumber);
+    const sourceIndexes = getCachedPageSearchSourceIndexes(doc, pageNumber);
+    if (!cachedItems || cachedItems.length === 0 || !sourceIndexes) return;
+    let spanMap = spanMapRef.current;
+    if (!spanMap || spanMap.version !== layerVersion) {
+      spanMap = {
+        version: layerVersion,
+        map: createSearchSpanMap(layer, {
+          rawItemStrings: rawStrings,
+          rawIndexOfItem: sourceIndexes,
+        }),
+      };
+      spanMapRef.current = spanMap;
+    }
+    const rects = searchSlices.map((match) => resolveSearchMatchRects(spanMap.map.spanForItem, match, pageRect));
+    resolveStateRef.current = { version: layerVersion, generation: searchGeneration, count: searchSlices.length };
+    onSearchRectsResolved(pageNumber, rects);
+  }, [layerVersion, searchSlices, searchGeneration, doc, pageNumber, onSearchRectsResolved]);
 
   // The pdf.js getPage call needs the page proxy before the first render —
   // resolve readiness once per (doc, pageNumber).
