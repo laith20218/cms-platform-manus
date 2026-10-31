@@ -191,3 +191,44 @@
   stroke-linejoin: round;
   pointer-events: none;
 }
+
+/* ---- Wave 11.10 — diagram shapes (inside the z-11 ink SVG) ----
+   Visible shape geometry NEVER takes the pointer (the text layer owns real
+   events in pointer mode per the R18 contract); selection is a pure geometry
+   hit test in PdfPlayer, so no pointer-events toggling is needed here. */
+
+.pdf-annotation-layer .pdf-shape {
+  fill: none;
+  pointer-events: none;
+}
+
+.pdf-annotation-layer .pdf-arrow-head {
+  pointer-events: none;
+}
+
+/* Live drag preview: identical stroke contract, never interactive. */
+.pdf-annotation-layer .pdf-shape-live,
+.pdf-annotation-layer .pdf-shape-live * {
+  pointer-events: none;
+}
+
+.pdf-shape.is-selected {
+  stroke-dasharray: 0.02 0.012;
+}
+
+/* ---- Wave 11.10 — sticky notes (z-25 DOM layer above the text layer) ----
+   Container never takes the pointer; the icons and the open editor opt back
+   in, so text selection keeps working on every other pixel (supervisor C:
+   "sits above the text layer but doesn't block text selection"). */
+
+.pdf-note-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+}
+
+.pdf-note-layer .pdf-note-icon,
+.pdf-note-layer .pdf-note-editor {
+  pointer-events: auto;
+}

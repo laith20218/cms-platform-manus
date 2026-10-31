@@ -161,7 +161,7 @@ public record CompleteUploadDto(
 public record FileAnnotationDto(
     Guid Id,
     int PageNumber,
-    string AnnotationType,   // "Highlight" | "Ink" (global JsonStringEnumConverter contract)
+    string AnnotationType,   // "Highlight" | "Ink" | "Shape" | "Note" (global JsonStringEnumConverter contract)
     JsonElement Payload,
     DateTime CreatedAt,
     DateTime UpdatedAt
