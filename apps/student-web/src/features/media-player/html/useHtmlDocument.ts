@@ -20,8 +20,9 @@ export type HtmlDocStatus = 'loading' | 'ready' | 'error';
  *     charset meta; complete documents pass through untouched.
  *  3. `injectLessonPrelude` — viewport meta + the STRICT CSP meta (the single
  *     remaining enforcement layer — idempotent, strips any previous-build
- *     tag) + the fit-to-width style/script. Script blocks are additionally
- *     stripped when enableScripts=false (belt-and-suspenders under sandbox="").
+ *     tag) + the fit-to-width style/script. When enableScripts=false the CSP
+ *     carries an explicit `script-src 'none'` — execution is blocked by the
+ *     BROWSER (CSP + sandbox), never by string surgery (R44).
  *
  * Retry (G-5): `retry()` bumps the reload token — the effect re-runs, the
  * state machine resets, no shell remount (identical to the PdfPlayer pattern).

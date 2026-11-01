@@ -15,8 +15,9 @@
  *  - connect-src 'none', frame-src 'none', object-src 'none',
  *    base-uri 'none', form-action 'none' → zero external connections,
  *    zero nesting, zero navigation;
- *  - script-src 'unsafe-inline' rides ONLY when enableScripts=true (Q1) —
- *    inline scripts of team-built lessons run; every external URL stays dead.
+ *  - script-src is EXPLICIT in both modes (R44): 'none' when enableScripts=false
+ *    (never a default-src fallback), 'unsafe-inline' when true — inline scripts
+ *    of team-built lessons run; every external URL stays dead.
  *
  * The R42 prelude (all string insertion — never DOM parsing, per contract):
  *  1. viewport meta (responsive baseline for legacy/fragment lessons);
@@ -28,7 +29,8 @@
  *     static because sandbox="" blocks every script anyway).
  */
 
-export const HTML_CSP_STATIC =
+/** Offline base shared by both script modes — every non-script directive. */
+const CSP_OFFLINE_BASE =
   "default-src 'none'; " +
   "style-src 'unsafe-inline'; " +
   'img-src data: blob:; ' +
@@ -40,7 +42,11 @@ export const HTML_CSP_STATIC =
   "base-uri 'none'; " +
   "form-action 'none'";
 
-export const HTML_CSP_SCRIPTS = `${HTML_CSP_STATIC}; script-src 'unsafe-inline'`;
+/** R44: static rows deny script execution EXPLICITLY (script-src 'none') — the
+ *  browser enforces the policy; no content pre-parsing, no string surgery. */
+export const HTML_CSP_STATIC = `${CSP_OFFLINE_BASE}; script-src 'none'`;
+
+export const HTML_CSP_SCRIPTS = `${CSP_OFFLINE_BASE}; script-src 'unsafe-inline'`;
 
 const META_TAG_REGEX = /<meta\b[^>]*>/gi;
 const HEAD_OPEN_REGEX = /<head\b[^>]*>/i;
@@ -54,9 +60,9 @@ const FIT_SCRIPT_ID = 'id="cms-fit-script"';
 
 const FIT_STYLE = `<style ${FIT_STYLE_ID}> html, body { margin:0; padding:0; width:100%; } body { overflow-x: hidden; }</style>`;
 
-const FIT_SCRIPT = `<script ${FIT_SCRIPT_ID}> (function(){ function fit(){ try { document.body.style.zoom=''; var sw=document.body.scrollWidth; var vw=window.innerWidth||document.documentElement.clientWidth; if(sw>vw && sw>0){ document.body.style.zoom=(vw/sw).toString(); } } catch(e){} } window.addEventListener('load',fit); window.addEventListener('resize',fit); document.addEventListener('DOMContentLoaded',fit); })(); </script>`;
-
-const SCRIPT_BLOCK_REGEX = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi;
+/** The marker lets the E2E suite prove BEHAVIORALLY that our own prelude ran
+ *  (it can only ever run when the CSP we control allows scripts — trusted rows). */
+const FIT_SCRIPT = `<script ${FIT_SCRIPT_ID}> (function(){ window.__cms_fit = true; function fit(){ try { document.body.style.zoom=''; var sw=document.body.scrollWidth; var vw=window.innerWidth||document.documentElement.clientWidth; if(sw>vw && sw>0){ document.body.style.zoom=(vw/sw).toString(); } } catch(e){} } window.addEventListener('load',fit); window.addEventListener('resize',fit); document.addEventListener('DOMContentLoaded',fit); })(); </script>`;
 
 /** True when the fetched body already carries a CSP meta (ours or foreign). */
 export function hasCspMeta(html: string): boolean {
@@ -85,27 +91,28 @@ export function injectCspMeta(html: string, enableScripts: boolean): string {
   return insertIntoHead(stripped, metaTag);
 }
 
+// SECURITY MODEL (do not add string manipulation):
+// The sandbox attribute (no allow-same-origin) creates an
+// opaque origin — no access to cookies, localStorage,
+// parent DOM. The CSP meta blocks script execution when
+// EnableScripts=false (script-src 'none'). These two
+// browser-level layers ARE the protection. Never rely on
+// regex-based HTML "sanitization" — it is provably unsafe.
+
 /**
  * R42 — the full in-memory lesson prelude. Composes, in order:
  *  1. CSP-meta strip (previous-build tags from the legacy upload pipeline
  *     cannot survive — idempotency, C.3);
- *  2. script-block strip when enableScripts=false (belt-and-suspenders under
- *     sandbox="" — the file reads cleanly with no JS noise, C.4);
- *  3. one insertion after <head> (created/prepended when missing):
+ *  2. one insertion after <head> (created/prepended when missing):
  *     viewport meta → CSP meta → fit style → fit script (C.2).
- * Pure string transforms — the original bytes are NEVER persisted anywhere.
+ * Pure string transforms on OUR OWN head additions only — content bytes are
+ * never parsed, filtered or rewritten, and the original is NEVER persisted.
  */
 export function injectLessonPrelude(html: string, enableScripts: boolean): string {
   if (!html) return html;
 
   let body = stripBom(html);
   body = stripCspMetas(body);
-
-  if (!enableScripts) {
-    // C.4: strip every <script>…</script> block (sandbox="" would block them
-    // anyway; removing them keeps the DOM clean and the static lesson readable).
-    body = body.replace(SCRIPT_BLOCK_REGEX, '');
-  }
 
   const prelude =
     cspMetaTag(enableScripts) +

@@ -19,9 +19,15 @@
  *
  *  FIT-TO-WIDTH (C) — at 375px a wider-than-viewport fixture gets
  *    `body { zoom < 1 }` and NO horizontal scroll; at 1440px zoom stays 1.
- *    Static rows (EnableScripts=false) additionally have every <script> block
- *    stripped from the in-memory document (C.4 — belt-and-suspenders under
- *    sandbox="").
+ *    Script policy is BEHAVIORAL (R44 — no string surgery): the fixture ships
+ *    `<script>window.__cms_ran = true;</script>` and the suite asserts what the
+ *    BROWSER does with it —
+ *      static rows  : __cms_ran stays undefined (explicit script-src 'none'
+ *                     CSP + sandbox="" block execution; the platform fit
+ *                     prelude is inert too — nothing runs at all);
+ *      scripts rows : __cms_ran === true (author opted in) and our own fit
+ *                     prelude runs (__cms_fit === true) because we control
+ *                     the CSP.
  *
  *  §13 evidence — 5-width screenshots (375/640/768/1024/1440) × 3 kinds.
  *
@@ -102,7 +108,7 @@ function lessonHtml(widePx) {
 <svg id="icon" width="48" height="48" viewBox="0 0 24 24" role="img"><circle id="svg-circle" cx="12" cy="12" r="10" fill="#e11d48"></circle></svg>
 <div id="marker">pending</div>
 <div id="wide" style="width:${widePx}px;height:40px;background:#0ea5e9"></div>
-<script>window.cmsRan = true; document.getElementById('marker').textContent = 'ran';</script>
+<script>window.__cms_ran = true; document.getElementById('marker').textContent = 'ran';</script>
 </body></html>`;
 }
 
@@ -366,13 +372,13 @@ async function main() {
             titleColor: h1 ? getComputedStyle(h1).color : null,
             circleFill: circle ? getComputedStyle(circle).fill : null,
             marker: document.querySelector('#marker')?.textContent ?? null,
-            scriptGlobal: window.cmsRan === true,
+            scriptGlobal: window.__cms_ran === true,
           };
         });
         check('S1c: h1 text intact', probe.title === LESSON_TITLE, JSON.stringify(probe.title));
         check('S1d: inline style intact (color #0284c7 → rgb(2,132,199))', probe.titleColor === 'rgb(2, 132, 199)', probe.titleColor);
         check('S1e: SVG circle geometry intact (fill #e11d48)', probe.circleFill === 'rgb(225, 29, 72)', probe.circleFill);
-        check('S1f: inline script ran (no mangling, no strip)', probe.marker === 'ran' && probe.scriptGlobal, `marker=${probe.marker}`);
+        check('S1f: authored script EXECUTED on trusted rows (window.__cms_ran === true)', probe.marker === 'ran' && probe.scriptGlobal, `marker=${probe.marker} __cms_ran=${probe.scriptGlobal}`);
 
         const prelude = await frame.evaluate(() => ({
           cspCount: document.querySelectorAll('meta[data-cms-injected="true"]').length,
@@ -411,12 +417,14 @@ async function main() {
             // pre-zoom coordinate space; documentElement is what can overflow.
             docScrollW: document.documentElement.scrollWidth,
             vw: window.innerWidth,
+            fitMarker: window.__cms_fit === true,
           }));
           if (parseFloat(zoomProbe.zoom) < 1) break;
           await page.waitForTimeout(250);
         }
         check('S2a: body.zoom < 1 for wide content at 375px', parseFloat(zoomProbe.zoom) < 1 && parseFloat(zoomProbe.zoom) > 0, JSON.stringify(zoomProbe));
         check('S2b: NO horizontal scroll after fit (document scrollWidth ≤ viewport)', zoomProbe.docScrollW <= zoomProbe.vw + 2, `docScrollW=${zoomProbe.docScrollW} vw=${zoomProbe.vw}`);
+        check('S2c: platform fit prelude EXECUTED (window.__cms_fit === true) — we control the CSP', zoomProbe.fitMarker === true, `__cms_fit=${zoomProbe.fitMarker}`);
       } else {
         check('S2: srcdoc frame attached', false);
       }
@@ -436,8 +444,10 @@ async function main() {
           inlineZoom: document.body.style.zoom,
           scrollW: document.body.scrollWidth,
           vw: window.innerWidth,
+          fitMarker: window.__cms_fit === true,
         }));
         check('S3: body.zoom === 1 at 1440px (no shrink for fitting content)', parseFloat(probe.zoom) === 1 && probe.inlineZoom === '', JSON.stringify(probe));
+        check('S3b: fit prelude executed at desktop too (window.__cms_fit === true)', probe.fitMarker === true, `__cms_fit=${probe.fitMarker}`);
       } else {
         check('S3: srcdoc frame attached', false);
       }
@@ -445,25 +455,33 @@ async function main() {
       await context.close();
     }
 
-    // ===== S4 — HTML static: sandbox="" AND script blocks stripped (C.4) =====
+    // ===== S4 — HTML static (EnableScripts=false): script denial is BROWSER-enforced (R44) =====
     {
       const context = await newContext(browser, { width: 375, height: 812 }, 'html', { enableScripts: false, widePx: 900 });
       const page = await context.newPage();
       await openLibraryFile(page, 'html');
       const iframe = page.locator('[data-testid="library-html-player-frame"]');
       const sandboxAttr = await iframe.getAttribute('sandbox');
-      check('S4a: sandbox="" on static rows', sandboxAttr === '', `sandbox="${sandboxAttr}"`);
+      check('S4a: sandbox="" on static rows (opaque origin — frame boundary denies scripts)', sandboxAttr === '', `sandbox="${sandboxAttr}"`);
       const frame = await waitForSrcdoc(page);
       if (frame) {
+        // BEHAVIORAL (R44): the fixture ships <script>window.__cms_ran = true;</script>
+        // and the document is NOT modified — the browser must refuse to run it.
         const probe = await frame.evaluate(() => ({
-          contentScriptTags: Array.from(document.querySelectorAll('script')).filter((s) => s.id !== 'cms-fit-script').length,
-          cmsRan: window.cmsRan === true,
+          cmsRan: window.__cms_ran,
+          fitMarker: window.__cms_fit,
+          bodyZoom: document.body.style.zoom,
+          csp: document.querySelector('meta[data-cms-injected="true"]')?.getAttribute('content') ?? null,
           fitStyle: document.querySelector('style#cms-fit-style') !== null,
           fitScript: document.querySelector('script#cms-fit-script') !== null,
         }));
-        check('S4b: every CONTENT <script> stripped from the static document (C.4)',
-          probe.contentScriptTags === 0 && !probe.cmsRan, JSON.stringify(probe));
-        check('S4c: platform prelude present (inert under sandbox="") + style for static rows',
+        check('S4b: fixture script DID NOT execute (window.__cms_ran === undefined) — CSP blocked it',
+          probe.cmsRan === undefined, `__cms_ran=${String(probe.cmsRan)}`);
+        check("S4c: static CSP carries EXPLICIT script-src 'none' (no default-src fallback reliance)",
+          !!probe.csp && probe.csp.includes("script-src 'none'"), probe.csp);
+        check('S4d: NOTHING ran — platform fit prelude inert too (sandbox="" blocks every script; fit is proven on trusted rows S2c/S3b)',
+          probe.fitMarker === undefined && probe.bodyZoom === '', `__cms_fit=${String(probe.fitMarker)} bodyZoom="${probe.bodyZoom}"`);
+        check('S4e: platform prelude present in DOM (fit style + fit script, ready for trusted rows)',
           probe.fitStyle && probe.fitScript);
       } else {
         check('S4: srcdoc frame attached', false);
