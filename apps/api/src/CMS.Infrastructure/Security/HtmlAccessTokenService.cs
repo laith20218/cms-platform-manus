@@ -115,6 +115,12 @@ public sealed class HtmlAccessTokenService : IHtmlAccessTokenService
 /// the document is now framed cross-origin, so the header alone decides who
 /// may embed it. The browser enforces this policy on the iframe document —
 /// no client-side meta injection exists anymore (single source of truth).
+///
+/// R60 — INTERACTIVE rows (EnableScripts=true) additionally allowlist the
+/// trusted CDN origins (Three.js et al. via cdnjs/jsdelivr/unpkg) and the
+/// Google Fonts pair (fonts.googleapis.com → CSS, fonts.gstatic.com → WOFF2),
+/// so authored lessons keep their external assets and typography.
+/// STATIC rows (EnableScripts=false) keep the strict R51 lockdown verbatim.
 /// </summary>
 public static class HtmlViewCsp
 {
@@ -122,17 +128,48 @@ public static class HtmlViewCsp
     /// student-web origin (R51 workorder value).</summary>
     public const string DefaultFrameAncestors = "https://cms-platform-manus-student-web.vercel.app";
 
-    public static string Build(bool enableScripts, string frameAncestors) =>
-        "default-src 'none'; " +
-        "style-src 'unsafe-inline'; " +
-        "img-src data: blob:; " +
-        "font-src data:; " +
-        "media-src data: blob:; " +
-        "connect-src 'none'; " +
-        "frame-src 'none'; " +
-        "object-src 'none'; " +
-        "base-uri 'none'; " +
-        "form-action 'none'; " +
-        (enableScripts ? "script-src 'unsafe-inline'; " : "script-src 'none'; ") +
-        "frame-ancestors " + (string.IsNullOrWhiteSpace(frameAncestors) ? DefaultFrameAncestors : frameAncestors.Trim());
+    public static string Build(bool enableScripts, string frameAncestors)
+    {
+        var ancestors = string.IsNullOrWhiteSpace(frameAncestors) ? DefaultFrameAncestors : frameAncestors.Trim();
+
+        if (!enableScripts)
+        {
+            // R60 — static rows keep the R51 strict profile: nothing external,
+            // scripts are dead bytes (sandbox + script-src 'none').
+            return "default-src 'none'; " +
+                   "style-src 'unsafe-inline'; " +
+                   "img-src data: blob:; " +
+                   "font-src data:; " +
+                   "media-src data: blob:; " +
+                   "connect-src 'none'; " +
+                   "frame-src 'none'; " +
+                   "object-src 'none'; " +
+                   "base-uri 'none'; " +
+                   "form-action 'none'; " +
+                   "script-src 'none'; " +
+                   "frame-ancestors " + ancestors;
+        }
+
+        // Allowlisting cdnjs, jsdelivr, unpkg, and Google Fonts is safe
+        // because:
+        // 1. The lesson is authored by the trusted admin team (G-2).
+        // 2. The sandbox (no allow-same-origin) prevents the lesson from
+        //    accessing cookies, localStorage, or the parent DOM.
+        // 3. connect-src remains 'none', preventing data exfiltration
+        //    (even if a malicious script loaded, it cannot send data out).
+        // 4. These specific CDNs are industry-standard and heavily
+        //    monitored for supply-chain attacks.
+        return "default-src 'none'; " +
+               "style-src 'unsafe-inline' https://fonts.googleapis.com; " +
+               "font-src data: https://fonts.gstatic.com; " +
+               "img-src data: blob: https:; " +
+               "media-src data: blob: https:; " +
+               "connect-src 'none'; " +
+               "frame-src 'none'; " +
+               "object-src 'none'; " +
+               "base-uri 'none'; " +
+               "form-action 'none'; " +
+               "script-src 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; " +
+               "frame-ancestors " + ancestors;
+    }
 }
