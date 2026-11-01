@@ -39,6 +39,12 @@ namespace CMS.Tests.Integration;
 /// bytes, and the R51 zero-modification contract is preserved for them). The
 /// stored object is never rewritten — the fake storage keeps the original
 /// bytes and every assertion reads back from it as ground truth.
+///
+/// R58 — test isolation: every issue-consuming test mints its OWN student
+/// identity (NewStudentId), so the default student's shared 5-per-minute
+/// issue bucket can no longer make pass/fail depend on xUnit's execution
+/// order within the class. Test-only change; production rate limits are
+/// untouched.
 /// </summary>
 public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFactory>
 {
@@ -86,8 +92,9 @@ public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFac
     [Fact]
     public async Task Issue_ValidHtmlFile_Returns200_WithTokenUrlAndExpiry()
     {
-        var token = _factory.CreateSignedToken(HtmlViewHttpFactory.InstallationA, new[] { _factory.SubjectId }, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10));
-        var response = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, token, HtmlViewHttpFactory.InstallationA));
+        var studentId = NewStudentId();
+        var token = _factory.CreateSignedTokenFor(studentId, HtmlViewHttpFactory.InstallationA, new[] { _factory.SubjectId }, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10));
+        var response = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, token, HtmlViewHttpFactory.InstallationA, studentId));
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -124,7 +131,9 @@ public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFac
     [Fact]
     public async Task Evidence_HtmlView_WireHeaders_DumpedToArtifact()
     {
-        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, SignedToken(), HtmlViewHttpFactory.InstallationA));
+        var studentId = NewStudentId();
+        var token = _factory.CreateSignedTokenFor(studentId, HtmlViewHttpFactory.InstallationA, new[] { _factory.SubjectId }, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10));
+        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, token, HtmlViewHttpFactory.InstallationA, studentId));
         issue.StatusCode.Should().Be(HttpStatusCode.OK);
         var url = (await issue.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
 
@@ -164,7 +173,9 @@ public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFac
     [Fact]
     public async Task View_ValidToken_InjectsStorageShim_WithCspHeader_NoStore_NoXfo()
     {
-        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, SignedToken(), HtmlViewHttpFactory.InstallationA));
+        var studentId = NewStudentId();
+        var token = _factory.CreateSignedTokenFor(studentId, HtmlViewHttpFactory.InstallationA, new[] { _factory.SubjectId }, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10));
+        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, token, HtmlViewHttpFactory.InstallationA, studentId));
         issue.StatusCode.Should().Be(HttpStatusCode.OK);
         var url = (await issue.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
 
@@ -199,7 +210,9 @@ public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFac
     [Fact]
     public async Task View_StaticRow_ServedVerbatim_NoShim()
     {
-        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.StaticHtmlId, SignedToken(), HtmlViewHttpFactory.InstallationA));
+        var studentId = NewStudentId();
+        var token = _factory.CreateSignedTokenFor(studentId, HtmlViewHttpFactory.InstallationA, new[] { _factory.SubjectId }, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10));
+        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.StaticHtmlId, token, HtmlViewHttpFactory.InstallationA, studentId));
         issue.StatusCode.Should().Be(HttpStatusCode.OK);
         var url = (await issue.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
 
@@ -215,7 +228,9 @@ public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFac
     [Fact]
     public async Task View_HeadlessLesson_ShimPrepended()
     {
-        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.HeadlessHtmlId, SignedToken(), HtmlViewHttpFactory.InstallationA));
+        var studentId = NewStudentId();
+        var token = _factory.CreateSignedTokenFor(studentId, HtmlViewHttpFactory.InstallationA, new[] { _factory.SubjectId }, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10));
+        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.HeadlessHtmlId, token, HtmlViewHttpFactory.InstallationA, studentId));
         issue.StatusCode.Should().Be(HttpStatusCode.OK);
         var url = (await issue.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
 
@@ -230,7 +245,9 @@ public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFac
     [Fact]
     public async Task View_StaticRow_CspCarriesExplicitScriptSrcNone()
     {
-        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.StaticHtmlId, SignedToken(), HtmlViewHttpFactory.InstallationA));
+        var studentId = NewStudentId();
+        var token = _factory.CreateSignedTokenFor(studentId, HtmlViewHttpFactory.InstallationA, new[] { _factory.SubjectId }, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10));
+        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.StaticHtmlId, token, HtmlViewHttpFactory.InstallationA, studentId));
         issue.StatusCode.Should().Be(HttpStatusCode.OK);
         var url = (await issue.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
 
@@ -246,7 +263,9 @@ public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFac
     [Fact]
     public async Task View_UsedToken_Returns401_OnSecondCall()
     {
-        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, SignedToken(), HtmlViewHttpFactory.InstallationA));
+        var studentId = NewStudentId();
+        var token = _factory.CreateSignedTokenFor(studentId, HtmlViewHttpFactory.InstallationA, new[] { _factory.SubjectId }, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10));
+        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, token, HtmlViewHttpFactory.InstallationA, studentId));
         var url = (await issue.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
 
         (await _factory.Client.GetAsync(url)).StatusCode.Should().Be(HttpStatusCode.OK);
@@ -256,7 +275,9 @@ public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFac
     [Fact]
     public async Task View_ExpiredToken_Returns401()
     {
-        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, SignedToken(), HtmlViewHttpFactory.InstallationA));
+        var studentId = NewStudentId();
+        var token = _factory.CreateSignedTokenFor(studentId, HtmlViewHttpFactory.InstallationA, new[] { _factory.SubjectId }, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10));
+        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, token, HtmlViewHttpFactory.InstallationA, studentId));
         var url = (await issue.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
 
         _factory.Clock.UtcNowValue = _factory.Clock.UtcNowValue.AddMinutes(6); // TTL is 5 minutes
@@ -266,7 +287,9 @@ public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFac
     [Fact]
     public async Task View_TokenBoundToAnotherFile_Returns401()
     {
-        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, SignedToken(), HtmlViewHttpFactory.InstallationA));
+        var studentId = NewStudentId();
+        var token = _factory.CreateSignedTokenFor(studentId, HtmlViewHttpFactory.InstallationA, new[] { _factory.SubjectId }, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10));
+        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, token, HtmlViewHttpFactory.InstallationA, studentId));
         var url = (await issue.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
         var boundToken = url.Split("t=")[1];
 
@@ -274,8 +297,13 @@ public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFac
         mismatched.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the token is bound to a different fileId");
     }
 
-    private string SignedToken() => _factory.CreateSignedToken(
-        HtmlViewHttpFactory.InstallationA, new[] { _factory.SubjectId }, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10));
+    /// <summary>
+    /// R58 — test isolation: every issue-consuming test mints its OWN student
+    /// identity, hence its own 5-per-minute issue bucket
+    /// (HtmlAccessTokenService.MaxIssuesPerMinute). Passes no longer depend on
+    /// xUnit execution order within the class.
+    /// </summary>
+    private Guid NewStudentId() => _factory.NewStudentId();
 }
 
 /// <summary>
@@ -461,6 +489,24 @@ public sealed class HtmlViewHttpFactory : WebApplicationFactory<Program>, IAsync
         Client?.Dispose();
         await base.DisposeAsync();
         await _inMemoryEfServices.DisposeAsync();
+    }
+
+    /// <summary>
+    /// R58 — a fresh student identity for per-test rate-limit isolation.
+    /// A bare Guid is NOT sufficient: SignedEntitlementService.ValidateAsync
+    /// rejects a student whose (student, installation) device binding is not
+    /// active, so the binding row is seeded here on demand. Test-only — the
+    /// production rate limit (HtmlAccessTokenService.MaxIssuesPerMinute) is
+    /// untouched.
+    /// </summary>
+    internal Guid NewStudentId()
+    {
+        var studentId = Guid.NewGuid();
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        db.DeviceBindings.Add(new DeviceBinding { StudentId = studentId, DeviceFingerprint = InstallationA, IsActive = true });
+        db.SaveChanges();
+        return studentId;
     }
 
     /// <summary>POST /html-access with the test student principal + entitlement headers.</summary>
