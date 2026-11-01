@@ -1526,6 +1526,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("category");
 
+                    b.Property<int?>("ContentProcessingStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("content_processing_status");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -1553,6 +1557,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Property<int?>("DurationSeconds")
                         .HasColumnType("integer")
                         .HasColumnName("duration_seconds");
+
+                    b.Property<bool>("EnableScripts")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_scripts");
 
                     b.Property<int>("FavoritesCount")
                         .HasColumnType("integer")

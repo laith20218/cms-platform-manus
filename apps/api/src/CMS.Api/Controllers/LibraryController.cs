@@ -258,7 +258,10 @@ public class LibraryController : ControllerBase
         var result = await _mediator.Send(new RequestUploadUrlCommand(
             dto.FileName, dto.ContentType, dto.FileSize,
             dto.SubjectId, dto.LectureId, dto.Type,
-            dto.Title, dto.Description, GetAdminId(), dto.Category
+            dto.Title, dto.Description, GetAdminId(), dto.Category,
+            // Wave 13 (F3) — trusted interactive lesson flag (text/html only; the
+            // handler re-gates it against the declared content type).
+            dto.EnableScripts
         ), ct);
         return Ok(result);
     }
@@ -278,7 +281,10 @@ public class LibraryController : ControllerBase
             dto.FileId, dto.FileKey, dto.ActualFileSize,
             dto.PagesCount, dto.DurationSeconds,
             dto.YoutubeVideoId, GetAdminId(), GetSessionId(),
-            dto.Title, dto.Description, dto.Difficulty, dto.TargetQuality
+            dto.Title, dto.Description, dto.Difficulty, dto.TargetQuality,
+            // Wave 13 (F3) — contract symmetry only; the authoritative flag is the
+            // value persisted on the row at upload-url time.
+            dto.EnableScripts
         ), ct);
         return Ok(result);
     }

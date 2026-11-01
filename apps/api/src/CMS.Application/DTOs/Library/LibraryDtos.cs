@@ -51,7 +51,12 @@ public record LibraryFileDto(
     //   null           — pipeline never ran (non-PDF/legacy) or still running/failed
     //                    (a Failed row's health is unclassifiable — the error modal
     //                    carries the evidence instead).
-    string? HealthStatus = null
+    string? HealthStatus = null,
+    // ===== Wave 13 (F3) — HTML player pipeline exposure (additive keys) =====
+    // Null ContentProcessingStatus = pipeline never applied (non-HTML / legacy rows).
+    ContentProcessingStatus? ContentProcessingStatus = null,
+    // The trusted-lesson flag — drives the student player's sandbox policy.
+    bool EnableScripts = false
 );
 
 /// <summary>
@@ -126,7 +131,10 @@ public record RequestUploadUrlDto(
     string Type,
     string Title,
     string? Description,
-    LibraryFileCategory? Category = null
+    LibraryFileCategory? Category = null,
+    // Wave 13 (F3) — trusted interactive lesson flag (text/html only; ignored for
+    // every other content type).
+    bool EnableScripts = false
 );
 
 public record UploadUrlDto(
@@ -151,7 +159,10 @@ public record CompleteUploadDto(
     // Push 10.8 — admin-selected transcoding target for video files (the 10.7
     // binding gap: the command accepted it, this DTO dropped it). Absent = keep
     // the stored value (Auto).
-    TargetQuality? TargetQuality = null
+    TargetQuality? TargetQuality = null,
+    // Wave 13 (F3) — contract symmetry only; the authoritative flag is the one
+    // persisted at upload-url time (see CompleteUploadCommand.EnableScripts).
+    bool EnableScripts = false
 );
 
 // ===== Wave 11.8 / F2: PDF annotations =====

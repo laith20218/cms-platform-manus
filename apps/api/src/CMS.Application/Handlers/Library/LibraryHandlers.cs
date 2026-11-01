@@ -10,6 +10,7 @@ using CMS.Domain.Entities;
 using CMS.Domain.Enums;
 using CMS.Domain.Exceptions;
 using CMS.Domain.Constants;
+using System.Text;
 
 namespace CMS.Application.Handlers.Library;
 
@@ -44,6 +45,8 @@ public class LibraryHandlers :
     private readonly ITranscodingQueue _transcodingQueue;
     // Wave 11.9: Ghostscript PDF pipeline enqueue surface (complete-upload → PdfProcessingJob).
     private readonly IPdfProcessingQueue _pdfProcessingQueue;
+    // Wave 13 (F3): upload-time CSP meta injection for stored HTML documents.
+    private readonly IHtmlCspInjector _htmlCspInjector;
 
     public LibraryHandlers(
         IApplicationDbContext db,
@@ -56,7 +59,8 @@ public class LibraryHandlers :
         ILogger<LibraryHandlers> logger,
         IAdminActivityWriter activity,
         ITranscodingQueue transcodingQueue,
-        IPdfProcessingQueue pdfProcessingQueue)
+        IPdfProcessingQueue pdfProcessingQueue,
+        IHtmlCspInjector htmlCspInjector)
     {
         _db = db;
         _unitOfWork = unitOfWork;
@@ -69,6 +73,7 @@ public class LibraryHandlers :
         _activity = activity;
         _transcodingQueue = transcodingQueue;
         _pdfProcessingQueue = pdfProcessingQueue;
+        _htmlCspInjector = htmlCspInjector;
     }
 
     // ===== Queries =====
@@ -250,8 +255,13 @@ public class LibraryHandlers :
     // hardcoded fallback used only when the setting row is missing or unparseable. Editors with
     // Settings.Edit permission can retune the limits at runtime without a redeploy.
     private const int DefaultPdfLimitMb = 200;
-    private const int DefaultHtmlLimitMb = 10;
+    private const int DefaultHtmlLimitMb = 20;
     private const int DefaultImageLimitMb = 20;
+
+    /// <summary>Wave 13 / G-6 (Q3 ruling) — the HTML ceiling is a CODE-LEVEL HARD CAP:
+    /// whatever upload.limit.html_mb says at runtime, the effective HTML limit can never
+    /// exceed this value. The default above matches the cap.</summary>
+    private const int HtmlHardCapMb = 20;
 
     private static readonly Dictionary<string, (string SettingKey, int DefaultMb)> ContentTypeUploadLimits =
         new(StringComparer.OrdinalIgnoreCase)
@@ -265,7 +275,8 @@ public class LibraryHandlers :
             ["image/webp"] = ("upload.limit.image_mb", DefaultImageLimitMb),
         };
 
-    /// <summary>Resolves the per-type upload ceiling in bytes: system setting first, hardcoded fallback when absent/unparseable.</summary>
+    /// <summary>Resolves the per-type upload ceiling in bytes: system setting first, hardcoded fallback when absent/unparseable.
+    /// Wave 13 (G-6/Q3): the HTML result is additionally clamped to the 20 MB code-level hard cap.</summary>
     private async Task<long> GetUploadLimitBytesAsync(string contentType, CancellationToken ct)
     {
         if (!ContentTypeUploadLimits.TryGetValue(contentType.Trim(), out var policy))
@@ -273,6 +284,11 @@ public class LibraryHandlers :
 
         var raw = await _settings.GetAsync(policy.SettingKey, ct);
         var limitMb = int.TryParse(raw, out var parsed) && parsed > 0 ? parsed : policy.DefaultMb;
+
+        // G-6 hard cap: a generous runtime setting can never lift the HTML ceiling above 20 MB.
+        if (string.Equals(contentType.Trim(), "text/html", StringComparison.OrdinalIgnoreCase))
+            limitMb = Math.Min(limitMb, HtmlHardCapMb);
+
         return limitMb * 1024L * 1024L;
     }
 
@@ -316,7 +332,12 @@ public class LibraryHandlers :
             FileFormat = req.ContentType,
             Tags = new List<string>(),
             Status = ContentStatus.Draft,
-            VirusScanStatus = VirusScanStatus.Pending
+            VirusScanStatus = VirusScanStatus.Pending,
+            // Wave 13 (F3/Q1) — the trusted-lesson flag is captured ONCE here and is
+            // the authoritative value for the complete-upload pipeline. Only a real
+            // text/html row may ever carry it (defense against mismatched bodies).
+            EnableScripts = req.EnableScripts
+                && string.Equals(req.ContentType?.Trim(), "text/html", StringComparison.OrdinalIgnoreCase)
         };
 
         typeof(LibraryFile).GetProperty("CreatedBy")?.SetValue(file, req.CreatedBy);
@@ -337,24 +358,58 @@ public class LibraryHandlers :
         if (!exists)
             throw new DomainException("لم يتم العثور على الملف في التخزين", "FILE_NOT_UPLOADED");
 
-        // A2-5: HTML documents are sanitized in place (Ganss.XSS) before the upload is accepted.
-        // A failed sanitization rejects the upload: the blob is deleted and the row is parked in
-        // scan status Error so it can never be published.
+        // A2-5 + Wave 13 (F3): HTML documents run the sanitize → temp → CSP-inject →
+        // ready pipeline BEFORE the upload is accepted.
+        //   1. sanitize (strict, or script-preserving for EnableScripts rows — Q1);
+        //   2. store the clean body as "{key}-sanitized" (temp);
+        //   3. inject the upload-time CSP meta (defense-in-depth layer #1);
+        //   4. store the final object as "{key}-ready" (Ghostscript sibling-key pattern)
+        //      and swap FileUrl to it; ContentProcessingStatus = Ready.
+        // A failed sanitization/injection rejects the upload: the row is parked in
+        // ContentProcessingStatus.Failed (+ VirusScanStatus.Error so it can never be
+        // published), the ORIGINAL object key stays authoritative (FileUrl never swaps)
+        // and the original blob is deleted.
         if (string.Equals(file.FileFormat, "text/html", StringComparison.OrdinalIgnoreCase))
         {
             var htmlLimitBytes = await GetUploadLimitBytesAsync("text/html", ct);
             if (req.ActualFileSize > htmlLimitBytes)
                 throw new DomainException("حجم ملف HTML يتجاوز الحد المسموح", "FILE_TOO_LARGE");
 
+            file.ContentProcessingStatus = ContentProcessingStatus.Pending;
             try
             {
-                await _htmlSanitizer.SanitizeAsync(req.FileKey, req.ActualFileSize, ct);
+                // 1. sanitize — policy chosen by the authoritative stored flag (Q1).
+                var sanitizedHtml = file.EnableScripts
+                    ? await _htmlSanitizer.SanitizeTrustedAsync(req.FileKey, req.ActualFileSize, ct)
+                    : await _htmlSanitizer.SanitizeAsync(req.FileKey, req.ActualFileSize, ct);
+
+                // 2. temp sibling: the clean (pre-CSP) body.
+                var sanitizedKey = $"{req.FileKey}-sanitized";
+                await using (var sanitizedStream = new MemoryStream(Encoding.UTF8.GetBytes(sanitizedHtml)))
+                {
+                    await _storage.PutAsync(sanitizedKey, sanitizedStream, "text/html", ct);
+                }
+                file.ContentProcessingStatus = ContentProcessingStatus.Sanitized;
+
+                // 3. upload-time CSP injection (supervisor ruling: the stored object is
+                //    protected even if the player-side safety net never runs).
+                var readyHtml = _htmlCspInjector.Inject(sanitizedHtml, file.EnableScripts);
+
+                // 4. final sibling + FileUrl swap (mirrors the Ghostscript "{key}-fixed" flow).
+                var readyKey = $"{req.FileKey}-ready";
+                await using (var readyStream = new MemoryStream(Encoding.UTF8.GetBytes(readyHtml)))
+                {
+                    await _storage.PutAsync(readyKey, readyStream, "text/html", ct);
+                }
+                file.FileUrl = readyKey;
+                file.ContentProcessingStatus = ContentProcessingStatus.Ready;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex,
-                    "HTML sanitization failed; rejecting upload. FileId={FileId} FileKey={FileKey}",
-                    file.Id, req.FileKey);
+                    "HTML processing pipeline failed; rejecting upload. FileId={FileId} FileKey={FileKey} Stage={Stage}",
+                    file.Id, req.FileKey, file.ContentProcessingStatus);
+                file.ContentProcessingStatus = ContentProcessingStatus.Failed;
                 file.VirusScanStatus = VirusScanStatus.Error;
                 await _unitOfWork.SaveChangesAsync(ct);
                 try
@@ -364,7 +419,7 @@ public class LibraryHandlers :
                 catch (Exception cleanupEx)
                 {
                     _logger.LogWarning(cleanupEx,
-                        "Blob cleanup after failed sanitization also failed; an orphaned blob remains. FileKey={FileKey}",
+                        "Blob cleanup after failed HTML processing also failed; an orphaned blob remains. FileKey={FileKey}",
                         req.FileKey);
                 }
                 throw new DomainException("فشل تعقيم ملف HTML وتم رفض الرفع", "HTML_SANITIZATION_FAILED");
@@ -562,6 +617,9 @@ public class LibraryHandlers :
         f.PdfProcessingStatus == null ? null : f.ProcessingError,
         // R22.5.1 — the health badge classification: Ready + clean run → Healthy;
         // Ready + diagnostics → BrokenArabic; never-processed / in-flight / Failed → null.
-        PdfHealthStatus.Classify(f.PdfProcessingStatus, f.PdfProcessingStatus == null ? null : f.ProcessingError)
+        PdfHealthStatus.Classify(f.PdfProcessingStatus, f.PdfProcessingStatus == null ? null : f.ProcessingError),
+        // Wave 13 (F3) — HTML player pipeline exposure (additive DTO keys).
+        f.ContentProcessingStatus,
+        f.EnableScripts
     );
 }

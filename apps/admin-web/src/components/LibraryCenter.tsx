@@ -77,11 +77,15 @@ type UploadForm = {
   title: string;
   description: string;
   category: '' | 'Curriculum' | 'Lecture' | 'Summary' | 'GoldenIdeas';
+  /** Wave 13 (F3/Q1) — trusted interactive lesson flag; only honored by the
+   *  backend for text/html rows. Defaults ON (the common case for our lessons). */
+  enableScripts: boolean;
 };
 
 const emptyForm = (): UploadForm => ({
   fileName: '', contentType: 'application/pdf', fileSize: 0,
   subjectId: '', lectureId: '', type: 'Pdf', title: '', description: '', category: '',
+  enableScripts: true,
 });
 
 const label = (arabic: boolean, item: { nameAr?: string; nameEn?: string | null; titleAr?: string; titleEn?: string | null }) =>
@@ -144,6 +148,29 @@ const scanBadgeClass = (scan: string) => {
   if (value === 'error') return 'text-amber-700 bg-amber-50 border-amber-200';
   return 'text-slate-600 bg-slate-50 border-slate-200';
 };
+
+// Wave 13 (F3) — HTML pipeline badge: Ready=emerald, Failed=red, in-flight=sky.
+const contentStatusBadgeClass = (status: string) => {
+  const value = status.toLowerCase();
+  if (value === 'ready') return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+  if (value === 'failed') return 'text-red-700 bg-red-50 border-red-200';
+  return 'text-sky-700 bg-sky-50 border-sky-200';
+};
+
+const contentStatusLabel = (status: string, isArabic: boolean) => {
+  switch (status) {
+    case 'Pending': return isArabic ? 'جارٍ الحماية' : 'Protecting';
+    case 'Sanitized': return isArabic ? 'تم التعقيم' : 'Sanitized';
+    case 'CSPApplied': return isArabic ? 'تم الحماية' : 'CSP applied';
+    case 'Ready': return isArabic ? 'جاهز' : 'Ready';
+    case 'Failed': return isArabic ? 'فشلت المعالجة' : 'Failed';
+    default: return status;
+  }
+};
+
+// Wave 13 (F3/G-6) — client-side mirror of the server's code-level hard cap:
+// text/html uploads above 20 MB are blocked BEFORE any presigned URL is requested.
+const HTML_MAX_MB = 20;
 
 const typeLabel = (type: string, isArabic: boolean) => {
   switch (type) {
@@ -410,6 +437,14 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   }, [trackingStatus, trackingFileId]);
 
   const handleFileSelect = (file: File) => {
+    // Wave 13 (G-6) — client-side 20 MB hard cap for HTML lessons (the server
+    // enforces the same cap; failing fast here avoids a wasted presign round-trip).
+    if ((file.type === 'text/html' || file.name.toLowerCase().endsWith('.html')) && file.size > HTML_MAX_MB * 1024 * 1024) {
+      onError(isArabic
+        ? `حجم ملف HTML يتجاوز الحد الأقصى (${HTML_MAX_MB} ميجابايت)`
+        : `HTML file exceeds the ${HTML_MAX_MB} MB limit`);
+      return;
+    }
     setSelectedFile(file);
     const detected = contentTypeMap[file.type] ?? { type: 'Pdf' as const, ct: file.type || 'application/octet-stream' };
     setForm(f => ({
@@ -419,6 +454,8 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       fileSize: file.size,
       type: detected.type,
       title: f.title || file.name.replace(/\.[^.]+$/, ''),
+      // Interactive-lesson flag resets to ON on every new HTML selection (A.4 default).
+      enableScripts: detected.ct === 'text/html' ? true : f.enableScripts,
     }));
   };
 
@@ -447,6 +484,8 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
           title: form.title,
           description: form.description || null,
           category: form.category || null,
+          // Wave 13 (F3) — the backend re-gates this against text/html.
+          enableScripts: form.enableScripts,
         }),
       });
 
@@ -474,6 +513,9 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
           pagesCount: null,
           durationSeconds: null,
           youtubeVideoId: null,
+          // Wave 13 (F3) — contract symmetry; the authoritative flag was persisted
+          // on the row at upload-url time.
+          enableScripts: form.enableScripts,
         }),
       });
 
@@ -871,6 +913,16 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${scanBadgeClass(file.virusScanStatus)}`}>
                         {scanLabel(file.virusScanStatus, isArabic)}
                       </span>
+                      {/* Wave 13 (F3) — HTML pipeline badge (mirrors the Ghostscript
+                          status surface; only text/html rows carry the key). */}
+                      {file.type === 'Html' && file.contentProcessingStatus && (
+                        <span
+                          className={`mt-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${contentStatusBadgeClass(file.contentProcessingStatus)}`}
+                          data-testid="html-content-status-badge"
+                        >
+                          {contentStatusLabel(file.contentProcessingStatus, isArabic)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
                       {new Date(file.createdAt).toLocaleDateString(isArabic ? 'ar' : 'en')}
@@ -1043,6 +1095,37 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                     </select>
                   </label>
                 </div>
+
+                {/* Wave 13 (F3/Q1) — trusted interactive-lesson flag. Only rendered
+                    (and only honored server-side) for real text/html uploads. The
+                    injected CSP allows inline scripts ONLY when this is on; the
+                    sanitizer preserves <script> but still strips every XSS vector. */}
+                {form.contentType === 'text/html' && (
+                  <label
+                    className="flex items-center justify-between gap-3 rounded-lg border p-3 cursor-pointer"
+                    style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}
+                    data-testid="upload-enable-scripts-row"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-xs font-medium" style={{ color: 'var(--cms-text)' }}>
+                        {isArabic ? 'تفعيل السكربتات التفاعلية' : 'Enable interactive scripts'}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] leading-snug" style={{ color: 'var(--cms-text-muted)' }}>
+                        {isArabic
+                          ? 'للدروس التفاعلية التي يبنيها فريقنا. تُحقن حماية CSP وتُفحص الملفات في كل الحالات.'
+                          : 'For team-built interactive lessons. CSP is injected and the file is virus-scanned either way.'}
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={form.enableScripts}
+                      onChange={(event) => setForm(f => ({ ...f, enableScripts: event.target.checked }))}
+                      className="h-5 w-5 shrink-0 accent-teal-700"
+                      aria-label={isArabic ? 'تفعيل السكربتات التفاعلية' : 'Enable interactive scripts'}
+                      data-testid="upload-enable-scripts"
+                    />
+                  </label>
+                )}
 
                 {/* Subject + Lecture (side by side) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -192,6 +192,11 @@ export type AdminLibraryFileListItem = {
   /** R22.5.1 — the derived health badge classification
    *  ("Healthy" = سليم البنية | "BrokenArabic" = يحتاج معالجة بصرية | null). */
   healthStatus?: string | null;
+  /** Wave 13 (F3) — HTML player pipeline (additive server keys; absent on legacy
+   *  API responses → undefined). contentProcessingStatus is null for non-HTML rows. */
+  contentProcessingStatus?: 'Pending' | 'Sanitized' | 'CSPApplied' | 'Ready' | 'Failed' | null;
+  /** Trusted interactive-lesson flag (text/html only) — drives the student sandbox. */
+  enableScripts?: boolean;
 };
 
 export type UploadUrlResponse = {
@@ -225,6 +230,10 @@ export type LibraryFileDetail = {
   diagnosticReport?: string | null;
   /** R22.5.1 — see AdminLibraryFileListItem.healthStatus. */
   healthStatus?: string | null;
+  /** Wave 13 (F3) — see AdminLibraryFileListItem.contentProcessingStatus. */
+  contentProcessingStatus?: 'Pending' | 'Sanitized' | 'CSPApplied' | 'Ready' | 'Failed' | null;
+  /** Wave 13 (F3) — see AdminLibraryFileListItem.enableScripts. */
+  enableScripts?: boolean;
 };
 
 // ===== Push 3 / Track 3: advanced UI permissions =====

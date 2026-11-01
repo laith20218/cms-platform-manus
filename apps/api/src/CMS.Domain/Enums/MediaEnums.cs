@@ -64,6 +64,36 @@ public enum PdfProcessingStatus
 }
 
 /// <summary>
+/// Wave 13 (F3) — HTML processing pipeline state on LibraryFile (nullable column:
+/// NULL = pipeline never applied — non-HTML assets and all legacy rows).
+///
+/// The upload pipeline for text/html runs sanitizer → temp "{key}-sanitized" →
+/// CSP meta injection → "{key}-ready" sibling object (Ghostscript sibling-key
+/// pattern) and swaps FileUrl to the ready object. The flag `enable_scripts`
+/// decides the sanitizer policy (trusted script-preserving vs strict) AND the
+/// injected CSP (script-src 'unsafe-inline' present vs absent).
+/// </summary>
+public enum ContentProcessingStatus
+{
+    /// <summary>HTML upload accepted, sanitize/inject pipeline not finished yet.</summary>
+    Pending = 0,
+
+    /// <summary>Sanitizer produced the clean body (stored at {key}-sanitized); CSP injection pending.</summary>
+    Sanitized = 1,
+
+    /// <summary>CSP meta tag injected (stored at {key}-ready); FileUrl swap pending.</summary>
+    CSPApplied = 2,
+
+    /// <summary>Final CSP-injected object uploaded and FileUrl swapped to "{key}-ready".</summary>
+    Ready = 3,
+
+    /// <summary>Terminal failure — the upload is rejected fail-closed and the original
+    /// object key stays authoritative (FileUrl never swapped). VirusScanStatus mirrors
+    /// Error so the row can never be published.</summary>
+    Failed = 4
+}
+
+/// <summary>
 /// Push 10.7 — admin-selected transcoding target for a video asset.
 ///
 /// <see cref="Auto"/> (default) keeps the Push 10.3 behaviour: the ladder is built
