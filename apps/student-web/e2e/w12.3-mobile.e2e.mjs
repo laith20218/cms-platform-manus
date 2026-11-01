@@ -244,10 +244,14 @@ async function main() {
         const style = getComputedStyle(el);
         return { covers: box.width >= window.innerWidth * 0.9 && box.height >= window.innerHeight * 0.9, bg: style.backgroundColor };
       });
-      check(`${label} M4a: thumbs drawer opens with dimmed backdrop`, !!backdrop && backdrop.covers && backdrop.bg === 'rgba(0, 0, 0, 0.6)', JSON.stringify(backdrop));
+      // Chromium ≥121 reports colors in oklab — assert the 60% alpha dim, whatever the color space.
+      const dimmed = !!backdrop && backdrop.covers && /0\.6/.test(backdrop.bg);
+      check(`${label} M4a: thumbs drawer opens with dimmed backdrop`, dimmed, JSON.stringify(backdrop));
       await page.screenshot({ path: `${SHOT_DIR}/w12.3-${width}-thumbs-drawer.png` });
-      // Tap the backdrop (edge strip away from the 85vw drawer).
-      await page.mouse.click(8, Math.round(812 / 2));
+      // Tap the backdrop on the side AWAY from the drawer: the thumbs drawer
+      // slides from inline-end (LEFT in this RTL layout, 0..288px), so tap
+      // the far edge; the tools drawer mirrors (inline-start = RIGHT).
+      await page.mouse.click(width - 8, Math.round(812 / 2));
       await page.locator('[data-testid="pdf-thumbs-close"]').waitFor({ state: 'detached', timeout: 4000 });
       check(`${label} M4b: tap backdrop closes the drawer`, true);
 
@@ -255,8 +259,12 @@ async function main() {
       await page.locator('[data-testid="pdf-mobile-tools"]').click();
       await page.locator('[data-testid="pdf-study-tools-close"]').waitFor({ state: 'visible', timeout: 4000 });
       await page.screenshot({ path: `${SHOT_DIR}/w12.3-${width}-tools-drawer.png` });
-      await page.locator('[data-testid="pdf-study-focus"]').waitFor({ state: 'visible', timeout: 4000 });
+      // The desktop rail also renders the focus toggle (display:none at this
+      // width) — scope to the VISIBLE drawer copy.
+      await page.locator('[data-testid="pdf-study-focus"]:visible').waitFor({ state: 'visible', timeout: 4000 });
       check(`${label} M4c: tools drawer open — focus toggle reachable inside panel`, true);
+      // The tools drawer occupies the RIGHT strip (inline-start in RTL) —
+      // the backdrop is reachable on the LEFT edge.
       await page.mouse.click(8, Math.round(812 / 2));
       await page.locator('[data-testid="pdf-study-tools-close"]').waitFor({ state: 'detached', timeout: 4000 });
 
@@ -289,8 +297,14 @@ async function main() {
       check(`${label} M5b: focus hides the floating exit pill on mobile`, hiddenState.pill === 0, `pills=${hiddenState.pill}`);
       await page.screenshot({ path: `${SHOT_DIR}/w12.3-${width}-focus.png` });
 
-      // Tap to reveal — chrome peeks for 3s.
-      await page.locator('[data-testid="pdf-page-1"] canvas').click({ position: { x: 60, y: 60 } });
+      // Tap to reveal — chrome peeks for 3s. The scroll column is the tap
+      // target (the canvas is covered by the text layer; the click bubbles
+      // to the player root's tap-to-reveal handler).
+      {
+        const box = await page.locator('[data-testid="pdf-scroll"]').boundingBox();
+        await page.locator('[data-testid="pdf-scroll"]').click({ position: { x: 60, y: 60 } });
+        void box;
+      }
       await page.waitForTimeout(350);
       const peek = await page.evaluate(() => ({
         pill: document.querySelectorAll('[data-testid="pdf-focus-exit"]').length,
@@ -309,7 +323,7 @@ async function main() {
       check(`${label} M5d: chrome auto-hides after 3s`, afterPeek === 0, `pills=${afterPeek}`);
 
       // Exit: tap → pill → click.
-      await page.locator('[data-testid="pdf-page-1"] canvas').click({ position: { x: 60, y: 60 } });
+      await page.locator('[data-testid="pdf-scroll"]').click({ position: { x: 60, y: 60 } });
       await page.locator('[data-testid="pdf-focus-exit"]').waitFor({ state: 'visible', timeout: 4000 });
       await page.locator('[data-testid="pdf-focus-exit"]').click();
       await page.locator('[data-testid="pdf-controls-bar"]').waitFor({ state: 'visible', timeout: 4000 });

@@ -741,11 +741,16 @@ async function main() {
       const page = await context.newPage();
       await openPdfPlayer(page);
 
-      // Bookmark page 2 (navigate first — page-level bookmarking).
+      // Bookmark page 2 (navigate first — page-level bookmarking). The
+      // status-bar counter is the AUTHORITY for "the scroll landed": the
+      // smooth scrollIntoView animates, and bookmarking is page-scoped.
       const pageInput = page.locator('[data-testid="pdf-page-input"]');
       await pageInput.fill('2');
       await pageInput.press('Enter');
-      await page.locator('[data-testid="pdf-page-2"] canvas').waitFor({ state: 'visible', timeout: 20000 });
+      await page.waitForFunction(() => {
+        const el = document.querySelector('[data-testid="pdf-status-page"]');
+        return el && el.textContent?.trim().startsWith('2 /');
+      }, null, { timeout: 8000 });
       await page.locator('[data-testid="pdf-bookmark-add"]').click();
       const toastText = await page.locator('[data-sonner-toast]').first().innerText().catch(() => '');
       check(

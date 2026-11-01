@@ -209,9 +209,6 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [searchProgress, setSearchProgress] = useState<{ done: number; total: number } | null>(null);
   const searchSweepTokenRef = useRef(0);
-  /* Wave 12.1 — the sweep token as state: PageView's DOM resolver keys its
-   * cache by (layer build, generation), so a new query can never reuse rects
-   * resolved for the previous one. */
   const [searchGeneration, setSearchGeneration] = useState(0);
   /* Wave 12.1 — char-level resolved hit rects, keyed `fingerprint:pageNumber`
    * (R12.1.b state contract). Values are per-match arrays in the page's
@@ -219,6 +216,11 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
    * proportional slice box (layer not built, or span verification failed). */
   const [resolvedHitRects, setResolvedHitRects] = useState<Record<string, Array<NormalizedRect[] | null>>>({});
   const docFingerprint = useMemo(() => (doc ? documentSearchCacheKey(doc) : ''), [doc]);
+  /* Wave 12.3.D (M3) — per-page resolver null counts for the CURRENT query
+   * (reset with every sweep/generation): the search panel surfaces their sum
+   * as the approximation banner. Production stats ride the existing
+   * onSearchRectsResolved callback (no console noise outside DEV). */
+  const [resolverNullsByPage, setResolverNullsByPage] = useState<Record<number, number>>({});
 
   /* ---- Wave 12.2.C.5 — focus mode: chrome collapses around the page. The
           center scroll column NEVER collapses (red line); the rails, top bar
@@ -772,6 +774,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     const token = ++searchSweepTokenRef.current;
     setSearchGeneration(token); // Wave 12.1 — invalidate PageView rect caches
     setResolvedHitRects({});    // Wave 12.1 — rects are per-query
+    setResolverNullsByPage({}); // Wave 12.3.D — null counts are per-query
     const query = searchQuery.trim();
     if (!query) {
       lastNavIndexRef.current = -1;
@@ -820,13 +823,16 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     setActiveMatchIndex(0);
     setSearchProgress(null);
     setResolvedHitRects({});
+    setResolverNullsByPage({}); // Wave 12.3.D — the banner dies with the session
     setSearchGeneration((generation) => generation + 1);
   }, []);
 
   /* ---- Wave 12.1 — PageView reports char-level rects resolved against the
           live text layer (R12.1.b). Identity-stable dedupe keeps sweep-tick
-          re-renders cheap. ---- */
-  const handleSearchRectsResolved = useCallback((pageNumber: number, rects: Array<NormalizedRect[] | null> | null) => {
+          re-renders cheap. Wave 12.3.D (M3) — the per-run stats feed the
+          fallback banner (nullCount per page, keyed by this query). ---- */
+  const handleSearchRectsResolved = useCallback((pageNumber: number, rects: Array<NormalizedRect[] | null> | null, stats?: SearchResolveStats) => {
+    if (stats) setResolverNullsByPage((prev) => (prev[pageNumber] === stats.nullCount ? prev : { ...prev, [pageNumber]: stats.nullCount }));
     const key = `${docFingerprint}:${pageNumber}`;
     setResolvedHitRects((prev) => {
       if (rects === null) {
@@ -934,6 +940,14 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   const pageCount = doc?.numPages ?? pagesCount ?? 0;
   /* Wave 11.11-C — the ACTIVE page is scanned (rendered, zero text items). */
   const scannedPage = pageHasText[currentPage] === false;
+
+  /* Wave 12.3.D (M3) — matches the DOM resolver could NOT pin on pages with
+   * hits this query: the search panel shows the approximation banner ONLY
+   * when this is > 0. */
+  const searchFallbackCount = useMemo(
+    () => Object.values(resolverNullsByPage).reduce((sum, count) => sum + count, 0),
+    [resolverNullsByPage],
+  );
 
   if (docStatus === 'error') {
     return (
@@ -1200,6 +1214,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
             matchCount={searchMatches.length}
             activeIndex={safeActiveMatchIndex}
             progress={searchProgress}
+            fallbackCount={searchFallbackCount}
             onNext={searchNext}
             onPrev={searchPrev}
             onClose={closeSearch}
@@ -1500,6 +1515,18 @@ const PageView = memo(function PageView({
       spanMapRef.current = spanMap;
     }
     const stats = createSearchResolveStats();
+    // Wave 12.3.D — the ?pdfForceFallback=1 diagnostic: skip the DOM resolver
+    // and report every match as unresolved, deterministically reproducing the
+    // "unrendered pages" state for the M3 banner e2e/axe scan (no layer-
+    // teardown racing). Production NEVER enters this branch.
+    if (PDF_DEBUG.forceSearchFallback) {
+      stats.nullCount = searchSlices.length;
+      stats.reasons['missing-span'] = searchSlices.length;
+      layer.dataset.resolverNulls = String(stats.nullCount);
+      resolveStateRef.current = { version: layerVersion, generation: searchGeneration, count: searchSlices.length };
+      onSearchRectsResolved(pageNumber, searchSlices.map(() => null), stats);
+      return;
+    }
     const rects = searchSlices.map((match) => resolveSearchMatchRects(spanMap.map.spanForItem, match, pageRect, stats));
     resolveStateRef.current = { version: layerVersion, generation: searchGeneration, count: searchSlices.length };
     // Wave 12.2.B (M3) — resolver observability: per-run counters surfaced as

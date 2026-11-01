@@ -22,6 +22,12 @@
  *                           cluster gaps ("W ebS o ck et"). This override
  *                           exists ONLY for field A/B regression of that
  *                           diagnosis.
+ *   ?pdfForceFallback=1   → Wave 12.3.D — force EVERY search match to the
+ *                           data-only fallback (the DOM resolver is skipped),
+ *                           deterministically reproducing the "unrendered
+ *                           pages" state so the search panel's approximation
+ *                           banner (M3 observability UI) can be exercised in
+ *                           e2e/axe without racing a real layer teardown.
  *
  * Pure diagnostics: with no parameters the player renders exactly as
  * production defaults (path rendering, hard-transparent text layer).
@@ -30,6 +36,7 @@
 export interface PdfDebugFlags {
   readonly textLayer: 'default' | 'hide' | 'visible';
   readonly embeddedFontFaceOverride: boolean;
+  readonly forceSearchFallback: boolean;
 }
 
 function readFlags(search: string): PdfDebugFlags {
@@ -37,7 +44,8 @@ function readFlags(search: string): PdfDebugFlags {
   const raw = (params.get('pdfDebugText') ?? '').trim().toLowerCase();
   const textLayer = raw === 'hide' || raw === 'visible' ? raw : 'default';
   const embeddedFontFaceOverride = (params.get('pdfFonts') ?? '').trim().toLowerCase() === 'embedded';
-  return { textLayer, embeddedFontFaceOverride };
+  const forceSearchFallback = (params.get('pdfForceFallback') ?? '').trim() === '1';
+  return { textLayer, embeddedFontFaceOverride, forceSearchFallback };
 }
 
 const PDF_DEBUG_SEARCH = typeof window !== 'undefined' ? window.location.search : '';

@@ -1,20 +1,27 @@
 /**
- * Wave 12.2.D — §13 compliance matrix E2E (4-width × 5-state) + axe-core.
+ * Wave 12.3.D — §13 compliance matrix E2E (5-width × 5-state) + axe-core.
+ * Extends the 12.2 matrix (renamed w12.2 → w12.3): 414px (large phone) joins
+ * the width loop per the supervisor instruction, and the mobile chrome the
+ * 12.3.A redesign introduced (bottom action bar triggers, tap-to-reveal
+ * focus) is exercised directly.
  *
- * D.1 SCREENSHOT MATRIX (supervisor §13/D.1 — HARD FAIL on horizontal scroll):
- *   viewports {375×812, 768×1024, 1024×768, 1440×900}; states {default,
- *   focus, thumbnails-open, study-tools-open, search-open}; per state:
+ * D.1 SCREENSHOT MATRIX (supervisor §13 — HARD FAIL on horizontal scroll):
+ *   viewports {375×812, 414×812, 768×1024, 1024×768, 1440×900}; states
+ *   {default, focus, thumbnails-open, study-tools-open, search-open};
+ *   per state:
  *     - document.scrollWidth <= innerWidth (no PAGE horizontal scroll)
  *     - pdf-scroll.scrollWidth === pdf-scroll.clientWidth (no column overflow)
- *     - screenshot e2e/screenshots/w12.2-{width}-{state}.png
+ *     - screenshot e2e/screenshots/w12.3-{width}-{state}.png
  *
- * D.2 A11Y (@axe-core/playwright, E6): scan the PDF lecture (default / focus /
- *   search-open / note-open), LoginPage, RegisterPage, DashboardPage,
- *   LibraryPage — at 375 and 1440. FAIL on any critical/serious violation.
- *   Aggregated results → e2e/screenshots/axe-results.json.
+ * D.2 A11Y (@axe-core/playwright): scan the PDF lecture (default / focus /
+ *   search-open / search-with-fallback-banner / notes-list-open /
+ *   highlights-list-open / bookmarks-list-open / note-open), LoginPage,
+ *   RegisterPage, DashboardPage, LibraryPage — at 375 and 1440.
+ *   FAIL on any critical/serious violation. Aggregated results →
+ *   e2e/screenshots/axe-results.json.
  *
  * Harness contract mirrors player-pdf-11.11.e2e.mjs (same fixture + mocks).
- * Run (dev server on 127.0.0.1:5173):  node e2e/w12.2-matrix.e2e.mjs
+ * Run (dev server on 127.0.0.1:5173):  node e2e/w12.3-matrix.e2e.mjs
  */
 import { chromium } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
@@ -64,7 +71,7 @@ async function ensurePdfFixture(browser) {
   throw new Error('fixture missing — run player-pdf-11.11.e2e.mjs once to generate it');
 }
 
-async function newContext(browser, viewport, { authenticated = true } = {}) {
+async function newContext(browser, viewport, { authenticated = true, extraQuery = '' } = {}) {
   const context = await browser.newContext({ viewport, locale: 'ar', hasTouch: true });
   if (authenticated) {
     await context.addInitScript(() => {
@@ -150,8 +157,8 @@ async function newContext(browser, viewport, { authenticated = true } = {}) {
   return context;
 }
 
-async function openPdfPlayer(page) {
-  await page.goto(`${BASE_URL}/subjects/${SUBJECT_SLUG}/library`, { timeout: 60_000 });
+async function openPdfPlayer(page, extraQuery = '') {
+  await page.goto(`${BASE_URL}/subjects/${SUBJECT_SLUG}/library${extraQuery}`, { timeout: 60_000 });
   await page.locator('text=محاضرة PDF تجريبية').first().click();
   await page.locator('[data-testid="pdf-player-shell"]').waitFor({ state: 'visible', timeout: 20_000 });
   await page.locator('[data-testid="pdf-controls-bar"]').waitFor({ state: 'visible', timeout: 20_000 });
@@ -174,6 +181,46 @@ async function horizontalScrollProbe(page) {
   });
 }
 
+/** The study-tools drawer trigger (12.3.A moved it to the bottom action bar
+ *  below lg; the rail is docked above lg). Returns true when a drawer opened. */
+async function openToolsDrawer(page) {
+  const mobileTrigger = page.locator('[data-testid="pdf-mobile-tools"]');
+  if (await mobileTrigger.isVisible().catch(() => false)) {
+    await mobileTrigger.click();
+    await page.locator('[data-testid="pdf-study-tools-close"]').waitFor({ state: 'visible', timeout: 4000 });
+    return true;
+  }
+  return false; // ≥ lg: the rail is permanently docked — nothing to open.
+}
+
+/** Reveals focus chrome on mobile (tap-to-reveal), then exits focus. */
+async function exitFocus(page) {
+  const pill = page.locator('[data-testid="pdf-focus-exit"]');
+  if (!(await pill.isVisible().catch(() => false))) {
+    // Mobile: chrome is fully hidden — tap the scroll column (the click
+    // bubbles to the player root's tap-to-reveal handler; the canvas itself
+    // is covered by the text layer, so the SCROLL region is the tap target).
+    const scroll = page.locator('[data-testid="pdf-scroll"]');
+    const box = await scroll.boundingBox();
+    await scroll.click({ position: { x: Math.min(60, box.width / 2), y: Math.min(60, box.height / 2) } });
+    await pill.waitFor({ state: 'visible', timeout: 4000 });
+  }
+  await pill.click();
+  await page.locator('[data-testid="pdf-controls-bar"]').waitFor({ state: 'visible', timeout: 4000 });
+}
+
+/** Ensures the study-tools drawer is OPEN on compact widths (the 12.3.A
+ *  bottom action bar owns the trigger there; no-op when docked >= lg). */
+async function ensureToolsOpen(page) {
+  const closeBtn = page.locator('[data-testid="pdf-study-tools-close"]');
+  if (await closeBtn.isVisible().catch(() => false)) return; // already open
+  const trigger = page.locator('[data-testid="pdf-mobile-tools"]');
+  if (await trigger.isVisible().catch(() => false)) {
+    await trigger.click();
+    await closeBtn.waitFor({ state: 'visible', timeout: 4000 });
+  }
+}
+
 /** Opens one matrix state; returns a cleanup that restores the default. */
 async function enterState(page, state) {
   switch (state) {
@@ -181,16 +228,15 @@ async function enterState(page, state) {
       return async () => {};
     case 'focus': {
       await page.locator('[data-testid="pdf-focus-toggle"]').click();
-      await page.locator('[data-testid="pdf-focus-exit"]').waitFor({ state: 'visible', timeout: 4000 });
+      await page.waitForTimeout(500); // collapse + visibility flip (mobile hides ALL chrome)
       return async () => {
-        await page.locator('[data-testid="pdf-focus-exit"]').click();
-        await page.locator('[data-testid="pdf-controls-bar"]').waitFor({ state: 'visible', timeout: 4000 });
+        await exitFocus(page);
       };
     }
     case 'thumbnails-open': {
-      const trigger = page.locator('[data-testid="pdf-thumbs-open"]');
-      if (await trigger.isVisible().catch(() => false)) {
-        await trigger.click();
+      const mobileTrigger = page.locator('[data-testid="pdf-mobile-thumbs"]');
+      if (await mobileTrigger.isVisible().catch(() => false)) {
+        await mobileTrigger.click();
         await page.locator('[data-testid="pdf-thumbs-close"]').waitFor({ state: 'visible', timeout: 4000 });
         return async () => {
           await page.locator('[data-testid="pdf-thumbs-close"]').click();
@@ -201,10 +247,7 @@ async function enterState(page, state) {
       return async () => {};
     }
     case 'study-tools-open': {
-      const trigger = page.locator('[data-testid="pdf-study-tools-open"]');
-      if (await trigger.isVisible().catch(() => false)) {
-        await trigger.click();
-        await page.locator('[data-testid="pdf-study-tools-close"]').waitFor({ state: 'visible', timeout: 4000 });
+      if (await openToolsDrawer(page)) {
         return async () => {
           await page.locator('[data-testid="pdf-study-tools-close"]').click();
           await page.waitForTimeout(250);
@@ -251,6 +294,7 @@ async function main() {
 
   const VIEWPORTS = [
     { width: 375, height: 812 },
+    { width: 414, height: 812 },
     { width: 768, height: 1024 },
     { width: 1024, height: 768 },
     { width: 1440, height: 900 },
@@ -262,7 +306,7 @@ async function main() {
     await ensurePdfFixture(browser);
     check('D.0 fixture available', true);
 
-    /* ===== D.1 — 4-width × 5-state matrix ===== */
+    /* ===== D.1 — 5-width × 5-state matrix ===== */
     for (const viewport of VIEWPORTS) {
       const width = viewport.width;
       const context = await newContext(browser, viewport);
@@ -284,7 +328,7 @@ async function main() {
           docOk && columnOk,
           `doc=${probe.docScrollWidth}/${probe.innerWidth} column=${probe.scrollerScrollWidth}/${probe.scrollerClientWidth}`,
         );
-        await page.screenshot({ path: `${SHOT_DIR}/w12.2-${width}-${state}.png`, fullPage: false });
+        await page.screenshot({ path: `${SHOT_DIR}/w12.3-${width}-${state}.png`, fullPage: false });
         await cleanup();
       }
       await context.close();
@@ -292,7 +336,8 @@ async function main() {
 
     /* ===== D.2 — axe-core: PDF lecture states + app pages, 375 & 1440 ===== */
     for (const width of [375, 1440]) {
-      // (a) PDF lecture — default / focus / search-open / note-open.
+      // (a) PDF lecture — default / focus / search-open / fallback-banner /
+      //     notes / highlights / bookmarks lists / note-open.
       {
         const context = await newContext(browser, { width, height: width === 375 ? 812 : 900 });
         const page = await context.newPage();
@@ -302,32 +347,58 @@ async function main() {
         if (blocking.length > 0) check(`D.2 axe pdf-default@${width} clean`, false, JSON.stringify(blocking));
 
         await page.locator('[data-testid="pdf-focus-toggle"]').click();
-        await page.locator('[data-testid="pdf-focus-exit"]').waitFor({ state: 'visible' });
+        await page.waitForTimeout(500);
         blocking = await axeScan(page, `pdf-focus@${width}`);
         if (blocking.length > 0) check(`D.2 axe pdf-focus@${width} clean`, false, JSON.stringify(blocking));
-        await page.locator('[data-testid="pdf-focus-exit"]').click();
+        await exitFocus(page);
 
         await page.locator('[data-testid="pdf-search-open"]').click();
         await page.locator('[data-testid="pdf-search-input"]').fill('Differential');
+        await page.locator('[data-testid="pdf-search-panel"]').waitFor({ state: 'visible', timeout: 4000 });
+        await page.waitForTimeout(900); // resolver pass
         blocking = await axeScan(page, `pdf-search-open@${width}`);
         if (blocking.length > 0) check(`D.2 axe pdf-search-open@${width} clean`, false, JSON.stringify(blocking));
         await page.locator('[data-testid="pdf-search-close"]').click();
 
-        // note-open: place a note (drawer path below lg), the editor auto-opens.
-        const studyTrigger = page.locator('[data-testid="pdf-study-tools-open"]');
-        if (await studyTrigger.isVisible().catch(() => false)) {
-          await studyTrigger.click();
-          await page.locator('[data-testid="pdf-study-tools-close"]').waitFor({ state: 'visible' });
-        }
-        // The drawer is open below lg — scope to the VISIBLE copy (the hidden
-        // desktop rail also carries the testid in the DOM).
+        // search-with-fallback-banner: the ?pdfForceFallback=1 diagnostic
+        // deterministically pushes EVERY match to the data-only fallback so
+        // the M3 approximation banner renders for the scan (no teardown race).
+        await openPdfPlayer(page, '?pdfForceFallback=1');
+        await page.locator('[data-testid="pdf-search-open"]').click();
+        await page.locator('[data-testid="pdf-search-input"]').fill('Differential');
+        await page.locator('[data-testid="pdf-search-fallback-banner"]').waitFor({ state: 'visible', timeout: 8000 });
+        blocking = await axeScan(page, `pdf-search-fallback-banner@${width}`);
+        if (blocking.length > 0) check(`D.2 axe pdf-search-fallback-banner@${width} clean`, false, JSON.stringify(blocking));
+        check(
+          `D.2 M3 banner visible with a count`,
+          (await page.locator('[data-testid="pdf-search-fallback-banner"]').innerText()).includes('تقدير تقريبي'),
+        );
+        await page.locator('[data-testid="pdf-search-close"]').click();
+
+        // Seed ONE bookmark + ONE note, then scan the three lists open.
+        // Order matters on compact widths: the tools drawer CLOSES when a
+        // tool is picked (12.3.A), so the bookmark toggle runs while the
+        // drawer is open, the note tool pick closes it, and every list
+        // toggle re-opens the drawer first (ensureToolsOpen).
+        await ensureToolsOpen(page);
+        await page.locator('[data-testid="pdf-bookmark-add"]:visible').click();
         await page.locator('[data-testid="pdf-tool-note"]:visible').click();
         const canvas = page.locator('[data-testid="pdf-page-1"] canvas');
         const box = await canvas.boundingBox();
         await page.mouse.click(box.x + box.width * 0.7, box.y + box.height * 0.15);
         await page.locator('[data-testid="pdf-note-textarea"]').waitFor({ state: 'visible', timeout: 6000 });
-        blocking = await axeScan(page, `pdf-note-open@${width}`);
-        if (blocking.length > 0) check(`D.2 axe pdf-note-open@${width} clean`, false, JSON.stringify(blocking));
+        await page.locator('[data-testid="pdf-note-textarea"]').fill('ملاحظة الامتثال');
+        await page.locator('[data-testid="pdf-note-textarea"]').press('Escape');
+
+        for (const [kind, testid] of [['notes', 'pdf-notes-list-toggle'], ['highlights', 'pdf-highlights-list-toggle'], ['bookmarks', 'pdf-bookmarks-toggle']]) {
+          await ensureToolsOpen(page);
+          await page.locator(`[data-testid="${testid}"]:visible`).click();
+          await page.locator('[data-testid="pdf-study-lists"]').waitFor({ state: 'visible', timeout: 4000 });
+          blocking = await axeScan(page, `pdf-${kind}-list-open@${width}`);
+          if (blocking.length > 0) check(`D.2 axe pdf-${kind}-list-open@${width} clean`, false, JSON.stringify(blocking));
+          await page.locator('[data-testid="pdf-study-lists-close"]').click();
+          await page.waitForTimeout(250);
+        }
 
         await context.close();
       }
@@ -389,7 +460,7 @@ async function main() {
 
 main().catch((error) => {
   console.error('SPEC CRASHED:', error);
-  console.error(`Console errors (${consoleErrors.length}):`, consoleErrors.slice(0, 10).join('\n  '));
+  console.error(`Console errors (${consoleErrors.length}):`, consoleErrors.slice(0, 10).join(' | '));
   console.error(`Page errors (${pageErrors.length}):`, pageErrors.slice(0, 10).join('\n  '));
   process.exit(2);
 });

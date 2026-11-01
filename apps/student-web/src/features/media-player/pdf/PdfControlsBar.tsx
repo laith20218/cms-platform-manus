@@ -189,7 +189,7 @@ export function PdfControlsBar({
   return (
     <div
       data-testid="pdf-controls-bar"
-      className="flex w-full flex-wrap items-center justify-center gap-1 rounded-3xl border border-white/10 bg-[#0b1120]/90 px-2 py-1 shadow-2xl backdrop-blur sm:justify-between sm:px-3 sm:py-2"
+      className="flex w-full flex-wrap items-center justify-center gap-1 rounded-3xl border border-white/10 bg-[#0b1120]/90 px-2 py-0.5 shadow-2xl backdrop-blur sm:justify-between sm:px-3 sm:py-2"
     >
       {/* Wave 12.2.C.4 — contextual controls (pen thickness/palette, shape
           kinds + palette, note palette, eraser hint, delete, history).
