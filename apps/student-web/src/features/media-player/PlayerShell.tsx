@@ -80,6 +80,14 @@ export function PlayerShell({
 }: PlayerShellProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  /* Wave 12.3.A (A.5) — focus-mode chrome collapse, requested by the hosted
+   * player through the shell context (setChromeHidden). The header animates
+   * away KEEP-MOUNTED (max-h + opacity + invisible — never display:none,
+   * never unmount): Radix's Dialog.Title stays in the tree (the dialog keeps
+   * its accessible name via aria-labelledby) and the exit animation stays
+   * smooth. visibility:hidden also drops the header buttons from the tab
+   * order, so aria-hidden + focusability never conflict (axe). */
+  const [chromeHidden, setChromeHidden] = useState(false);
 
   const { setContainer } = usePlayerProtection({
     enabled: open && protection,
@@ -145,7 +153,7 @@ export function PlayerShell({
 
   const KindIcon = KIND_META[kind].icon;
 
-  const shellApi: PlayerShellApi = { toggleFullscreen, isFullscreen };
+  const shellApi: PlayerShellApi = { toggleFullscreen, isFullscreen, setChromeHidden };
 
   return (
     <PlayerShellContext.Provider value={shellApi}>
@@ -210,7 +218,17 @@ export function PlayerShell({
                   data-testid="player-stage"
                   className="flex h-full w-full select-none flex-col bg-[#071426]"
                 >
-                  {/* Header — stays visible in fullscreen (task contract). */}
+                  {/* Header — stays visible in fullscreen (task contract).
+                      Wave 12.3.A: collapsible via the shell context when the
+                      hosted player enters focus mode on a compact viewport.
+                      The wrapper is keep-mounted (see chromeHidden above). */}
+                  <div
+                    aria-hidden={chromeHidden || undefined}
+                    className={cn(
+                      'shrink-0 overflow-hidden transition-all duration-200 ease-out motion-reduce:transition-none',
+                      chromeHidden ? 'max-h-0 -translate-y-3 opacity-0 invisible' : 'max-h-28 translate-y-0 opacity-100',
+                    )}
+                  >
                   <header className="flex shrink-0 items-start justify-between gap-3 px-4 pb-1 pt-4 sm:px-6 sm:pt-5">
                     <div className="flex min-w-0 items-center gap-3">
                       <span
@@ -265,6 +283,7 @@ export function PlayerShell({
                       </DialogPrimitive.Close>
                     </div>
                   </header>
+                  </div>
 
                   {/* Content column — the player mounts here, centered with
                       desktop max-width constraints. With metadata (10.4) the

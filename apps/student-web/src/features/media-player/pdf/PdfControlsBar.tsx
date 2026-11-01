@@ -38,6 +38,13 @@ import { HIGHLIGHT_COLORS, NOTE_COLORS, PEN_COLORS, SHAPE_COLORS } from './pdf-p
  * contextual rows (pen thickness, palettes, shape kinds) driven by the
  * shared tool state, delete-selected, undo/redo, search-open, page nav and
  * zoom.
+ *
+ * Wave 12.3.A (A.1) — mobile compact mode: below `lg` the bar carries ONLY
+ * the search toggle + the focus toggle in a single ≤56px row (supervisor
+ * locked). Page nav, zoom, undo/redo, delete and the contextual tool rows
+ * collapse to ≥ lg — on phones the page nav + zoom live in the bottom
+ * action bar (MobileActionBar, 12.3.A.2) and the tool palettes live in the
+ * study-tools drawer. Desktop (≥ lg) is unchanged.
  */
 
 /** Wave 11.10 — the shape-kind sub-picker shown while the shape tool is active. */
@@ -182,12 +189,13 @@ export function PdfControlsBar({
   return (
     <div
       data-testid="pdf-controls-bar"
-      className="flex w-full flex-wrap items-center justify-center gap-1 rounded-3xl border border-white/10 bg-[#0b1120]/90 px-2 py-2 shadow-2xl backdrop-blur sm:justify-between sm:px-3"
+      className="flex w-full flex-wrap items-center justify-center gap-1 rounded-3xl border border-white/10 bg-[#0b1120]/90 px-2 py-1 shadow-2xl backdrop-blur sm:justify-between sm:px-3 sm:py-2"
     >
-      {/* Wave 12.2.C.4 — contextual controls only (the tool buttons moved to
-          the StudyToolsPanel rail): pen thickness/palette, shape kinds +
-          palette, note palette, eraser hint — driven by the shared tool state. */}
-      <div className="flex items-center gap-1">
+      {/* Wave 12.2.C.4 — contextual controls (pen thickness/palette, shape
+          kinds + palette, note palette, eraser hint, delete, history).
+          Wave 12.3.A (A.1) — ≥ lg ONLY: on phones this cluster collapses
+          (the study-tools drawer owns the palettes there). */}
+      <div className="hidden items-center gap-1 lg:flex">
         {canDeleteSelected && (
           <button
             type="button"
@@ -292,7 +300,9 @@ export function PdfControlsBar({
         )}
       </div>
 
-      {/* Page navigation — physical LTR cluster (numerals + arrows), ControlsBar precedent */}
+      {/* Search toggle — ALWAYS visible (12.3.A.1 keeps search in the top
+          bar on phones too). Page navigation follows it, ≥ lg only: the
+          mobile bottom action bar owns the page jump below `lg`. */}
       <div dir="ltr" className="flex items-center gap-1">
         <button
           type="button"
@@ -305,6 +315,8 @@ export function PdfControlsBar({
         >
           <Search className="h-5 w-5" strokeWidth={1.75} />
         </button>
+        <span aria-hidden="true" className="hidden h-8 w-px bg-white/10 lg:block" />
+        <div className="hidden items-center gap-1 lg:flex">
         <button
           type="button" onClick={onPrevPage} disabled={page <= 1}
           aria-label="الصفحة السابقة" data-testid="pdf-page-prev"
@@ -332,9 +344,12 @@ export function PdfControlsBar({
         >
           <ChevronRight className="h-5 w-5" strokeWidth={1.75} />
         </button>
+        </div>
       </div>
 
-      {/* Zoom + autosave status */}
+      {/* Zoom + autosave status + focus — zoom ≥ lg ONLY (12.3.A.1; the
+          mobile bottom action bar owns zoom below `lg`); focus stays in the
+          top bar at EVERY width (locked A.1 wording). */}
       <div className="flex items-center gap-1">
         {saving && (
           <span className="hidden items-center gap-1 text-[11px] text-teal-300/80 sm:inline-flex" data-testid="pdf-saving">
@@ -342,8 +357,7 @@ export function PdfControlsBar({
             يتم الحفظ تلقائياً
           </span>
         )}
-        <Divider />
-        <div dir="ltr" className="flex items-center gap-1">
+        <div dir="ltr" className="hidden items-center gap-1 lg:flex">
           <button
             type="button" onClick={onZoomOut} disabled={!canZoomOut}
             aria-label="تصغير" data-testid="pdf-zoom-out"
@@ -370,6 +384,7 @@ export function PdfControlsBar({
           >
             <MoveHorizontal className="h-5 w-5" strokeWidth={1.75} />
           </button>
+        </div>
           {/* Wave 12.2.C.5 — focus mode: collapses chrome around the page;
               exits via this toggle, the floating pill, Escape or F. */}
           <button
@@ -386,7 +401,6 @@ export function PdfControlsBar({
           >
             <Focus className="h-5 w-5" strokeWidth={1.75} />
           </button>
-        </div>
       </div>
     </div>
   );

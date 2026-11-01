@@ -31,8 +31,12 @@ export function PdfStatusBar({ page, pageCount, zoomPercent, saving, searchOpen,
   return (
     <div
       aria-hidden={focusMode || undefined}
+      /* Wave 12.3.A (A.6) — the collapsed bar is ALSO `invisible`: visibility:
+       * hidden drops its content from the tab order, so aria-hidden and
+       * focusability never conflict (axe aria-hidden-focus), and the e2e
+       * focus gate asserts both the attribute and the visual hiding. */
       className={`shrink-0 overflow-hidden transition-all duration-200 ease-out motion-reduce:transition-none ${
-        focusMode ? 'max-h-0 translate-y-2 opacity-0' : 'max-h-12 translate-y-0 opacity-100'
+        focusMode ? 'max-h-0 translate-y-2 opacity-0 invisible' : 'max-h-12 translate-y-0 opacity-100'
       }`}
     >
       <div

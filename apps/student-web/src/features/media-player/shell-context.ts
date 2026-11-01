@@ -15,6 +15,11 @@ export interface PlayerShellApi {
   toggleFullscreen: () => Promise<boolean>;
   /** Live fullscreen state (synced via the fullscreenchange event). */
   isFullscreen: boolean;
+  /** Wave 12.3.A (A.5) — focus mode asks the SHELL to collapse its header
+   * chrome (title/badge/fullscreen/close) with the same keep-mounted
+   * animation the player's own bars use. Optional: players outside a shell
+   * (or pre-12.3 hosts) never call it — the header stays untouched. */
+  setChromeHidden?: (hidden: boolean) => void;
 }
 
 export const PlayerShellContext = createContext<PlayerShellApi | null>(null);

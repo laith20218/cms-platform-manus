@@ -593,21 +593,34 @@ async function main() {
       await context.close();
     }
 
-    /* ============ S10 — mobile: toolbar usable at 390px ============ */
+    /* ============ S10 — mobile: compact chrome contract at 390px ============
+     * Wave 12.3.A rewrote mobile chrome (supervisor-locked): the top bar
+     * carries ONLY search + focus in a single ≤56px row; page nav + zoom +
+     * drawers moved to the bottom action bar; the 12.2 floating toggles are
+     * gone. This scenario asserts the NEW contract (the old ≥6 visible
+     * toolbar buttons assertion belongs to the pre-12.3 desktop bar). */
     {
       const { context } = await newPdfContext(browser, viewportFor('mobile'));
       const page = await context.newPage();
       await openPdfPlayer(page);
       const bar = await page.locator('[data-testid="pdf-controls-bar"]').boundingBox();
       const inViewport = bar && bar.y >= 0 && bar.y + bar.height <= 900;
-      const tapTargets = await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll('[data-testid^="pdf-tool-"], [data-testid^="pdf-page-"], [data-testid^="pdf-zoom-"]'));
-        return buttons.filter((b) => b.getBoundingClientRect().height >= 44).length;
+      const chrome = await page.evaluate(() => {
+        const topBar = document.querySelector('[data-testid="pdf-top-bar"]');
+        const action = document.querySelector('[data-testid="pdf-mobile-action-bar"]');
+        const bigButtons = (root) => Array.from(root.querySelectorAll('button'))
+          .filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && r.height >= 44; }).length;
+        return {
+          topRow: topBar ? topBar.clientHeight : -1,
+          actionVisible: !!action && action.getBoundingClientRect().height > 0,
+          actionTargets: action ? bigButtons(action) : 0,
+          floating: document.querySelectorAll('[data-testid*="floating"]').length,
+        };
       });
       check(
-        'S10 mobile 390px — toolbar visible + controls ≥44px',
-        !!inViewport && tapTargets >= 6,
-        `barY=${bar?.y} height=${bar?.height} bigTargets=${tapTargets}`,
+        'S10 mobile 390px — compact top bar ≤56px + action bar ≥4 targets ≥44px + no floating toggles',
+        !!inViewport && chrome.topRow > 0 && chrome.topRow <= 56 && chrome.actionVisible && chrome.actionTargets >= 4 && chrome.floating === 0,
+        `barY=${bar?.y} topRow=${chrome.topRow} actionTargets=${chrome.actionTargets} floating=${chrome.floating}`,
       );
       await page.screenshot({ path: `${SHOT_DIR}/pdf-s10-mobile.png` });
       await context.close();

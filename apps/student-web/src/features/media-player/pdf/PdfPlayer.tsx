@@ -1,8 +1,9 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getDocument, TextLayer, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { AlertTriangle, Focus, LoaderCircle, RotateCcw } from 'lucide-react';
 import { libraryApi } from '@/features/library/services/library-api';
 import { usePdfAnnotations } from './usePdfAnnotations';
+import { MobileActionBar } from './MobileActionBar';
 import { PdfControlsBar } from './PdfControlsBar';
 import { ensurePdfWorker } from './pdf-worker';
 import { normalizeArabicPresentationForms } from './pdf-text';
@@ -17,6 +18,7 @@ import { PdfSearchPanel } from './pdf-search-panel';
 import { PdfStatusBar } from './PdfStatusBar';
 import { StudyToolsPanel } from './StudyToolsPanel';
 import { ThumbnailsRail } from './ThumbnailsRail';
+import { usePlayerShell } from '../shell-context';
 import {
   documentSearchCacheKey, findMatches, getCachedPageSearchItems, getCachedPageSearchSourceIndexes,
   getCachedPageSearchViewport, getPageSearchItems, matchFallbackBoxes,
@@ -142,6 +144,27 @@ const EMPTY_SEARCH_HITS: SearchHitBox[] = [];
 /** Stable empty per-page match list (same memo-identity contract). */
 const EMPTY_SEARCH_MATCHES: SearchMatch[] = [];
 
+/* Wave 12.3.A (A.5) — the Tailwind `lg` breakpoint as a media query: focus
+ * mode's tap-to-reveal chrome contract is MOBILE-only (supervisor locked);
+ * desktop keeps the always-visible exit pill from 12.2.C.5. */
+const COMPACT_QUERY = '(max-width: 1023.98px)';
+const FOCUS_REVEAL_MS = 3000;
+
+function useMediaQuery(query: string): boolean {
+  const subscribe = useCallback((notify: () => void) => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {};
+    const mql = window.matchMedia(query);
+    mql.addEventListener('change', notify);
+    return () => mql.removeEventListener('change', notify);
+  }, [query]);
+  const getSnapshot = useCallback(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(query).matches
+      : false
+  ), [query]);
+  return useSyncExternalStore(subscribe, getSnapshot, () => false);
+}
+
 export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerProps) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [docStatus, setDocStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -184,9 +207,16 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
 
   /* ---- Wave 12.2.C.5 — focus mode: chrome collapses around the page. The
           center scroll column NEVER collapses (red line); the rails, top bar
-          and status bar animate away while staying mounted. ---- */
+          and status bar animate away while staying mounted.
+          Wave 12.3.A (A.5) — MOBILE: ALL chrome hides (shell header, top
+          bar, bottom action bar, status bar, floating pill); a tap anywhere
+          reveals it for 3s, then it auto-hides again. Escape still exits
+          (handler below unchanged). ---- */
   const [focusMode, setFocusMode] = useState(false);
   const toggleFocusMode = useCallback(() => setFocusMode((mode) => !mode), []);
+  const [chromePeeked, setChromePeeked] = useState(false);
+  const chromePeekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isCompact = useMediaQuery(COMPACT_QUERY);
   const lastNavIndexRef = useRef(-1);
   const currentPageRef = useRef(currentPage);
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
@@ -207,6 +237,49 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   const docRef = useRef<PDFDocumentProxy | null>(null);
 
   const { annotations, upsert, remove, undo, redo, canUndo, canRedo, saving } = usePdfAnnotations(assetId);
+
+  /* ---- Wave 12.3.A (A.2/A.3) — the mobile drawers are CONTROLLED here:
+          the bottom action bar is their only trigger below `lg` (the old
+          floating toggles were removed). ---- */
+  const [thumbsDrawerOpen, setThumbsDrawerOpen] = useState(false);
+  const [toolsDrawerOpen, setToolsDrawerOpen] = useState(false);
+
+  /* ---- Wave 12.3.A (A.5) — effective chrome visibility in focus mode.
+          Desktop (≥ lg): the 12.2.C.5 contract — chrome collapsed, exit
+          pill always visible. Mobile (< lg): everything hides; a tap
+          peeks the chrome for 3s (auto-hide timer below). ---- */
+  const focusChromeHidden = focusMode && !(isCompact && chromePeeked);
+
+  /* The SHELL header (title/badge/fullscreen/close) joins the mobile focus
+   * collapse through the shell context — keep-mounted animation there too.
+   * Desktop focus keeps the 12.2 header-visible contract. */
+  const shell = usePlayerShell();
+  useEffect(() => {
+    shell?.setChromeHidden?.(focusMode && isCompact && !chromePeeked);
+    return () => shell?.setChromeHidden?.(false);
+  }, [shell, focusMode, isCompact, chromePeeked]);
+
+  /* Tap-to-reveal (mobile focus): a tap on non-interactive surfaces peeks
+   * the chrome for 3s. Interactive targets (buttons/inputs/notes/search)
+   * keep their own semantics and never trigger the peek. */
+  const handleFocusTapReveal = useCallback((event: React.MouseEvent) => {
+    if (!focusMode || !isCompact) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest('button, a, input, textarea, select, [contenteditable="true"], [data-pdf-note-editor], [data-pdf-search-panel]')) return;
+    setChromePeeked(true);
+    if (chromePeekTimerRef.current) clearTimeout(chromePeekTimerRef.current);
+    chromePeekTimerRef.current = setTimeout(() => setChromePeeked(false), FOCUS_REVEAL_MS);
+  }, [focusMode, isCompact]);
+
+  // Leaving focus mode kills the peek + its timer.
+  useEffect(() => {
+    if (focusMode) return;
+    if (chromePeekTimerRef.current) { clearTimeout(chromePeekTimerRef.current); chromePeekTimerRef.current = null; }
+    setChromePeeked(false);
+  }, [focusMode]);
+  useEffect(() => () => {
+    if (chromePeekTimerRef.current) clearTimeout(chromePeekTimerRef.current);
+  }, []);
 
   /* ---- Page-scoped annotation lists (hotfix R15.3): one memoized Map, so
           memoized PageViews receive stable array identities across renders
@@ -823,13 +896,19 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
       className="flex h-full w-full flex-col gap-3"
       data-testid={testId ?? 'pdf-player'}
       data-pdf-focus-mode={focusMode ? 'true' : undefined}
+      onClick={handleFocusTapReveal}
     >
       {/* Wave 12.2.C.5 — the top bar collapses to max-h-0/opacity-0 in focus
           mode (keep-mounted, overflow clipped, never display:none); the
-          floating exit pill takes over as the visible chrome. */}
+          floating exit pill takes over as the visible chrome.
+          Wave 12.3.A — `pdf-top-bar` testid (A.1 compact top bar), and the
+          collapsed state is also `invisible` + aria-hidden (A.6 gate:
+          attribute AND visual hiding; tab order dropped). */}
       <div
+        data-testid="pdf-top-bar"
+        aria-hidden={focusChromeHidden || undefined}
         className={`shrink-0 overflow-hidden transition-all duration-200 ease-out motion-reduce:transition-none ${
-          focusMode ? 'max-h-0 -translate-y-3 opacity-0' : 'max-h-60 translate-y-0 opacity-100'
+          focusChromeHidden ? 'max-h-0 -translate-y-3 opacity-0 invisible' : 'max-h-60 translate-y-0 opacity-100'
         }`}
       >
       <PdfControlsBar
@@ -904,6 +983,9 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           scannedPage={scannedPage}
           scannedTitle={SCANNED_PAGE_TOOLTIP}
           focusMode={focusMode}
+          onToggleFocus={toggleFocusMode}
+          drawerOpen={toolsDrawerOpen}
+          onDrawerOpenChange={setToolsDrawerOpen}
         />
         {/* Wave 12.2.C.2 (E2) — the page stage joins the dark ramp: the white
             .pdf-page sheets are the ONLY light surface left (paper contract,
@@ -974,12 +1056,16 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           cacheKey={docFingerprint}
           onGoToPage={goToPage}
           focusMode={focusMode}
+          drawerOpen={thumbsDrawerOpen}
+          onDrawerOpenChange={setThumbsDrawerOpen}
         />
 
         {/* Wave 12.2.C.5 — focus-mode floating exit pill (the top bar is
             collapsed; Escape/F work as well). Centered via inset-x so no
-            physical left/right offsets ever enter the tree. */}
-        {focusMode && (
+            physical left/right offsets ever enter the tree.
+            Wave 12.3.A (A.5) — MOBILE: the pill hides with the rest of the
+            chrome and only reappears during the 3s tap-to-reveal peek. */}
+        {focusMode && (!isCompact || chromePeeked) && (
           <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center">
             <button
               type="button"
@@ -1013,7 +1099,8 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
       </div>
 
       {/* Wave 12.2.C.5 — status bar: page x/y · zoom % · saving · search i/n;
-          hides through the same keep-mounted animation in focus mode. */}
+          hides through the same keep-mounted animation in focus mode
+          (12.3.A adds `invisible` + aria-hidden — A.6 gate). */}
       <PdfStatusBar
         page={currentPage}
         pageCount={pageCount}
@@ -1022,8 +1109,38 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
         searchOpen={searchOpen}
         matchCount={searchMatches.length}
         activeMatchIndex={safeActiveMatchIndex}
-        focusMode={focusMode}
+        focusMode={focusChromeHidden}
       />
+
+      {/* Wave 12.3.A (A.2) — the mobile bottom action bar (< lg ONLY):
+          Thumbnails | Page x/y | Zoom % | Study Tools. Lives INSIDE the
+          player root flow (never fixed to the window), below the status
+          bar, and collapses through the SAME keep-mounted focus animation
+          (aria-hidden + invisible — A.5/A.6). */}
+      <div
+        aria-hidden={focusChromeHidden || undefined}
+        className={`shrink-0 overflow-hidden transition-all duration-200 ease-out motion-reduce:transition-none ${
+          focusChromeHidden ? 'max-h-0 translate-y-2 opacity-0 invisible' : 'max-h-20 translate-y-0 opacity-100'
+        }`}
+      >
+        <MobileActionBar
+          page={currentPage}
+          pageCount={pageCount}
+          onGoToPage={goToPage}
+          onPrevPage={() => goToPage(currentPage - 1)}
+          onNextPage={() => goToPage(currentPage + 1)}
+          zoomPercent={zoomPercent}
+          onZoomIn={() => setZoomIndex((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
+          onZoomOut={() => setZoomIndex((i) => Math.max(0, i - 1))}
+          onZoomFit={() => setZoomIndex(0)}
+          canZoomIn={zoomIndex < ZOOM_STEPS.length - 1}
+          canZoomOut={zoomIndex > 0}
+          thumbsOpen={thumbsDrawerOpen}
+          onThumbsToggle={() => setThumbsDrawerOpen((open) => !open)}
+          toolsOpen={toolsDrawerOpen}
+          onToolsToggle={() => setToolsDrawerOpen((open) => !open)}
+        />
+      </div>
 
       {/* Invisible watermark layer — silent protection (mirrors DocumentViewer). */}
       {watermark && (
