@@ -5,6 +5,7 @@ using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
 using CMS.Domain.Enums;
 using CMS.Infrastructure.Persistence;
+using CMS.Infrastructure.Security;
 using CMS.Infrastructure.Services;
 using FluentAssertions;
 using MediatR;
@@ -119,6 +120,11 @@ public sealed class LibraryAuditPostgresIntegrationTests
             .AddSingleton<IEntitlementService>(new EntitlementService(db))
             // Push 2 / Track 2: LibraryHandlers now also takes IAdminActivityWriter.
             .AddSingleton<IAdminActivityWriter>(new CMS.Infrastructure.Services.AdminActivityWriter(db, Microsoft.Extensions.Logging.Abstractions.NullLogger<CMS.Infrastructure.Services.AdminActivityWriter>.Instance))
+            // R39 CI fix: Wave 13 (13.A) added IHtmlCspInjector to LibraryHandlers for
+            // upload-time CSP meta injection; production Program.cs registers the real
+            // stateless service, so mirror it here or MediatR cannot activate the handler
+            // (precedent: ActivityMonitorHandlerTests uses the same real injector).
+            .AddSingleton<IHtmlCspInjector>(new HtmlCspInjectorService())
             .BuildServiceProvider();
         var entitlement = new SignedEntitlementService(db, configuration);
         var token = await entitlement.IssueAsync(student.Id, installation);
