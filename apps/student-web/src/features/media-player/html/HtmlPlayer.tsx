@@ -46,10 +46,16 @@ export function HtmlPlayer({ assetType, assetId, title, enableScripts, watermark
   // ALREADY been string-inserted by injectLessonPrelude, and everything else
   // is the ORIGINAL stored bytes. Blob creation never mutates those bytes and
   // never persists them. The URL is revoked on every document swap/unmount.
+  // R49 — declare charset=utf-8 on the blob MIME type: about:srcdoc INHERITED
+  // the parent document's encoding, but a blob: document has no parent to
+  // inherit from — without the parameter, Chromium decodes the blob as
+  // windows-1252 and legacy complete documents without <meta charset> render
+  // Arabic (any non-ASCII) as mojibake. ensureUtf8Document only wraps
+  // FRAGMENTS, so complete documents rely on this declaration.
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!html) return;
-    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html; charset=utf-8' }));
     setBlobUrl(url);
     return () => {
       URL.revokeObjectURL(url);
