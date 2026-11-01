@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { AlertTriangle, LoaderCircle, RotateCcw } from 'lucide-react';
 import { useHtmlDocument } from './useHtmlDocument';
 import type { HtmlPlayerProps } from './html-player-types';
@@ -24,12 +25,36 @@ import type { HtmlPlayerProps } from './html-player-types';
  *    by the row's persisted EnableScripts flag; `allow-same-origin` is never
  *    granted (Q4), so the frame runs on an opaque origin: no parent DOM, no
  *    cookies, no storage access.
+ *  - R47 (freeze fix): the document is served from a blob: URL, NOT srcDoc.
+ *    about:srcdoc documents INHERIT the embedding app-shell CSP
+ *    (script-src 'self'), and inherited policies intersect with our injected
+ *    meta — authored inline scripts were being blocked at the browser level
+ *    and trusted rows white-screened. A blob: URL document does NOT inherit
+ *    the parent's policy: the injected <meta http-equiv="Content-Security-Policy">
+ *    becomes the single authoritative layer (script-src 'unsafe-inline' when
+ *    EnableScripts, 'none' otherwise). The sandbox attribute applies to blob
+ *    loads exactly as to srcdoc, so the opaque-origin guarantee is unchanged.
  *  - Q5: the invisible watermark overlay rides on top of the white canvas,
  *    mirroring the PDF player's deterrent layer.
  */
 export function HtmlPlayer({ assetType, assetId, title, enableScripts, watermark, testId }: HtmlPlayerProps) {
   const enabled = assetType === 'library-file' && Boolean(assetId);
   const { status, html, retry } = useHtmlDocument(enabled ? assetId : undefined, enabled, enableScripts);
+
+  // R47 — blob URL lifecycle. `html` is the useHtmlDocument output: the
+  // prelude (viewport meta + authoritative CSP meta + fit style/script) has
+  // ALREADY been string-inserted by injectLessonPrelude, and everything else
+  // is the ORIGINAL stored bytes. Blob creation never mutates those bytes and
+  // never persists them. The URL is revoked on every document swap/unmount.
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!html) return;
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+    setBlobUrl(url);
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [html]);
 
   if (status === 'error') {
     return (
@@ -53,7 +78,7 @@ export function HtmlPlayer({ assetType, assetId, title, enableScripts, watermark
     );
   }
 
-  if (status === 'loading' || !html) {
+  if (status === 'loading' || !html || !blobUrl) {
     return (
       <div
         dir="rtl"
@@ -71,17 +96,19 @@ export function HtmlPlayer({ assetType, assetId, title, enableScripts, watermark
   return (
     <div dir="rtl" className="relative h-full w-full bg-white" data-testid={testId ?? 'html-player'}>
       {/*
-        sandbox policy (Q1): allow-scripts ONLY for trusted lessons — never
-        combined with allow-same-origin, so scripts run on an opaque origin.
-        srcDoc (never src): the CSP meta and charset guards are in-band, the
-        presigned URL path is CORS-blind, and response headers cannot apply
-        to srcdoc content — the meta tag is the only enforceable layer.
-        R42 iframe contract (D): NO allow, NO allowFullScreen, NO
-        allow-downloads — fullscreen is shell-owned and downloads are
-        platform-forbidden.
+        R47 render path: src={blobUrl} instead of srcDoc={html}.
+        about:srcdoc INHERITS the app-shell CSP (script-src 'self') and the
+        inherited policy intersects with our injected meta — inline scripts
+        died and authored lessons froze. A blob: URL document carries NO
+        inherited policy, so the injected CSP meta is authoritative.
+        Sandbox policy (Q1) is UNCHANGED: allow-scripts ONLY for trusted
+        lessons, never combined with allow-same-origin — the blob document
+        still runs on an opaque origin (no parent DOM, cookies, storage).
+        NO allow, NO allowFullScreen, NO allow-downloads — fullscreen is
+        shell-owned and downloads are platform-forbidden (R42 iframe contract).
       */}
       <iframe
-        srcDoc={html}
+        src={blobUrl}
         title={title}
         sandbox={enableScripts ? 'allow-scripts' : ''}
         className="h-full w-full"
