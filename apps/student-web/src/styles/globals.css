@@ -554,6 +554,23 @@ body {
   .sheet-up[data-state='closed'] { animation: sheet-sm-out var(--cms-duration-fast) var(--cms-ease-in); }
 }
 
+/* --- Hotfix R35.3 — slim study-tools drawer slide (inline-START edge) ---
+   The app is RTL (dir=rtl on <html>), so inline-start = the RIGHT edge and
+   translateX(100%) = fully off-canvas toward it. Radix Presence waits out
+   the closed-state animation, so exit slides too. 200ms ease-out per the
+   supervisor-locked drawer contract (transition-all/duration-200/ease-out
+   utilities ride on the element itself for post-mount property changes). */
+@keyframes pdf-drawer-start-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes pdf-drawer-start-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+.pdf-drawer-start[data-state='open'] { animation: pdf-drawer-start-in 200ms ease-out; }
+.pdf-drawer-start[data-state='closed'] { animation: pdf-drawer-start-out 200ms ease-in; }
+
 /* --- Radix Select animations --- */
 @keyframes select-content-in {
   from { opacity: 0; transform: translateY(-4px) scale(0.98); }

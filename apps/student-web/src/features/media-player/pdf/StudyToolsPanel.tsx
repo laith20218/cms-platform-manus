@@ -30,10 +30,18 @@ import { HIGHLIGHT_COLORS, NOTE_COLORS, PEN_COLORS, SHAPE_COLORS } from './pdf-p
  *
  * Wave 12.3.A — mobile: the floating bottom-right trigger is REMOVED (A.3);
  * the inline-start drawer is CONTROLLED from PdfPlayer (its only trigger is
- * the bottom action bar, A.2) with the locked drawer contract: max-w-85vw,
- * bg-black/60 backdrop (pdf-drawer-backdrop), tap-outside closes. A focus
- * mode toggle ALSO lives in the stack (A.2 secondary reach; the locked
- * A.1 wording keeps the primary focus toggle in the top bar at every
+ * the bottom action bar, A.2) with the locked drawer contract: dimmed
+ * bg-black/60 backdrop (pdf-drawer-backdrop), tap-outside closes.
+ * Hotfix R35.3 — the drawer is a SLIM icon rail: fixed w-[72px] (a 48px
+ * button + 12px padding per side — the 85vw slab was dead weight for an
+ * icon-only toolbar), slides in from the inline-START edge via the
+ * pdf-drawer-start keyframes (200ms ease-out) + transition-all/200ms/ease-out
+ * utilities; the dialog title moves to sr-only so the close button centers
+ * above the stack. The THUMBNAILS drawer keeps 85vw (page previews need
+ * width) — only THIS drawer slims.
+ *
+ * A focus mode toggle ALSO lives in the stack (A.2 secondary reach; the
+ * locked A.1 wording keeps the primary focus toggle in the top bar at every
  * width) — testid `pdf-study-focus`, OUTSIDE the pdf-tool- prefix.
  *
  * §13: 48px touch targets, aria-pressed + aria-label on every icon button,
@@ -163,9 +171,15 @@ export function StudyToolsPanel({
 
       {/* Mobile (< lg): inline-start Dialog drawer. CONTROLLED — the only
           trigger is the bottom action bar (12.3.A.2); the floating toggle
-          was removed (12.3.A.3). Locked drawer contract (A.4): max-w-85vw,
-          dimmed bg-black/60 backdrop (pdf-drawer-backdrop), tap-outside
-          closes, slides from the inline-START side (RIGHT in RTL). */}
+          was removed (12.3.A.3). Locked drawer contract (A.4): dimmed
+          bg-black/60 backdrop (pdf-drawer-backdrop), tap-outside closes,
+          slides from the inline-START side (RIGHT in RTL).
+          Hotfix R35.3 — SLIM icon rail: fixed w-[72px] = 48px button + 12px
+          padding per side (was w-72 max-w-[85vw]); slide-in animation via
+          .pdf-drawer-start (200ms ease-out, Radix data-state convention)
+          + the transition-all/200ms/ease-out utilities; sr-only title keeps
+          the Radix/axe labelled-dialog contract while the close button
+          centers above the icon stack. */}
       <DialogPrimitive.Root open={drawerOpen} onOpenChange={onDrawerOpenChange}>
         <DialogPrimitive.Portal>
           <DialogPrimitive.Overlay
@@ -174,18 +188,17 @@ export function StudyToolsPanel({
           />
           <DialogPrimitive.Content
             aria-describedby={undefined}
-            className="fixed inset-y-0 start-0 z-50 flex w-72 max-w-[85vw] flex-col border-e border-[#1e293b] bg-[#0b1120] p-3 shadow-2xl outline-none"
+            data-testid="pdf-study-tools-drawer"
+            className="pdf-drawer-start fixed inset-y-0 start-0 z-50 flex w-[72px] flex-col border-e border-[#1e293b] bg-[#0b1120] p-3 shadow-2xl outline-none transition-all duration-200 ease-out"
           >
-            <div className="mb-2 flex items-center justify-between">
-              <DialogPrimitive.Title className="text-sm font-bold text-white">أدوات الدراسة</DialogPrimitive.Title>
-              <DialogPrimitive.Close
-                aria-label="إغلاق أدوات الدراسة"
-                data-testid="pdf-study-tools-close"
-                className="press flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-200 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
-              >
-                <X className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
-              </DialogPrimitive.Close>
-            </div>
+            <DialogPrimitive.Title className="sr-only">أدوات الدراسة</DialogPrimitive.Title>
+            <DialogPrimitive.Close
+              aria-label="إغلاق أدوات الدراسة"
+              data-testid="pdf-study-tools-close"
+              className="press mx-auto mb-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-200 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+            >
+              <X className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+            </DialogPrimitive.Close>
             <div className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto">
               {stack}
             </div>
