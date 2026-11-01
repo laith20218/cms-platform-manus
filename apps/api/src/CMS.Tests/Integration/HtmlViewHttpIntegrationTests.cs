@@ -45,6 +45,10 @@ namespace CMS.Tests.Integration;
 /// issue bucket can no longer make pass/fail depend on xUnit's execution
 /// order within the class. Test-only change; production rate limits are
 /// untouched.
+///
+/// R60 — the INTERACTIVE profile additionally allowlists the trusted CDNs
+/// (cdnjs/jsdelivr/unpkg) and Google Fonts; STATIC rows must stay 100%
+/// origin-free. Both modes keep connect-src 'none' (no egress).
 /// </summary>
 public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFactory>
 {
@@ -258,6 +262,45 @@ public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFac
         csp.Should().Contain("script-src 'none'");
         csp.Should().NotContain("script-src 'unsafe-inline'",
             "style-src 'unsafe-inline' is legitimate (self-contained lessons) — only the SCRIPT directive must flip to 'none'");
+
+        // R60 — static rows must NOT inherit the interactive CDN allowlist:
+        // their lockdown is total (no external origin anywhere in the policy).
+        csp.Should().NotContain("cdnjs.cloudflare.com");
+        csp.Should().NotContain("cdn.jsdelivr.net");
+        csp.Should().NotContain("unpkg.com");
+        csp.Should().NotContain("fonts.googleapis.com");
+        csp.Should().NotContain("fonts.gstatic.com");
+        var scriptSrc = csp.Split(';', StringSplitOptions.TrimEntries)
+            .Single(d => d.StartsWith("script-src", StringComparison.Ordinal));
+        scriptSrc.Should().Be("script-src 'none'", "static rows: the script directive admits NO external origin, before or after R60");
+    }
+
+    [Fact]
+    public async Task View_InteractiveRow_CspAllowlistsTrustedCdns()
+    {
+        // R60 — authored lessons may load Three.js from the trusted CDNs and
+        // Google Fonts (CSS + WOFF2). The header must admit exactly those
+        // origins while connect-src stays 'none': load paths widen, data
+        // egress does not. Sandbox attribute is untouched by R60.
+        var studentId = NewStudentId();
+        var token = _factory.CreateSignedTokenFor(studentId, HtmlViewHttpFactory.InstallationA, new[] { _factory.SubjectId }, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(10));
+        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, token, HtmlViewHttpFactory.InstallationA, studentId));
+        issue.StatusCode.Should().Be(HttpStatusCode.OK);
+        var url = (await issue.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
+
+        var response = await _factory.Client.GetAsync(url);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var csp = response.Headers.GetValues("Content-Security-Policy").Single();
+        csp.Should().Contain("script-src 'unsafe-inline' 'unsafe-eval'");
+        csp.Should().Contain("https://cdnjs.cloudflare.com");
+        csp.Should().Contain("https://cdn.jsdelivr.net");
+        csp.Should().Contain("https://unpkg.com");
+        csp.Should().Contain("style-src 'unsafe-inline' https://fonts.googleapis.com");
+        csp.Should().Contain("font-src data: https://fonts.gstatic.com");
+        csp.Should().Contain("default-src 'none'", "the offline base is unchanged — only explicit load directives widen");
+        csp.Should().Contain("connect-src 'none'", "R60 widens LOAD origins only — data exfiltration stays blocked");
+        csp.Should().Contain("frame-ancestors https://student-web.test", "the embedding control is unchanged by R60");
     }
 
     [Fact]
