@@ -40,6 +40,9 @@ export interface LibraryFileDetail extends LibraryFile {
    * when the server re-embedded the PDF's fonts ({key}-fixed object). Absent on
    * legacy API responses → the player keeps R19 path rendering (safe default). */
   fontPipelineFixed?: boolean;
+  /** Wave 13 (F3) — trusted interactive-lesson flag (additive server key, text/html
+   * rows only). Absent on legacy API responses → static rendering, safe default. */
+  enableScripts?: boolean;
 }
 
 export interface FileAccess {

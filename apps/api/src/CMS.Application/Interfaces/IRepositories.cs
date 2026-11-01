@@ -146,13 +146,53 @@ public interface ISystemSettingsService
 
 /// <summary>
 /// Server-side sanitizer for uploaded HTML blobs. Downloads the object from storage, strips
-/// dangerous markup (scripts, event handlers, dangerous URLs) and overwrites the object in place.
+/// dangerous markup (scripts, event handlers, dangerous URLs) and returns the clean body.
 /// Throws on any failure — callers must treat a failed sanitization as a rejected upload.
 /// </summary>
 public interface IHtmlBlobSanitizer
 {
-    /// <summary>Sanitizes the HTML object at <paramref name="objectKey"/> in place. <paramref name="declaredSizeBytes"/> is the enforcement ceiling: larger bodies are rejected before being buffered.</summary>
-    Task SanitizeAsync(string objectKey, long declaredSizeBytes, CancellationToken ct = default);
+    /// <summary>
+    /// Strict sanitization of the HTML object at <paramref name="objectKey"/> (scripts stripped).
+    /// <paramref name="declaredSizeBytes"/> is the enforcement ceiling: larger bodies are rejected
+    /// before being buffered. Returns the sanitized body; the clean content is ALSO overwritten
+    /// in place at the same key (A2-5 semantics) when the sanitizer changed anything.
+    /// </summary>
+    Task<string> SanitizeAsync(string objectKey, long declaredSizeBytes, CancellationToken ct = default);
+
+    /// <summary>
+    /// Wave 13 (Q1 ruling, amended by 13.A.1) — trusted sanitization for team-built
+    /// interactive lessons (EnableScripts=true): preserves <c>&lt;script&gt;</c> AND
+    /// <c>&lt;style&gt;</c> tags, their content, and every inline on* event handler
+    /// (onclick, onerror, ontouchstart, …) the document uses, while STILL stripping
+    /// <c>&lt;object&gt;</c>/<c>&lt;embed&gt;</c>/<c>&lt;iframe&gt;</c>, <c>&lt;base href&gt;</c>,
+    /// form action attributes, javascript:/vbscript: URLs and CSS expression().
+    /// Runs in DOCUMENT mode, so script/style resident in <c>&lt;head&gt;</c> survive.
+    ///
+    /// Threat model (13.A.1): the preserved handlers/scripts are contained by the
+    /// student player's sandbox (opaque origin — never allow-same-origin) plus the
+    /// injected CSP (connect-src 'none', form-action 'none', frame-src 'none',
+    /// base-uri 'none'); external URLs stay dead and there is no same-origin access.
+    /// Same ceiling + in-place + fail-closed semantics as <see cref="SanitizeAsync"/>.
+    /// Virus scanning is the caller's responsibility and runs regardless.
+    /// </summary>
+    Task<string> SanitizeTrustedAsync(string objectKey, long declaredSizeBytes, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Wave 13 (F3) — defense-in-depth CSP injector for uploaded HTML (supervisor-added:
+/// injected at UPLOAD time, so the object stored in B2/R2 is already protected even
+/// when the frontend safety net fails). Pure string transform — stateless and idempotent.
+/// </summary>
+public interface IHtmlCspInjector
+{
+    /// <summary>
+    /// Returns <paramref name="html"/> with a strict CSP <c>&lt;meta http-equiv&gt;</c> injected
+    /// as the FIRST element of &lt;head&gt; (the tag is created when missing; malformed input is
+    /// still protected via a leading meta). When a previously injected meta is present it is
+    /// REPLACED, never duplicated. The tag carries data-cms-injected="true" as the idempotency
+    /// signature. script-src is appended ONLY when <paramref name="enableScripts"/> is true.
+    /// </summary>
+    string Inject(string html, bool enableScripts);
 }
 
 /// <summary>Fail-closed scanner abstraction for stored content before publication or signed access.</summary>

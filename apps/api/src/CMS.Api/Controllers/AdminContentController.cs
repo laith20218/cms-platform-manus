@@ -110,7 +110,10 @@ public sealed class AdminContentController : ControllerBase
             // in the top-level projection exactly like the adjacent .ToString() calls.
             CMS.Application.DTOs.Library.PdfHealthStatus.Classify(
                 file.PdfProcessingStatus,
-                file.PdfProcessingStatus == null ? null : file.ProcessingError)), ct));
+                file.PdfProcessingStatus == null ? null : file.ProcessingError),
+            // Wave 13 (F3) — HTML player pipeline keys (same additive contract).
+            file.ContentProcessingStatus == null ? null : file.ContentProcessingStatus.ToString(),
+            file.EnableScripts), ct));
     }
 
     [HttpGet("academic/subjects/{subjectId:guid}/lectures")]
@@ -184,5 +187,7 @@ public record AdminLibraryFileListItem(Guid Id, Guid SubjectId, Guid? LectureId,
     // the diagnostics store: Arabic substitution list on Ready rows, GS stderr tail on Failed).
     string? DiagnosticReport = null,
     // R22.5.1 — the derived health badge classification ("Healthy" | "BrokenArabic" | null).
-    string? HealthStatus = null);
+    string? HealthStatus = null,
+    // Wave 13 (F3) — HTML player pipeline surface (additive, nullable → legacy rows unaffected).
+    string? ContentProcessingStatus = null, bool EnableScripts = false);
 public record AdminLectureListItem(Guid Id, Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, string? Description, string? InstructorName, string? SourceReference, string Status, bool IsArchived);

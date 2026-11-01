@@ -95,6 +95,21 @@ public class LibraryFile : AuditableEntity
     public ContentStatus Status { get; set; } = ContentStatus.Draft;
     public VirusScanStatus VirusScanStatus { get; set; } = VirusScanStatus.Pending;
 
+    // ===== Wave 13 (F3) — HTML player pipeline =====
+
+    /// <summary>
+    /// Trusted-content flag for text/html files (Q1 ruling): when true, the sanitizer
+    /// uses the script-PRESERVING policy (our own team-built interactive lessons, G-1)
+    /// and the injected CSP carries script-src 'unsafe-inline'. When false (default —
+    /// including every legacy row), the strict policy strips all scripts and the CSP
+    /// has no script-src at all. Virus scanning runs for BOTH paths.
+    /// </summary>
+    public bool EnableScripts { get; set; }
+
+    /// <summary>HTML sanitize→CSP pipeline state. NULL for non-HTML files and legacy rows
+    /// (mirrors <see cref="PdfProcessingStatus"/>; the admin list renders the badge).</summary>
+    public ContentProcessingStatus? ContentProcessingStatus { get; set; }
+
     // ===== Push 10.3 — rich media metadata + transcoding lifecycle =====
     // Title and Description already exist on the entity; the new metadata surface is
     // Difficulty, plus the HLS pipeline columns (FileUrl remains the source-object key).

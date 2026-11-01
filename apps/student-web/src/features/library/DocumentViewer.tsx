@@ -10,6 +10,7 @@ import { PlayerShell } from '@/features/media-player/PlayerShell';
 import { LazyPlayerMount, PlayerLoading } from '@/features/media-player/LazyPlayerMount';
 import type { AudioPlayerProps } from '@/features/media-player/audio/AudioPlayer';
 import type { PdfPlayerProps } from '@/features/media-player/pdf/pdf-types';
+import type { HtmlPlayerProps } from '@/features/media-player/html/html-player-types';
 
 /** Stable module-level loader — React.lazy is created exactly once per mount
  *  site, so the AudioPlayer (+ wavesurfer) ships as its own code-split chunk. */
@@ -17,6 +18,9 @@ const loadAudioPlayer = () => import('@/features/media-player/audio/AudioPlayer'
 
 /** Wave 11.8 / F2 — same pattern for the PDF player (pdf.js + annotations). */
 const loadPdfPlayer = () => import('@/features/media-player/pdf/PdfPlayer');
+
+/** Wave 13 / F3 — same pattern for the HTML player (sandboxed srcDoc + CSP). */
+const loadHtmlPlayer = () => import('@/features/media-player/html/HtmlPlayer');
 
 /**
  * Vercel-grade in-app document viewer (Push 9 Task 2).
@@ -100,17 +104,11 @@ function downloadExtension(kind: ViewerKind): string {
 /**
  * Guarantees a UTF-8 charset declaration on an HTML document.
  *
- * Stored library HTML is sanitized server-side, which strips the <head>
- * (including any <meta charset>); the object is then served as text/html
- * WITHOUT a charset, so browsers fall back to a legacy encoding and Arabic
- * turns into mojibake. We fetch the bytes as text (UTF-8 per the Fetch spec)
- * and re-inject the declaration before rendering via srcDoc.
+ * Wave 13: the legacy srcDoc path this served was REPLACED by the shell-hosted
+ * HtmlPlayer (features/media-player/html/) — the charset guard now lives there
+ * (useHtmlDocument.ensureUtf8Document). Kept as documentation of the mojibake
+ * trap the /content charset fix and the player-side guard both address.
  */
-function forceUtf8Html(raw: string): string {
-  if (/<meta[^>]+charset/i.test(raw)) return raw;
-  if (/<head[^>]*>/i.test(raw)) return raw.replace(/<head[^>]*>/i, (m) => `${m}<meta charset="utf-8">`);
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${raw}</body></html>`;
-}
 
 export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: () => void }) {
   const [access, setAccess] = useState<FileAccess | null>(null);
@@ -120,8 +118,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
   const [downloading, setDownloading] = useState(false);
   const [textBody, setTextBody] = useState<string | null>(null);
   const [textFailed, setTextFailed] = useState(false);
-  const [htmlBody, setHtmlBody] = useState<string | null>(null);
-  const [detail, setDetail] = useState<{ fileFormat: string | null; fontPipelineFixed: boolean } | null>(null);
+  const [detail, setDetail] = useState<{ fileFormat: string | null; fontPipelineFixed: boolean; enableScripts: boolean } | null>(null);
   const [viewStartMs] = useState(Date.now());
   const recordedRef = useRef(false);
 
@@ -145,7 +142,6 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
     setLoadFailed(false);
     setTextBody(null);
     setTextFailed(false);
-    setHtmlBody(null);
     setDetail(null);
     setZoomIndex(0);
     libraryApi.getAccess(file.id)
@@ -153,8 +149,8 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
       .catch(() => { if (!cancelled) { setLoadFailed(true); toast.error('تعذّر الوصول للملف'); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     libraryApi.getFile(file.id)
-      .then((data) => { if (!cancelled) setDetail({ fileFormat: data?.fileFormat ?? null, fontPipelineFixed: data?.fontPipelineFixed === true }); })
-      .catch(() => { if (!cancelled) setDetail({ fileFormat: null, fontPipelineFixed: false }); });
+      .then((data) => { if (!cancelled) setDetail({ fileFormat: data?.fileFormat ?? null, fontPipelineFixed: data?.fontPipelineFixed === true, enableScripts: data?.enableScripts === true }); })
+      .catch(() => { if (!cancelled) setDetail({ fileFormat: null, fontPipelineFixed: false, enableScripts: false }); });
     return () => { cancelled = true; };
   }, [file.id]);
 
@@ -171,21 +167,6 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
       }))
       .then((body) => { if (!cancelled && body) setTextBody(body); })
       .catch(() => { if (!cancelled) setTextFailed(true); });
-    return () => { cancelled = true; };
-  }, [access, kind, file.id]);
-
-  // HTML: fetch as UTF-8 text and render via sandboxed srcDoc (charset-safe —
-  // the stored object is served without a charset declaration).
-  useEffect(() => {
-    if (!access || kind !== 'html') return;
-    let cancelled = false;
-    libraryApi.getContentText(file.id)
-      .catch(() => fetch(access.accessUrl).then((res) => {
-        if (!res.ok) throw new Error(String(res.status));
-        return res.text();
-      }))
-      .then((body) => { if (!cancelled && body) setHtmlBody(forceUtf8Html(body)); })
-      .catch(() => { if (!cancelled) setHtmlBody(null); });
     return () => { cancelled = true; };
   }, [access, kind, file.id]);
 
@@ -311,6 +292,47 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
     );
   }
 
+  // ===== Wave 13 / F3 — HTML: the fullscreen PlayerShell (kind="html") hosts
+  // the code-split HtmlPlayer (sandboxed srcDoc + upload-time CSP + watermark),
+  // replacing the legacy Dialog iframe. Mirrors the audio/pdf replace-not-nest
+  // z-index rationale. The branch waits for the detail fetch: the persisted
+  // enableScripts flag rides it (absence on legacy API = static, safe default).
+  if (kind === 'html') {
+    return (
+      <PlayerShell
+        open
+        onOpenChange={(next) => { if (!next) onClose(); }}
+        kind="html"
+        title={file.title}
+        subtitle={meta.label}
+        contentClassName="max-w-none p-4 pb-4"
+        fill
+        testId="html-player-shell"
+      >
+        {loading || (kind === 'html' && detail === null) ? (
+          <PlayerLoading label="جارٍ تجهيز الدرس التفاعلي…" />
+        ) : loadFailed || !access ? (
+          <ViewerError onClose={onClose} />
+        ) : (
+          <LazyPlayerMount<HtmlPlayerProps>
+            active
+            loader={loadHtmlPlayer}
+            className="h-full"
+            playerProps={{
+              assetType: 'library-file',
+              assetId: file.id,
+              title: file.title,
+              enableScripts: detail?.enableScripts === true,
+              watermark: access.watermark,
+              testId: 'library-html-player',
+            }}
+            testId="html-player-mount"
+          />
+        )}
+      </PlayerShell>
+    );
+  }
+
   return (
     <DialogPrimitive.Root open onOpenChange={(next) => { if (!next) onClose(); }}>
       <DialogPrimitive.Portal>
@@ -404,24 +426,6 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
                 {kind === 'txt' && (
                   <TextReader body={textBody} failed={textFailed} url={access.accessUrl} />
                 )}
-                {kind === 'html' && (htmlBody !== null ? (
-                  <iframe
-                    srcDoc={htmlBody}
-                    className="h-full w-full"
-                    style={{ border: 'none', background: '#ffffff' }}
-                    title={file.title}
-                    sandbox="allow-scripts"
-                  />
-                ) : (
-                  /* Charset-unsafe fallback: only when the body fetch failed. */
-                  <iframe
-                    src={access.accessUrl}
-                    className="h-full w-full"
-                    style={{ border: 'none', background: '#ffffff' }}
-                    title={file.title}
-                    sandbox="allow-scripts"
-                  />
-                ))}
                 {kind === 'image' && (
                   <ImageFrame url={access.accessUrl} title={file.title} zoom={zoom} onZoom={clampZoom} zoomIndex={zoomIndex} />
                 )}

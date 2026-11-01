@@ -71,6 +71,9 @@ public static class DependencyInjection
         services.AddSingleton<IFileScanner, TrustedFileScanner>();
         // Server-side HTML sanitization for uploaded library documents (Ganss.XSS).
         services.AddSingleton<IHtmlBlobSanitizer, HtmlSanitizerService>();
+        // Wave 13 (F3) — upload-time CSP meta injection for stored HTML documents
+        // (defense-in-depth layer #1; the player re-injects client-side as layer #2).
+        services.AddSingleton<IHtmlCspInjector, HtmlCspInjectorService>();
         services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddSingleton<SecurityEventBatchService>();
         services.AddSingleton<ISecurityEventBatch>(sp => sp.GetRequiredService<SecurityEventBatchService>());

@@ -38,7 +38,11 @@ public record RequestUploadUrlCommand(
     string FileName, string ContentType, long FileSize,
     Guid SubjectId, Guid? LectureId, string Type,
     string Title, string? Description, Guid CreatedBy,
-    LibraryFileCategory? Category = null
+    LibraryFileCategory? Category = null,
+    // Wave 13 (F3/Q1) — trusted interactive lesson flag for text/html: persisted on
+    // the row at creation time and authoritative for the sanitize/CSP pipeline at
+    // complete-upload (the completion body can never escalate it).
+    bool EnableScripts = false
 ) : IRequest<UploadUrlDto>;
 
 public record CompleteUploadCommand(
@@ -53,7 +57,10 @@ public record CompleteUploadCommand(
     Difficulty? Difficulty = null,
     // Push 10.7 — admin-selected transcoding target for video files (absent = keep
     // the stored value, which defaults to Auto).
-    TargetQuality? TargetQuality = null
+    TargetQuality? TargetQuality = null,
+    // Wave 13 (F3) — accepted for contract symmetry but NOT authoritative: the
+    // pipeline reads the EnableScripts value persisted at upload-url time.
+    bool EnableScripts = false
 ) : IRequest<LibraryFileDto>;
 
 // ===== Admin: Update/Delete =====

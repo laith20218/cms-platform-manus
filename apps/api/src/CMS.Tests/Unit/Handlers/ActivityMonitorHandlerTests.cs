@@ -20,6 +20,7 @@ using CMS.Domain.Enums;
 using CMS.Domain.Common;
 using CMS.Infrastructure.Persistence;
 using CMS.Infrastructure.Repositories;
+using CMS.Infrastructure.Security;
 using CMS.Infrastructure.Services;
 using CMS.Tests;
 using CMS.Tests.Helpers;
@@ -200,7 +201,8 @@ public class ActivityMonitorHandlerTests
             NullLogger<LibraryHandlers>.Instance,
             new AdminActivityWriter(db, NullLogger<AdminActivityWriter>.Instance),
             new TranscodingChannelQueue(), // Push 10.3: inert queue — nothing consumes jobs in tests
-            new PdfProcessingChannelQueue()); // Wave 11.9: inert queue — same rationale
+            new PdfProcessingChannelQueue(), // Wave 11.9: inert queue — same rationale
+            new HtmlCspInjectorService()); // Wave 13 BUILD FIX: real stateless injector (pure transform — no mock value)
 
         await handler.Handle(new CompleteUploadCommand(file.Id, file.FileUrl, 2048, 3, null, null, admin.Id, sessionId),
             CancellationToken.None);
