@@ -2195,3 +2195,174 @@ NEXT: Supervisor review of the 8 SHAs + §13 evidence → PAT → push →
 Wave 12.3 (study-tools lists v2, reverse-map for ligature items,
 thumbnails/FIFO observability, status-bar M3 consumption).
 ═══════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════
+# WIP_STATUS — feat/12.3-mobile-study-tools (Wave 12.3, pre-push)
+
+## ─── STATUS ───────────────────────────────────────────
+Wave 12.3 (Mobile UX + M2 ligature reverse-map + Study Tools lists +
+M3 observability UI) IMPLEMENTED on branch
+feat/12.3-mobile-study-tools — 4 commits on top of main 7a13eac
+(PR #56 merge of Wave 12.2). NOT pushed (PAT withheld; push is a
+separate supervisor-authorized step).
+
+## ─── COMMITS (in supervisor order) ────────────────────
+1. 4547ea9  feat(pdf): mobile UX hardening — compact bars, drawers,
+            focus (12.3.A)
+   - A.1 top bar < lg = ONLY search + focus (single ≤56px row,
+     pdf-top-bar testid on the collapse wrapper); contextual rows,
+     undo/redo, delete, page-nav, zoom collapse to ≥ lg. py-0.5 at
+     mobile (48px buttons + 2×1px border = 54px clientHeight).
+   - A.2 NEW MobileActionBar (< lg, lg:hidden, h-14, inside the player
+     root flow — never window-fixed): Thumbnails | Page x/y (popover
+     jump: pdf-mobile-page/-input/-go) | Zoom % (popover menu) |
+     Study Tools. 6 targets ≥44px. Focus toggle ALSO inside the
+     StudyToolsPanel stack (pdf-study-focus) per A.2; the PRIMARY
+     toggle stays in the top bar at every width (locked A.1 wording —
+     documented interpretation, see deviations).
+   - A.3 floating toggles REMOVED < lg; ThumbnailsRail + StudyToolsPanel
+     drawers are now CONTROLLED from PdfPlayer (lifted open state).
+   - A.4 drawers: max-w-85vw kept, bg-black/60 backdrop
+     (pdf-drawer-backdrop), tap-outside closes, correct inline sides.
+   - A.5 focus mobile: shell header collapses via NEW
+     PlayerShellApi.setChromeHidden (keep-mounted + invisible); top/
+     bottom/status bars aria-hidden + invisible + max-h-0 (never
+     display:none, never unmount); tap-anywhere peeks chrome 3s
+     (auto-hide timer); exit pill only during peek on mobile; Escape
+     exits (unchanged). Desktop 12.2 contract preserved.
+   - A.6 tests: NEW e2e/w12.3-mobile.e2e.mjs (375+414: M1–M5 matrix);
+     player-pdf.e2e S10 rewritten to the 12.3 compact-chrome contract.
+2. a36ec5c  fix(pdf): M2 reverse-map for ligature-accurate fallback
+            (12.3.B)
+   - pdf-text.ts buildReverseIndexMap(original, normalized):
+     normalized→original UTF-16 map, expansion-aware (lam-alef family +
+     any per-char expansion of the production pipeline), final entry =
+     exclusive-end sentinel, identity → null (zero allocation),
+     unfaithful pair → null (defensive).
+   - pdf-search.ts: SearchTextItem.reverseIndex built ONCE at extraction
+     (only on expansion items); matchFallbackBoxes REPLACES the interim
+     full-item branch — fractions now measured on the GLYPH domain
+     (originalIndex / rawLength). TODO(12.3) removed.
+   - vitest: round-trips (FEFB/FEF5/back-to-back), post-expansion
+     slices, ±0.5% visual-span gates (viewport-corrected), legacy +
+     defensive floors. E2E 11.11 widthRatio gate untouched.
+3. f12de5d  feat(pdf): notes/highlights lists + bookmarks v1 (12.3.C)
+   - StudyToolsPanel list section (RailDivider + labels):
+     pdf-notes-list-toggle / pdf-highlights-list-toggle /
+     pdf-bookmarks-toggle (testid inherited from the removed
+     placeholder). pdf-bookmark-add = ACTIVE current-page toggle with
+     the locked toasts. S1c 6-tool count untouched (all ids outside
+     pdf-tool- prefix).
+   - NEW StudyListsPanel: docked ≥ lg (288px column between tools rail
+     and center) / slide-over drawer < lg (12.3.A drawer contract).
+     Row click → goToPage + .pdf-annotation-flash (2×0.8s pulses,
+     reduced-motion static; highlight <g> z-10 + note icon z-25).
+     Empty states: لا توجد ملاحظات بعد / تظليلات / علامات.
+   - NEW pdf-bookmarks.ts: page-level, localStorage ONLY
+     (cms:pdf:bookmarks:<fileId>), defensive parse, page-asc dedupe.
+     DOCUMENTED: Wave 12.4 moves bookmarks to the backend — this module
+     is the whole port surface.
+   - NEW study-lists.ts: collectNotes (page→createdAt→id) +
+     collectHighlights (page→rect y→x→id; degenerate skipped).
+   - vitest study-lists.test.ts (10): filter/order/empty + bookmark
+     add/list/remove/persist/scope/corrupt-storage. E2E 11.11 S8
+     (note → list → click → page jump + flash) + S9 (bookmark →
+     reload → persists + localStorage wire probe + toast).
+4. 7e30d6c  test(pdf): M3 UI + §13 matrix 414px + a11y (12.3.D)
+   - Search panel M3 banner (pdf-search-fallback-banner) ONLY when
+     fallbackCount > 0, locked Arabic copy + tooltip (title + sr-only);
+     panel flex-col; right-3 → end-3 (RTL-guard cleanup).
+   - PdfPlayer resolverNullsByPage (per-query reset); stats consumed
+     from onSearchRectsResolved; DEV warn unchanged; PROD silent.
+   - pdf-debug ?pdfForceFallback=1 diagnostic (deterministic
+     all-fallback for the banner scan; production never enters).
+   - w12.2-matrix → w12.3-matrix (git mv + rewrite): 5 widths
+     (414 ADDED) × 5 states, drawers via bottom-bar triggers, focus
+     cleanup with mobile tap-to-reveal; axe + fallback-banner +
+     notes/highlights/bookmarks lists (seeded) at 375 AND 1440.
+
+## ─── VERIFICATION LADDER (post-commit-4) ──────────────
+- tsc -b: green (0 errors)
+- eslint . --ext ts,tsx --max-warnings=0: green
+- vitest run: 334/334 (20 files) — +18 vs 12.2
+- node e2e/player-pdf-11.11.e2e.mjs: 24/24 (S1–S7 + 12.3 S8/S9),
+  0 console/page errors
+- node e2e/player-pdf.e2e.mjs: 27/27 (S10 = 12.3 compact-chrome
+  contract), 0 console/page errors
+- node e2e/w12.3-matrix.e2e.mjs: 28/28 — 25/25 §13 zero-horizontal-
+  scroll combos (HARD gate) + M3 banner count checks; axe 22 runs,
+  0 blocking; 0 console/page errors
+- node e2e/w12.3-mobile.e2e.mjs: 25/25 (12.3.A M1–M5 at 375+414),
+  0 console/page errors
+
+## ─── §13 EVIDENCE PACK (on disk) ──────────────────────
+- e2e/screenshots/w12.3-{375,414,768,1024,1440}-{default,focus,
+  thumbnails-open,study-tools-open,search-open}.png (25)
+- e2e/screenshots/w12.3-{375,414}-{default,thumbs-drawer,tools-drawer,
+  focus,focus-peek}.png (10)
+- e2e/screenshots/w12.3-s8-notes-list.png, w12.3-s9-bookmarks.png
+- e2e/screenshots/axe-results.json — 22 runs, 0 blocking
+- e2e/screenshots/rtl-guard.txt — 0 NEW violations; 10 grandfathered
+  (canvas-geometry space: SearchHitBox px math, watermark diagonal,
+  note anchors, NormalizedBox field names)
+
+## ─── §13 COMPLIANCE (per UI commit) ───────────────────
+□ 5 widths × states: 0 horizontal scroll (25/25 HARD gate) ✓
+□ 375/414 mobile: top bar 54px ≤56, action bar 6/6 targets ≥44px ✓
+□ WCAG 2.2 AA axe: 22/22 runs 0 blocking (incl. focus mode, all three
+  lists open, fallback banner) ✓
+□ RTL: logical props only in NEW code; 10 grep hits ALL grandfathered
+  (canvas geometry / pre-existing) — rtl-guard.txt ✓
+□ motion 150–250ms ease-out + motion-reduce guards ✓ (flash anim
+  reduced-motion static fallback)
+□ Arabic line-height ≥1.6 in list rows (leading-relaxed) ✓
+
+## ─── Supervisor-decision interpretations (disclosed) ──
+1. A.1 "keep search + focus in the TOP BAR" (final wording) vs A.2
+   "Focus Mode button moves INSIDE Study Tools panel": implemented BOTH
+   — top-bar focus toggle kept at every width (locked A.1), focus
+   toggle ALSO added inside the panel/drawer stack (pdf-study-focus,
+   A.2 secondary reach). No id conflicts; e2e asserts both.
+2. A.2 bar contents (locked list: Thumbnails | Page x/y | Zoom % |
+   Tools) override A.1's looser "move undo/redo/delete to the bottom
+   bar": undo/redo/delete are simply hidden < lg (keyboard chords
+   Ctrl+Z/Y still work; desktop unchanged). DISCLOSED: pen thickness
+   slider is desktop-only < lg (rail drawer keeps color pickers;
+   thickness reaches 12.4 candidate list).
+3. Instruction "4 states × 5 widths": implemented 5 states (12.2's
+   full set incl. study-tools-open) × 5 widths — a superset; all 25
+   pass. Nothing dropped.
+4. M3 banner count = per-query sum of resolver nulls across pages with
+   hits (re-resolution overwrites, never accumulates).
+5. pdfForceFallback diagnostic flag added to make the banner axe- and
+   e2e-scannable deterministically (precedent: ?pdfFonts,
+   ?pdfDebugText). Field-off by default; production never branches.
+
+## ─── UNVERIFIED / deferred (§11) ───────────────────────
+- M2 reverse-map on a REAL lam-alef-heavy production PDF: falsified by
+  fixtures only (e2e fixture's Arabic is ToUnicode-mangled) — the
+  ±0.5% visual-span gates are unit-level; production-behavior proof
+  stays UNVERIFIED per §11 (same posture as 12.2 M2).
+- Focus-mode shell-header collapse exercised via e2e M5a only at the
+  player-chrome level (pdf-top-bar/action/status); the PlayerShell
+  header collapse itself is asserted indirectly (no axe violations,
+  screenshots) — a dedicated header-box assertion is a 12.4 nit.
+- Bookmarks persist client-side ONLY (locked); multi-device sync =
+  Wave 12.4 backend port.
+- Highlights list scanned EMPTY (axe) — content rows are unit-covered
+  (ordering tests) but no e2e seeds a highlight rect yet.
+- w12.3-mobile.e2e.mjs (commit 1 artifact) is a 4th suite beyond the
+  locked 3-suite ladder — kept as a permanent mobile regression guard;
+  runs green.
+- Dashboard/library axe scans run against harness-mocked surfaces.
+
+RESUME_FROM:
+WIP_STATUS.md — Wave 12.3 IMPLEMENT complete.
+STATUS: VERIFIED (4 commits on feat/12.3-mobile-study-tools @ 7e30d6c;
+full ladder + 4 e2e suites green; evidence pack on disk; tree clean;
+NOT pushed).
+NEXT: Supervisor review of the 4 SHAs + §13 evidence → PAT → push →
+Wave 12.4 (bookmarks → backend annotations store; pen thickness on
+mobile; PlayerShell header-collapse explicit e2e assertion; highlight
+seeding in the list-scan axe pass).
+═══════════════════════════════════════════════════════════════
