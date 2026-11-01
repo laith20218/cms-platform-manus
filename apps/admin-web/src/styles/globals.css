@@ -866,3 +866,15 @@ button:disabled { opacity: var(--cms-disabled-opacity); cursor: var(--cms-disabl
   .primary-action { width: 100%; }
   .role-grid { grid-template-columns: 1fr; }
 }
+
+/* ── 13.A.2 — upload drawer entrance: a smooth slide from the physical right
+   edge (the drawer is right-anchored in both directions — grandfathered), with
+   a reduced-motion static fallback. Motion token: 240ms ease-out (150–250 band). ── */
+@keyframes cms-drawer-slide-in {
+  from { transform: translateX(100%); opacity: 0.4; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.cms-drawer-in { animation: cms-drawer-slide-in 240ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .cms-drawer-in { animation: none; }
+}

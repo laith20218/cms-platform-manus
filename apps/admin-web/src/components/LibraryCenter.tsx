@@ -50,8 +50,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle, AlertTriangle, Archive, CheckCircle2, FileText, FileImage, FileVideo,
-  FileAudio, FileCode, HelpCircle, Images, Library, LoaderCircle, Plus, RefreshCw, Search,
-  Trash2, Upload, X, Film,
+  FileAudio, FileCode, HelpCircle, Images, Library, LoaderCircle, MonitorPlay, Plus,
+  RefreshCw, Search, ShieldCheck, Trash2, Upload, X, Film,
 } from 'lucide-react';
 import { apiRequest, type PagedResult, type AdminLibraryFileListItem, type UploadUrlResponse } from '../lib/api';
 import { isPdfProcessingActive, pdfHealthBadge, pdfTimelineSteps } from '../lib/mediaProcessing';
@@ -169,8 +169,66 @@ const contentStatusLabel = (status: string, isArabic: boolean) => {
 };
 
 // Wave 13 (F3/G-6) — client-side mirror of the server's code-level hard cap:
-// text/html uploads above 20 MB are blocked BEFORE any presigned URL is requested.
+// text/html uploads above 20 MB are blocked BEFORE any presigned URL is requested
+// (13.A.2: the oversized pick still enters the drawer so the size meter can show
+// its red state — the disabled submit button + the handleUpload guard keep the
+// presign endpoint unreachable for it).
 const HTML_MAX_MB = 20;
+
+// 13.A.2 — an HTML lesson pick (MIME or extension; .html downloads often arrive
+// as application/octet-stream, so the extension is the real gate).
+const isHtmlFile = (file: File) =>
+  file.type === 'text/html' || file.name.toLowerCase().endsWith('.html');
+
+// 13.A.2 — HTML pipeline activity, the mirror of isPdfProcessingActive: the three
+// in-flight states; Ready/Failed/null are terminal-or-absent.
+const isHtmlProcessingActive = (status: string | null | undefined) =>
+  status === 'Pending' || status === 'Sanitized' || status === 'CSPApplied';
+
+// 13.A.2 (D) — the four literal HTML stages (amendment wording):
+// رفع → تعقيم → حقن حماية CSP → جاهز. Same skeleton as PDF_TIMELINE_STEPS;
+// states derive from the row's contentProcessingStatus (3s poll, shared).
+const HTML_TIMELINE_STEPS = [
+  { key: 'upload', labelAr: 'جاري رفع الملف...', labelEn: 'Uploading the file…' },
+  { key: 'sanitize', labelAr: 'جاري تعقيم المحتوى...', labelEn: 'Sanitizing the content…' },
+  { key: 'csp', labelAr: 'جاري حقن حماية CSP...', labelEn: 'Injecting the CSP shield…' },
+  { key: 'ready', labelAr: 'جاهز ومتاح للطلاب ✅', labelEn: 'Ready and available to students ✅' },
+] as const;
+
+type HtmlStepState = 'done' | 'active' | 'failed' | 'pending';
+type HtmlTimelineStep = (typeof HTML_TIMELINE_STEPS)[number] & { state: HtmlStepState };
+
+/**
+ * 13.A.2 (D) — derives the four HTML step states from ContentProcessingStatus:
+ *  • upload   — the local XHR (active while uploadInFlight; done afterwards);
+ *  • sanitize — Pending (or not-yet-polled) → active; done once Sanitized+;
+ *  • csp      — Sanitized → active; done once CSPApplied/Ready;
+ *  • ready    — CSPApplied → active (the ready-swap beat); done at Ready.
+ * On Failed, the first substantive stage (sanitize) AND the ready step turn red —
+ * the same convention the PDF timeline uses (the DTO exposes no per-stage failure
+ * detail; the error modal carries the human sentence). DISCLOSED in the worklog.
+ */
+const htmlTimelineSteps = (uploadInFlight: boolean, status: string | null | undefined): HtmlTimelineStep[] => {
+  const failed = status === 'Failed';
+  const ready = status === 'Ready';
+  const cspApplied = status === 'CSPApplied';
+  const sanitized = status === 'Sanitized';
+  const sanitizeSettled = sanitized || cspApplied || ready;
+  const sanitizeActive = !uploadInFlight && !sanitizeSettled && !failed;
+  return HTML_TIMELINE_STEPS.map((step) => {
+    switch (step.key) {
+      case 'upload':
+        return { ...step, state: uploadInFlight ? 'active' : 'done' };
+      case 'sanitize':
+        return { ...step, state: uploadInFlight ? 'pending' : sanitizeSettled ? 'done' : sanitizeActive ? 'active' : 'failed' };
+      case 'csp':
+        return { ...step, state: ready || cspApplied ? 'done' : sanitized ? 'active' : 'pending' };
+      case 'ready':
+      default:
+        return { ...step, state: ready ? 'done' : failed ? 'failed' : cspApplied ? 'active' : 'pending' };
+    }
+  });
+};
 
 const typeLabel = (type: string, isArabic: boolean) => {
   switch (type) {
@@ -276,6 +334,18 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   // qualityChecking is the step-4 beat (brief spinner before the badge settles).
   const [uploadInFlight, setUploadInFlight] = useState(false);
   const [qualityChecking, setQualityChecking] = useState(false);
+  // 13.A.2 — which pipeline the tracking panel walks ('pdf' Ghostscript | 'html'
+  // sanitize+CSP); set at submit, cleared on close.
+  const [trackingKind, setTrackingKind] = useState<'pdf' | 'html' | null>(null);
+  // 13.A.2 (A) — live LOCAL preview of the picked HTML file (FileReader → srcDoc;
+  // never uploaded, never sent anywhere — the note under the frame says so).
+  const [htmlPreview, setHtmlPreview] = useState<string | null>(null);
+  const [htmlPreviewLoading, setHtmlPreviewLoading] = useState(false);
+
+  // 13.A.2 (C) — the size validator state: true only for HTML picks above the
+  // G-6 hard cap (disables submit; the meter shows the red state).
+  const htmlTooLarge = selectedFile != null && isHtmlFile(selectedFile)
+    && selectedFile.size > HTML_MAX_MB * 1024 * 1024;
   // R22.3 — the failure modal payload: the human sentence, the raw technical
   // evidence, and the backend's diagnosticReport (الخط الأصلي... report).
   const [fontErrorModal, setFontErrorModal] = useState<{
@@ -373,7 +443,14 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     [files, trackingFileId],
   );
   const trackingStatus = trackedFile?.pdfProcessingStatus;
-  const trackingActive = trackingFileId != null && isPdfProcessingActive(trackingStatus);
+  const htmlTrackingStatus = trackedFile?.contentProcessingStatus;
+  // 13.A.2 — kind-aware activity gate: the shared 3s poller runs for whichever
+  // pipeline the submitted row belongs to (PDF Ghostscript | HTML sanitize+CSP).
+  const trackingActive = trackingFileId != null && (
+    trackingKind === 'pdf' ? isPdfProcessingActive(trackingStatus)
+      : trackingKind === 'html' ? isHtmlProcessingActive(htmlTrackingStatus)
+        : false
+  );
 
   // R22.5.2 — the tracked row left the visible list (filter change / refresh
   // race) while tracking: stop the poller + hide the timeline instead of letting
@@ -405,46 +482,85 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     return () => window.clearTimeout(timer);
   }, [qualityChecking]);
 
-  // Terminal resolution: Ready → the panel STAYS OPEN — the 5-step timeline
-  // settles into its completed state and the health badge renders (green | yellow)
-  // until the admin closes it (X / إلغاء). Failed → error modal (the raw
-  // Ghostscript stderr tail rides `processingError` into the collapsible block).
+  // Terminal resolution: Ready → the panel STAYS OPEN — the timeline settles into
+  // its completed state and renders until the admin closes it (X / إلغاء).
+  // Failed → error modal. 13.A.2: the terminal effect is KIND-AWARE — PDF rows
+  // keep the font messaging; HTML rows settle their 4-step timeline with the
+  // «جاهز» badge (green check) or surface the ProcessingErrorModal.
   useEffect(() => {
-    if (!trackingFileId || trackingStatus == null) return;
-    if (trackingStatus === 'Ready') {
-      const broken = trackedFile?.healthStatus === 'BrokenArabic';
-      onNotice(isArabic
-        ? broken
-          ? `تم تجهيز الملف "${trackedFile?.title ?? ''}" — به مشاكل في النص، تم تفعيل وضع العرض الاحتياطي.`
-          : `تم إصلاح خطوط الملف "${trackedFile?.title ?? ''}" بنجاح.`
-        : broken
-          ? `Prepared "${trackedFile?.title ?? ''}" — text issues detected; fallback rendering is active.`
-          : `Font processing finished for "${trackedFile?.title ?? ''}".`);
-      setQualityChecking(true); // brief «تحليل جودة العرض» beat, then the badge
-    } else if (trackingStatus === 'Failed') {
-      setFontErrorModal({
-        human: isArabic
-          ? 'تعذّر إصلاح خطوط هذا الملف على الخادم. يمكن إعادة المحاولة بإعادة رفع الملف.'
-          : 'Font processing failed on the server. Retry by uploading the file again.',
-        technical: trackedFile?.processingError ?? null,
-        // R22.2 — the support collapsible prefers the structured diagnosticReport;
-        // the raw stderr tail is the fallback so support ALWAYS gets evidence.
-        diagnostic: trackedFile?.diagnosticReport ?? trackedFile?.processingError ?? null,
-      });
-      setTrackingFileId(null); // stop the poller; the timeline hides, the form stays usable
+    if (!trackingFileId) return;
+    if (trackingKind === 'pdf') {
+      if (trackingStatus == null) return;
+      if (trackingStatus === 'Ready') {
+        const broken = trackedFile?.healthStatus === 'BrokenArabic';
+        onNotice(isArabic
+          ? broken
+            ? `تم تجهيز الملف "${trackedFile?.title ?? ''}" — به مشاكل في النص، تم تفعيل وضع العرض الاحتياطي.`
+            : `تم إصلاح خطوط الملف "${trackedFile?.title ?? ''}" بنجاح.`
+          : broken
+            ? `Prepared "${trackedFile?.title ?? ''}" — text issues detected; fallback rendering is active.`
+            : `Font processing finished for "${trackedFile?.title ?? ''}".`);
+        setQualityChecking(true); // brief «تحليل جودة العرض» beat, then the badge
+      } else if (trackingStatus === 'Failed') {
+        setFontErrorModal({
+          human: isArabic
+            ? 'تعذّر إصلاح خطوط هذا الملف على الخادم. يمكن إعادة المحاولة بإعادة رفع الملف.'
+            : 'Font processing failed on the server. Retry by uploading the file again.',
+          technical: trackedFile?.processingError ?? null,
+          // R22.2 — the support collapsible prefers the structured diagnosticReport;
+          // the raw stderr tail is the fallback so support ALWAYS gets evidence.
+          diagnostic: trackedFile?.diagnosticReport ?? trackedFile?.processingError ?? null,
+        });
+        setTrackingFileId(null); // stop the poller; the timeline hides, the form stays usable
+      }
+    } else if (trackingKind === 'html') {
+      if (htmlTrackingStatus == null) return;
+      if (htmlTrackingStatus === 'Ready') {
+        onNotice(isArabic
+          ? `تم تجهيز الدرس التفاعلي "${trackedFile?.title ?? ''}" بنجاح — الحماية مفعّلة وجاهز للطلاب.`
+          : `Interactive lesson "${trackedFile?.title ?? ''}" is ready — protection applied.`);
+      } else if (htmlTrackingStatus === 'Failed') {
+        setFontErrorModal({
+          human: isArabic
+            ? 'تعذّر تجهيز هذا الدرس التفاعلي على الخادم. يمكن إعادة المحاولة بإعادة رفع الملف.'
+            : 'Failed to prepare this interactive lesson on the server. Retry by uploading the file again.',
+          // HTML rows carry no stderr-style payload — the human sentence is the evidence.
+          technical: null,
+          diagnostic: null,
+        });
+        setTrackingFileId(null);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackingStatus, trackingFileId]);
+  }, [trackingFileId, trackingKind, trackingStatus, htmlTrackingStatus]);
 
-  const handleFileSelect = (file: File) => {
-    // Wave 13 (G-6) — client-side 20 MB hard cap for HTML lessons (the server
-    // enforces the same cap; failing fast here avoids a wasted presign round-trip).
-    if ((file.type === 'text/html' || file.name.toLowerCase().endsWith('.html')) && file.size > HTML_MAX_MB * 1024 * 1024) {
-      onError(isArabic
-        ? `حجم ملف HTML يتجاوز الحد الأقصى (${HTML_MAX_MB} ميجابايت)`
-        : `HTML file exceeds the ${HTML_MAX_MB} MB limit`);
+  // 13.A.2 (A) — live LOCAL preview: read the picked HTML file into srcDoc with
+  // FileReader (in-browser only — no upload, no network). Re-reads on every new
+  // selection; cleared for non-HTML picks and on close.
+  useEffect(() => {
+    if (!selectedFile || !isHtmlFile(selectedFile)) {
+      setHtmlPreview(null);
+      setHtmlPreviewLoading(false);
       return;
     }
+    setHtmlPreviewLoading(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setHtmlPreview(typeof reader.result === 'string' ? reader.result : null);
+      setHtmlPreviewLoading(false);
+    };
+    reader.onerror = () => {
+      setHtmlPreview(null);
+      setHtmlPreviewLoading(false);
+    };
+    reader.readAsText(selectedFile, 'utf-8');
+  }, [selectedFile]);
+
+  const handleFileSelect = (file: File) => {
+    // Wave 13 (G-6) — client-side 20 MB hard cap for HTML lessons: an oversized
+    // pick is ALLOWED into the drawer so the 13.A.2 size meter can show its red
+    // state, but the submit button is disabled and handleUpload re-guards — no
+    // presigned URL is ever requested for an oversized file.
     setSelectedFile(file);
     const detected = contentTypeMap[file.type] ?? { type: 'Pdf' as const, ct: file.type || 'application/octet-stream' };
     setForm(f => ({
@@ -463,6 +579,14 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     e.preventDefault();
     if (!selectedFile || !form.subjectId || !form.title) {
       onError('الرجاء اختيار ملف ومادة وعنوان.');
+      return;
+    }
+    // 13.A.2 (C) — belt over the disabled submit button: never presign an
+    // oversized HTML lesson (the server enforces the same 20 MB cap).
+    if (htmlTooLarge) {
+      onError(isArabic
+        ? `حجم ملف HTML يتجاوز الحد الأقصى (${HTML_MAX_MB} ميجابايت)`
+        : `HTML file exceeds the ${HTML_MAX_MB} MB limit`);
       return;
     }
     setBusy(true);
@@ -524,6 +648,15 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         // Wave 11.9: complete-upload committed PdfProcessingStatus=Pending and
         // the worker is picking the Ghostscript job up — DON'T close the panel:
         // walk the R22.5.2 five-step timeline to the Ready badge | Failed modal.
+        setTrackingKind('pdf');
+        setTrackingFileId(uploadUrlResp.fileId);
+        setPollTimedOut(false);
+        await loadFiles(1);
+      } else if (form.type === 'Html') {
+        // 13.A.2 (D) — HTML rows walk their own 4-step timeline (رفع → تعقيم →
+        // حقن حماية CSP → جاهز) driven by contentProcessingStatus polling —
+        // the same panel-stays-open contract as the Ghostscript timeline.
+        setTrackingKind('html');
         setTrackingFileId(uploadUrlResp.fileId);
         setPollTimedOut(false);
         await loadFiles(1);
@@ -588,10 +721,13 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     setSelectedFile(null);
     setUploadProgress(0);
     setTrackingFileId(null);
+    setTrackingKind(null);
     setPollTimedOut(false);
     setUploadInFlight(false);
     setQualityChecking(false);
     setFontErrorModal(null);
+    setHtmlPreview(null);
+    setHtmlPreviewLoading(false);
   }
 
   const copy = useMemo(() => isArabic ? {
@@ -638,7 +774,12 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   // ===== R22.5.2 — the five literal timeline steps (رفع → فحص سلامة → دمج وإصلاح
   // الخطوط → تحليل جودة العرض → جاهز) + the health badge. Visible for PDF uploads
   // from the first submit; on Ready it SETTLES (badge visible) until closed.
-  const pdfTimelineVisible = (uploadInFlight && form.type === 'Pdf') || trackingFileId != null;
+  // 13.A.2 — KIND-AWARE: the Ghostscript timeline may only follow PDF rows. The
+  // old `trackingFileId != null` disjunct broke the moment HTML uploads started
+  // setting trackingFileId too — an HTML upload would spin the PDF timeline's
+  // «فحص سلامة الملف» step forever (caught by the §13 timeline screenshot).
+  const pdfTimelineVisible = (uploadInFlight && form.type === 'Pdf')
+    || (trackingFileId != null && trackingKind === 'pdf');
   const timelineSteps = pdfTimelineVisible
     ? pdfTimelineSteps({
         uploadInFlight,
@@ -650,6 +791,17 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   const timelineSettled = timelineSteps.length > 0 && timelineSteps.every((step) => step.state === 'done');
   const timelineFailed = trackingStatus === 'Failed';
   const healthBadge = timelineSettled && !timelineFailed ? pdfHealthBadge(trackedFile?.healthStatus) : null;
+
+  // ===== 13.A.2 (D) — the 4-step HTML timeline (رفع → تعقيم → حقن حماية CSP →
+  // جاهز). Visible for HTML uploads from the first submit; driven by the same
+  // 3s poll; settles with the «جاهز» badge until the admin closes the panel.
+  const htmlTimelineVisible = (uploadInFlight && form.contentType === 'text/html')
+    || (trackingFileId != null && trackingKind === 'html');
+  const htmlTimelineStepsView = htmlTimelineVisible
+    ? htmlTimelineSteps(uploadInFlight, uploadInFlight ? null : htmlTrackingStatus)
+    : [];
+  const htmlTimelineSettled = htmlTimelineStepsView.length > 0
+    && htmlTimelineStepsView.every((step) => step.state === 'done');
 
   return (
     <section className="space-y-6" dir={dir}>
@@ -783,6 +935,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         <select
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value)}
+          aria-label={copy.filterStatus}
           className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
@@ -795,6 +948,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         <select
           value={categoryFilter}
           onChange={(event) => setCategoryFilter(event.target.value)}
+          aria-label={isArabic ? 'التصنيف' : 'Category'}
           className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
@@ -1005,7 +1159,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
             role="presentation"
           />
           <aside
-            className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-md lg:max-w-xl bg-white shadow-2xl overflow-y-auto"
+            className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-md lg:max-w-xl bg-white shadow-2xl overflow-y-auto cms-drawer-in"
             role="dialog"
             aria-modal="true"
             onMouseDown={(event) => event.stopPropagation()}
@@ -1030,6 +1184,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                   onClick={closeUpload}
                   disabled={busy}
                   data-testid="upload-panel-close"
+                  aria-label={copy.close}
                   className="p-1.5 rounded-md transition-colors disabled:opacity-50"
                   style={{ color: 'var(--cms-text-muted)' }}
                   onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-ivory-200)'; }}
@@ -1096,35 +1251,153 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                   </label>
                 </div>
 
-                {/* Wave 13 (F3/Q1) — trusted interactive-lesson flag. Only rendered
-                    (and only honored server-side) for real text/html uploads. The
-                    injected CSP allows inline scripts ONLY when this is on; the
-                    sanitizer preserves <script> but still strips every XSS vector. */}
+                {/* ===== 13.A.2 — the premium HTML upload experience (A/B/C) =====
+                    Rendered only for real text/html uploads. A: live LOCAL preview
+                    (sandboxed srcDoc); B: security switch; C: size validator. The
+                    injected CSP allows inline scripts ONLY when the switch is on;
+                    the sanitizer (13.A.1) preserves script/style/handlers but still
+                    strips every external XSS vector. */}
                 {form.contentType === 'text/html' && (
-                  <label
-                    className="flex items-center justify-between gap-3 rounded-lg border p-3 cursor-pointer"
-                    style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}
-                    data-testid="upload-enable-scripts-row"
-                  >
-                    <span className="min-w-0">
-                      <span className="block text-xs font-medium" style={{ color: 'var(--cms-text)' }}>
-                        {isArabic ? 'تفعيل السكربتات التفاعلية' : 'Enable interactive scripts'}
-                      </span>
-                      <span className="mt-0.5 block text-[11px] leading-snug" style={{ color: 'var(--cms-text-muted)' }}>
-                        {isArabic
-                          ? 'للدروس التفاعلية التي يبنيها فريقنا. تُحقن حماية CSP وتُفحص الملفات في كل الحالات.'
-                          : 'For team-built interactive lessons. CSP is injected and the file is virus-scanned either way.'}
-                      </span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={form.enableScripts}
-                      onChange={(event) => setForm(f => ({ ...f, enableScripts: event.target.checked }))}
-                      className="h-5 w-5 shrink-0 accent-teal-700"
-                      aria-label={isArabic ? 'تفعيل السكربتات التفاعلية' : 'Enable interactive scripts'}
-                      data-testid="upload-enable-scripts"
-                    />
-                  </label>
+                  <div className="space-y-4" data-testid="html-upload-experience">
+                    {/* (A) Live preview — local-only, sandboxed, mirrors the student rules */}
+                    <section
+                      className="rounded-xl border overflow-hidden"
+                      style={{ borderColor: 'var(--cms-line)' }}
+                      data-testid="html-preview-panel"
+                    >
+                      <header
+                        className="flex items-center justify-between gap-2 px-4 py-3"
+                        style={{ background: 'var(--cms-ivory-50)', borderBottom: '1px solid var(--cms-line)' }}
+                      >
+                        <span className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>
+                          <MonitorPlay className="w-4 h-4 shrink-0" style={{ color: 'var(--cms-teal-700)' }} />
+                          {isArabic ? 'معاينة تفاعلية' : 'Interactive preview'}
+                        </span>
+                        <span
+                          className="inline-flex items-center rounded-full border bg-white px-2 py-0.5 text-[11px]"
+                          style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-muted)' }}
+                        >
+                          {isArabic ? 'محلية فقط' : 'Local only'}
+                        </span>
+                      </header>
+                      <div className="p-3">
+                        {htmlPreviewLoading ? (
+                          <div
+                            className="h-56 sm:h-64 rounded-lg border animate-pulse"
+                            style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-100)' }}
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <iframe
+                            srcDoc={htmlPreview ?? ''}
+                            sandbox={form.enableScripts ? 'allow-scripts' : ''}
+                            title={isArabic ? 'معاينة تفاعلية للدرس' : 'Interactive lesson preview'}
+                            className="w-full h-56 sm:h-64 rounded-lg border bg-white"
+                            data-testid="html-preview-frame"
+                          />
+                        )}
+                        <p
+                          className="mt-2 text-[11px] leading-relaxed"
+                          style={{ color: 'var(--cms-text-muted)' }}
+                          data-testid="html-preview-note"
+                        >
+                          {isArabic
+                            ? 'المعاينة تعمل داخل متصفحك فقط — لم يُرفع أي ملف بعد، وتعمل بنفس قواعد القفص التي سيراها الطلاب.'
+                            : 'The preview runs inside your browser only — nothing is uploaded yet, and it uses the same sandbox rules students will get.'}
+                        </p>
+                      </div>
+                    </section>
+
+                    {/* (B) Security switch — 44px touch target, animated thumb, verbatim ruling copy */}
+                    <section
+                      className="rounded-xl border p-4"
+                      style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}
+                      data-testid="upload-enable-scripts-row"
+                    >
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={form.enableScripts}
+                        onClick={() => setForm(f => ({ ...f, enableScripts: !f.enableScripts }))}
+                        className="flex w-full min-h-[44px] items-center justify-between gap-3 text-start cursor-pointer"
+                        data-testid="upload-enable-scripts"
+                      >
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>
+                            {isArabic ? 'تفعيل السكربتات التفاعلية' : 'Enable interactive scripts'}
+                          </span>
+                          <span className="mt-1 block text-[11px] leading-relaxed" style={{ color: 'var(--cms-text-muted)' }}>
+                            {isArabic
+                              ? 'المحتوى سيعمل داخل قفص حماية (Sandbox) ولا يمكنه الاتصال بأي سيرفر خارجي.'
+                              : 'Content runs inside a sandbox cage and cannot contact any external server.'}
+                          </span>
+                        </span>
+                        <span
+                          aria-hidden="true"
+                          className="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200"
+                          style={{ background: form.enableScripts ? 'var(--cms-teal-600)' : 'var(--cms-ivory-300)' }}
+                        >
+                          <span
+                            className={`absolute top-0.5 start-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${form.enableScripts ? 'ltr:translate-x-5 rtl:-translate-x-5' : ''}`}
+                          />
+                        </span>
+                      </button>
+                      {/* What the admin gets regardless of the toggle — kills the "is this safe?" question. */}
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {(isArabic
+                          ? ['حماية CSP مفعّلة', 'فحص فيروسي تلقائي', 'قفص حماية معزول']
+                          : ['CSP shield on', 'Virus scanned', 'Isolated sandbox']
+                        ).map((chip) => (
+                          <span
+                            key={chip}
+                            className="inline-flex items-center gap-1 rounded-full border bg-white px-2 py-0.5 text-[11px]"
+                            style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}
+                          >
+                            <ShieldCheck className="w-3 h-3 shrink-0" style={{ color: 'var(--cms-teal-600)' }} />
+                            {chip}
+                          </span>
+                        ))}
+                      </div>
+                    </section>
+
+                    {/* (C) Size validator — n MB / 20 MB, red hard-limit state */}
+                    <section
+                      className="rounded-xl border p-4"
+                      style={{ borderColor: htmlTooLarge ? 'var(--cms-danger)' : 'var(--cms-line)' }}
+                      data-testid="html-size-meter"
+                    >
+                      <div className="flex items-center justify-between gap-2 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                        <span className="font-medium">{isArabic ? 'حجم الملف' : 'File size'}</span>
+                        <span
+                          className={`font-semibold tabular-nums ${htmlTooLarge ? 'text-red-700' : ''}`}
+                          data-testid="html-size-readout"
+                        >
+                          {formatBytes(selectedFile?.size ?? 0)} / {HTML_MAX_MB} MB
+                        </span>
+                      </div>
+                      <div className="mt-2 h-2 rounded-full overflow-hidden" style={{ background: 'var(--cms-ivory-200)' }}>
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${Math.min(100, ((selectedFile?.size ?? 0) / (HTML_MAX_MB * 1024 * 1024)) * 100)}%`,
+                            background: htmlTooLarge ? 'var(--cms-danger)' : 'var(--cms-teal-500)',
+                          }}
+                        />
+                      </div>
+                      {htmlTooLarge && (
+                        <p
+                          className="mt-2 text-xs font-medium leading-relaxed"
+                          style={{ color: 'var(--cms-danger)' }}
+                          data-testid="html-size-error"
+                          role="alert"
+                        >
+                          {isArabic
+                            ? `الحجم يتجاوز الحد الأقصى (${HTML_MAX_MB} ميجابايت) — أزل الملف واختر ملفًا أصغر.`
+                            : `Exceeds the ${HTML_MAX_MB} MB limit — remove it and pick a smaller file.`}
+                        </p>
+                      )}
+                    </section>
+                  </div>
                 )}
 
                 {/* Subject + Lecture (side by side) */}
@@ -1198,9 +1471,9 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                   />
                 </label>
 
-                {/* Upload progress (non-PDF uploads — PDF uploads show the
-                    R22.5.2 five-step timeline instead) */}
-                {uploadProgress > 0 && !pdfTimelineVisible && (
+                {/* Upload progress (non-PDF, non-HTML uploads — PDF shows the
+                    R22.5.2 five-step timeline, HTML the 13.A.2 four-step one) */}
+                {uploadProgress > 0 && !pdfTimelineVisible && !htmlTimelineVisible && (
                   <div className="space-y-1">
                     <div className="flex justify-between text-xs" style={{ color: 'var(--cms-text-soft)' }}>
                       <span>{copy.uploading}</span>
@@ -1305,6 +1578,66 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                     )}
                   </div>
                 )}
+
+                {/* ===== 13.A.2 (D) — the 4-STEP HTML timeline (رفع → تعقيم →
+                    حقن حماية CSP → جاهز). Same skeleton as the R22.5.2 PDF
+                    timeline; driven by contentProcessingStatus on the shared 3s
+                    poll; settles with the «جاهز — الحماية مفعّلة» green-check badge. */}
+                {htmlTimelineVisible && (
+                  <div
+                    className="space-y-2 rounded-lg border p-3"
+                    data-testid="html-processing-timeline"
+                    style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}
+                  >
+                    <div className="flex items-center justify-between gap-2 text-xs font-semibold" style={{ color: 'var(--cms-text)' }}>
+                      <span className="inline-flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5" style={{ color: 'var(--cms-teal-600)' }} />
+                        {isArabic ? 'تجهيز الدرس التفاعلي' : 'Interactive lesson processing'}
+                      </span>
+                      <span className="tabular-nums" style={{ color: 'var(--cms-text-soft)' }} data-testid="html-timeline-percent">
+                        {uploadInFlight ? `${uploadProgress}%` : htmlTimelineSettled ? '100%' : '—'}
+                      </span>
+                    </div>
+                    {htmlTimelineStepsView.map((step) => {
+                      const label = step.state === 'failed' && step.key === 'ready'
+                        ? (isArabic ? 'تعذر تجهيز الدرس ❌' : 'The lesson could not be prepared ❌')
+                        : (isArabic ? step.labelAr : step.labelEn);
+                      return (
+                        <div
+                          key={step.key}
+                          className="flex items-start gap-2 text-xs"
+                          data-testid={`html-phase-${step.key}`}
+                          data-phase-state={step.state}
+                        >
+                          {step.state === 'done' && <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#059669' }} />}
+                          {step.state === 'active' && <LoaderCircle className="w-4 h-4 shrink-0 mt-0.5 animate-spin" style={{ color: 'var(--cms-teal-600)' }} />}
+                          {step.state === 'failed' && <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--cms-danger)' }} />}
+                          {step.state === 'pending' && <span className="w-4 h-4 shrink-0 mt-0.5 rounded-full border" style={{ borderColor: 'var(--cms-line-strong)' }} />}
+                          <span style={{ color: step.state === 'pending' ? 'var(--cms-text-soft)' : 'var(--cms-text)' }}>{label}</span>
+                        </div>
+                      );
+                    })}
+                    {/* The settled «جاهز» badge — green check, per the ruling. */}
+                    {htmlTimelineSettled && (
+                      <div className="pt-1">
+                        <span
+                          className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700"
+                          data-testid="html-ready-badge"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                          <span>{isArabic ? 'جاهز — الحماية مفعّلة وقفص السكربتات يعمل' : 'Ready — protection applied, sandbox active'}</span>
+                        </span>
+                      </div>
+                    )}
+                    {pollTimedOut && trackingActive && (
+                      <p className="text-xs" style={{ color: 'var(--cms-danger)' }}>
+                        {isArabic
+                          ? 'تجاوزت المعالجة المهلة (15 دقيقة) — تم إيقاف التحديث. أعد المحاولة لاحقاً.'
+                          : 'Processing exceeded the 15-minute watchdog — polling stopped. Retry later.'}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Action bar */}
@@ -1323,7 +1656,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                 </button>
                 <button
                   type="submit"
-                  disabled={busy || !selectedFile || !form.subjectId || !form.title}
+                  disabled={busy || !selectedFile || !form.subjectId || !form.title || htmlTooLarge}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
                   style={{ background: 'var(--cms-teal-700)' }}
                   onMouseEnter={(event) => { if (!busy) event.currentTarget.style.background = 'var(--cms-teal-600)'; }}
