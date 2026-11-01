@@ -2,12 +2,12 @@ import { useState } from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
-  ArrowUpRight, Bookmark, Check, Circle, Eraser, Focus, Highlighter, MousePointer2,
+  ArrowUpRight, Bookmark, BookmarkPlus, Check, Circle, Eraser, Focus, Highlighter, MousePointer2,
   Pencil, Search, Shapes, Square, Star, StickyNote, X,
 } from 'lucide-react';
-import { toast } from 'sonner';
 import { cn } from '@/utils';
 import type { PdfTool, ShapeKind } from './pdf-types';
+import type { StudyListKind } from './study-lists';
 import { HIGHLIGHT_COLORS, NOTE_COLORS, PEN_COLORS, SHAPE_COLORS } from './pdf-palette';
 
 /**
@@ -92,6 +92,14 @@ export interface StudyToolsPanelProps {
    *  only trigger below `lg`; the floating toggle was removed, A.3). */
   drawerOpen: boolean;
   onDrawerOpenChange: (open: boolean) => void;
+  /** Wave 12.3.C — the document-list section (notes/highlights/bookmarks). */
+  onOpenList?: (kind: StudyListKind) => void;
+  /** Currently open list (drives the section buttons' active state). */
+  activeList?: StudyListKind | null;
+  /** Wave 12.3.C — the ACTIVE bookmark toggle: add/remove the CURRENT page
+   *  (client-side localStorage in v1; Wave 12.4 moves it to the backend). */
+  pageBookmarked?: boolean;
+  onBookmarkToggle?: () => void;
 }
 
 export function StudyToolsPanel({
@@ -106,6 +114,10 @@ export function StudyToolsPanel({
   onToggleFocus,
   drawerOpen,
   onDrawerOpenChange,
+  onOpenList,
+  activeList = null,
+  pageBookmarked = false,
+  onBookmarkToggle,
 }: StudyToolsPanelProps) {
   const stack = (
     <ToolStack
@@ -120,6 +132,10 @@ export function StudyToolsPanel({
       onToolPicked={() => onDrawerOpenChange(false)}
       focusMode={focusMode}
       onToggleFocus={onToggleFocus}
+      onOpenList={onOpenList}
+      activeList={activeList}
+      pageBookmarked={pageBookmarked}
+      onBookmarkToggle={onBookmarkToggle}
     />
   );
 
@@ -202,6 +218,11 @@ interface ToolStackProps {
   /** Wave 12.2.C.5 — focus toggle inside the stack (12.3.A.2 secondary reach). */
   focusMode?: boolean;
   onToggleFocus?: () => void;
+  /** Wave 12.3.C — document-list section + active bookmark toggle. */
+  onOpenList?: (kind: StudyListKind) => void;
+  activeList?: StudyListKind | null;
+  pageBookmarked?: boolean;
+  onBookmarkToggle?: () => void;
 }
 
 /** The shared vertical button stack (desktop rail + mobile drawer). */
@@ -216,6 +237,10 @@ function ToolStack({
   onToolPicked,
   focusMode = false,
   onToggleFocus,
+  onOpenList,
+  activeList = null,
+  pageBookmarked = false,
+  onBookmarkToggle,
 }: ToolStackProps) {
   const pick = (id: PdfTool) => { onToolChange(id); onToolPicked?.(); };
 
@@ -284,18 +309,58 @@ function ToolStack({
         <Search className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
       </button>
 
-      {/* Bookmarks — v1 placeholder (locked copy). OUTSIDE pdf-tool- prefix.
-          Wave 12.3.C replaces this with the ACTIVE bookmark toggle. */}
+      {/* Wave 12.3.C — the bookmark toggle is NOW ACTIVE (v1, page-level,
+          client-side localStorage; Wave 12.4 moves it to the backend).
+          Click adds/removes the CURRENT page + toast. OUTSIDE pdf-tool-. */}
       <button
         type="button"
-        onClick={() => { toast.info('قريباً — ستتوفر في التحديث القادم', { duration: 2000 }); }}
-        aria-label="العلامات المرجعية — قريباً"
-        title="العلامات المرجعية"
-        data-testid="pdf-bookmarks-toggle"
-        className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+        onClick={onBookmarkToggle}
+        aria-pressed={pageBookmarked}
+        aria-label={pageBookmarked ? 'إزالة العلامة المرجعية عن الصفحة الحالية' : 'إضافة علامة مرجعية للصفحة الحالية'}
+        title="العلامة المرجعية للصفحة الحالية"
+        data-testid="pdf-bookmark-add"
+        className={cn(
+          'press inline-flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]',
+          pageBookmarked
+            ? 'border-[#1685F8] bg-[#1685F8]/15 text-[#25C7E8] ring-2 ring-[#1685F8]'
+            : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
+        )}
       >
-        <Bookmark className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+        <BookmarkPlus className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
       </button>
+
+      {/* Wave 12.3.C — the document-lists section (visual separator + label
+          per supervisor spec). Each opens the StudyListsPanel. The bookmarks
+          toggle inherits the `pdf-bookmarks-toggle` testid (the 12.2 v1
+          placeholder it replaces); the add-toggle above is `pdf-bookmark-add`
+          — both OUTSIDE the pdf-tool- prefix so the S1c 6-count stays exact. */}
+      <RailDivider />
+      <div className="flex flex-col items-center gap-0.5" data-testid="pdf-study-lists-section">
+        <ListSectionButton
+          icon={StickyNote}
+          label="الملاحظات"
+          testid="pdf-notes-list-toggle"
+          active={activeList === 'notes'}
+          disabled={!onOpenList}
+          onClick={() => onOpenList?.('notes')}
+        />
+        <ListSectionButton
+          icon={Highlighter}
+          label="التظليلات"
+          testid="pdf-highlights-list-toggle"
+          active={activeList === 'highlights'}
+          disabled={!onOpenList}
+          onClick={() => onOpenList?.('highlights')}
+        />
+        <ListSectionButton
+          icon={Bookmark}
+          label="العلامات"
+          testid="pdf-bookmarks-toggle"
+          active={activeList === 'bookmarks'}
+          disabled={!onOpenList}
+          onClick={() => onOpenList?.('bookmarks')}
+        />
+      </div>
 
       {/* Wave 12.3.A (A.2) — focus toggle inside the panel (secondary reach;
           the PRIMARY toggle stays in the top bar at every width — locked
@@ -324,6 +389,39 @@ function ToolStack({
 
 function RailDivider() {
   return <span aria-hidden="true" className="my-1 h-px w-8 bg-[#1e293b]" />;
+}
+
+/** Wave 12.3.C — one list-section button: 44px icon target + 10px label
+ *  beneath (the section is labeled, per the supervisor spec). */
+function ListSectionButton({ icon: Icon, label, testid, active, disabled, onClick }: {
+  icon: typeof Bookmark;
+  label: string;
+  testid: string;
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      aria-label={label}
+      title={label}
+      data-testid={testid}
+      data-active={active ? 'true' : 'false'}
+      className={cn(
+        'press flex w-12 flex-col items-center gap-0.5 rounded-2xl border px-1 py-1.5 transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8] disabled:cursor-not-allowed disabled:opacity-40',
+        active
+          ? 'border-[#1685F8] bg-[#1685F8]/15 text-[#25C7E8] ring-2 ring-[#1685F8]'
+          : 'border-transparent text-slate-300 hover:bg-white/10 hover:text-white',
+      )}
+    >
+      <Icon className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+      <span className="text-[9px] font-bold leading-none">{label}</span>
+    </button>
+  );
 }
 
 /** Small popover palette (rail-scoped testids — never pdf-color-trigger). */

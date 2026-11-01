@@ -687,6 +687,94 @@ async function main() {
       await page.screenshot({ path: `${SHOT_DIR}/w11.11-s7-scanned.png` });
       await context.close();
     }
+    /* ===== S8 — Wave 12.3.C: notes list → click → page jump + flash ===== */
+    {
+      const { context } = await newPdfContext(browser, { width: 1280, height: 800 });
+      const page = await context.newPage();
+      await openPdfPlayer(page);
+
+      // A note on page 1 (drawer-less desktop rail path).
+      await page.locator('[data-testid="pdf-tool-note"]').click();
+      await dragOnPage(page, [0.70, 0.15], [0.70, 0.15], 1);
+      const editor = page.locator('[data-testid="pdf-note-textarea"]');
+      await editor.waitFor({ state: 'visible', timeout: 6000 });
+      await editor.fill('قائمة الملاحظات — محاضرة القلب');
+      await editor.press('Escape'); // commit + close
+      await waitVisible(page.locator('[data-testid="pdf-page-1"] [data-testid="pdf-note-icon"]'));
+
+      // Walk to page 3 so the click must NAVIGATE back.
+      const pageInput = page.locator('[data-testid="pdf-page-input"]');
+      await pageInput.fill('3');
+      await pageInput.press('Enter');
+      await page.locator('[data-testid="pdf-page-3"] canvas').waitFor({ state: 'visible', timeout: 20000 });
+
+      // Open the notes list from the study-tools rail.
+      await page.locator('[data-testid="pdf-notes-list-toggle"]').click();
+      const panel = page.locator('[data-testid="pdf-study-lists"]');
+      await panel.waitFor({ state: 'visible', timeout: 4000 });
+      const rowCount = await waitVisible(page.locator('[data-testid="pdf-list-row"]'));
+      check('12.3-C S8a: notes list shows the committed note (docked panel)', rowCount >= 1, `rows=${rowCount}`);
+
+      // Click the row → navigates to page 1 + flashes the note icon.
+      await page.locator('[data-testid="pdf-list-row"]').first().click();
+      await page.waitForFunction(
+        () => !document.querySelector('[data-testid="pdf-study-lists"]'),
+        null, { timeout: 4000 },
+      );
+      // The status bar page counter flips to 1 when the scroll lands.
+      await page.waitForFunction(() => {
+        const el = document.querySelector('[data-testid="pdf-status-page"]');
+        return el && el.textContent?.trim().startsWith('1 /');
+      }, null, { timeout: 8000 });
+      const flash = await page.evaluate(() => {
+        const icon = document.querySelector('[data-testid="pdf-page-1"] [data-testid="pdf-note-icon"]');
+        return icon ? icon.className.includes('pdf-annotation-flash') : false;
+      });
+      check('12.3-C S8b: row click navigates to the note page and flashes the note', flash, `flash=${flash}`);
+      await page.screenshot({ path: `${SHOT_DIR}/w12.3-s8-notes-list.png` });
+      await context.close();
+    }
+
+    /* ===== S9 — Wave 12.3.C: bookmark v1 → reload → persists ===== */
+    {
+      const { context } = await newPdfContext(browser, { width: 1280, height: 800 });
+      const page = await context.newPage();
+      await openPdfPlayer(page);
+
+      // Bookmark page 2 (navigate first — page-level bookmarking).
+      const pageInput = page.locator('[data-testid="pdf-page-input"]');
+      await pageInput.fill('2');
+      await pageInput.press('Enter');
+      await page.locator('[data-testid="pdf-page-2"] canvas').waitFor({ state: 'visible', timeout: 20000 });
+      await page.locator('[data-testid="pdf-bookmark-add"]').click();
+      const toastText = await page.locator('[data-sonner-toast]').first().innerText().catch(() => '');
+      check(
+        '12.3-C S9a: add-bookmark toast fires for the current page',
+        toastText.includes('علامة مرجعية') && toastText.includes('2'),
+        toastText.slice(0, 60),
+      );
+      const storedBefore = await page.evaluate(() => {
+        const keys = Object.keys(window.localStorage).filter((k) => k.startsWith('cms:pdf:bookmarks:'));
+        return keys.map((k) => ({ key: k, value: JSON.parse(window.localStorage.getItem(k) ?? '[]') }));
+      });
+      check(
+        '12.3-C S9b: bookmark persisted to localStorage keyed by fileId',
+        storedBefore.length === 1 && storedBefore[0].value.some((b) => b.page === 2),
+        JSON.stringify(storedBefore),
+      );
+
+      // RELOAD → reopen → the bookmarks list still shows page 2.
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await openPdfPlayer(page);
+      await page.locator('[data-testid="pdf-bookmarks-toggle"]').click();
+      await page.locator('[data-testid="pdf-study-lists"]').waitFor({ state: 'visible', timeout: 4000 });
+      const row = page.locator('[data-testid="pdf-list-row"][data-page="2"]');
+      await row.waitFor({ state: 'visible', timeout: 4000 });
+      check('12.3-C S9c: bookmark survives a full page reload', true, 'row data-page=2 visible');
+      await page.screenshot({ path: `${SHOT_DIR}/w12.3-s9-bookmarks.png` });
+      await context.close();
+    }
+
   } finally {
     await browser.close();
   }

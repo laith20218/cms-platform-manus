@@ -275,3 +275,26 @@
   background: rgba(251, 191, 36, 0.65);
   box-shadow: inset 0 0 0 2px rgba(245, 158, 11, 0.9);
 }
+
+/* ---- Wave 12.3.C — study-list entry flash ----
+   Clicking a note/highlight row in the Study Tools lists navigates to the
+   target page and pulses its nodes (SVG <g> for highlights, the DOM icon
+   for notes) so the student can spot it instantly. Two 0.8s pulses, then
+   the class is removed by the parent's timer (1.6s). Reduced-motion users
+   get a static emphasis instead of the pulse (§13 motion contract). */
+
+@keyframes pdf-annotation-flash-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
+}
+
+.pdf-annotation-flash {
+  animation: pdf-annotation-flash-pulse 0.8s ease-out 0s 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pdf-annotation-flash {
+    animation: none;
+    opacity: 0.55;
+  }
+}

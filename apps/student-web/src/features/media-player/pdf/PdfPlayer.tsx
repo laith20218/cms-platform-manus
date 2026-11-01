@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import { getDocument, TextLayer, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { AlertTriangle, Focus, LoaderCircle, RotateCcw } from 'lucide-react';
 import { libraryApi } from '@/features/library/services/library-api';
+import { toast } from 'sonner';
 import { usePdfAnnotations } from './usePdfAnnotations';
 import { MobileActionBar } from './MobileActionBar';
 import { PdfControlsBar } from './PdfControlsBar';
@@ -16,9 +17,12 @@ import {
 import { NoteLayer } from './pdf-note-layer';
 import { PdfSearchPanel } from './pdf-search-panel';
 import { PdfStatusBar } from './PdfStatusBar';
+import { StudyListsPanel } from './StudyListsPanel';
 import { StudyToolsPanel } from './StudyToolsPanel';
 import { ThumbnailsRail } from './ThumbnailsRail';
 import { usePlayerShell } from '../shell-context';
+import { collectHighlights, collectNotes, type StudyListKind } from './study-lists';
+import { addBookmark, isBookmarked, loadBookmarks, removeBookmark, type PageBookmark } from './pdf-bookmarks';
 import {
   documentSearchCacheKey, findMatches, getCachedPageSearchItems, getCachedPageSearchSourceIndexes,
   getCachedPageSearchViewport, getPageSearchItems, matchFallbackBoxes,
@@ -165,6 +169,17 @@ function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
 
+/** Wave 12.3.C — the first 30 chars of a page's CACHED search text (the
+ *  bookmark-row snippet; null when the page was never extracted — "if
+ *  available" per the locked spec; no extra pdf.js extraction). */
+function getPageSnippet(doc: PDFDocumentProxy | null, page: number): string | null {
+  if (!doc) return null;
+  const items = getCachedPageSearchItems(doc, page);
+  if (!items || items.length === 0) return null;
+  const text = items.map((item) => item.str).join(' ').replace(/\s+/g, ' ').trim();
+  return text.length > 0 ? text.slice(0, 30) : null;
+}
+
 export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerProps) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [docStatus, setDocStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -243,6 +258,52 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           floating toggles were removed). ---- */
   const [thumbsDrawerOpen, setThumbsDrawerOpen] = useState(false);
   const [toolsDrawerOpen, setToolsDrawerOpen] = useState(false);
+
+  /* ---- Wave 12.3.C — study lists (notes/highlights/bookmarks).
+          activeList drives the StudyListsPanel (docked ≥ lg / drawer < lg).
+          Bookmarks are PAGE-LEVEL, client-side ONLY — localStorage keyed by
+          fileId in v1; Wave 12.4 moves them to the backend (pdf-bookmarks.ts
+          is written so the port touches that module alone). flashAnnotationId
+          pulses the target's nodes after a list click (1.6s, CSS animation). ---- */
+  const [activeList, setActiveList] = useState<StudyListKind | null>(null);
+  const [bookmarks, setBookmarks] = useState<PageBookmark[]>(() => loadBookmarks(assetId));
+  useEffect(() => {
+    setBookmarks(loadBookmarks(assetId));
+    setActiveList(null);
+  }, [assetId]);
+  const openList = useCallback((kind: StudyListKind) => {
+    setActiveList((current) => (current === kind ? null : kind));
+    setToolsDrawerOpen(false); // the drawer hands over to the list panel
+  }, []);
+  const closeList = useCallback(() => setActiveList(null), []);
+  const pageBookmarked = isBookmarked(assetId, currentPage);
+  const toggleBookmark = useCallback(() => {
+    const page = currentPageRef.current;
+    if (isBookmarked(assetId, page)) {
+      setBookmarks(removeBookmark(assetId, page));
+      toast.info(`تمت إزالة العلامة المرجعية عن الصفحة ${page}`, { duration: 2200 });
+      return;
+    }
+    setBookmarks(addBookmark(assetId, page, getPageSnippet(doc, page) ?? undefined));
+    toast.info(`تمت إضافة علامة مرجعية للصفحة ${page}`, { duration: 2200 });
+  }, [assetId, doc]);
+  const [flashAnnotationId, setFlashAnnotationId] = useState<string | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashAnnotation = useCallback((id: string | null) => {
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    setFlashAnnotationId(id);
+    if (id) flashTimerRef.current = setTimeout(() => setFlashAnnotationId(null), 1600);
+  }, []);
+  useEffect(() => () => {
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+  }, []);
+  /** Bookmark-row snippet: the page's cached search text, first 30 chars. */
+  const snippetFor = useCallback((page: number) => getPageSnippet(doc, page), [doc]);
+  const handleBookmarkRemove = useCallback((page: number) => {
+    setBookmarks(removeBookmark(assetId, page));
+  }, [assetId]);
+  const notesList = useMemo(() => collectNotes(annotations.values()), [annotations]);
+  const highlightsList = useMemo(() => collectHighlights(annotations.values()), [annotations]);
 
   /* ---- Wave 12.3.A (A.5) — effective chrome visibility in focus mode.
           Desktop (≥ lg): the 12.2.C.5 contract — chrome collapsed, exit
@@ -668,6 +729,15 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     pagesRef.current.get(clamped)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [dims]);
 
+  /* ---- Wave 12.3.C — a study-list row click: navigate + flash the target
+          (note/highlight annotations pulse via .pdf-annotation-flash), then
+          hand the stage back (the panel closes). Defined after goToPage. ---- */
+  const handleListEntryClick = useCallback((page: number, annotationId: string | null) => {
+    goToPage(page);
+    if (annotationId) flashAnnotation(annotationId);
+    setActiveList(null);
+  }, [goToPage, flashAnnotation]);
+
   /* ---- Wave 11.11 — search sweep (B): debounced, cancellable, whole-doc
           lazy. Current page is searched first; the remaining pages stream in
           ascending order with a live done/total counter. ---- */
@@ -989,6 +1059,10 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           onToggleFocus={toggleFocusMode}
           drawerOpen={toolsDrawerOpen}
           onDrawerOpenChange={setToolsDrawerOpen}
+          onOpenList={openList}
+          activeList={activeList}
+          pageBookmarked={pageBookmarked}
+          onBookmarkToggle={toggleBookmark}
         />
         {/* Wave 12.2.C.2 (E2) — the page stage joins the dark ramp: the white
             .pdf-page sheets are the ONLY light surface left (paper contract,
@@ -1043,12 +1117,44 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
                   onNoteCommit={commitNoteText}
                   onNoteDelete={deleteNote}
                   onNoteClose={closeNote}
+                  flashAnnotationId={flashAnnotationId}
                   onEraseCommit={eraseAnnotations}
                 />
               );
             })}
           </div>
         </div>
+
+        {/* Wave 12.3.C — the study-lists panel. ≥ lg: a DOCKED side column
+            between the tools rail and the center scroll; < lg: a slide-over
+            drawer (same locked contract as the 12.3.A drawers). Exactly one
+            variant mounts at a time (isCompact decides). */}
+        {activeList && !isCompact && (
+          <StudyListsPanel
+            kind={activeList}
+            variant="docked"
+            notes={notesList}
+            highlights={highlightsList}
+            bookmarks={bookmarks}
+            snippetFor={snippetFor}
+            onEntryClick={handleListEntryClick}
+            onBookmarkRemove={handleBookmarkRemove}
+            onClose={closeList}
+          />
+        )}
+        {activeList && isCompact && (
+          <StudyListsPanel
+            kind={activeList}
+            variant="drawer"
+            notes={notesList}
+            highlights={highlightsList}
+            bookmarks={bookmarks}
+            snippetFor={snippetFor}
+            onEntryClick={handleListEntryClick}
+            onBookmarkRemove={handleBookmarkRemove}
+            onClose={closeList}
+          />
+        )}
 
         {/* Wave 12.2.C.3 — inline-end rail slot (LEFT in RTL). Lazy 96px
             thumbnails, module-level offscreen canvas, FIFO-120 cache. */}
@@ -1196,6 +1302,9 @@ interface PageViewProps {
   onSearchRectsResolved: (pageNumber: number, rects: Array<NormalizedRect[] | null> | null, stats?: SearchResolveStats) => void;
   /** Wave 11.11-C — reports text-layer presence after each page render. */
   onTextLayerState: (pageNumber: number, hasText: boolean) => void;
+  /** Wave 12.3.C — the annotation briefly FLASHED from the study lists
+   *  (notes/highlights): pulses the target's nodes for ~1.6s. */
+  flashAnnotationId: string | null;
   registerPage: (pageNumber: number, el: HTMLElement | null) => void;
   /** Pointer/highlighter routing on the text layer (see handleTextPointerUp). */
   onTextPointerUp: (pageNumber: number, clientX: number, clientY: number) => void;
@@ -1219,7 +1328,7 @@ const PageView = memo(function PageView({
   pageNumber, cssWidth, cssHeight, renderScale, doc, visible,
   annotations, tool, penColor, penWidth,
   shapeKind, shapeColor, selectedShapeId, openNoteId, searchHits,
-  searchSlices, searchGeneration, onSearchRectsResolved,
+  searchSlices, searchGeneration, onSearchRectsResolved, flashAnnotationId,
   registerPage, onTextPointerUp, onTextLayerState, onStrokeCommit,
   onShapeCommit, onNotePlace, onNoteOpen, onNoteCommit, onNoteDelete, onNoteClose, onEraseCommit,
 }: PageViewProps) {
@@ -1722,7 +1831,13 @@ const PageView = memo(function PageView({
           return (
             // Wave 12.2.A — data-annotation-id lets the eraser's page-level
             // preview dim committed highlights exactly like ink/shapes/notes.
-            <g key={annotation.id} className="pdf-highlight" data-annotation-id={annotation.id}>
+            // Wave 12.3.C — pdf-annotation-flash pulses the rects when the
+            // entry is clicked in the highlights list.
+            <g
+              key={annotation.id}
+              className={`pdf-highlight${annotation.id === flashAnnotationId ? ' pdf-annotation-flash' : ''}`}
+              data-annotation-id={annotation.id}
+            >
               {annotation.payload.rects.map((rect, index) => (
                 <rect key={index} x={rect.x} y={rect.y} width={rect.w} height={rect.h} fill={annotation.payload.color} />
               ))}
@@ -1810,6 +1925,7 @@ const PageView = memo(function PageView({
         annotations={annotations}
         openNoteId={openNoteId}
         passive={tool === 'eraser'}
+        flashNoteId={flashAnnotationId}
         onOpen={onNoteOpen}
         onCommit={onNoteCommit}
         onDelete={onNoteDelete}
