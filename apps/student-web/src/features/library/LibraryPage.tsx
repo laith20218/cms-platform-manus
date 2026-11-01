@@ -168,7 +168,8 @@ export default function LibraryPage() {
 }
 
 // ===== FileViewer moved to DocumentViewer.tsx (Push 9 — full-screen, mobile-first,
-// PDF zoom controls, TXT reading column, sandboxed HTML, download button). =====
+// PDF zoom controls, TXT reading column, sandboxed HTML; R42: zero-download —
+// no download / open-external actions exist for ANY kind). =====
 
 // ===== Helpers =====
 function formatFileSize(bytes: number): string {

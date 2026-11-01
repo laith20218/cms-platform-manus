@@ -211,11 +211,24 @@ export function PlayerShell({
                 className="fixed inset-0 z-50 bg-[#071426]/95 outline-none backdrop-blur-2xl"
               >
                 {/* STAGE — the fullscreen target. Opaque so the fullscreen
-                    session never shows the transparent glass over black. */}
+                    session never shows the transparent glass over black.
+                    R42 (Wave 13.2) ZERO-LEAKAGE ENFORCEMENT:
+                    - onContextMenu is prevented at the stage level (belt and
+                      suspenders on top of usePlayerProtection's capture-phase
+                      document handler, and it stays armed even when a host
+                      renders the shell with protection={false}). Blocks the
+                      trivial right-click → save-image/video path; a determined
+                      user with devtools remains out of scope (§ threat model).
+                    - DOWNLOAD / OPEN-EXTERNAL AUDIT (R42 B.1/B.2): the header
+                      action set is EXACTLY [fullscreen, close] — no
+                      <Download>, no `a.download`, no ExternalLink, no
+                      target="_blank", no window.open() exists anywhere in
+                      this component, for ANY media kind. */}
                 <div
                   ref={setStage}
                   data-player-stage="true"
                   data-testid="player-stage"
+                  onContextMenu={(event) => event.preventDefault()}
                   className="flex h-full w-full select-none flex-col bg-[#071426]"
                 >
                   {/* Header — stays visible in fullscreen (task contract).

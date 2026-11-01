@@ -326,7 +326,9 @@ public sealed class LibraryHandlersTests
         using var db = TestDbHelper.CreateInMemoryContext();
         const string fileKey = "library/html/one";
         var file = await SeedHtmlFileAsync(db, fileKey);
-        var (handler, storage, sanitizer, _) = Create(db);
+        // R42: the legacy byte-mutating pipeline is flag-gated (html.sanitize.enabled);
+        // this test pins the flag-ON path, so opt in explicitly.
+        var (handler, storage, sanitizer, _) = Create(db, SettingsWithLegacyHtmlPipeline());
         storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
         // Wave 13 pipeline: the clean body lands on the -sanitized temp key, the
         // CSP-injected final body on the -ready key (both text/html PUTs).
@@ -353,7 +355,8 @@ public sealed class LibraryHandlersTests
         const string fileKey = "library/html/trusted";
         var file = await SeedHtmlFileAsync(db, fileKey);
         file.EnableScripts = true; // Q1 ruling — the upload-url-persisted authoritative flag
-        var (handler, storage, sanitizer, _) = Create(db);
+        // R42: flag-gated legacy pipeline — opt in explicitly (see zero-touch tests below).
+        var (handler, storage, sanitizer, _) = Create(db, SettingsWithLegacyHtmlPipeline());
         storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
         SetupHtmlSiblingPuts(storage);
         sanitizer.Setup(service => service.SanitizeTrustedAsync(fileKey, It.IsAny<long>(), It.IsAny<CancellationToken>()))
@@ -397,6 +400,92 @@ public sealed class LibraryHandlersTests
     private static void SetupHtmlSiblingPuts(Mock<IFileStorageService> storage) =>
         storage.Setup(service => service.PutAsync(It.IsAny<string>(), It.IsAny<Stream>(), "text/html", It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
+
+    /// <summary>R42 — a settings mock that flips html.sanitize.enabled ON, restoring the
+    /// legacy (Wave 13) byte-mutating HTML pipeline for the flag-ON regression tests.</summary>
+    private static Mock<ISystemSettingsService> SettingsWithLegacyHtmlPipeline()
+    {
+        var settings = new Mock<ISystemSettingsService>();
+        settings.Setup(service => service.GetAsync("html.sanitize.enabled", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("true");
+        return settings;
+    }
+
+    // ===== R42 (Wave 13.2 hotfix) — zero-modification HTML passthrough (flag default OFF) =====
+
+    [Fact]
+    public async Task CompleteUpload_HtmlFile_FlagOff_Default_StoredBytesEqualUploadedBytes()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        const string fileKey = "library/html/zero-touch";
+        var file = await SeedHtmlFileAsync(db, fileKey);
+        var (handler, storage, sanitizer, scanner) = Create(db); // settings default: html.sanitize.enabled absent → OFF
+        storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var result = await handler.Handle(CompleteCommand(file, actualSize: 4096), CancellationToken.None);
+
+        // Byte-equality contract: the handler writes NO object and deletes NO object —
+        // the bytes the browser PUT under {key} are the bytes every reader gets.
+        sanitizer.Verify(service => service.SanitizeAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never,
+            "the sanitizer must never run while html.sanitize.enabled is off");
+        sanitizer.Verify(service => service.SanitizeTrustedAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never,
+            "the trusted sanitizer must never run while html.sanitize.enabled is off");
+        storage.Verify(service => service.PutAsync(It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never,
+            "zero-modification: no -sanitized/-ready sibling may ever be written");
+        storage.Verify(service => service.DeleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never,
+            "zero-modification: the original blob must never be deleted");
+
+        // Row contract: original key stays authoritative; Ready immediately after upload.
+        var row = db.LibraryFiles.AsNoTracking().Single(f => f.Id == file.Id);
+        row.FileUrl.Should().Be(fileKey, "FileUrl keeps the ORIGINAL key — no -ready derivation");
+        row.ContentProcessingStatus.Should().Be(ContentProcessingStatus.Ready,
+            "R42: HTML rows are Ready immediately after upload (no processing ladder)");
+        result.ContentProcessingStatus.Should().Be(ContentProcessingStatus.Ready);
+
+        // VirusScanStatus logic UNCHANGED: the scan still runs on the original key.
+        scanner.Verify(service => service.ScanAsync(fileKey, "text/html", It.IsAny<CancellationToken>()), Times.Once);
+        row.VirusScanStatus.Should().Be(VirusScanStatus.Clean);
+    }
+
+    [Fact]
+    public async Task CompleteUpload_HtmlFile_FlagExplicitFalse_BehavesIdenticallyToDefault()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        const string fileKey = "library/html/zero-touch-explicit";
+        var file = await SeedHtmlFileAsync(db, fileKey);
+        var settings = new Mock<ISystemSettingsService>();
+        settings.Setup(service => service.GetAsync("html.sanitize.enabled", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("false");
+        var (handler, storage, sanitizer, _) = Create(db, settings);
+        storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        await handler.Handle(CompleteCommand(file), CancellationToken.None);
+
+        sanitizer.Verify(service => service.SanitizeAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
+        sanitizer.Verify(service => service.SanitizeTrustedAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
+        storage.Verify(service => service.PutAsync(It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        db.LibraryFiles.AsNoTracking().Single(f => f.Id == file.Id).FileUrl
+            .Should().Be(fileKey, "an explicit 'false' is identical to the absent default");
+    }
+
+    [Fact]
+    public async Task CompleteUpload_HtmlFile_FlagUnparseable_FailsSafeToZeroTouch()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        const string fileKey = "library/html/zero-touch-garbage";
+        var file = await SeedHtmlFileAsync(db, fileKey);
+        var settings = new Mock<ISystemSettingsService>();
+        settings.Setup(service => service.GetAsync("html.sanitize.enabled", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("yes-please"); // garbage value — must NOT re-enable the mutator
+        var (handler, storage, sanitizer, _) = Create(db, settings);
+        storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        await handler.Handle(CompleteCommand(file), CancellationToken.None);
+
+        sanitizer.Verify(service => service.SanitizeAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never,
+            "an unparseable flag value fails safe to the zero-touch path");
+        db.LibraryFiles.AsNoTracking().Single(f => f.Id == file.Id).FileUrl.Should().Be(fileKey);
+    }
 
     [Fact]
     public async Task CompleteUpload_NonHtmlFile_DoesNotInvokeSanitizer()
@@ -489,7 +578,8 @@ public sealed class LibraryHandlersTests
         using var db = TestDbHelper.CreateInMemoryContext();
         const string fileKey = "library/html/bad";
         var file = await SeedHtmlFileAsync(db, fileKey);
-        var (handler, storage, sanitizer, _) = Create(db);
+        // R42: the failure path belongs to the flag-gated legacy pipeline — opt in.
+        var (handler, storage, sanitizer, _) = Create(db, SettingsWithLegacyHtmlPipeline());
         storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
         sanitizer.Setup(service => service.SanitizeAsync(fileKey, It.IsAny<long>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("sanitizer fault"));

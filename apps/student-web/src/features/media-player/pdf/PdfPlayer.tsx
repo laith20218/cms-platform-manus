@@ -385,6 +385,16 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
         // Hotfix R16.1: font/cmap resource URLs + system-font fallback (see
         // PDFJS_ASSET_BASE above) — without them pdf.js cannot resolve CID
         // mappings or base-14 fallbacks and the canvas bakes isolated letters.
+        //
+        // R42 (Wave 13.2) ZERO-DOWNLOAD AUDIT (B.5): this player renders through
+        // the pdfjs-dist API (getDocument → canvas + our own text layer) — it
+        // does NOT embed the stock pdf.js viewer.html, so there is NO default
+        // toolbar and NO download button to disable: the "disableDownload"
+        // option of the EMBEDDED viewer simply does not apply to this surface.
+        // The only byte source is the single-use ArrayBuffer below; there is
+        // no Download action, no ExternalLink and no window.open anywhere in
+        // this component (verified by the w13.2 E2E assertions). Ctrl/Cmd+S is
+        // intercepted platform-wide by usePlayerProtection (interceptGlobalShortcuts).
         const loadingTask = getDocument({
           data: new Uint8Array(buffer),
           cMapUrl: `${PDFJS_ASSET_BASE}cmaps/`,

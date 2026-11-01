@@ -7,11 +7,15 @@ import type { HtmlPlayerProps } from './html-player-types';
  * HTML lessons. Replaces the legacy DocumentViewer iframe (which lived in the
  * old document Dialog) with the same PlayerShell treatment as audio/pdf.
  *
- * Security model (all locked decisions):
+ * Security model (R42 revision — Wave 13.2 hotfix):
  *  - G-1: offline single-file lessons only — the injected CSP allows no
  *    external source whatsoever (default-src 'none' + connect-src 'none').
- *  - G-3: CSP enforced TWICE — the meta baked into the stored object at
- *    upload time (backend) + this player's idempotent re-injection.
+ *  - G-3: since R42 the STORED bytes are the ORIGINAL upload (backend mutation
+ *    disabled), so the client prelude (useHtmlDocument → injectLessonPrelude)
+ *    is the SINGLE CSP enforcement layer — applied in memory on every render,
+ *    idempotent, never persisted.
+ *  - ZERO-DOWNLOAD (R42): no download, no open-external affordance exists on
+ *    this surface or the shell around it; right-click is blocked at the stage.
  *  - G-4: fullscreen stays PlayerShell's exclusive job — the iframe carries
  *    NEITHER `allow="fullscreen"` NOR `allowfullscreen`, so page-injected
  *    fullscreen requests are dead; the shell's stage button keeps working.
@@ -72,13 +76,16 @@ export function HtmlPlayer({ assetType, assetId, title, enableScripts, watermark
         srcDoc (never src): the CSP meta and charset guards are in-band, the
         presigned URL path is CORS-blind, and response headers cannot apply
         to srcdoc content — the meta tag is the only enforceable layer.
+        R42 iframe contract (D): NO allow, NO allowFullScreen, NO
+        allow-downloads — fullscreen is shell-owned and downloads are
+        platform-forbidden.
       */}
       <iframe
         srcDoc={html}
         title={title}
         sandbox={enableScripts ? 'allow-scripts' : ''}
         className="h-full w-full"
-        style={{ border: 'none', background: '#ffffff' }}
+        style={{ width: '100%', height: '100%', border: 0, background: '#ffffff' }}
         data-testid={testId ? `${testId}-frame` : 'html-player-frame'}
       />
 

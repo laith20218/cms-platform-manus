@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { toast } from 'sonner';
 import {
-  AlertTriangle, Download, ExternalLink, FileCode, FileQuestion, FileText,
+  AlertTriangle, FileCode, FileQuestion, FileText,
   Image as ImageIcon, Loader2, Minus, Monitor, Music, Plus, RotateCcw, Video, X,
 } from 'lucide-react';
 import { libraryApi, type LibraryFile, type FileAccess } from './services/library-api';
@@ -27,9 +27,11 @@ const loadHtmlPlayer = () => import('@/features/media-player/html/HtmlPlayer');
  *
  * A full-screen, mobile-first Radix Dialog: on phones it owns the whole
  * viewport (with safe-area insets); on ≥sm it becomes a large reading surface.
- * Top bar carries the file identity + a real download button + close — zero
- * technical texts (no lease countdowns, no piracy warnings; the invisible
- * watermark overlay is the protection).
+ * R42 (Wave 13.2) ZERO-DOWNLOAD ENFORCEMENT: the top bar carries the file
+ * identity + close ONLY — no download, no open-external, for ANY kind. The
+ * platform's core mission is preventing content leakage; a signed URL must
+ * never leave this surface by user action. The invisible watermark overlay
+ * remains the passive deterrent.
  *
  * Rendering matrix:
  *  - PDF    → native embed (`#toolbar=0&navpanes=0`) + zoom controls that work
@@ -45,8 +47,9 @@ const loadHtmlPlayer = () => import('@/features/media-player/html/HtmlPlayer');
  *             stacks at z-50 while this dialog's overlay/content sit at
  *             --z-modal: 60 — nesting the shell INSIDE the dialog would render
  *             the player UNDER the viewer chrome, so the shell replaces it.
- *  - Anything else (docx…) → a calm "preview not available" card with real
- *             download/open actions — never a dead end, never a raw error.
+ *  - Anything else (docx…) → a calm "preview not available" card with NO
+ *             actions (R42 zero-leakage: download/open-external were removed
+ *             platform-wide) — an honest dead end that never leaks the URL.
  */
 
 const VIEWER_TYPE_META: Record<string, { icon: typeof FileText; label: string; color: string; bg: string }> = {
@@ -78,7 +81,7 @@ const CLASS_LABELS: Record<string, string> = {
  * Direct classes map 1:1 after lowercasing. The summary family can be
  * physically anything (a PDF, an HTML page, a DOCX…), so its kind must come
  * from the file detail's real MIME (fileFormat); without it we show the calm
- * download card rather than risk rendering binary bytes as prose.
+ * unsupported card rather than risk rendering binary bytes as prose.
  */
 function resolveViewerKind(rawType: string | undefined, fileFormat: string | null | undefined): ViewerKind {
   const t = (rawType ?? '').trim().toLowerCase();
@@ -91,14 +94,6 @@ function resolveViewerKind(rawType: string | undefined, fileFormat: string | nul
   if (mime.startsWith('video/')) return 'video';
   if (mime.startsWith('audio/')) return 'audio';
   return 'other';
-}
-
-/** Extracts a sensible download extension from the resolved kind. */
-function downloadExtension(kind: ViewerKind): string {
-  const map: Record<ViewerKind, string> = {
-    pdf: '.pdf', txt: '.txt', html: '.html', image: '.jpg', video: '.mp4', audio: '.mp3', other: '.bin',
-  };
-  return map[kind];
 }
 
 /**
@@ -115,7 +110,6 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [zoomIndex, setZoomIndex] = useState(0);
-  const [downloading, setDownloading] = useState(false);
   const [textBody, setTextBody] = useState<string | null>(null);
   const [textFailed, setTextFailed] = useState(false);
   const [detail, setDetail] = useState<{ fileFormat: string | null; fontPipelineFixed: boolean; enableScripts: boolean } | null>(null);
@@ -180,37 +174,6 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
     };
     return record;
   }, [file.id, viewStartMs, access]);
-
-  const handleDownload = useCallback(async () => {
-    if (!access) return;
-    setDownloading(true);
-    try {
-      // Same-origin content stream first (the presigned URL is not
-      // CORS-fetchable from the app origin); presigned fetch as fallback.
-      let blob: Blob;
-      try {
-        blob = await libraryApi.getContentBlob(file.id);
-      } catch {
-        const response = await fetch(access.accessUrl);
-        if (!response.ok) throw new Error(String(response.status));
-        blob = await response.blob();
-      }
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `${file.title}${downloadExtension(kind)}`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      toast.success('تم تنزيل الملف');
-    } catch {
-      // Last resort — open the presigned URL in a new tab.
-      window.open(access.accessUrl, '_blank', 'noopener,noreferrer');
-    } finally {
-      setDownloading(false);
-    }
-  }, [access, file, kind]);
 
   const clampZoom = (next: number) => setZoomIndex(Math.max(0, Math.min(ZOOM_STEPS.length - 1, next)));
 
@@ -361,29 +324,9 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              {access && (
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  disabled={downloading}
-                  aria-label="تنزيل الملف"
-                  title="تنزيل"
-                  data-testid="viewer-download"
-                  className="press inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--c-border)] text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-300)] hover:text-[var(--c-primary-700)] disabled:opacity-50"
-                >
-                  {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => access && window.open(access.accessUrl, '_blank', 'noopener,noreferrer')}
-                disabled={!access}
-                aria-label="فتح في نافذة جديدة"
-                title="نافذة جديدة"
-                className="press hidden h-11 w-11 items-center justify-center rounded-2xl border border-[var(--c-border)] text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-300)] hover:text-[var(--c-primary-700)] disabled:opacity-50 sm:inline-flex"
-              >
-                <ExternalLink className="h-5 w-5" />
-              </button>
+              {/* R42 (Wave 13.2): download + open-external buttons REMOVED for ALL
+                  kinds — the only remaining header action is close. The signed
+                  accessUrl must never leave this surface by user action. */}
               <DialogPrimitive.Close
                 aria-label="إغلاق"
                 data-testid="viewer-close"
@@ -423,9 +366,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
                   </div>
                 </div>
 
-                {kind === 'txt' && (
-                  <TextReader body={textBody} failed={textFailed} url={access.accessUrl} />
-                )}
+                {kind === 'txt' && <TextReader body={textBody} failed={textFailed} />}
                 {kind === 'image' && (
                   <ImageFrame url={access.accessUrl} title={file.title} zoom={zoom} onZoom={clampZoom} zoomIndex={zoomIndex} />
                 )}
@@ -436,9 +377,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
                       : <video src={access.accessUrl} className="max-h-full w-full rounded-2xl" controls controlsList="nodownload" />}
                   </div>
                 )}
-                {kind === 'other' && (
-                  <UnsupportedFrame title={file.title} onDownload={handleDownload} onOpen={() => window.open(access.accessUrl, '_blank', 'noopener,noreferrer')} downloading={downloading} />
-                )}
+                {kind === 'other' && <UnsupportedFrame title={file.title} />}
               </>
             )}
           </div>
@@ -480,18 +419,17 @@ function ZoomBar({ zoom, zoomIndex, onZoom }: { zoom: number; zoomIndex: number;
   );
 }
 
-/** TXT: Medium-style reading column. */
-function TextReader({ body, failed, url }: { body: string | null; failed: boolean; url: string }) {
+/** TXT: Medium-style reading column. R42: the failure state no longer offers
+ *  an external escape hatch — the signed URL never leaves the app. */
+function TextReader({ body, failed }: { body: string | null; failed: boolean }) {
   if (failed) {
     return (
       <div className="flex h-full items-center justify-center p-8">
-        <button
-          type="button"
-          onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
-          className="press inline-flex min-h-11 items-center gap-2 rounded-2xl border border-[var(--c-border)] px-6 py-2.5 text-sm font-bold text-[var(--c-text-soft)] hover:border-[var(--c-primary-300)]"
-        >
-          <ExternalLink className="h-4 w-4" /> فتح النص في نافذة جديدة
-        </button>
+        <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+          <AlertTriangle className="h-9 w-9 text-[var(--c-warning-500)]" />
+          <p className="font-bold text-[var(--c-text)]">تعذّر تحميل النص</p>
+          <p className="text-sm text-[var(--c-text-muted)]">أغلق العارض وأعد فتح الملف للمحاولة من جديد.</p>
+        </div>
       </div>
     );
   }
@@ -537,8 +475,10 @@ function ImageFrame({ url, title, zoom, onZoom, zoomIndex }: { url: string; titl
   );
 }
 
-/** DOCX & friends: calm honest card with real actions. */
-function UnsupportedFrame({ title, onDownload, onOpen, downloading }: { title: string; onDownload: () => void; onOpen: () => void; downloading: boolean }) {
+/** DOCX & friends: calm honest card. R42 (Wave 13.2): NO download and NO
+ *  open-external actions — zero-leakage applies to every kind, including the
+ *  formats the app cannot render inline. The header close button is the exit. */
+function UnsupportedFrame({ title }: { title: string }) {
   return (
     <div className="flex h-full items-center justify-center p-6" data-testid="file-unknown-type">
       <div className="flex max-w-sm flex-col items-center gap-4 text-center">
@@ -548,27 +488,8 @@ function UnsupportedFrame({ title, onDownload, onOpen, downloading }: { title: s
         <div>
           <p className="font-bold text-[var(--c-text)]">المعاينة داخل التطبيق غير متاحة لهذه الصيغة</p>
           <p className="mt-1 text-sm leading-relaxed text-[var(--c-text-muted)]">
-            يمكنك تنزيل «{title}» وفتحه بأي تطبيق ملفات — بنقرة واحدة أدناه.
+            يمكن عرض ملف «{title}» من داخل المنصة فقط حفاظًا على حقوق المحتوى.
           </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <button
-            type="button"
-            onClick={onDownload}
-            disabled={downloading}
-            className="press inline-flex min-h-11 items-center gap-2 rounded-2xl px-6 py-2.5 text-sm font-bold text-white shadow-md disabled:opacity-50"
-            style={{ background: 'var(--c-primary-700)' }}
-          >
-            {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            تنزيل الملف
-          </button>
-          <button
-            type="button"
-            onClick={onOpen}
-            className="press inline-flex min-h-11 items-center gap-2 rounded-2xl border border-[var(--c-border)] px-5 py-2.5 text-sm font-bold text-[var(--c-text-soft)] hover:border-[var(--c-primary-300)]"
-          >
-            <ExternalLink className="h-4 w-4" /> فتح مباشرة
-          </button>
         </div>
       </div>
     </div>

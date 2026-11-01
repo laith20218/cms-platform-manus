@@ -1,3 +1,153 @@
+# WIP_STATUS — feat/13.2-html-hotfix (Wave 13.2 HOTFIX: R42, 4 commits local)
+
+## ─── STATUS ────────────────────────────────────────────
+Wave 13.2 hotfix branch (feat/13.2-html-hotfix, cut from main @
+09dda16 = the merged PR #59). NOT pushed, NOT merged — push stays a
+supervisor-authorized step (§2). Zero pushes this session.
+
+Supervisor rulings implemented:
+- STOP server-side HTML modification: stored bytes == uploaded bytes.
+- ZERO-DOWNLOAD: download + open-external buttons removed for ALL kinds.
+- Right-click context menu blocked on the player stage.
+- Fit-to-width for HTML (client-side, in-memory only).
+
+## ─── COMMITS (local, in order) ────────────────────────
+1. b2e7e97 fix(api): html zero-modification passthrough behind
+   html.sanitize.enabled (R42-A)
+2. 59811a8 fix(student): zero-download enforcement + stage
+   context-menu block (R42-B)
+3. 63c364c fix(student): in-memory html prelude
+   (csp+viewport+fit-to-width) on original bytes (R42-C)
+4. (this commit) test(student): w13.2 hotfix e2e evidence + status
+   — separate evidence commit per the 13.D precedent (the R42
+   deliverable enumerated 3 implementation commits; the §13
+   evidence pack rides its own commit so the 3 implementation
+   SHAs stay exactly as enumerated).
+
+## ─── R42-A — backend zero-modification passthrough ────
+- CompleteUploadCommandHandler for text/html: feature flag
+  `html.sanitize.enabled` (system setting, default FALSE —
+  fail-safe: unparseable/absent ⇒ zero-touch). Flag OFF: no
+  sanitizer call, no CSP injection, no -sanitized/-ready sibling
+  writes, FileUrl keeps the ORIGINAL key, ContentProcessingStatus =
+  Ready immediately. VirusScanStatus logic UNCHANGED (scan still
+  runs on the original key).
+- Flag ON: the full legacy Wave-13 pipeline (sanitize → -sanitized
+  temp → CSP inject → -ready swap) preserved verbatim for future use.
+- scripts/migrations/RevertHtmlProcessing.sql: restores original
+  keys + NULLs content_processing_status for legacy
+  `type='Html' AND file_url LIKE '%-ready'` rows (idempotent;
+  supervisor-provided SQL verbatim). User runs manually on Neon
+  after deploy. Storage-side orphan cleanup noted as out of scope.
+- Tests: 3 new (flag-off default byte-equality: PutAsync
+  Times.Never + DeleteAsync Times.Never + FileUrl==key + Ready +
+  scan-once-on-original-key; explicit "false" identical; unparseable
+  "yes-please" fails safe). 2 legacy-path tests + the sanitizer-
+  failure test opt into the flag explicitly to keep covering the
+  flag-ON pipeline.
+- Backend suite: 569 passed / 27 skipped (Postgres, no Docker in
+  sandbox) / 0 failed (596 total = 593 + 3 new).
+
+## ─── R42-B — zero-download enforcement (student) ─────
+- PlayerShell.tsx: stage carries onContextMenu preventDefault
+  (belt-and-suspenders over usePlayerProtection's capture-phase
+  handler; armed even when protection={false}). Header action set
+  audited in-source: EXACTLY [fullscreen, close] — no
+  download/open-external exists in the component for ANY kind.
+- DocumentViewer.tsx (the actual leak surface): viewer-download
+  button + open-external button DELETED from the header;
+  handleDownload + downloading state + downloadExtension helper
+  deleted; UnsupportedFrame (docx card) converted to an honest
+  no-action card (no download, no open-external); TextReader
+  failure state no longer escapes via window.open; unused imports
+  removed. Video element keeps controlsList="nodownload".
+- Keyboard audit (B.4): Ctrl/Cmd+S/P already intercepted
+  platform-wide by usePlayerProtection (DEFAULT_SHORTCUTS
+  ['c','s','p'] + interceptGlobalShortcuts) — no player keydown
+  path can trigger a download; verified in-source, documented.
+- PDF.js audit (B.5): PdfPlayer renders via the pdfjs-dist API
+  (getDocument → canvas) — the stock viewer.html/toolbar is never
+  embedded, so there is NO default download button to disable; the
+  embedded-viewer `disableDownload` option does not apply. Single-
+  use ArrayBuffer byte source; documented at the load site.
+
+## ─── R42-C — in-memory HTML prelude (client) ─────────
+- html-csp.ts: policy gains `media-src data: blob:`; NEW
+  injectLessonPrelude(html, enableScripts) — pure string transforms
+  (never DOM parsing): strip ALL existing CSP metas (previous-build
+  idempotency, C.3) → strip content <script> blocks when
+  enableScripts=false (C.4 belt-and-suspenders under sandbox="")
+  → insert after <head> (created/prepended when missing):
+  viewport meta + strict CSP meta + fit style + fit script
+  (body.zoom = vw/scrollWidth when content overflows; load/resize/
+  DOMContentLoaded handlers). Previous prelude artifacts also
+  stripped before re-insert. injectCspMeta kept (e2e S6 contract).
+- useHtmlDocument.ts: pipeline = getContentText (C.1) →
+  ensureUtf8Document → injectLessonPrelude. The transform is
+  strictly IN-MEMORY per render; the stored object is never
+  written back (C.2).
+- HtmlPlayer.tsx: iframe style width/height 100% + border 0;
+  contract comment documents NO allow / NO allowFullScreen / NO
+  allow-downloads (D); doc block updated: client prelude is now
+  the SINGLE CSP layer (backend mutation disabled).
+
+## ─── E2E + §13 EVIDENCE ───────────────────────────────
+- apps/student-web/e2e/w13.2-hotfix.e2e.mjs — 114/114 checks
+  PASSED, peak Chromium RSS 1122 MB (ceiling 1638). Fixtures are
+  deterministic without ffmpeg: PDF via Chromium print-to-PDF,
+  video via MediaRecorder webm (codec ladder vp8/vp9/webm).
+  - S1 HTML@375 fidelity: h1 text + inline color rgb(2,132,199) +
+    SVG circle fill rgb(225,29,72) + inline script ran — the
+    ORIGINAL document renders unmangled.
+  - S1 prelude: exactly 1 CSP meta (strict profile + script-src on
+    trusted rows), viewport meta, fit style+script.
+  - S2 fit@375: body.zoom=0.2858 on 1200px-wide fixture,
+    documentElement.scrollWidth 343 == viewport 343 (NO horizontal
+    scroll). S3 fit@1440: zoom==1, inline ''.
+  - S4 static: sandbox="" AND every content <script> stripped
+    (window.cmsRan undefined); platform prelude present but inert.
+  - Zero-download page-wide nulls + header action sets
+    ([fullscreen, close] ×2 shells; [close] ×1 video dialog) for
+    HTML + PDF + VIDEO; video keeps controlsList="nodownload";
+    contextmenu on player stage defaultPrevented (HTML + PDF).
+  - Evidence: sandbox 'Blocked script execution in about:srcdoc'
+    reports captured as PASS conditions (protection is REAL).
+- §13 screenshots: 15 files — w13.2-{html,pdf,video}-{375,640,
+  768,1024,1440}.png — zero download/open buttons visible on every
+  kind at every width.
+
+## ─── GATES ────────────────────────────────────────────
+- Backend: dotnet test 569/569 passed (+27 Postgres skipped, no
+  Docker in sandbox) — 0 failed.
+- student-web: tsc -b clean; eslint --max-warnings=0 clean;
+  vitest 334/334 passed (21 files).
+
+## ─── UNVERIFIED / DISCLOSURES (§11) ───────────────────
+- Postgres integration tests SKIPPED locally (no Docker — sandbox
+  limitation, same as every prior session); CI runs them.
+- RevertHtmlProcessing.sql is NOT executed anywhere (supervisor
+  runs it manually on Neon post-deploy, per contract).
+- Legacy rows still carrying "-ready" FileUrls keep serving their
+  processed object UNTIL the revert SQL runs; new uploads are
+  zero-touch from deploy onward.
+- The fit-to-width script relies on CSS zoom (Chromium/WebKit
+  semantics); Firefox (no zoom pre-126, scaled after) degrades to
+  the overflow-x:hidden clamp — content stays readable, no data
+  loss. Disclosed, accepted by design (student fleet is
+  Chromium/WebView-first).
+- Backend byte-equality is enforced structurally (the handler
+  writes NO object — PutAsync Times.Never) + storage-level byte
+  identity holds by construction (no write path exists on the
+  flag-off branch); a CI-side integration test with real storage
+  would be the maximal proof (Postgres suite cannot run here).
+
+## ─── RESUME_FROM ──────────────────────────────────────
+RESUME_FROM: feat/13.2-html-hotfix @ 4 local commits (R42-A
+b2e7e97, R42-B 59811a8, R42-C 63c364c, evidence/this commit).
+Awaiting supervisor PAT for push (§2 STOP GATE). After push: CI
+green → merge hotfix PR into main; then run RevertHtmlProcessing.sql
+on Neon.
+
 # WIP_STATUS — feat/13.1-html-player (Wave 13 AMENDMENT: 13.A.1 + 13.A.2, 6 commits local)
 
 ## ─── AMENDMENT STATUS (13.A.1 + 13.A.2) ─────────────

@@ -263,6 +263,13 @@ public class LibraryHandlers :
     /// exceed this value. The default above matches the cap.</summary>
     private const int HtmlHardCapMb = 20;
 
+    /// <summary>R42 (Wave 13.2 hotfix) — server-side HTML mutation master switch.
+    /// Default OFF per the supervisor's ruling: the upload-time sanitize → CSP-inject →
+    /// -ready pipeline destroyed real-world HTML DOMs, so the stored bytes must EQUAL
+    /// the uploaded bytes. The full pipeline is kept behind this system setting for
+    /// future use; absent/unparseable value → disabled (fail-safe to zero-touch).</summary>
+    private const string HtmlSanitizeEnabledSetting = "html.sanitize.enabled";
+
     private static readonly Dictionary<string, (string SettingKey, int DefaultMb)> ContentTypeUploadLimits =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -290,6 +297,17 @@ public class LibraryHandlers :
             limitMb = Math.Min(limitMb, HtmlHardCapMb);
 
         return limitMb * 1024L * 1024L;
+    }
+
+    /// <summary>R42 (Wave 13.2 hotfix) — resolves the server-side HTML mutation switch:
+    /// "html.sanitize.enabled" system setting, parsed permissively ("true"/"TRUE"),
+    /// defaulting to FALSE when the row is missing or unparseable. Fail-safe by design:
+    /// an unreadable settings store can never silently re-enable the byte-mutating
+    /// pipeline that destroyed real lessons.</summary>
+    private async Task<bool> IsHtmlSanitizationEnabledAsync(CancellationToken ct)
+    {
+        var raw = await _settings.GetAsync(HtmlSanitizeEnabledSetting, ct);
+        return bool.TryParse(raw, out var enabled) && enabled;
     }
 
     public async Task<UploadUrlDto> Handle(RequestUploadUrlCommand req, CancellationToken ct)
@@ -358,71 +376,88 @@ public class LibraryHandlers :
         if (!exists)
             throw new DomainException("لم يتم العثور على الملف في التخزين", "FILE_NOT_UPLOADED");
 
-        // A2-5 + Wave 13 (F3): HTML documents run the sanitize → temp → CSP-inject →
-        // ready pipeline BEFORE the upload is accepted.
-        //   1. sanitize (strict, or script-preserving for EnableScripts rows — Q1);
-        //   2. store the clean body as "{key}-sanitized" (temp);
-        //   3. inject the upload-time CSP meta (defense-in-depth layer #1);
-        //   4. store the final object as "{key}-ready" (Ghostscript sibling-key pattern)
-        //      and swap FileUrl to it; ContentProcessingStatus = Ready.
-        // A failed sanitization/injection rejects the upload: the row is parked in
-        // ContentProcessingStatus.Failed (+ VirusScanStatus.Error so it can never be
-        // published), the ORIGINAL object key stays authoritative (FileUrl never swaps)
-        // and the original blob is deleted.
+        // A2-5 + Wave 13 (F3): HTML documents historically ran the sanitize → temp →
+        // CSP-inject → ready pipeline BEFORE the upload was accepted. R42 (Wave 13.2
+        // hotfix) DISABLES that pipeline by default (html.sanitize.enabled=false): the
+        // stored bytes must equal the uploaded bytes, the FileUrl keeps the ORIGINAL
+        // key (no -sanitized / -ready siblings), and the row goes Ready immediately —
+        // the client player owns all protection (CSP prelude + sandbox + zero-download).
+        // The legacy pipeline stays available behind the flag for future use.
+        // A failed sanitization/injection (flag-on path only) rejects the upload: the
+        // row is parked in ContentProcessingStatus.Failed (+ VirusScanStatus.Error so it
+        // can never be published), the ORIGINAL object key stays authoritative (FileUrl
+        // never swaps) and the original blob is deleted.
         if (string.Equals(file.FileFormat, "text/html", StringComparison.OrdinalIgnoreCase))
         {
             var htmlLimitBytes = await GetUploadLimitBytesAsync("text/html", ct);
             if (req.ActualFileSize > htmlLimitBytes)
                 throw new DomainException("حجم ملف HTML يتجاوز الحد المسموح", "FILE_TOO_LARGE");
 
-            file.ContentProcessingStatus = ContentProcessingStatus.Pending;
-            try
+            if (!await IsHtmlSanitizationEnabledAsync(ct))
             {
-                // 1. sanitize — policy chosen by the authoritative stored flag (Q1).
-                var sanitizedHtml = file.EnableScripts
-                    ? await _htmlSanitizer.SanitizeTrustedAsync(req.FileKey, req.ActualFileSize, ct)
-                    : await _htmlSanitizer.SanitizeAsync(req.FileKey, req.ActualFileSize, ct);
-
-                // 2. temp sibling: the clean (pre-CSP) body.
-                var sanitizedKey = $"{req.FileKey}-sanitized";
-                await using (var sanitizedStream = new MemoryStream(Encoding.UTF8.GetBytes(sanitizedHtml)))
-                {
-                    await _storage.PutAsync(sanitizedKey, sanitizedStream, "text/html", ct);
-                }
-                file.ContentProcessingStatus = ContentProcessingStatus.Sanitized;
-
-                // 3. upload-time CSP injection (supervisor ruling: the stored object is
-                //    protected even if the player-side safety net never runs).
-                var readyHtml = _htmlCspInjector.Inject(sanitizedHtml, file.EnableScripts);
-
-                // 4. final sibling + FileUrl swap (mirrors the Ghostscript "{key}-fixed" flow).
-                var readyKey = $"{req.FileKey}-ready";
-                await using (var readyStream = new MemoryStream(Encoding.UTF8.GetBytes(readyHtml)))
-                {
-                    await _storage.PutAsync(readyKey, readyStream, "text/html", ct);
-                }
-                file.FileUrl = readyKey;
+                // R42 zero-modification passthrough — the storage contract: whatever
+                // bytes the browser PUT under {key} are the bytes every reader gets.
+                // No sanitizer call, no CSP injection, no sibling objects, no FileUrl
+                // swap. VirusScanStatus logic below is UNCHANGED (scan still runs on
+                // the original key).
+                file.FileUrl = req.FileKey;
                 file.ContentProcessingStatus = ContentProcessingStatus.Ready;
+                _logger.LogInformation(
+                    "HTML zero-modification passthrough (html.sanitize.enabled=false); stored bytes = uploaded bytes. FileId={FileId} FileKey={FileKey} Bytes={Bytes}",
+                    file.Id, req.FileKey, req.ActualFileSize);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            else
             {
-                _logger.LogWarning(ex,
-                    "HTML processing pipeline failed; rejecting upload. FileId={FileId} FileKey={FileKey} Stage={Stage}",
-                    file.Id, req.FileKey, file.ContentProcessingStatus);
-                file.ContentProcessingStatus = ContentProcessingStatus.Failed;
-                file.VirusScanStatus = VirusScanStatus.Error;
-                await _unitOfWork.SaveChangesAsync(ct);
+                file.ContentProcessingStatus = ContentProcessingStatus.Pending;
                 try
                 {
-                    await _storage.DeleteAsync(req.FileKey, ct);
+                    // 1. sanitize — policy chosen by the authoritative stored flag (Q1).
+                    var sanitizedHtml = file.EnableScripts
+                        ? await _htmlSanitizer.SanitizeTrustedAsync(req.FileKey, req.ActualFileSize, ct)
+                        : await _htmlSanitizer.SanitizeAsync(req.FileKey, req.ActualFileSize, ct);
+
+                    // 2. temp sibling: the clean (pre-CSP) body.
+                    var sanitizedKey = $"{req.FileKey}-sanitized";
+                    await using (var sanitizedStream = new MemoryStream(Encoding.UTF8.GetBytes(sanitizedHtml)))
+                    {
+                        await _storage.PutAsync(sanitizedKey, sanitizedStream, "text/html", ct);
+                    }
+                    file.ContentProcessingStatus = ContentProcessingStatus.Sanitized;
+
+                    // 3. upload-time CSP injection (defense-in-depth layer #1 — flag-on only).
+                    var readyHtml = _htmlCspInjector.Inject(sanitizedHtml, file.EnableScripts);
+
+                    // 4. final sibling + FileUrl swap (mirrors the Ghostscript "{key}-fixed" flow).
+                    var readyKey = $"{req.FileKey}-ready";
+                    await using (var readyStream = new MemoryStream(Encoding.UTF8.GetBytes(readyHtml)))
+                    {
+                        await _storage.PutAsync(readyKey, readyStream, "text/html", ct);
+                    }
+                    file.FileUrl = readyKey;
+                    file.ContentProcessingStatus = ContentProcessingStatus.Ready;
                 }
-                catch (Exception cleanupEx)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    _logger.LogWarning(cleanupEx,
-                        "Blob cleanup after failed HTML processing also failed; an orphaned blob remains. FileKey={FileKey}",
-                        req.FileKey);
+                    _logger.LogWarning(ex,
+                        "HTML processing pipeline failed; rejecting upload. FileId={FileId} FileKey={FileKey} Stage={Stage}",
+                        file.Id, req.FileKey, file.ContentProcessingStatus);
+                    file.ContentProcessingStatus = ContentProcessingStatus.Failed;
+                    file.VirusScanStatus = VirusScanStatus.Error;
+                    await _unitOfWork.SaveChangesAsync(ct);
+                    try
+                    {
+                        await _storage.DeleteAsync(req.FileKey, ct);
+                    }
+                    // R44 (CodeQL note): no bare catch-all — cancellation propagates
+                    // instead of being swallowed by best-effort blob cleanup.
+                    catch (Exception cleanupEx) when (cleanupEx is not OperationCanceledException)
+                    {
+                        _logger.LogWarning(cleanupEx,
+                            "Blob cleanup after failed HTML processing also failed; an orphaned blob remains. FileKey={FileKey}",
+                            req.FileKey);
+                    }
+                    throw new DomainException("فشل تعقيم ملف HTML وتم رفض الرفع", "HTML_SANITIZATION_FAILED");
                 }
-                throw new DomainException("فشل تعقيم ملف HTML وتم رفض الرفع", "HTML_SANITIZATION_FAILED");
             }
         }
 
