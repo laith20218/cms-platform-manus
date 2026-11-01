@@ -1,8 +1,10 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getDocument, TextLayer, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { AlertTriangle, Focus, LoaderCircle, RotateCcw } from 'lucide-react';
 import { libraryApi } from '@/features/library/services/library-api';
+import { toast } from 'sonner';
 import { usePdfAnnotations } from './usePdfAnnotations';
+import { MobileActionBar } from './MobileActionBar';
 import { PdfControlsBar } from './PdfControlsBar';
 import { ensurePdfWorker } from './pdf-worker';
 import { normalizeArabicPresentationForms } from './pdf-text';
@@ -15,8 +17,12 @@ import {
 import { NoteLayer } from './pdf-note-layer';
 import { PdfSearchPanel } from './pdf-search-panel';
 import { PdfStatusBar } from './PdfStatusBar';
+import { StudyListsPanel } from './StudyListsPanel';
 import { StudyToolsPanel } from './StudyToolsPanel';
 import { ThumbnailsRail } from './ThumbnailsRail';
+import { usePlayerShell } from '../shell-context';
+import { collectHighlights, collectNotes, type StudyListKind } from './study-lists';
+import { addBookmark, isBookmarked, loadBookmarks, removeBookmark, type PageBookmark } from './pdf-bookmarks';
 import {
   documentSearchCacheKey, findMatches, getCachedPageSearchItems, getCachedPageSearchSourceIndexes,
   getCachedPageSearchViewport, getPageSearchItems, matchFallbackBoxes,
@@ -142,6 +148,38 @@ const EMPTY_SEARCH_HITS: SearchHitBox[] = [];
 /** Stable empty per-page match list (same memo-identity contract). */
 const EMPTY_SEARCH_MATCHES: SearchMatch[] = [];
 
+/* Wave 12.3.A (A.5) — the Tailwind `lg` breakpoint as a media query: focus
+ * mode's tap-to-reveal chrome contract is MOBILE-only (supervisor locked);
+ * desktop keeps the always-visible exit pill from 12.2.C.5. */
+const COMPACT_QUERY = '(max-width: 1023.98px)';
+const FOCUS_REVEAL_MS = 3000;
+
+function useMediaQuery(query: string): boolean {
+  const subscribe = useCallback((notify: () => void) => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {};
+    const mql = window.matchMedia(query);
+    mql.addEventListener('change', notify);
+    return () => mql.removeEventListener('change', notify);
+  }, [query]);
+  const getSnapshot = useCallback(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(query).matches
+      : false
+  ), [query]);
+  return useSyncExternalStore(subscribe, getSnapshot, () => false);
+}
+
+/** Wave 12.3.C — the first 30 chars of a page's CACHED search text (the
+ *  bookmark-row snippet; null when the page was never extracted — "if
+ *  available" per the locked spec; no extra pdf.js extraction). */
+function getPageSnippet(doc: PDFDocumentProxy | null, page: number): string | null {
+  if (!doc) return null;
+  const items = getCachedPageSearchItems(doc, page);
+  if (!items || items.length === 0) return null;
+  const text = items.map((item) => item.str).join(' ').replace(/\s+/g, ' ').trim();
+  return text.length > 0 ? text.slice(0, 30) : null;
+}
+
 export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerProps) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [docStatus, setDocStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -171,9 +209,6 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [searchProgress, setSearchProgress] = useState<{ done: number; total: number } | null>(null);
   const searchSweepTokenRef = useRef(0);
-  /* Wave 12.1 — the sweep token as state: PageView's DOM resolver keys its
-   * cache by (layer build, generation), so a new query can never reuse rects
-   * resolved for the previous one. */
   const [searchGeneration, setSearchGeneration] = useState(0);
   /* Wave 12.1 — char-level resolved hit rects, keyed `fingerprint:pageNumber`
    * (R12.1.b state contract). Values are per-match arrays in the page's
@@ -181,12 +216,24 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
    * proportional slice box (layer not built, or span verification failed). */
   const [resolvedHitRects, setResolvedHitRects] = useState<Record<string, Array<NormalizedRect[] | null>>>({});
   const docFingerprint = useMemo(() => (doc ? documentSearchCacheKey(doc) : ''), [doc]);
+  /* Wave 12.3.D (M3) — per-page resolver null counts for the CURRENT query
+   * (reset with every sweep/generation): the search panel surfaces their sum
+   * as the approximation banner. Production stats ride the existing
+   * onSearchRectsResolved callback (no console noise outside DEV). */
+  const [resolverNullsByPage, setResolverNullsByPage] = useState<Record<number, number>>({});
 
   /* ---- Wave 12.2.C.5 — focus mode: chrome collapses around the page. The
           center scroll column NEVER collapses (red line); the rails, top bar
-          and status bar animate away while staying mounted. ---- */
+          and status bar animate away while staying mounted.
+          Wave 12.3.A (A.5) — MOBILE: ALL chrome hides (shell header, top
+          bar, bottom action bar, status bar, floating pill); a tap anywhere
+          reveals it for 3s, then it auto-hides again. Escape still exits
+          (handler below unchanged). ---- */
   const [focusMode, setFocusMode] = useState(false);
   const toggleFocusMode = useCallback(() => setFocusMode((mode) => !mode), []);
+  const [chromePeeked, setChromePeeked] = useState(false);
+  const chromePeekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isCompact = useMediaQuery(COMPACT_QUERY);
   const lastNavIndexRef = useRef(-1);
   const currentPageRef = useRef(currentPage);
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
@@ -207,6 +254,95 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   const docRef = useRef<PDFDocumentProxy | null>(null);
 
   const { annotations, upsert, remove, undo, redo, canUndo, canRedo, saving } = usePdfAnnotations(assetId);
+
+  /* ---- Wave 12.3.A (A.2/A.3) — the mobile drawers are CONTROLLED here:
+          the bottom action bar is their only trigger below `lg` (the old
+          floating toggles were removed). ---- */
+  const [thumbsDrawerOpen, setThumbsDrawerOpen] = useState(false);
+  const [toolsDrawerOpen, setToolsDrawerOpen] = useState(false);
+
+  /* ---- Wave 12.3.C — study lists (notes/highlights/bookmarks).
+          activeList drives the StudyListsPanel (docked ≥ lg / drawer < lg).
+          Bookmarks are PAGE-LEVEL, client-side ONLY — localStorage keyed by
+          fileId in v1; Wave 12.4 moves them to the backend (pdf-bookmarks.ts
+          is written so the port touches that module alone). flashAnnotationId
+          pulses the target's nodes after a list click (1.6s, CSS animation). ---- */
+  const [activeList, setActiveList] = useState<StudyListKind | null>(null);
+  const [bookmarks, setBookmarks] = useState<PageBookmark[]>(() => loadBookmarks(assetId));
+  useEffect(() => {
+    setBookmarks(loadBookmarks(assetId));
+    setActiveList(null);
+  }, [assetId]);
+  const openList = useCallback((kind: StudyListKind) => {
+    setActiveList((current) => (current === kind ? null : kind));
+    setToolsDrawerOpen(false); // the drawer hands over to the list panel
+  }, []);
+  const closeList = useCallback(() => setActiveList(null), []);
+  const pageBookmarked = isBookmarked(assetId, currentPage);
+  const toggleBookmark = useCallback(() => {
+    const page = currentPageRef.current;
+    if (isBookmarked(assetId, page)) {
+      setBookmarks(removeBookmark(assetId, page));
+      toast.info(`تمت إزالة العلامة المرجعية عن الصفحة ${page}`, { duration: 2200 });
+      return;
+    }
+    setBookmarks(addBookmark(assetId, page, getPageSnippet(doc, page) ?? undefined));
+    toast.info(`تمت إضافة علامة مرجعية للصفحة ${page}`, { duration: 2200 });
+  }, [assetId, doc]);
+  const [flashAnnotationId, setFlashAnnotationId] = useState<string | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashAnnotation = useCallback((id: string | null) => {
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    setFlashAnnotationId(id);
+    if (id) flashTimerRef.current = setTimeout(() => setFlashAnnotationId(null), 1600);
+  }, []);
+  useEffect(() => () => {
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+  }, []);
+  /** Bookmark-row snippet: the page's cached search text, first 30 chars. */
+  const snippetFor = useCallback((page: number) => getPageSnippet(doc, page), [doc]);
+  const handleBookmarkRemove = useCallback((page: number) => {
+    setBookmarks(removeBookmark(assetId, page));
+  }, [assetId]);
+  const notesList = useMemo(() => collectNotes(annotations.values()), [annotations]);
+  const highlightsList = useMemo(() => collectHighlights(annotations.values()), [annotations]);
+
+  /* ---- Wave 12.3.A (A.5) — effective chrome visibility in focus mode.
+          Desktop (≥ lg): the 12.2.C.5 contract — chrome collapsed, exit
+          pill always visible. Mobile (< lg): everything hides; a tap
+          peeks the chrome for 3s (auto-hide timer below). ---- */
+  const focusChromeHidden = focusMode && !(isCompact && chromePeeked);
+
+  /* The SHELL header (title/badge/fullscreen/close) joins the mobile focus
+   * collapse through the shell context — keep-mounted animation there too.
+   * Desktop focus keeps the 12.2 header-visible contract. */
+  const shell = usePlayerShell();
+  useEffect(() => {
+    shell?.setChromeHidden?.(focusMode && isCompact && !chromePeeked);
+    return () => shell?.setChromeHidden?.(false);
+  }, [shell, focusMode, isCompact, chromePeeked]);
+
+  /* Tap-to-reveal (mobile focus): a tap on non-interactive surfaces peeks
+   * the chrome for 3s. Interactive targets (buttons/inputs/notes/search)
+   * keep their own semantics and never trigger the peek. */
+  const handleFocusTapReveal = useCallback((event: React.MouseEvent) => {
+    if (!focusMode || !isCompact) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest('button, a, input, textarea, select, [contenteditable="true"], [data-pdf-note-editor], [data-pdf-search-panel]')) return;
+    setChromePeeked(true);
+    if (chromePeekTimerRef.current) clearTimeout(chromePeekTimerRef.current);
+    chromePeekTimerRef.current = setTimeout(() => setChromePeeked(false), FOCUS_REVEAL_MS);
+  }, [focusMode, isCompact]);
+
+  // Leaving focus mode kills the peek + its timer.
+  useEffect(() => {
+    if (focusMode) return;
+    if (chromePeekTimerRef.current) { clearTimeout(chromePeekTimerRef.current); chromePeekTimerRef.current = null; }
+    setChromePeeked(false);
+  }, [focusMode]);
+  useEffect(() => () => {
+    if (chromePeekTimerRef.current) clearTimeout(chromePeekTimerRef.current);
+  }, []);
 
   /* ---- Page-scoped annotation lists (hotfix R15.3): one memoized Map, so
           memoized PageViews receive stable array identities across renders
@@ -595,6 +731,15 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     pagesRef.current.get(clamped)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [dims]);
 
+  /* ---- Wave 12.3.C — a study-list row click: navigate + flash the target
+          (note/highlight annotations pulse via .pdf-annotation-flash), then
+          hand the stage back (the panel closes). Defined after goToPage. ---- */
+  const handleListEntryClick = useCallback((page: number, annotationId: string | null) => {
+    goToPage(page);
+    if (annotationId) flashAnnotation(annotationId);
+    setActiveList(null);
+  }, [goToPage, flashAnnotation]);
+
   /* ---- Wave 11.11 — search sweep (B): debounced, cancellable, whole-doc
           lazy. Current page is searched first; the remaining pages stream in
           ascending order with a live done/total counter. ---- */
@@ -629,6 +774,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     const token = ++searchSweepTokenRef.current;
     setSearchGeneration(token); // Wave 12.1 — invalidate PageView rect caches
     setResolvedHitRects({});    // Wave 12.1 — rects are per-query
+    setResolverNullsByPage({}); // Wave 12.3.D — null counts are per-query
     const query = searchQuery.trim();
     if (!query) {
       lastNavIndexRef.current = -1;
@@ -677,13 +823,16 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     setActiveMatchIndex(0);
     setSearchProgress(null);
     setResolvedHitRects({});
+    setResolverNullsByPage({}); // Wave 12.3.D — the banner dies with the session
     setSearchGeneration((generation) => generation + 1);
   }, []);
 
   /* ---- Wave 12.1 — PageView reports char-level rects resolved against the
           live text layer (R12.1.b). Identity-stable dedupe keeps sweep-tick
-          re-renders cheap. ---- */
-  const handleSearchRectsResolved = useCallback((pageNumber: number, rects: Array<NormalizedRect[] | null> | null) => {
+          re-renders cheap. Wave 12.3.D (M3) — the per-run stats feed the
+          fallback banner (nullCount per page, keyed by this query). ---- */
+  const handleSearchRectsResolved = useCallback((pageNumber: number, rects: Array<NormalizedRect[] | null> | null, stats?: SearchResolveStats) => {
+    if (stats) setResolverNullsByPage((prev) => (prev[pageNumber] === stats.nullCount ? prev : { ...prev, [pageNumber]: stats.nullCount }));
     const key = `${docFingerprint}:${pageNumber}`;
     setResolvedHitRects((prev) => {
       if (rects === null) {
@@ -768,8 +917,11 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           return;
         }
         // Wave 12.2.B (M1) — the fallback is the extracted pure helper: warm
-        // cache → proportional slices (M2 keeps ligature-expanded items
-        // whole-item); cold cache → whole-item boxes (the honest floor).
+        // cache → proportional slices. Wave 12.3.B (M2) — expansion items
+        // (lam-alef ligatures) map their slices through the extraction-time
+        // reverse index, so fractions are measured on the GLYPH domain the
+        // advance width covers; cold cache → whole-item boxes (the honest
+        // floor).
         for (const normalized of matchFallbackBoxes(match, cachedItems, viewport)) {
           target.push({
             left: normalized.left * cssWidth,
@@ -788,6 +940,14 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   const pageCount = doc?.numPages ?? pagesCount ?? 0;
   /* Wave 11.11-C — the ACTIVE page is scanned (rendered, zero text items). */
   const scannedPage = pageHasText[currentPage] === false;
+
+  /* Wave 12.3.D (M3) — matches the DOM resolver could NOT pin on pages with
+   * hits this query: the search panel shows the approximation banner ONLY
+   * when this is > 0. */
+  const searchFallbackCount = useMemo(
+    () => Object.values(resolverNullsByPage).reduce((sum, count) => sum + count, 0),
+    [resolverNullsByPage],
+  );
 
   if (docStatus === 'error') {
     return (
@@ -823,13 +983,19 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
       className="flex h-full w-full flex-col gap-3"
       data-testid={testId ?? 'pdf-player'}
       data-pdf-focus-mode={focusMode ? 'true' : undefined}
+      onClick={handleFocusTapReveal}
     >
       {/* Wave 12.2.C.5 — the top bar collapses to max-h-0/opacity-0 in focus
           mode (keep-mounted, overflow clipped, never display:none); the
-          floating exit pill takes over as the visible chrome. */}
+          floating exit pill takes over as the visible chrome.
+          Wave 12.3.A — `pdf-top-bar` testid (A.1 compact top bar), and the
+          collapsed state is also `invisible` + aria-hidden (A.6 gate:
+          attribute AND visual hiding; tab order dropped). */}
       <div
+        data-testid="pdf-top-bar"
+        aria-hidden={focusChromeHidden || undefined}
         className={`shrink-0 overflow-hidden transition-all duration-200 ease-out motion-reduce:transition-none ${
-          focusMode ? 'max-h-0 -translate-y-3 opacity-0' : 'max-h-60 translate-y-0 opacity-100'
+          focusChromeHidden ? 'max-h-0 -translate-y-3 opacity-0 invisible' : 'max-h-60 translate-y-0 opacity-100'
         }`}
       >
       <PdfControlsBar
@@ -904,6 +1070,13 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           scannedPage={scannedPage}
           scannedTitle={SCANNED_PAGE_TOOLTIP}
           focusMode={focusMode}
+          onToggleFocus={toggleFocusMode}
+          drawerOpen={toolsDrawerOpen}
+          onDrawerOpenChange={setToolsDrawerOpen}
+          onOpenList={openList}
+          activeList={activeList}
+          pageBookmarked={pageBookmarked}
+          onBookmarkToggle={toggleBookmark}
         />
         {/* Wave 12.2.C.2 (E2) — the page stage joins the dark ramp: the white
             .pdf-page sheets are the ONLY light surface left (paper contract,
@@ -958,12 +1131,44 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
                   onNoteCommit={commitNoteText}
                   onNoteDelete={deleteNote}
                   onNoteClose={closeNote}
+                  flashAnnotationId={flashAnnotationId}
                   onEraseCommit={eraseAnnotations}
                 />
               );
             })}
           </div>
         </div>
+
+        {/* Wave 12.3.C — the study-lists panel. ≥ lg: a DOCKED side column
+            between the tools rail and the center scroll; < lg: a slide-over
+            drawer (same locked contract as the 12.3.A drawers). Exactly one
+            variant mounts at a time (isCompact decides). */}
+        {activeList && !isCompact && (
+          <StudyListsPanel
+            kind={activeList}
+            variant="docked"
+            notes={notesList}
+            highlights={highlightsList}
+            bookmarks={bookmarks}
+            snippetFor={snippetFor}
+            onEntryClick={handleListEntryClick}
+            onBookmarkRemove={handleBookmarkRemove}
+            onClose={closeList}
+          />
+        )}
+        {activeList && isCompact && (
+          <StudyListsPanel
+            kind={activeList}
+            variant="drawer"
+            notes={notesList}
+            highlights={highlightsList}
+            bookmarks={bookmarks}
+            snippetFor={snippetFor}
+            onEntryClick={handleListEntryClick}
+            onBookmarkRemove={handleBookmarkRemove}
+            onClose={closeList}
+          />
+        )}
 
         {/* Wave 12.2.C.3 — inline-end rail slot (LEFT in RTL). Lazy 96px
             thumbnails, module-level offscreen canvas, FIFO-120 cache. */}
@@ -974,12 +1179,16 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           cacheKey={docFingerprint}
           onGoToPage={goToPage}
           focusMode={focusMode}
+          drawerOpen={thumbsDrawerOpen}
+          onDrawerOpenChange={setThumbsDrawerOpen}
         />
 
         {/* Wave 12.2.C.5 — focus-mode floating exit pill (the top bar is
             collapsed; Escape/F work as well). Centered via inset-x so no
-            physical left/right offsets ever enter the tree. */}
-        {focusMode && (
+            physical left/right offsets ever enter the tree.
+            Wave 12.3.A (A.5) — MOBILE: the pill hides with the rest of the
+            chrome and only reappears during the 3s tap-to-reveal peek. */}
+        {focusMode && (!isCompact || chromePeeked) && (
           <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center">
             <button
               type="button"
@@ -1005,6 +1214,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
             matchCount={searchMatches.length}
             activeIndex={safeActiveMatchIndex}
             progress={searchProgress}
+            fallbackCount={searchFallbackCount}
             onNext={searchNext}
             onPrev={searchPrev}
             onClose={closeSearch}
@@ -1013,7 +1223,8 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
       </div>
 
       {/* Wave 12.2.C.5 — status bar: page x/y · zoom % · saving · search i/n;
-          hides through the same keep-mounted animation in focus mode. */}
+          hides through the same keep-mounted animation in focus mode
+          (12.3.A adds `invisible` + aria-hidden — A.6 gate). */}
       <PdfStatusBar
         page={currentPage}
         pageCount={pageCount}
@@ -1022,8 +1233,38 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
         searchOpen={searchOpen}
         matchCount={searchMatches.length}
         activeMatchIndex={safeActiveMatchIndex}
-        focusMode={focusMode}
+        focusMode={focusChromeHidden}
       />
+
+      {/* Wave 12.3.A (A.2) — the mobile bottom action bar (< lg ONLY):
+          Thumbnails | Page x/y | Zoom % | Study Tools. Lives INSIDE the
+          player root flow (never fixed to the window), below the status
+          bar, and collapses through the SAME keep-mounted focus animation
+          (aria-hidden + invisible — A.5/A.6). */}
+      <div
+        aria-hidden={focusChromeHidden || undefined}
+        className={`shrink-0 overflow-hidden transition-all duration-200 ease-out motion-reduce:transition-none ${
+          focusChromeHidden ? 'max-h-0 translate-y-2 opacity-0 invisible' : 'max-h-20 translate-y-0 opacity-100'
+        }`}
+      >
+        <MobileActionBar
+          page={currentPage}
+          pageCount={pageCount}
+          onGoToPage={goToPage}
+          onPrevPage={() => goToPage(currentPage - 1)}
+          onNextPage={() => goToPage(currentPage + 1)}
+          zoomPercent={zoomPercent}
+          onZoomIn={() => setZoomIndex((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
+          onZoomOut={() => setZoomIndex((i) => Math.max(0, i - 1))}
+          onZoomFit={() => setZoomIndex(0)}
+          canZoomIn={zoomIndex < ZOOM_STEPS.length - 1}
+          canZoomOut={zoomIndex > 0}
+          thumbsOpen={thumbsDrawerOpen}
+          onThumbsToggle={() => setThumbsDrawerOpen((open) => !open)}
+          toolsOpen={toolsDrawerOpen}
+          onToolsToggle={() => setToolsDrawerOpen((open) => !open)}
+        />
+      </div>
 
       {/* Invisible watermark layer — silent protection (mirrors DocumentViewer). */}
       {watermark && (
@@ -1076,6 +1317,9 @@ interface PageViewProps {
   onSearchRectsResolved: (pageNumber: number, rects: Array<NormalizedRect[] | null> | null, stats?: SearchResolveStats) => void;
   /** Wave 11.11-C — reports text-layer presence after each page render. */
   onTextLayerState: (pageNumber: number, hasText: boolean) => void;
+  /** Wave 12.3.C — the annotation briefly FLASHED from the study lists
+   *  (notes/highlights): pulses the target's nodes for ~1.6s. */
+  flashAnnotationId: string | null;
   registerPage: (pageNumber: number, el: HTMLElement | null) => void;
   /** Pointer/highlighter routing on the text layer (see handleTextPointerUp). */
   onTextPointerUp: (pageNumber: number, clientX: number, clientY: number) => void;
@@ -1099,7 +1343,7 @@ const PageView = memo(function PageView({
   pageNumber, cssWidth, cssHeight, renderScale, doc, visible,
   annotations, tool, penColor, penWidth,
   shapeKind, shapeColor, selectedShapeId, openNoteId, searchHits,
-  searchSlices, searchGeneration, onSearchRectsResolved,
+  searchSlices, searchGeneration, onSearchRectsResolved, flashAnnotationId,
   registerPage, onTextPointerUp, onTextLayerState, onStrokeCommit,
   onShapeCommit, onNotePlace, onNoteOpen, onNoteCommit, onNoteDelete, onNoteClose, onEraseCommit,
 }: PageViewProps) {
@@ -1271,6 +1515,18 @@ const PageView = memo(function PageView({
       spanMapRef.current = spanMap;
     }
     const stats = createSearchResolveStats();
+    // Wave 12.3.D — the ?pdfForceFallback=1 diagnostic: skip the DOM resolver
+    // and report every match as unresolved, deterministically reproducing the
+    // "unrendered pages" state for the M3 banner e2e/axe scan (no layer-
+    // teardown racing). Production NEVER enters this branch.
+    if (PDF_DEBUG.forceSearchFallback) {
+      stats.nullCount = searchSlices.length;
+      stats.reasons['missing-span'] = searchSlices.length;
+      layer.dataset.resolverNulls = String(stats.nullCount);
+      resolveStateRef.current = { version: layerVersion, generation: searchGeneration, count: searchSlices.length };
+      onSearchRectsResolved(pageNumber, searchSlices.map(() => null), stats);
+      return;
+    }
     const rects = searchSlices.map((match) => resolveSearchMatchRects(spanMap.map.spanForItem, match, pageRect, stats));
     resolveStateRef.current = { version: layerVersion, generation: searchGeneration, count: searchSlices.length };
     // Wave 12.2.B (M3) — resolver observability: per-run counters surfaced as
@@ -1602,7 +1858,13 @@ const PageView = memo(function PageView({
           return (
             // Wave 12.2.A — data-annotation-id lets the eraser's page-level
             // preview dim committed highlights exactly like ink/shapes/notes.
-            <g key={annotation.id} className="pdf-highlight" data-annotation-id={annotation.id}>
+            // Wave 12.3.C — pdf-annotation-flash pulses the rects when the
+            // entry is clicked in the highlights list.
+            <g
+              key={annotation.id}
+              className={`pdf-highlight${annotation.id === flashAnnotationId ? ' pdf-annotation-flash' : ''}`}
+              data-annotation-id={annotation.id}
+            >
               {annotation.payload.rects.map((rect, index) => (
                 <rect key={index} x={rect.x} y={rect.y} width={rect.w} height={rect.h} fill={annotation.payload.color} />
               ))}
@@ -1690,6 +1952,7 @@ const PageView = memo(function PageView({
         annotations={annotations}
         openNoteId={openNoteId}
         passive={tool === 'eraser'}
+        flashNoteId={flashAnnotationId}
         onOpen={onNoteOpen}
         onCommit={onNoteCommit}
         onDelete={onNoteDelete}

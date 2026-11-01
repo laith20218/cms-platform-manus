@@ -1,5 +1,5 @@
 import { Util, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { normalizeArabicPresentationForms } from './pdf-text';
+import { buildReverseIndexMap, normalizeArabicPresentationForms } from './pdf-text';
 import { clamp01 } from './pdf-geometry';
 
 /**
@@ -34,10 +34,14 @@ export interface SearchTextItem {
   height: number;
   /** Wave 12.2.B (M2) — length of the RAW pdf.js string BEFORE Arabic
    *  presentation-form normalization. Differs from str.length exactly when
-   *  a lam-alef-family ligature expanded (1 glyph → 2 chars), which is the
-   *  signal the data-only fallback uses to skip proportional slicing
-   *  (matchFallbackBoxes). Undefined on legacy fixtures only. */
+   *  a lam-alef-family ligature expanded (1 glyph → 2 chars). */
   rawLength?: number;
+  /** Wave 12.3.B (M2) — normalized → original (raw) UTF-16 index map
+   *  (buildReverseIndexMap, pdf-text.ts), present ONLY on expansion items
+   *  (rawLength ≠ str.length). Lets the data-only fallback measure slice
+   *  fractions on the GLYPH domain the item's advance width actually
+   *  covers; identity items keep positional math with zero allocation. */
+  reverseIndex?: readonly number[];
 }
 
 /** One positioned box entry of a match: the slice of ONE pdf.js text item
@@ -219,14 +223,16 @@ export function getCachedPageSearchViewport(
  * silently downgraded warm-cache pages with no DOM resolution to whole-item
  * boxes (the "highlight covers the whole line" regression class).
  *
- * M2 (ligature-safe, interim): items whose presentation-form normalization
- * EXPANDED the string (lam-alef family: U+FEFB/FEFC/FEF5-FEF8 → 2 base
- * chars) carry rawLength ≠ str.length. Slice fractions measured on the
- * expanded length mis-place the box pixels, so such items keep the FULL-item
- * box in the fallback only — position-anchored and slightly wide instead of
- * confidently wrong. The DOM path stays slice-precise (spans carry the
- * normalized string byte-equal to str).
- * TODO(12.3): reverse-map for ligature items (normalized→original indices).
+ * Wave 12.3.B (M2) — ligature-ACCURATE fractions: the interim "full-item
+ * box for expanded items" branch is GONE. Every expansion item carries a
+ * reverseIndex map (built at extraction, pdf-text.buildReverseIndexMap);
+ * slice boundaries map normalized→original UTF-16 indices and the fractions
+ * are measured on the GLYPH domain (originalIndex / rawLength) the item's
+ * advance width actually covers — a lam-alef ligature is ONE glyph wide,
+ * not two. Identity items (no expansion, or legacy fixtures without
+ * rawLength) keep the unchanged proportional math. The defensive floor
+ * (whole-item box) now applies ONLY to an expansion item whose map failed
+ * to build — extraction always builds one, so this is a should-never branch.
  */
 export function matchFallbackBoxes(
   match: SearchMatch,
@@ -238,17 +244,34 @@ export function matchFallbackBoxes(
   for (const box of match.boxes) {
     const item = cachedItems?.[box.itemIndex];
     const itemLength = item?.str.length ?? 0;
-    // M2 interim — full-item box when normalization changed the length.
-    // TODO(12.3): reverse-map for ligature items.
-    const ligatureExpanded = item?.rawLength !== undefined && item.rawLength !== itemLength;
+    let slice: BoxSliceFractions | undefined;
+    if (item && itemLength > 0) {
+      const rawLength = item.rawLength;
+      const reverse = item.reverseIndex;
+      if (reverse && reverse.length > 1 && rawLength !== undefined && rawLength > 0) {
+        // M2 — expansion-aware mapping. reverse has normalized.length + 1
+        // entries (final = exclusive-end sentinel), so sliceEnd at the
+        // normalized length maps straight to rawLength.
+        const startOriginal = reverse[Math.min(box.sliceStart, reverse.length - 1)];
+        const endOriginal = reverse[Math.min(box.sliceEnd, reverse.length - 1)];
+        slice = {
+          startFraction: startOriginal / rawLength,
+          endFraction: endOriginal / rawLength,
+        };
+      } else if (rawLength === undefined || rawLength === itemLength) {
+        // Identity domain (no expansion, or legacy fixture): normalized
+        // UTF-16 indices ARE glyph indices — unchanged since 12.2.B.
+        slice = { startFraction: box.sliceStart / itemLength, endFraction: box.sliceEnd / itemLength };
+      }
+      // else: expanded item with NO usable map (defensive floor) — slice
+      // stays undefined → the whole-item box, the honest position anchor.
+    }
     const normalized = textBoxToNormalizedViewportBox(
       box,
       viewport.transform,
       viewport.width,
       viewport.height,
-      itemLength > 0 && !ligatureExpanded
-        ? { startFraction: box.sliceStart / itemLength, endFraction: box.sliceEnd / itemLength }
-        : undefined,
+      slice,
     );
     if (normalized) boxes.push(normalized);
   }
@@ -301,14 +324,20 @@ export async function getPageSearchItems(doc: PDFDocumentProxy, pageNumber: numb
     if (!('str' in item)) return;
     if (!item.str || item.str.trim().length === 0) return;
     sourceIndexes.push(rawIndex);
+    const raw = item.str;
+    const normalized = normalizeArabicPresentationForms(raw);
     items.push({
-      str: normalizeArabicPresentationForms(item.str),
+      str: normalized,
       transform: item.transform,
       width: item.width,
       height: item.height,
-      // Wave 12.2.B (M2) — the raw length is the ligature-expansion signal
-      // the fallback needs later (str here is ALREADY normalized).
-      rawLength: item.str.length,
+      // Wave 12.2.B (M2) — the raw length is the ligature-expansion signal.
+      rawLength: raw.length,
+      // Wave 12.3.B (M2) — the expansion-aware reverse map, built ONCE at
+      // extraction (identity items keep undefined — zero allocation).
+      ...(normalized.length !== raw.length
+        ? { reverseIndex: buildReverseIndexMap(raw, normalized) ?? undefined }
+        : {}),
     });
   });
 

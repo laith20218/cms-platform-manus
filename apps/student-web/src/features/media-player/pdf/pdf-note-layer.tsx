@@ -26,13 +26,15 @@ export interface NoteLayerProps {
    *  lose pointer-events) so eraser gestures over a note reach the ink SVG
    *  and the geometry hit test, instead of opening the editor. */
   passive?: boolean;
+  /** Wave 12.3.C — the note briefly FLASHED from the notes list (2 pulses). */
+  flashNoteId?: string | null;
   onOpen: (id: string) => void;
   onCommit: (note: NoteAnnotation, text: string) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
 }
 
-export function NoteLayer({ annotations, openNoteId, passive = false, onOpen, onCommit, onDelete, onClose }: NoteLayerProps) {
+export function NoteLayer({ annotations, openNoteId, passive = false, flashNoteId = null, onOpen, onCommit, onDelete, onClose }: NoteLayerProps) {
   const notes = annotations.filter((a) => a.annotationType === 'Note');
   const openNote = openNoteId
     ? notes.find((n) => n.id === openNoteId && n.annotationType === 'Note')
@@ -49,7 +51,9 @@ export function NoteLayer({ annotations, openNoteId, passive = false, onOpen, on
           title="ملاحظة"
           data-testid="pdf-note-icon"
           data-note-id={note.id}
-          className="pdf-note-icon press absolute flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-lg border border-slate-900/20 shadow-lg transition-transform hover:scale-110"
+          className={`pdf-note-icon press absolute flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-lg border border-slate-900/20 shadow-lg transition-transform hover:scale-110${
+            note.id === flashNoteId ? ' pdf-annotation-flash' : ''
+          }`}
           style={{
             left: `${note.payload.x * 100}%`,
             top: `${note.payload.y * 100}%`,

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { Images, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { cn } from '@/utils';
 
@@ -20,9 +20,17 @@ import { cn } from '@/utils';
  *    (precedent: PdfPlayer page-render teardown).
  *
  * Layout: ≥ lg the rail is a 96px column beside the center scroll (its own
- * overflow — never the center's); < lg it collapses and a 48px floating
- * trigger opens a Radix Dialog drawer (inline-end anchored). Focus mode
- * (12.2.C.5) hides the rail entirely via the focusMode prop.
+ * overflow — never the center's); < lg it collapses into a Radix Dialog
+ * drawer (inline-end anchored) whose ONLY trigger is the bottom action bar
+ * (MobileActionBar, 12.3.A.2) — the old bottom-left floating toggle was
+ * REMOVED below `lg` (12.3.A.3). The drawer is controlled (open + onChange
+ * lifted to PdfPlayer) so one state drives trigger highlight, drawer and
+ * focus-mode interplay. Focus mode (12.2.C.5) hides the rail entirely via
+ * the focusMode prop.
+ *
+ * 12.3.A.4 — drawer contract: max-w-[85vw], dimmed backdrop bg-black/60
+ * (data-testid="pdf-drawer-backdrop"), tap-outside closes (Radix modal
+ * default), slides from the inline-END side (LEFT in RTL).
  *
  * §13: logical properties only (border-s/end-*), 48px+ touch targets,
  * focus-visible rings, aria-current on the active thumb, reduced-motion-safe
@@ -132,11 +140,14 @@ export interface ThumbnailsRailProps {
   onGoToPage: (page: number) => void;
   /** Wave 12.2.C.5 — focus mode hides the rail entirely (still mounted). */
   focusMode?: boolean;
+  /** Wave 12.3.A — controlled mobile drawer (lifted to PdfPlayer: the bottom
+   *  action bar is the only trigger below `lg`, 12.3.A.2/A.3). */
+  drawerOpen: boolean;
+  onDrawerOpenChange: (open: boolean) => void;
 }
 
-export function ThumbnailsRail({ doc, dims, activePage, cacheKey, onGoToPage, focusMode = false }: ThumbnailsRailProps) {
+export function ThumbnailsRail({ doc, dims, activePage, cacheKey, onGoToPage, focusMode = false, drawerOpen, onDrawerOpenChange }: ThumbnailsRailProps) {
   const railScrollRef = useRef<HTMLDivElement | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Cancel every in-flight thumb render of THIS document when the rail leaves
   // the tree (player unmount / doc swap). Drawer open/close never cancels.
@@ -181,23 +192,16 @@ export function ThumbnailsRail({ doc, dims, activePage, cacheKey, onGoToPage, fo
         </div>
       </nav>
 
-      {/* Mobile (< lg): floating 48px trigger + inline-end Dialog drawer. */}
-      <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
-        <DialogPrimitive.Trigger asChild>
-          <button
-            type="button"
-            aria-label="فتح مصغرات الصفحات"
-            title="مصغرات الصفحات"
-            data-testid="pdf-thumbs-open"
-            className={focusMode
-              ? 'hidden'
-              : 'press absolute bottom-3 end-3 z-30 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-[#0b1120]/90 text-slate-200 shadow-2xl backdrop-blur transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[#25C7E8] lg:hidden'}
-          >
-            <Images className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
-          </button>
-        </DialogPrimitive.Trigger>
+      {/* Mobile (< lg): inline-end Dialog drawer. CONTROLLED — the only
+          trigger is the bottom action bar (12.3.A.2); the floating toggle
+          was removed (12.3.A.3). Backdrop: dimmed bg-black/60 with the
+          drawer-backdrop testid; tap-outside closes (Radix modal default). */}
+      <DialogPrimitive.Root open={drawerOpen} onOpenChange={onDrawerOpenChange}>
         <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-[#071426]/60" />
+          <DialogPrimitive.Overlay
+            data-testid="pdf-drawer-backdrop"
+            className="fixed inset-0 z-50 bg-black/60"
+          />
           <DialogPrimitive.Content
             aria-describedby={undefined}
             className="fixed inset-y-0 end-0 z-50 flex w-72 max-w-[85vw] flex-col border-s border-[#1e293b] bg-[#0b1120] p-3 shadow-2xl outline-none"
@@ -218,7 +222,7 @@ export function ThumbnailsRail({ doc, dims, activePage, cacheKey, onGoToPage, fo
                 dims={dims}
                 activePage={activePage}
                 cacheKey={cacheKey}
-                onGoToPage={(page) => { onGoToPage(page); setDrawerOpen(false); }}
+                onGoToPage={(page) => { onGoToPage(page); onDrawerOpenChange(false); }}
                 ioRoot={null}
                 testIdPrefix="pdf-thumb-drawer"
               />
