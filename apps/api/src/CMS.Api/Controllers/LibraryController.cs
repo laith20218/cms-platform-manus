@@ -154,6 +154,11 @@ public class LibraryController : ControllerBase
 
     /// <summary>
     /// Record a file view (duration, pages, completion).
+    /// R49: the view beacon fires on navigation/unmount, so the client may
+    /// disconnect mid-request (entitlement validation latency makes this the
+    /// cancellation-prone endpoint). An aborted request must NOT surface as an
+    /// unhandled OperationCanceledException → 500; we acknowledge the abort
+    /// with 499 (Client Closed Request) and record nothing.
     /// </summary>
     [HttpPost("{id:guid}/view")]
     [Authorize]
@@ -161,11 +166,20 @@ public class LibraryController : ControllerBase
     {
         var studentId = GetStudentId();
         if (!studentId.HasValue) return Unauthorized();
-        var rejection = await EntitlementRejectionAsync(studentId.Value, await SubjectIdForFileAsync(id, ct), ct);
-        if (rejection is not null) return rejection;
+        try
+        {
+            var rejection = await EntitlementRejectionAsync(studentId.Value, await SubjectIdForFileAsync(id, ct), ct);
+            if (rejection is not null) return rejection;
 
-        await _mediator.Send(new RecordFileViewCommand(id, studentId.Value, dto.DurationSeconds, dto.PagesViewed, dto.CompletionPercentage), ct);
-        return NoContent();
+            await _mediator.Send(new RecordFileViewCommand(id, studentId.Value, dto.DurationSeconds, dto.PagesViewed, dto.CompletionPercentage), ct);
+            return NoContent();
+        }
+        catch (OperationCanceledException)
+        {
+            // Client disconnected or timeout — do not record the view,
+            // return 499 (Client Closed Request).
+            return StatusCode(499);
+        }
     }
 
     /// <summary>

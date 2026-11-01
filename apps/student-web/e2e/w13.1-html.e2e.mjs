@@ -64,13 +64,17 @@ const consoleErrors = [];
 const pageErrors = [];
 /** Expected browser security reports — the sandbox/CSP BLOCKS are the evidence
  *  the suite asserts (a blocked script report for sandbox="" rows and a CSP
- *  violation report for the blocked external fetch are PASS conditions, not defects). */
+ *  violation report for the blocked external fetch are PASS conditions, not defects).
+ *  R49: the lesson frame is a blob: URL now (R47) — block reports name the blob
+ *  origin instead of 'about:srcdoc'; both wordings are expected evidence. */
 const securityBlocks = [];
 function classifyConsole(text) {
   // Any sandbox/CSP BLOCK report is expected evidence, in whatever wording the
   // Chromium build emits ("Blocked script execution…", "…violates the following
   // Content Security Policy directive…", "Fetch API cannot load … violates…").
-  if (/Blocked script execution in 'about:srcdoc'/.test(text) || /Content Security Policy/.test(text)) {
+  // R49: mirror w13.2-hotfix — the blocked-document name may be 'about:srcdoc'
+  // (pre-R47) or 'blob:<origin>/<uuid>' (R47+).
+  if (/Blocked script execution in '(about:srcdoc|blob:[^']*)'/.test(text) || /Content Security Policy/.test(text)) {
     securityBlocks.push(text);
     return;
   }
@@ -194,11 +198,15 @@ async function openHtmlPlayer(page) {
   await page.locator('[data-testid="library-html-player-frame"]').waitFor({ state: 'attached', timeout: 20_000 });
 }
 
-/** The srcdoc execution context (opaque origin — CDP evaluation still reaches it).
- *  Chromium reports the srcdoc frame's URL as '' (or 'about:srcdoc' depending on version). */
+/** The lesson execution context (R47+: blob: URL — opaque origin via sandbox;
+ *  CDP evaluation still reaches it). Chromium reported the pre-R47 srcdoc
+ *  frame's URL as '' (or 'about:srcdoc' depending on version) — both legacy
+ *  forms stay accepted for harness compatibility (R49). */
 function srcdocFrame(page) {
   return page.frames().find(
-    (frame) => frame !== page.mainFrame() && (frame.url() === 'about:srcdoc' || frame.url() === ''),
+    (frame) =>
+      frame !== page.mainFrame() &&
+      (frame.url() === 'about:srcdoc' || frame.url() === '' || frame.url().startsWith('blob:')),
   ) ?? null;
 }
 
@@ -248,7 +256,11 @@ async function main() {
 
         const csp = await frame.evaluate(() =>
           document.querySelector('meta[data-cms-injected="true"]')?.getAttribute('content') ?? null);
-        check('S4a: client safety net injected the CSP meta', !!csp && csp.includes("default-src 'none'") && !csp.includes('script-src'),
+        // R49: R44 made script-src EXPLICIT in both modes — the static profile
+        // carries script-src 'none' (no default-src fallback reliance), so the
+        // pre-R44 assertion (!csp.includes('script-src')) is stale. Mirrors
+        // w13.2-hotfix S4c ("static CSP carries EXPLICIT script-src 'none'").
+        check('S4a: client safety net injected the CSP meta', !!csp && csp.includes("default-src 'none'") && csp.includes("script-src 'none'"),
           csp ? csp.slice(0, 48) + '…' : 'MISSING');
       }
       await page.screenshot({ path: `${SHOT_DIR}/w13.1-375-static.png` });
