@@ -150,6 +150,9 @@ try
     builder.Services.AddSingleton(TimeProvider.System);
     builder.Services.AddSingleton<CMS.Api.Security.AdminLoginRateLimiter>();
 
+    // === R51 — single-use HTML view tokens (in-memory by design: grants die with the process) ===
+    builder.Services.AddSingleton<CMS.Application.Interfaces.IHtmlAccessTokenService, CMS.Infrastructure.Security.HtmlAccessTokenService>();
+
     // === Swagger ===
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(c =>
