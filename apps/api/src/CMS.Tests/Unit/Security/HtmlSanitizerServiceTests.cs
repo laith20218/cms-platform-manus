@@ -11,6 +11,11 @@ namespace CMS.Tests.Unit.Security;
 /// dangerous markup is stripped and the object is overwritten at the same key,
 /// clean documents are left untouched, and every failure mode is fail-closed.
 /// Uses a hand-rolled in-memory IFileStorageService fake — no network involved.
+///
+/// 13.A.1 — the TRUSTED policy (SanitizeTrustedAsync) additionally pins:
+/// inline on* handlers / <c>&lt;script&gt;</c> / <c>&lt;style&gt;</c> survive (verbatim content,
+/// head-resident included via document mode), while object/embed/javascript:/base/
+/// form-action/CSS expression() are stripped in BOTH modes.
 /// </summary>
 public sealed class HtmlSanitizerServiceTests
 {
@@ -166,6 +171,156 @@ public sealed class HtmlSanitizerServiceTests
 
         await act.Should().NotThrowAsync("a zero-sized declaration has nothing to sanitize");
         storage.Puts.Should().BeEmpty();
+    }
+
+    // ===== 13.A.1 — the TRUSTED policy (EnableScripts=true) =====
+    // Ruling: interactive lessons keep their inline event handlers and script/style
+    // tags; object/embed/javascript:/base/form-action/CSS expression() die in both
+    // modes. Containment = opaque-origin sandbox + connect-src 'none' (class doc).
+
+    [Fact]
+    public async Task SanitizeTrustedAsync_PreservesInlineOnclick_OnButton()
+    {
+        var storage = new FakeStorage();
+        const string key = "library/html/trusted-button";
+        Store(storage, key, "<button onclick=\"confirmChoice()\" class=\"quiz-btn\">اختر الإجابة</button>");
+        var svc = Build(storage);
+
+        var output = await svc.SanitizeTrustedAsync(key, ReadSize(storage, key));
+
+        output.Should().Contain("<button", "the interactive element itself must survive");
+        output.Should().Contain("onclick=\"confirmChoice()\"",
+            "13.A.1: inline event handlers are preserved in trusted mode");
+        output.Should().Contain("اختر الإجابة", "ordinary Arabic content must be preserved");
+    }
+
+    [Fact]
+    public async Task SanitizeTrustedAsync_PreservesOnError_OnImg()
+    {
+        var storage = new FakeStorage();
+        const string key = "library/html/trusted-img";
+        Store(storage, key, "<img src=\"lesson.png\" onerror=\"showFallback()\" alt=\"مخطط\">");
+        var svc = Build(storage);
+
+        var output = await svc.SanitizeTrustedAsync(key, ReadSize(storage, key));
+
+        output.Should().Contain("onerror=\"showFallback()\"",
+            "13.A.1: even onerror — the classic XSS vector — is trusted in this mode");
+        output.Should().Contain("lesson.png", "ordinary safe URLs must survive");
+    }
+
+    [Fact]
+    public async Task SanitizeTrustedAsync_PreservesScriptTag_WithVerbatimContent()
+    {
+        var storage = new FakeStorage();
+        const string key = "library/html/trusted-script";
+        // The '<' inside the script is the point: the default Ganss LiteralText encoder
+        // escapes it into "&lt;", which raw-text script content never decodes — a silent
+        // syntax error. 13.A.1 pins verbatim passthrough.
+        Store(storage, key, "<p>الدرس</p><script>var x = 3 < 5; initQuiz('مرحبا');</script>");
+        var svc = Build(storage);
+
+        var output = await svc.SanitizeTrustedAsync(key, ReadSize(storage, key));
+
+        output.Should().Contain("<script>", "the script tag must survive in trusted mode");
+        output.Should().Contain("3 < 5", "script content must NOT be entity-escaped (would break the JS)");
+        output.Should().Contain("initQuiz", "script statements must survive verbatim");
+    }
+
+    [Fact]
+    public async Task SanitizeTrustedAsync_PreservesHeadStyle_AndHeadScript_DocumentMode()
+    {
+        var storage = new FakeStorage();
+        const string key = "library/html/trusted-head";
+        // Head-resident style/script: fragment mode (Sanitize) returns only body children
+        // and would silently drop both — trusted mode runs document mode for exactly this.
+        Store(storage, key,
+            "<html><head><style>.lesson{color:red}</style><script>boot();</script></head>"
+            + "<body><p class=\"lesson\">نص التفاعل</p></body></html>");
+        var svc = Build(storage);
+
+        var output = await svc.SanitizeTrustedAsync(key, ReadSize(storage, key));
+
+        output.Should().Contain("<style>", "head-resident <style> must survive (13.A.1)");
+        output.Should().Contain(".lesson", "the CSS selector must survive");
+        output.Should().Contain("color:", "the CSS declaration must survive (Ganss re-serializes colors as rgba)");
+        output.Should().Contain("boot()", "head-resident <script> content must survive");
+    }
+
+    [Theory]
+    [InlineData(true)]  // trusted  — kill-list is explicit (defense-in-depth)
+    [InlineData(false)] // untrusted — Ganss defaults (unchanged by 13.A.1)
+    public async Task SanitizeAsync_ObjectEmbed_AndJavascriptUri_StrippedInBothModes(bool trusted)
+    {
+        var storage = new FakeStorage();
+        const string key = "library/html/hostile-vectors";
+        Store(storage, key,
+            "<object data=\"hostile.swf\"></object><embed src=\"hostile.swf\">"
+            + "<a href=\"javascript:evil()\">رابط خبيث</a><p>محتوى سليم</p>");
+        var svc = Build(storage);
+
+        var output = trusted
+            ? await svc.SanitizeTrustedAsync(key, ReadSize(storage, key))
+            : await svc.SanitizeAsync(key, ReadSize(storage, key));
+
+        output.Should().NotContain("<object", "plugin containers are stripped in BOTH modes");
+        output.Should().NotContain("<embed", "plugin containers are stripped in BOTH modes");
+        output.Should().NotContain("javascript:", "the javascript: scheme is stripped in BOTH modes");
+        output.Should().Contain("محتوى سليم", "ordinary content must survive either way");
+    }
+
+    [Fact]
+    public async Task SanitizeTrustedAsync_StripsBaseHref_AndFormActionAttributes()
+    {
+        var storage = new FakeStorage();
+        const string key = "library/html/trusted-navigation";
+        Store(storage, key,
+            "<base href=\"https://evil.example/\">"
+            + "<form action=\"https://evil.example/steal\" method=\"post\">"
+            + "<button formaction=\"https://evil.example/hook\">إرسال</button></form>");
+        var svc = Build(storage);
+
+        var output = await svc.SanitizeTrustedAsync(key, ReadSize(storage, key));
+
+        output.Should().NotContain("<base", "base hijacking is stripped in trusted mode");
+        // "action=" also covers "formaction=" (substring) — both form-submit URL
+        // attributes must be gone even though the form/button markup itself survives.
+        output.Should().NotContain("action=", "form action attributes are stripped (CSP form-action 'none' backstops)");
+        output.Should().Contain("<form", "the form element itself may survive");
+    }
+
+    [Fact]
+    public async Task SanitizeTrustedAsync_StripsCssExpression_KeepsSafeCss()
+    {
+        var storage = new FakeStorage();
+        const string key = "library/html/trusted-css";
+        Store(storage, key,
+            "<div style=\"width: expression(alert(1)); color: teal\">نص</div>"
+            + "<style>.box{background-color: ivory; width: expression(alert(2))}</style>");
+        var svc = Build(storage);
+
+        var output = await svc.SanitizeTrustedAsync(key, ReadSize(storage, key));
+
+        output.Should().NotContain("expression(", "CSS expression() is a script vector in BOTH modes");
+        output.Should().Contain("color", "safe declarations in style attributes must survive");
+        output.Should().Contain("background-color", "safe declarations in style elements must survive (values re-serialized as rgba)");
+        output.Should().Contain("<style>", "the style element itself survives in trusted mode");
+    }
+
+    [Fact]
+    public async Task SanitizeUntrusted_StripsOnclick_ExactlyAsBefore_13A1Unchanged()
+    {
+        var storage = new FakeStorage();
+        const string key = "library/html/untrusted-button";
+        Store(storage, key, "<button onclick=\"x()\">ثابت</button><script>alert(1)</script>");
+        var svc = Build(storage);
+
+        var output = await svc.SanitizeAsync(key, ReadSize(storage, key));
+
+        output.Should().NotContain("onclick", "untrusted mode strips handlers — unchanged by 13.A.1");
+        output.Should().NotContain("script", "untrusted mode strips script tags — unchanged by 13.A.1");
+        output.Should().Contain("<button", "the static element itself survives");
+        output.Should().Contain("ثابت", "ordinary content survives");
     }
 
     private static long ReadSize(FakeStorage storage, string key) => storage.Objects[key].Length;

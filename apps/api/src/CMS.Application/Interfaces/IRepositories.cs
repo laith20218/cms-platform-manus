@@ -160,11 +160,20 @@ public interface IHtmlBlobSanitizer
     Task<string> SanitizeAsync(string objectKey, long declaredSizeBytes, CancellationToken ct = default);
 
     /// <summary>
-    /// Wave 13 (Q1 ruling) — trusted sanitization for team-built interactive lessons
-    /// (EnableScripts=true): preserves &lt;script&gt; tags while STILL stripping every XSS
-    /// vector — on* event handlers, &lt;object&gt;/&lt;embed&gt;/&lt;iframe&gt;, javascript:/vbscript:
-    /// URLs and CSS expression(). Same ceiling + in-place + fail-closed semantics as
-    /// <see cref="SanitizeAsync"/>. Virus scanning is the caller's responsibility and runs regardless.
+    /// Wave 13 (Q1 ruling, amended by 13.A.1) — trusted sanitization for team-built
+    /// interactive lessons (EnableScripts=true): preserves <c>&lt;script&gt;</c> AND
+    /// <c>&lt;style&gt;</c> tags, their content, and every inline on* event handler
+    /// (onclick, onerror, ontouchstart, …) the document uses, while STILL stripping
+    /// <c>&lt;object&gt;</c>/<c>&lt;embed&gt;</c>/<c>&lt;iframe&gt;</c>, <c>&lt;base href&gt;</c>,
+    /// form action attributes, javascript:/vbscript: URLs and CSS expression().
+    /// Runs in DOCUMENT mode, so script/style resident in <c>&lt;head&gt;</c> survive.
+    ///
+    /// Threat model (13.A.1): the preserved handlers/scripts are contained by the
+    /// student player's sandbox (opaque origin — never allow-same-origin) plus the
+    /// injected CSP (connect-src 'none', form-action 'none', frame-src 'none',
+    /// base-uri 'none'); external URLs stay dead and there is no same-origin access.
+    /// Same ceiling + in-place + fail-closed semantics as <see cref="SanitizeAsync"/>.
+    /// Virus scanning is the caller's responsibility and runs regardless.
     /// </summary>
     Task<string> SanitizeTrustedAsync(string objectKey, long declaredSizeBytes, CancellationToken ct = default);
 }

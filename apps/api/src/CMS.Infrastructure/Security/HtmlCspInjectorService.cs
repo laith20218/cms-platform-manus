@@ -103,12 +103,17 @@ public sealed partial class HtmlCspInjectorService : IHtmlCspInjector
         var htmlOpen = HtmlOpenRegex().Match(html);
         if (htmlOpen.Success)
         {
+            // BUILD FIX (13.A.1 compile pass): the original 5-argument span overload
+            // string.Concat(ROS, ROS, ROS, ROS, ROS) does not exist on .NET 9 (added
+            // in .NET 10) — the very first real compilation of this file (no SDK in
+            // the sandbox during 13.A) surfaced CS1503. Plain string slicing has the
+            // identical semantics with two extra intermediate strings at upload time.
             return string.Concat(
-                html.AsSpan(0, htmlOpen.Index + htmlOpen.Length),
+                html[..(htmlOpen.Index + htmlOpen.Length)],
                 "<head>",
                 metaTag,
                 "</head>",
-                html.AsSpan(htmlOpen.Index + htmlOpen.Length));
+                html[(htmlOpen.Index + htmlOpen.Length)..]);
         }
 
         // ---- Injection point 3: fragment / malformed markup — prepend ----
