@@ -1,3 +1,112 @@
+# WIP_STATUS — feat/13.1-html-player (Wave 13 AMENDMENT: 13.A.1 + 13.A.2, 6 commits local)
+
+## ─── AMENDMENT STATUS (13.A.1 + 13.A.2) ─────────────
+Supervisor amendment IMPLEMENTED on the same branch (2 commits on
+top of the Wave-13.0 four). NOT pushed, NOT merged — push stays a
+supervisor-authorized step (§2). Zero pushes this session.
+
+## ─── AMENDMENT COMMITS ───────────────────────────────
+5. 239964a fix(api): preserve inline event handlers in trusted mode (13.A.1)
+6. 77b0571 feat(admin): premium html upload ui + evidence (13.A.2)
+
+## ─── 13.A.1 — relaxed trusted sanitizer ──────────────
+- SanitizeTrustedAsync now PRESERVES: all on* handlers the document
+  uses (raw-regex allow-list `\b(on[a-zA-Z]+)\s*=` — fail-closed in
+  both directions), <script> AND <style> (head-resident included —
+  trusted mode runs SanitizeDocument; fragment mode returns only
+  body children and would silently drop both), and script text
+  VERBATIM (Ganss' default LiteralText encoder escapes </> inside
+  raw-text elements → every script with a comparison operator
+  became a syntax error; trusted mode swaps the encoder for a
+  no-op — only script can survive the allow-list, breakout
+  impossible by construction, sandbox contains the rest).
+- Kill-list kept in both depth and breadth: object/embed/iframe/
+  base tags + action/formaction attributes (Ganss allows action by
+  default) + javascript:/vbscript: + CSS expression().
+- SanitizeAsync (untrusted) UNCHANGED — pinned by a dedicated test.
+- Threat model documented in the class + interface XML docs
+  (opaque-origin sandbox + CSP connect-src 'none' / form-action
+  'none' / frame-src 'none' / base-uri 'none'; admin toggle = trust
+  boundary, sandbox = containment).
+- BUILD FIXES surfaced by the FIRST-EVER real compilation of 13.A's
+  files (no SDK existed in the sandbox during Wave 13.0; the 13.D
+  evidence flagged both as CI risks — now resolved here):
+  (a) HtmlCspInjectorService 5-arg span string.Concat is .NET 10
+      only → CS1503; replaced with string slicing (identical
+      semantics).
+  (b) ActivityMonitorHandlerTests LibraryHandlers ctor call never
+      gained the 13.A IHtmlCspInjector param → CS7036; real
+      stateless injector passed (LibraryHandlersTests precedent).
+- Tests: +9 cases in HtmlSanitizerServiceTests (onclick preserved,
+  onerror preserved, script verbatim incl. '<', head style+script
+  document-mode, object/embed/javascript stripped in BOTH modes
+  [Theory], base+action+formaction stripped, CSS expression
+  stripped w/ safe CSS kept [asserts Ganss' rgba re-serialization],
+  untrusted onclick unchanged). FULL BACKEND SUITE GREEN ON REAL
+  dotnet SDK 9.0.320 (installed in-sandbox): 566 passed / 0 failed
+  / 27 skipped (Postgres-gated) — 2m27s.
+
+## ─── 13.A.2 — premium HTML upload UI (admin) ─────────
+- LibraryCenter drawer transforms for text/html picks:
+  A. Live LOCAL preview (sandboxed srcDoc, FileReader in-browser
+     only) «معاينة تفاعلية» + «محلية فقط» badge; sandbox attr
+     LIVE-MIRRORS the switch (allow-scripts ↔ full cage).
+  B. Premium switch (role=switch, 44px target, direction-aware
+     thumb: start-0.5 + rtl:/ltr: translate) with the verbatim
+     ruling copy + always-on protection chips.
+  C. Size validator «n B / 20 MB» + meter; >20MB = red card
+     (role=alert), submit disabled, handleUpload re-guard (G-6:
+     no presign for oversized files; the pick now ENTERS the
+     drawer so the red state is visible).
+  D. 4-step HTML timeline رفع → تعقيم → حقن حماية CSP → جاهز on
+     the shared 3s poll + 15-min watchdog; settles on the «جاهز —
+     الحماية مفعّلة» green-check badge; Failed → ProcessingErrorModal.
+- BUG FIXED (caught by the §13 timeline screenshot):
+  pdfTimelineVisible's old `trackingFileId != null` disjunct spun
+  the Ghostscript timeline (32% forever) under HTML uploads once
+  HTML started setting trackingFileId — now kind-aware (PDF rows
+  only); pinned by a permanent e2e check.
+- A11y hardening in-scope: upload-panel close button name; two
+  toolbar filter selects aria-labels (axe criticals).
+- Drawer entrance animation (240ms ease-out, reduced-motion fallback)
+  in globals.css.
+- §13 EVIDENCE (e2e/w13.1a2-html-upload-ui.e2e.mjs): 37/37 GREEN,
+  0 console errors, peak RSS 1585MB < 1638 ceiling:
+  - 4-width screenshots (375/768/1024/1440) + oversize red 375 +
+    settled timeline 1440.
+  - axe drawer scans: 0 critical/serious at ALL 4 widths.
+  - whole-page scan (1440): only the 5 DISCLOSED grandfathered
+    shell nodes (topbar contrast ×3, lang-btn names ×2) — outside
+    this commit's files; zero NEW violations.
+  - RTL grep on ADDED lines: zero physical-direction utilities in
+    genuinely-new code (the only diff-line hit is the grandfathered
+    right-0 drawer anchor line that gained cms-drawer-in).
+- Regression: admin-upload-pdf-processing.e2e.mjs 20/20 + 0 console
+  errors (kind-aware gating is PDF-safe). tsc 0 / eslint 0 / vitest
+  admin 50/50.
+
+## ─── AMENDMENT UNVERIFIED (§11) ──────────────────────
+- dotnet SDK NOW EXISTS in-sandbox (9.0.320) — the full backend
+  suite RAN GREEN locally (566/0/27). Remaining CI value: parity
+  with the CI's exact SDK + NuGet feed; nothing else outstanding
+  from 13.A's disclosure.
+- e2e runs against the route-mocked harness (no real backend) —
+  same posture as every prior wave; the upload→CSP→-ready swap is
+  unit-covered, not browser-E2E-covered (S5 posture unchanged).
+- Ganss CSS re-serialization (colors → rgba(...)) observed in
+  tests — trusted-mode HTML output stores normalized CSS; visual
+  parity on a REAL lesson fixture is asserted only via the local
+  preview (real-content storage round-trip stays CI/production).
+
+## ─── AMENDMENT RESUME_FROM ───────────────────────────
+RESUME_FROM: feat/13.1-html-player @ 6 local commits (13.A
+1253cd1, 13.B b2c964c, 13.C d94699a, 13.D ec0d2d2, 13.A.1
+239964a, 13.A.2 77b0571) on top of main 7987cc4. Tree CLEAN.
+Next: (1) supervisor reviews the 2 amendment SHAs + §13 evidence
+pack (apps/admin-web/e2e/screenshots/w13.1a2-*.png);
+(2) supervisor authorizes push (PAT, §5 triple-erase after);
+(3) merge gate = CI dotnet suite (now proven green locally too).
+
 # WIP_STATUS — feat/13.1-html-player (Wave 13 / F3 HTML Player, 4 commits local)
 
 ## ─── STATUS ───────────────────────────────────────────
