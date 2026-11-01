@@ -1,4 +1,56 @@
-# WIP_STATUS — feat/13.2-html-hotfix (Wave 13.2 HOTFIX: R42, 4 commits local)
+# WIP_STATUS — feat/13.5-html-api-endpoint (R51: server-side CSP via html-view endpoint)
+
+## ─── R51 — CURRENT STATE (this branch) ────────────────
+Branch: feat/13.5-html-api-endpoint, cut from main @ be307c9
+(the merged PR #62). NOT pushed — push stays a supervisor-authorized
+step. Everything below the R51 marker is R42-era history kept verbatim.
+
+R51 end-state architecture (supersedes the R42/R44/R47/R49 client
+paths — every one of them was a fallback toward this):
+
+- Backend — `IHtmlAccessTokenService` (in-memory, ConcurrentDictionary):
+  32-byte crypto-random base64url tokens, 5-minute TTL, atomic
+  single-use (TryRemove = the guarantee), max 5 issues/student/minute
+  (controller answers 429). TimeProvider-injected for deterministic
+  TTL tests. Registered as a singleton in Program.cs.
+- Backend — POST /library/{id}/html-access: [Authorize(Roles="student")]
+  (codebase's actual role claim value — lowercase; the workorder's
+  literal "Student" adapted, disclosed) → file gates (HTML, Published,
+  Clean, not deleted) → entitlement validation (X-Entitlement +
+  X-Installation-Id, same SignedEntitlementService path) → token issue.
+  Returns { url: /api/v1/library/{id}/html-view?t=..., expiresAt }.
+- Backend — GET /library/{id}/html-view?t=: [AllowAnonymous] — the
+  TOKEN is the authorization (unknown/expired/used/mismatched → 401).
+  Streams the ORIGINAL stored bytes (zero modification) with:
+  Content-Security-Policy header = offline 'none' profile + explicit
+  script-src 'unsafe-inline'|'none' (row's EnableScripts) +
+  frame-ancestors = Cors:StudentApp (config-driven; falls back to the
+  deployed student-web vercel origin), Content-Type text/html;
+  charset=utf-8, Cache-Control no-store, X-Frame-Options REMOVED
+  (the global middleware stamps SAMEORIGIN on every response — it
+  would veto the cross-origin framing that frame-ancestors already
+  constrains). Wire evidence: /tmp/r51-html-view-headers.txt via the
+  Evidence_HtmlView_WireHeaders_DumpedToArtifact integration test.
+- Frontend — HtmlPlayer: iframe src = apiOrigin + grant url; sandbox
+  {allow-scripts | ""} UNCHANGED; watermark overlay UNCHANGED; blob:
+  URL + srcDoc paths REMOVED. useHtmlDocument reduced to the token
+  issue flow (loading/ready/error/retry). html-csp.ts DELETED (client
+  injector retired — S6 e2e block removed with it).
+- Frontend — vercel.json frame-src: 'self' blob: →
+  'self' https://cms-api-preview.onrender.com ... (blob: frames no
+  longer exist for HTML; the API host is now the framed origin).
+- KNOWN FEATURE REMOVAL (disclosed): the R42 client fit-to-width
+  prelude (viewport meta + zoom script) died with html-csp.ts — wide
+  lessons now render at natural size and scroll horizontally instead
+  of zooming. Server-side fit is a future workorder if wanted.
+- Tests: 14 integration tests (HtmlViewHttpIntegrationTests: issue
+  401/403/404/429/200, view 401 expired/used/mismatched/unknown/none,
+  CSP header content both modes, verbatim bytes, wire dump). vitest
+  +5 (html-view-flow). e2e: w13.1 24/24, w13.2 120/120 (both suites
+  re-contracted to the R51 flow: mocked html-access + html-view with
+  CSP response header, zero-injection assertions).
+
+## ─── HISTORY — feat/13.2-html-hotfix (Wave 13.2 HOTFIX: R42, 4 commits local) ──
 
 ## ─── STATUS ────────────────────────────────────────────
 Wave 13.2 hotfix branch (feat/13.2-html-hotfix, cut from main @

@@ -14,20 +14,19 @@
  *
  *  ORIGINAL-BYTES RENDER FIDELITY (A) — the HTML fixture (inline script + SVG)
  *    renders EXACTLY as authored: no mangling (colors, geometry, script side
- *    effects all intact) because the backend stores bytes untouched and the
- *    client prelude only ADDS head elements in memory.
+ *    effects all intact) because the backend streams the stored bytes UNTOUCHED
+ *    and the client performs ZERO document surgery.
  *
- *  FIT-TO-WIDTH (C) — at 375px a wider-than-viewport fixture gets
- *    `body { zoom < 1 }` and NO horizontal scroll; at 1440px zoom stays 1.
- *    Script policy is BEHAVIORAL (R44 — no string surgery): the fixture ships
- *    `<script>window.__cms_ran = true;</script>` and the suite asserts what the
- *    BROWSER does with it —
- *      static rows  : __cms_ran stays undefined (explicit script-src 'none'
- *                     CSP + sandbox="" block execution; the platform fit
- *                     prelude is inert too — nothing runs at all);
- *      scripts rows : __cms_ran === true (author opted in) and our own fit
- *                     prelude runs (__cms_fit === true) because we control
- *                     the CSP.
+ *  R51 — CSP VIA RESPONSE HEADER + ZERO CLIENT INJECTION: the lesson is served
+ *    by GET /library/{id}/html-view (mocked here with the same CSP header the
+ *    server sends). The browser enforces that header policy on the framed
+ *    document — the app-shell CSP can never reach it (the R42 srcDoc and R47
+ *    blob: paths are both retired). Script policy stays BEHAVIORAL (R44):
+ *      static rows  : __cms_ran stays undefined (script-src 'none' header +
+ *                     sandbox="" block execution);
+ *      scripts rows : __cms_ran === true (author opted in).
+ *    The client prelude is GONE: no viewport meta, no fit style/script, no
+ *    injected CSP meta — the suite asserts their ABSENCE (S1i/S1j/S2/S3/S4).
  *
  *  §13 evidence — 5-width screenshots (375/640/768/1024/1440) × 3 kinds.
  *
@@ -91,9 +90,10 @@ function isBenignConsole(text) {
   );
 }
 function classifyConsole(text) {
-  // R47: the lesson frame is a blob: URL now — sandbox/CSP block reports name
-  // the blob URL instead of about:srcdoc; both are PASS evidence.
-  if (/Blocked script execution in '(about:srcdoc|blob:[^']*)'/.test(text) || /Content Security Policy/.test(text)) {
+  // R51: the lesson frame URL is the html-view API response — sandbox/CSP block
+  // reports name that document URL (previously about:srcdoc / blob:*). All of
+  // these wordings are PASS evidence.
+  if (/Blocked script execution in '[^']*'/.test(text) || /Content Security Policy/.test(text)) {
     securityBlocks.push(text);
     return;
   }
@@ -103,7 +103,8 @@ function classifyConsole(text) {
 /* ============ fixtures ============ */
 
 /** HTML lesson: inline script + SVG + styled h1 — the render-fidelity contract.
- *  `widePx` drives the fit-to-width scenarios (content wider than the frame). */
+ *  `widePx` keeps exercising natural-width content (S2/S3 assert NO platform
+ *  zoom manipulation since the R51 client prelude is gone). */
 function lessonHtml(widePx) {
   return `<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>${LESSON_TITLE}</title></head><body>
 <h1 id="title" style="color:#0284c7">${LESSON_TITLE}</h1>
@@ -170,6 +171,20 @@ const KIND_META = {
   video: { type: 'Video', fileFormat: 'video/webm', contentType: 'video/webm' },
 };
 
+/** R51 — the per-file CSP the html-view RESPONSE HEADER carries. Mirrors the
+ *  server's HtmlViewCsp.Build exactly (offline 'none' base + explicit
+ *  script-src per EnableScripts + frame-ancestors student-web origin) — the
+ *  browser enforces this header on the framed document. */
+function htmlViewCsp(enableScripts) {
+  return (
+    "default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; " +
+    'media-src data: blob:; ' +
+    "connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; " +
+    (enableScripts ? "script-src 'unsafe-inline'; " : "script-src 'none'; ") +
+    `frame-ancestors ${BASE_URL}`
+  );
+}
+
 async function newContext(browser, viewport, kind, opts = {}) {
   const meta = KIND_META[kind];
   const enableScripts = opts.enableScripts ?? false;
@@ -228,13 +243,33 @@ async function newContext(browser, viewport, kind, opts = {}) {
     },
   }));
   await context.route(`**/api/v1/library/${FILE_ID}/content`, (route) => {
-    if (kind === 'html') {
-      return route.fulfill({ body: lessonHtml(widePx), contentType: meta.contentType });
-    }
     if (kind === 'pdf') {
       return route.fulfill({ body: pdfBytes, contentType: meta.contentType });
     }
-    return route.fulfill({ body: video.bytes, contentType: video.contentType });
+    if (kind === 'video') {
+      return route.fulfill({ body: video.bytes, contentType: video.contentType });
+    }
+    // R51: HTML no longer flows through /content — the player issues a token
+    // (html-access) and frames the html-view response. Anything hitting
+    // /content for html is the OLD path and must fail loudly.
+    return route.abort();
+  });
+  // R51 — the html token flow: POST /html-access returns { url, expiresAt };
+  // the iframe then loads GET /html-view whose RESPONSE HEADER carries the CSP.
+  await context.route(`**/api/v1/library/${FILE_ID}/html-access`, (route) => route.fulfill({
+    json: {
+      url: `/api/v1/library/${FILE_ID}/html-view?t=e2e-single-use-token`,
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+    },
+  }));
+  await context.route(`**/api/v1/library/${FILE_ID}/html-view**`, (route) => {
+    if (kind !== 'html') return route.abort();
+    context._servedCsp = htmlViewCsp(enableScripts);
+    return route.fulfill({
+      body: lessonHtml(widePx),
+      contentType: 'text/html; charset=utf-8',
+      headers: { 'Content-Security-Policy': context._servedCsp, 'Cache-Control': 'no-store' },
+    });
   });
   await context.route(`**/api/v1/library/${FILE_ID}/view`, (route) => route.fulfill({ status: 204, body: '' }));
   await context.route(`**/api/v1/library/${FILE_ID}/annotations`, (route) => {
@@ -305,13 +340,14 @@ async function assertContextMenuPrevented(page, label) {
   check(`${label}: contextmenu on player stage is PREVENTED`, prevented === true, `defaultPrevented=${prevented}`);
 }
 
-/** The lesson execution context (R47: blob: URL — opaque origin via sandbox;
- *  CDP evaluation still reaches it). '' / 'about:srcdoc' kept for fallback. */
+/** The lesson execution context (R51: the html-view API response — opaque
+ *  origin via sandbox; CDP evaluation still reaches it). Legacy forms ('',
+ *  'about:srcdoc', blob:*) stay accepted for harness compatibility. */
 function srcdocFrame(page) {
   return page.frames().find(
     (frame) =>
       frame !== page.mainFrame() &&
-      (frame.url() === 'about:srcdoc' || frame.url() === '' || frame.url().startsWith('blob:')),
+      (frame.url() === 'about:srcdoc' || frame.url() === '' || frame.url().startsWith('blob:') || frame.url().includes('/html-view')),
   ) ?? null;
 }
 
@@ -366,8 +402,8 @@ async function main() {
 
       const frame = await waitForSrcdoc(page);
       check('S1b: content frame attached', !!frame);
-      check('S1b2: frame loaded via blob: URL — parent app-shell CSP is NOT inherited (R47)',
-        !!frame && frame.url().startsWith('blob:'), frame ? frame.url() : 'no-frame');
+      check('S1b2: frame loaded via the html-view API URL — CSP arrives as a RESPONSE HEADER (R51)',
+        !!frame && frame.url().includes('/html-view?t='), frame ? frame.url() : 'no-frame');
 
       if (frame) {
         // Render fidelity: the ORIGINAL fixture survives byte-for-byte at the DOM level —
@@ -390,16 +426,16 @@ async function main() {
 
         const prelude = await frame.evaluate(() => ({
           cspCount: document.querySelectorAll('meta[data-cms-injected="true"]').length,
-          csp: document.querySelector('meta[data-cms-injected="true"]')?.getAttribute('content') ?? null,
           viewport: document.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? null,
           fitStyle: document.querySelector('style#cms-fit-style') !== null,
           fitScript: document.querySelector('script#cms-fit-script') !== null,
         }));
-        check('S1g: exactly ONE injected CSP meta', prelude.cspCount === 1, `count=${prelude.cspCount}`);
-        check('S1h: CSP is the strict offline profile + script-src for trusted rows',
-          !!prelude.csp && prelude.csp.includes("default-src 'none'") && prelude.csp.includes("connect-src 'none'") && prelude.csp.includes("script-src 'unsafe-inline'"));
-        check('S1i: viewport meta injected (R42 prelude)', (prelude.viewport ?? '').includes('width=device-width'), prelude.viewport);
-        check('S1j: fit style + fit script injected (R42 prelude)', prelude.fitStyle && prelude.fitScript);
+        check('S1g: ZERO injected CSP metas — the client injects NOTHING (R51: CSP comes from the response header)', prelude.cspCount === 0, `count=${prelude.cspCount}`);
+        check('S1h: the SERVED html-view CSP HEADER is the strict offline profile + script-src for trusted rows',
+          !!context._servedCsp && context._servedCsp.includes("default-src 'none'") && context._servedCsp.includes("connect-src 'none'") && context._servedCsp.includes("script-src 'unsafe-inline'"),
+          context._servedCsp ?? 'no-header-captured');
+        check('S1i: NO viewport meta injected (R51: client prelude retired — feature removed, disclosed)', prelude.viewport === null, prelude.viewport);
+        check('S1j: NO fit style + fit script injected (R51: client prelude retired)', !prelude.fitStyle && !prelude.fitScript, `fitStyle=${prelude.fitStyle} fitScript=${prelude.fitScript}`);
       }
 
       await assertZeroDownload(page, 'S1 HTML');
@@ -409,53 +445,47 @@ async function main() {
       await context.close();
     }
 
-    // ===== S2 — HTML fit-to-width at 375: zoom applied, NO horizontal scroll =====
+    // ===== S2 — R51: NO platform zoom/fit manipulation at 375 (prelude retired) =====
     {
       const context = await newContext(browser, { width: 375, height: 812 }, 'html', { enableScripts: true, widePx: 1200 });
       const page = await context.newPage();
       await openLibraryFile(page, 'html');
       const frame = await waitForSrcdoc(page);
       if (frame) {
-        let zoomProbe = { zoom: '1', inlineZoom: '', docScrollW: 0, vw: 0 };
-        for (let i = 0; i < 20; i++) {
-          zoomProbe = await frame.evaluate(() => ({
-            zoom: getComputedStyle(document.body).zoom,
-            inlineZoom: document.body.style.zoom,
-            // The DOCUMENT is the scroller — body.scrollWidth stays in body's
-            // pre-zoom coordinate space; documentElement is what can overflow.
-            docScrollW: document.documentElement.scrollWidth,
-            vw: window.innerWidth,
-            fitMarker: window.__cms_fit === true,
-          }));
-          if (parseFloat(zoomProbe.zoom) < 1) break;
-          await page.waitForTimeout(250);
-        }
-        check('S2a: body.zoom < 1 for wide content at 375px', parseFloat(zoomProbe.zoom) < 1 && parseFloat(zoomProbe.zoom) > 0, JSON.stringify(zoomProbe));
-        check('S2b: NO horizontal scroll after fit (document scrollWidth ≤ viewport)', zoomProbe.docScrollW <= zoomProbe.vw + 2, `docScrollW=${zoomProbe.docScrollW} vw=${zoomProbe.vw}`);
-        check('S2c: platform fit prelude EXECUTED (window.__cms_fit === true) — we control the CSP', zoomProbe.fitMarker === true, `__cms_fit=${zoomProbe.fitMarker}`);
+        await page.waitForTimeout(600); // let any (now-nonexistent) handlers settle
+        const probe = await frame.evaluate(() => ({
+          zoom: getComputedStyle(document.body).zoom,
+          inlineZoom: document.body.style.zoom,
+          fitStyle: document.querySelector('style#cms-fit-style') !== null,
+          fitScript: document.querySelector('script#cms-fit-script') !== null,
+          fitMarker: window.__cms_fit,
+        }));
+        check('S2a: body.zoom UNTOUCHED at 375px (R51: no platform fit layer exists)', parseFloat(probe.zoom) === 1 && probe.inlineZoom === '', JSON.stringify(probe));
+        check('S2b: NO cms-fit artifacts in the served document (zero client surgery)', !probe.fitStyle && !probe.fitScript, `fitStyle=${probe.fitStyle} fitScript=${probe.fitScript}`);
+        check('S2c: __cms_fit is undefined (no platform script shipped or executed)', probe.fitMarker === undefined, `__cms_fit=${String(probe.fitMarker)}`);
       } else {
         check('S2: content frame attached', false);
       }
       await context.close();
     }
 
-    // ===== S3 — HTML fit-to-width at 1440: zoom stays 1 =====
+    // ===== S3 — R51: natural rendering at 1440 (zoom === 1, no prelude) =====
     {
       const context = await newContext(browser, { width: 1440, height: 900 }, 'html', { enableScripts: true, widePx: 900 });
       const page = await context.newPage();
       await openLibraryFile(page, 'html');
       const frame = await waitForSrcdoc(page);
       if (frame) {
-        await page.waitForTimeout(800); // let load/resize handlers settle
+        await page.waitForTimeout(600);
         const probe = await frame.evaluate(() => ({
           zoom: getComputedStyle(document.body).zoom,
           inlineZoom: document.body.style.zoom,
-          scrollW: document.body.scrollWidth,
-          vw: window.innerWidth,
-          fitMarker: window.__cms_fit === true,
+          fitMarker: window.__cms_fit,
+          cspCount: document.querySelectorAll('meta[data-cms-injected="true"]').length,
         }));
-        check('S3: body.zoom === 1 at 1440px (no shrink for fitting content)', parseFloat(probe.zoom) === 1 && probe.inlineZoom === '', JSON.stringify(probe));
-        check('S3b: fit prelude executed at desktop too (window.__cms_fit === true)', probe.fitMarker === true, `__cms_fit=${probe.fitMarker}`);
+        check('S3: body.zoom === 1 at 1440px (natural rendering, no shrink)', parseFloat(probe.zoom) === 1 && probe.inlineZoom === '', JSON.stringify(probe));
+        check('S3b: no platform prelude executed at desktop either (R51)', probe.fitMarker === undefined, `__cms_fit=${String(probe.fitMarker)}`);
+        check('S3c: still ZERO injected metas at desktop', probe.cspCount === 0, `count=${probe.cspCount}`);
       } else {
         check('S3: content frame attached', false);
       }
@@ -473,24 +503,27 @@ async function main() {
       check('S4a: sandbox="" on static rows (opaque origin — frame boundary denies scripts)', sandboxAttr === '', `sandbox="${sandboxAttr}"`);
       const frame = await waitForSrcdoc(page);
       if (frame) {
-        // BEHAVIORAL (R44): the fixture ships <script>window.__cms_ran = true;</script>
+        // BEHAVIORAL (R44/R51): the fixture ships <script>window.__cms_ran = true;</script>
         // and the document is NOT modified — the browser must refuse to run it.
         const probe = await frame.evaluate(() => ({
           cmsRan: window.__cms_ran,
           fitMarker: window.__cms_fit,
           bodyZoom: document.body.style.zoom,
-          csp: document.querySelector('meta[data-cms-injected="true"]')?.getAttribute('content') ?? null,
+          cspCount: document.querySelectorAll('meta[data-cms-injected="true"]').length,
           fitStyle: document.querySelector('style#cms-fit-style') !== null,
           fitScript: document.querySelector('script#cms-fit-script') !== null,
         }));
-        check('S4b: fixture script DID NOT execute (window.__cms_ran === undefined) — CSP blocked it',
+        check('S4b: fixture script DID NOT execute (window.__cms_ran === undefined) — header CSP + sandbox blocked it',
           probe.cmsRan === undefined, `__cms_ran=${String(probe.cmsRan)}`);
-        check("S4c: static CSP carries EXPLICIT script-src 'none' (no default-src fallback reliance)",
-          !!probe.csp && probe.csp.includes("script-src 'none'"), probe.csp);
-        check('S4d: NOTHING ran — platform fit prelude inert too (sandbox="" blocks every script; fit is proven on trusted rows S2c/S3b)',
-          probe.fitMarker === undefined && probe.bodyZoom === '', `__cms_fit=${String(probe.fitMarker)} bodyZoom="${probe.bodyZoom}"`);
-        check('S4e: platform prelude present in DOM (fit style + fit script, ready for trusted rows)',
-          probe.fitStyle && probe.fitScript);
+        check("S4c: the SERVED html-view CSP HEADER carries EXPLICIT script-src 'none' for static rows (no default-src fallback reliance)",
+          !!context._servedCsp && context._servedCsp.includes("script-src 'none'") && !context._servedCsp.includes("script-src 'unsafe-inline'"),
+          context._servedCsp ?? 'no-header-captured');
+        check('S4d: NOTHING ran and NOTHING was injected — zero metas, no fit artifacts (R51)',
+          probe.cspCount === 0 && !probe.fitStyle && !probe.fitScript && probe.bodyZoom === '',
+          `metas=${probe.cspCount} fitStyle=${probe.fitStyle} fitScript=${probe.fitScript} bodyZoom="${probe.bodyZoom}"`);
+        check('S4e: static-row policy is enforced by the BROWSER (behavioral), never by client string surgery (R44 contract, R51 layer)',
+          securityBlocks.some((t) => /Blocked script execution in '[^']*'/.test(t) || /Content Security Policy/.test(t)),
+          `${securityBlocks.length} block report(s) so far`);
       } else {
         check('S4: content frame attached', false);
       }
@@ -561,7 +594,7 @@ async function main() {
     if (consoleErrors.length) check('console clean (unexpected errors only)', false, consoleErrors.slice(0, 3).join(' | '));
     else check('console clean (unexpected errors only)', true);
     check('evidence: sandbox/CSP block reports present (static-row protection is REAL)',
-      securityBlocks.some((t) => /Blocked script execution in '(about:srcdoc|blob:[^']*)'/.test(t)),
+      securityBlocks.some((t) => /Blocked script execution in '[^']*'/.test(t)),
       `${securityBlocks.length} block report(s)`);
     if (pageErrors.length) check('no page errors', false, pageErrors.slice(0, 3).join(' | '));
     else check('no page errors', true);

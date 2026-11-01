@@ -55,7 +55,7 @@ public sealed class LibraryAuditPostgresIntegrationTests
         var batch = new SecurityEventBatchService(services.GetRequiredService<IServiceScopeFactory>(), configuration, NullLogger<SecurityEventBatchService>.Instance);
         var correlation = new CorrelationContext { CorrelationId = Guid.NewGuid().ToString("N") };
         var audit = new SecurityService(db, new Mock<ICacheService>().Object, batch, correlation, configuration);
-        var controller = new LibraryController(new Mock<ISender>(MockBehavior.Strict).Object, new SignedEntitlementService(db, configuration), new Mock<IPermissionService>().Object, audit);
+        var controller = new LibraryController(new Mock<ISender>(MockBehavior.Strict).Object, new SignedEntitlementService(db, configuration), new Mock<IPermissionService>().Object, audit, new HtmlAccessTokenService(TimeProvider.System, NullLogger<HtmlAccessTokenService>.Instance));
         var requestServices = new ServiceCollection().AddSingleton<IApplicationDbContext>(db).BuildServiceProvider();
         var context = new DefaultHttpContext { RequestServices = requestServices, User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim("sub", student.Id.ToString()) }, "test")) };
         context.Request.Headers["X-Installation-Id"] = installation;
@@ -128,7 +128,7 @@ public sealed class LibraryAuditPostgresIntegrationTests
             .BuildServiceProvider();
         var entitlement = new SignedEntitlementService(db, configuration);
         var token = await entitlement.IssueAsync(student.Id, installation);
-        var controller = new LibraryController(provider.GetRequiredService<ISender>(), entitlement, new Mock<IPermissionService>().Object, audit);
+        var controller = new LibraryController(provider.GetRequiredService<ISender>(), entitlement, new Mock<IPermissionService>().Object, audit, new HtmlAccessTokenService(TimeProvider.System, NullLogger<HtmlAccessTokenService>.Instance));
         var context = new DefaultHttpContext { RequestServices = provider, User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim("sub", student.Id.ToString()) }, "test")) };
         context.Request.Headers["X-Installation-Id"] = installation;
         context.Request.Headers["X-Entitlement"] = token;

@@ -100,9 +100,10 @@ function resolveViewerKind(rawType: string | undefined, fileFormat: string | nul
  * Guarantees a UTF-8 charset declaration on an HTML document.
  *
  * Wave 13: the legacy srcDoc path this served was REPLACED by the shell-hosted
- * HtmlPlayer (features/media-player/html/) — the charset guard now lives there
- * (useHtmlDocument.ensureUtf8Document). Kept as documentation of the mojibake
- * trap the /content charset fix and the player-side guard both address.
+ * HtmlPlayer (features/media-player/html/). R51: the charset guard moved to the
+ * SERVER — GET /library/{id}/html-view declares `Content-Type: text/html;
+ * charset=utf-8` on the response, so every load path decodes correctly without
+ * any client-side document handling.
  */
 
 export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: () => void }) {

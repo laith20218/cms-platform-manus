@@ -5,6 +5,7 @@ using CMS.Application.Commands.Library;
 using CMS.Application.DTOs.Library;
 using CMS.Application.Interfaces;
 using CMS.Domain.Enums;
+using CMS.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
 
 namespace CMS.Api.Controllers;
@@ -22,13 +23,15 @@ public class LibraryController : ControllerBase
     private readonly ISignedEntitlementService _signedEntitlements;
     private readonly IPermissionService _permissions;
     private readonly ISecurityAuditWriter _audit;
+    private readonly IHtmlAccessTokenService _htmlTokens;
 
-    public LibraryController(MediatR.ISender mediator, ISignedEntitlementService signedEntitlements, IPermissionService permissions, ISecurityAuditWriter audit)
+    public LibraryController(MediatR.ISender mediator, ISignedEntitlementService signedEntitlements, IPermissionService permissions, ISecurityAuditWriter audit, IHtmlAccessTokenService htmlTokens)
     {
         _mediator = mediator;
         _signedEntitlements = signedEntitlements;
         _permissions = permissions;
         _audit = audit;
+        _htmlTokens = htmlTokens;
     }
 
     private Guid? GetStudentId() => Guid.TryParse(User.FindFirst("sub")?.Value, out var id) ? id : null;
@@ -150,6 +153,96 @@ public class LibraryController : ControllerBase
 
         Response.Headers.CacheControl = "private, max-age=120";
         return File(stream, contentType);
+    }
+
+    /// <summary>
+    /// R51 — issue a single-use, 5-minute HTML view token for an entitled student.
+    ///
+    /// The lesson document must be served as its own HTTP response so the browser
+    /// applies a per-file CSP HEADER to the iframe document (authoritative; the
+    /// embedding app shell's policy can no longer reach it — this is the fix that
+    /// both srcDoc (R42) and blob: URLs (R47) could not provide for every path).
+    ///
+    /// Gate order: authenticated student (role) → file exists AND is HTML AND is
+    /// published AND virus-clean → entitlement validated → rate limit (5/min,
+    /// answers 429) → token issued. Storage is never touched on this path.
+    /// </summary>
+    [HttpPost("{id:guid}/html-access")]
+    [Authorize(Roles = "student")]
+    public async Task<IActionResult> IssueHtmlAccess(Guid id, CancellationToken ct)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+
+        var db = HttpContext.RequestServices.GetRequiredService<IApplicationDbContext>();
+        var file = await db.LibraryFiles.AsNoTracking()
+            .Where(f => f.Id == id && f.DeletedAt == null
+                && f.Type == LibraryFileType.Html
+                && f.Status == ContentStatus.Published
+                && f.VirusScanStatus == VirusScanStatus.Clean)
+            .Select(f => new { f.SubjectId })
+            .FirstOrDefaultAsync(ct);
+        if (file is null) return NotFound();
+
+        var rejection = await EntitlementRejectionAsync(studentId.Value, file.SubjectId, ct);
+        if (rejection is not null) return rejection;
+
+        var grant = _htmlTokens.Issue(id, studentId.Value);
+        if (grant is null) return StatusCode(429); // per-student issue rate limit (5/min)
+
+        return Ok(new
+        {
+            url = $"/api/v1/library/{id}/html-view?t={grant.Token}",
+            expiresAt = grant.ExpiresAt,
+        });
+    }
+
+    /// <summary>
+    /// R51 — serve the ORIGINAL stored HTML lesson bytes with a per-file CSP header.
+    ///
+    /// [AllowAnonymous] is deliberate: the single-use token IS the authorization
+    /// (issued only through the JWT-gated /html-access endpoint after entitlement
+    /// validation; unknown/expired/used/mismatched tokens all answer 401).
+    ///
+    /// Headers on this response:
+    ///  - Content-Security-Policy: the R51 view profile (offline 'none' base +
+    ///    explicit script-src 'unsafe-inline'|'none' per the row's EnableScripts +
+    ///    frame-ancestors = Cors:StudentApp). The browser enforces it on the
+    ///    framed document; the client injects NO meta (single source of truth).
+    ///  - X-Frame-Options REMOVED: the global middleware stamps SAMEORIGIN on
+    ///    every response, which would veto the cross-origin framing that
+    ///    frame-ancestors already constrains to the student-web origin.
+    ///  - Cache-Control: no-store — single-use token in the URL must never be cached.
+    ///
+    /// Storage bytes are streamed UNMODIFIED (zero server-side transformation).
+    /// </summary>
+    [HttpGet("{id:guid}/html-view")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ServeHtmlView(Guid id, [FromQuery] string? t, CancellationToken ct)
+    {
+        var payload = _htmlTokens.Consume(t ?? string.Empty, HttpContext.Connection.RemoteIpAddress?.ToString());
+        if (payload is null || payload.FileId != id) return Unauthorized();
+
+        var db = HttpContext.RequestServices.GetRequiredService<IApplicationDbContext>();
+        var file = await db.LibraryFiles.AsNoTracking()
+            .Where(f => f.Id == id && f.DeletedAt == null
+                && f.Type == LibraryFileType.Html
+                && f.Status == ContentStatus.Published
+                && f.VirusScanStatus == VirusScanStatus.Clean)
+            .Select(f => new { f.FileUrl, f.EnableScripts })
+            .FirstOrDefaultAsync(ct);
+        if (file is null) return NotFound();
+
+        var storage = HttpContext.RequestServices.GetRequiredService<IFileStorageService>();
+        var stream = await storage.DownloadAsync(file.FileUrl, ct);
+
+        var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
+        var frameAncestors = config["Cors:StudentApp"];
+
+        Response.Headers["Content-Security-Policy"] = HtmlViewCsp.Build(file.EnableScripts, frameAncestors ?? HtmlViewCsp.DefaultFrameAncestors);
+        Response.Headers.Remove("X-Frame-Options");
+        Response.Headers.CacheControl = "no-store";
+        return File(stream, "text/html; charset=utf-8");
     }
 
     /// <summary>
