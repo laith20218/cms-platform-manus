@@ -110,3 +110,5 @@ export function HtmlPlayer({ assetType, assetId, title, enableScripts, watermark
     </div>
   );
 }
+
+export default HtmlPlayer;

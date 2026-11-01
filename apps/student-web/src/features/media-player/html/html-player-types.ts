@@ -10,14 +10,16 @@
  */
 
 /** Watermark identity echoed from POST /library/{id}/access (same DTO as the PDF player). */
-export interface HtmlWatermark {
+export type HtmlWatermark = {
   studentName: string;
   studentPhone: string;
   timestamp: string;
   siteName: string;
-}
+};
 
-export interface HtmlPlayerProps {
+/** A type alias (not an interface) so it satisfies LazyPlayerMount's
+ *  `TProps extends Record<string, unknown>` constraint (PdfPlayerProps precedent). */
+export type HtmlPlayerProps = {
   assetType: 'library-file';
   assetId: string;
   /** Visible iframe title (accessibility) — the lesson title. */
