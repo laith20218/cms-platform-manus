@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { AlertTriangle, LoaderCircle, RotateCcw } from 'lucide-react';
 import { useHtmlDocument } from './useHtmlDocument';
 import type { HtmlPlayerProps } from './html-player-types';
@@ -8,13 +7,16 @@ import type { HtmlPlayerProps } from './html-player-types';
  * HTML lessons. Replaces the legacy DocumentViewer iframe (which lived in the
  * old document Dialog) with the same PlayerShell treatment as audio/pdf.
  *
- * Security model (R42 revision — Wave 13.2 hotfix):
- *  - G-1: offline single-file lessons only — the injected CSP allows no
- *    external source whatsoever (default-src 'none' + connect-src 'none').
- *  - G-3: since R42 the STORED bytes are the ORIGINAL upload (backend mutation
- *    disabled), so the client prelude (useHtmlDocument → injectLessonPrelude)
- *    is the SINGLE CSP enforcement layer — applied in memory on every render,
- *    idempotent, never persisted.
+ * Security model (R51 revision — server-rendered policy):
+ *  - G-1: offline single-file lessons only — the per-file CSP header emitted
+ *    by GET /library/{id}/html-view allows no external source whatsoever
+ *    (default-src 'none' + connect-src 'none').
+ *  - G-3 + R51: the STORED bytes are served UNMODIFIED and the CSP arrives as
+ *    a RESPONSE HEADER on the lesson document itself. A header policy is
+ *    enforced by the browser on the framed document and can never be
+ *    inherited from, or overridden by, the embedding app shell — the
+ *    definitive fix for the R42 srcDoc and R47 blob: inheritance chains.
+ *    The client performs ZERO document surgery (html-csp.ts is retired).
  *  - ZERO-DOWNLOAD (R42): no download, no open-external affordance exists on
  *    this surface or the shell around it; right-click is blocked at the stage.
  *  - G-4: fullscreen stays PlayerShell's exclusive job — the iframe carries
@@ -24,43 +26,21 @@ import type { HtmlPlayerProps } from './html-player-types';
  *  - Q1: sandbox is `allow-scripts` (trusted lessons) or "" (static) — driven
  *    by the row's persisted EnableScripts flag; `allow-same-origin` is never
  *    granted (Q4), so the frame runs on an opaque origin: no parent DOM, no
- *    cookies, no storage access.
- *  - R47 (freeze fix): the document is served from a blob: URL, NOT srcDoc.
- *    about:srcdoc documents INHERIT the embedding app-shell CSP
- *    (script-src 'self'), and inherited policies intersect with our injected
- *    meta — authored inline scripts were being blocked at the browser level
- *    and trusted rows white-screened. A blob: URL document does NOT inherit
- *    the parent's policy: the injected <meta http-equiv="Content-Security-Policy">
- *    becomes the single authoritative layer (script-src 'unsafe-inline' when
- *    EnableScripts, 'none' otherwise). The sandbox attribute applies to blob
- *    loads exactly as to srcdoc, so the opaque-origin guarantee is unchanged.
+ *    cookies, no storage access. The single-use token in the URL dies after
+ *    one load (or 5 minutes) and Cache-Control: no-store keeps it uncached.
  *  - Q5: the invisible watermark overlay rides on top of the white canvas,
  *    mirroring the PDF player's deterrent layer.
  */
 export function HtmlPlayer({ assetType, assetId, title, enableScripts, watermark, testId }: HtmlPlayerProps) {
   const enabled = assetType === 'library-file' && Boolean(assetId);
-  const { status, html, retry } = useHtmlDocument(enabled ? assetId : undefined, enabled, enableScripts);
+  const { status, url, retry } = useHtmlDocument(enabled ? assetId : undefined, enabled);
 
-  // R47 — blob URL lifecycle. `html` is the useHtmlDocument output: the
-  // prelude (viewport meta + authoritative CSP meta + fit style/script) has
-  // ALREADY been string-inserted by injectLessonPrelude, and everything else
-  // is the ORIGINAL stored bytes. Blob creation never mutates those bytes and
-  // never persists them. The URL is revoked on every document swap/unmount.
-  // R49 — declare charset=utf-8 on the blob MIME type: about:srcdoc INHERITED
-  // the parent document's encoding, but a blob: document has no parent to
-  // inherit from — without the parameter, Chromium decodes the blob as
-  // windows-1252 and legacy complete documents without <meta charset> render
-  // Arabic (any non-ASCII) as mojibake. ensureUtf8Document only wraps
-  // FRAGMENTS, so complete documents rely on this declaration.
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!html) return;
-    const url = URL.createObjectURL(new Blob([html], { type: 'text/html; charset=utf-8' }));
-    setBlobUrl(url);
-    return () => {
-      URL.revokeObjectURL(url);
-    };
-  }, [html]);
+  // R51 — the grant URL is absolute-path (/api/v1/...). Join the API origin
+  // from the configured base so production frames the API host directly
+  // (cross-origin: its CSP header applies cleanly); in dev/e2e (no
+  // VITE_API_URL) the join is a no-op and the request stays same-origin.
+  const apiOrigin = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/api\/v1\/?$/, '') ?? '';
+  const frameSrc = url ? `${apiOrigin}${url}` : null;
 
   if (status === 'error') {
     return (
@@ -84,7 +64,7 @@ export function HtmlPlayer({ assetType, assetId, title, enableScripts, watermark
     );
   }
 
-  if (status === 'loading' || !html || !blobUrl) {
+  if (status === 'loading' || !frameSrc) {
     return (
       <div
         dir="rtl"
@@ -102,19 +82,18 @@ export function HtmlPlayer({ assetType, assetId, title, enableScripts, watermark
   return (
     <div dir="rtl" className="relative h-full w-full bg-white" data-testid={testId ?? 'html-player'}>
       {/*
-        R47 render path: src={blobUrl} instead of srcDoc={html}.
-        about:srcdoc INHERITS the app-shell CSP (script-src 'self') and the
-        inherited policy intersects with our injected meta — inline scripts
-        died and authored lessons froze. A blob: URL document carries NO
-        inherited policy, so the injected CSP meta is authoritative.
+        R51 render path: src={frameSrc} — the API's html-view response carries
+        the lesson's CSP (script-src 'unsafe-inline' when EnableScripts, 'none'
+        otherwise), charset=utf-8 and Cache-Control: no-store as HEADERS. No
+        client meta injection exists; stored bytes reach the frame verbatim.
         Sandbox policy (Q1) is UNCHANGED: allow-scripts ONLY for trusted
-        lessons, never combined with allow-same-origin — the blob document
-        still runs on an opaque origin (no parent DOM, cookies, storage).
+        lessons, never combined with allow-same-origin — the document still
+        runs on an opaque origin (no parent DOM, cookies, storage).
         NO allow, NO allowFullScreen, NO allow-downloads — fullscreen is
         shell-owned and downloads are platform-forbidden (R42 iframe contract).
       */}
       <iframe
-        src={blobUrl}
+        src={frameSrc}
         title={title}
         sandbox={enableScripts ? 'allow-scripts' : ''}
         className="h-full w-full"

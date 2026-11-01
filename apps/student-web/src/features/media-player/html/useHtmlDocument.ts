@@ -1,36 +1,34 @@
 import { useCallback, useEffect, useState } from 'react';
 import { libraryApi } from '@/features/library/services/library-api';
-import { injectLessonPrelude } from './html-csp';
 
 /** Document lifecycle for the HTML player (G-5 states + retry via token). */
 export type HtmlDocStatus = 'loading' | 'ready' | 'error';
 
 /**
- * Wave 13 (F3) — fetches the stored HTML lesson and prepares it for the
- * sandboxed srcDoc render. R42 (Wave 13.2 hotfix) revision: the stored bytes
- * are now the ORIGINAL upload (the backend no longer mutates HTML), so this
- * hook is the ONLY place the document is transformed — and it stays
- * strictly IN-MEMORY: the string is never written back, never stored, never
- * leaves the component (C.1/C.2).
+ * R51 — resolves the single-use view URL for the HTML lesson iframe.
+ *
+ * The client NO LONGER transforms the document. The backend streams the
+ * ORIGINAL stored bytes and attaches the per-file CSP (and charset) response
+ * headers — the browser enforces that policy on the framed document directly,
+ * which is the only layer that can never be inherited from the embedding app
+ * shell (the R42 srcDoc and R47 blob: paths were both fallbacks toward this
+ * end state; both inherit from, or interact with, the app-shell CSP).
  *
  * Pipeline per attempt:
- *  1. `libraryApi.getContentText` — the same-origin proxy (the presigned
- *     storage URLs carry no CORS headers and no charset declaration).
- *  2. `ensureUtf8Document` — fragments are wrapped in a full document with a
- *     charset meta; complete documents pass through untouched.
- *  3. `injectLessonPrelude` — viewport meta + the STRICT CSP meta (the single
- *     remaining enforcement layer — idempotent, strips any previous-build
- *     tag) + the fit-to-width style/script. When enableScripts=false the CSP
- *     carries an explicit `script-src 'none'` — execution is blocked by the
- *     BROWSER (CSP + sandbox), never by string surgery (R44).
+ *  1. `libraryApi.issueHtmlAccess` — POST /library/{id}/html-access with the
+ *     entitlement headers; the server validates the file gates (HTML, published,
+ *     virus-clean) and the entitlement, then issues a single-use, 5-minute token.
+ *  2. The grant's absolute-path `url` becomes the iframe src (the player joins
+ *     the API origin). Nothing is fetched, parsed or rewritten here.
  *
- * Retry (G-5): `retry()` bumps the reload token — the effect re-runs, the
- * state machine resets, no shell remount (identical to the PdfPlayer pattern).
+ * Retry (G-5): retry() bumps the reload token — a FRESH token is issued on the
+ * next pass (the previous one may already be consumed), the state machine
+ * resets, no shell remount (identical to the PdfPlayer pattern).
  */
-export function useHtmlDocument(assetId: string | undefined, enabled: boolean, enableScripts: boolean) {
+export function useHtmlDocument(assetId: string | undefined, enabled: boolean) {
   const [reloadToken, setReloadToken] = useState(0);
   const [status, setStatus] = useState<HtmlDocStatus>('loading');
-  const [html, setHtml] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(null);
 
   const retry = useCallback(() => setReloadToken((token) => token + 1), []);
 
@@ -38,14 +36,14 @@ export function useHtmlDocument(assetId: string | undefined, enabled: boolean, e
     if (!enabled || !assetId) return;
     let cancelled = false;
     setStatus('loading');
-    setHtml(null);
+    setUrl(null);
 
     libraryApi
-      .getContentText(assetId)
-      .then((body) => {
+      .issueHtmlAccess(assetId)
+      .then((grant) => {
         if (cancelled) return;
-        if (!body) throw new Error('empty html body');
-        setHtml(injectLessonPrelude(ensureUtf8Document(body), enableScripts));
+        if (!grant?.url) throw new Error('empty html view grant');
+        setUrl(grant.url);
         setStatus('ready');
       })
       .catch(() => {
@@ -55,18 +53,7 @@ export function useHtmlDocument(assetId: string | undefined, enabled: boolean, e
     return () => {
       cancelled = true;
     };
-  }, [enabled, assetId, enableScripts, reloadToken]);
+  }, [enabled, assetId, reloadToken]);
 
-  return { status, html, retry };
-}
-
-/**
- * Charset guard (mirrors the legacy DocumentViewer `forceUtf8Html`): sanitizer-
- * stripped legacy fragments are wrapped so the R42 prelude has a real <head>
- * to live in. Complete documents pass through untouched — never nest a
- * document inside itself.
- */
-function ensureUtf8Document(raw: string): string {
-  if (/<html[\s>]/i.test(raw)) return raw;
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${raw}</body></html>`;
+  return { status, url, retry };
 }

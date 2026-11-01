@@ -56,6 +56,13 @@ export interface FileAccess {
   };
 }
 
+/** R51 — grant from POST /library/{id}/html-access (single-use, 5-minute TTL). */
+export interface HtmlAccessGrant {
+  /** Absolute-path API URL: /api/v1/library/{id}/html-view?t=<token> */
+  url: string;
+  expiresAt: string;
+}
+
 export const libraryApi = {
   getFiles: async (subjectId: string, type?: string, page = 1, pageSize = 20) => {
     const config = await entitlementRequestConfig();
@@ -75,6 +82,24 @@ export const libraryApi = {
 
   getAccess: async (id: string): Promise<FileAccess> => {
     const res = await apiClient.post(`/library/${id}/access`, undefined, await entitlementRequestConfig());
+    return res.data;
+  },
+
+  /**
+   * R51 — issues a single-use, 5-minute HTML view token for the lesson viewer
+   * (entitlement is validated server-side before the token exists).
+   * Returns { url, expiresAt }: `url` is an absolute-path API URL
+   * (`/api/v1/library/{id}/html-view?t=...`) that the player assigns to the
+   * iframe — the response carries the lesson's authoritative CSP HEADER, so
+   * the browser applies it to the framed document directly (no client-side
+   * meta injection happens anywhere anymore).
+   */
+  issueHtmlAccess: async (id: string): Promise<HtmlAccessGrant> => {
+    const res = await apiClient.post<{ url: string; expiresAt: string }>(
+      `/library/${id}/html-access`,
+      undefined,
+      await entitlementRequestConfig(),
+    );
     return res.data;
   },
 
