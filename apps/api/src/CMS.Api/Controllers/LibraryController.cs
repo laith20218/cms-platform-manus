@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.Text;
 using CMS.Application.Commands.Library;
 using CMS.Application.DTOs.Library;
 using CMS.Application.Interfaces;
@@ -214,7 +215,14 @@ public class LibraryController : ControllerBase
     ///    frame-ancestors already constrains to the student-web origin.
     ///  - Cache-Control: no-store — single-use token in the URL must never be cached.
     ///
-    /// Storage bytes are streamed UNMODIFIED (zero server-side transformation).
+    /// R56: on EnableScripts=true rows the response body is the stored HTML with
+    /// the in-memory storage shim (HtmlStorageShim) injected right after the
+    /// &lt;head&gt; open tag — BEFORE any lesson script — so lessons never hit the
+    /// opaque-origin SecurityError. The transformation happens IN MEMORY on this
+    /// response only; the stored object is never read-modify-written.
+    /// Static rows (EnableScripts=false) keep the R51 verbatim-bytes contract:
+    /// scripts cannot run there (sandbox="" + script-src 'none'), so there is
+    /// nothing to shim and the bytes stream unmodified.
     /// </summary>
     [HttpGet("{id:guid}/html-view")]
     [AllowAnonymous]
@@ -236,13 +244,25 @@ public class LibraryController : ControllerBase
         var storage = HttpContext.RequestServices.GetRequiredService<IFileStorageService>();
         var stream = await storage.DownloadAsync(file.FileUrl, ct);
 
+        // R56 — buffer the lesson into a string to transform the RESPONSE (not the
+        // stored object). HTML lessons are small authored documents (the upload
+        // pipeline gates size well below what this buffer could hold); the stream
+        // is disposed by the reader, so the raw bytes are never double-held.
+        string html;
+        using (var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true))
+            html = await reader.ReadToEndAsync(ct);
+
         var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
         var frameAncestors = config["Cors:StudentApp"];
 
         Response.Headers["Content-Security-Policy"] = HtmlViewCsp.Build(file.EnableScripts, frameAncestors ?? HtmlViewCsp.DefaultFrameAncestors);
         Response.Headers.Remove("X-Frame-Options");
         Response.Headers.CacheControl = "no-store";
-        return File(stream, "text/html; charset=utf-8");
+
+        // R56 — shim only where scripts can run at all. Under script-src 'none'
+        // (EnableScripts=false) the shim could never execute, and static rows
+        // keep the R51 verbatim-bytes contract (see HtmlStorageShim doc).
+        return Content(file.EnableScripts ? HtmlStorageShim.Inject(html) : html, "text/html; charset=utf-8");
     }
 
     /// <summary>

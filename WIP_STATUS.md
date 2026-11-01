@@ -1,4 +1,55 @@
-# WIP_STATUS — feat/13.5-html-api-endpoint (R51: server-side CSP via html-view endpoint)
+# WIP_STATUS — feat/13.6-html-storage-shim (R56: in-memory storage shim injected into html-view responses)
+
+## ─── R56 — CURRENT STATE (this branch) ────────────────
+Branch: feat/13.6-html-storage-shim, cut from main @ b4bd8f82
+(the merged PR #63). NOT pushed — push stays a supervisor-authorized
+step (PAT pending). 1 commit planned per the R56 workorder.
+
+R56 deliverable — lessons that use localStorage/sessionStorage no longer
+self-destruct in the opaque-origin html-view frame:
+
+- Backend — NEW `HtmlStorageShim` (CMS.Infrastructure/Security): pure string
+  transform — injects the workorder's shim <script id="cms-storage-shim">
+  right after the FIRST case-insensitive <head …> open tag (\b so <header>
+  never matches), prepended when the document has no head (quirks-mode
+  trade-off accepted per the workorder's explicit "prepend"). The stored
+  object is NEVER touched — the transform is response-only (in-memory).
+- Backend — LibraryController.ServeHtmlView: buffers the downloaded stream
+  (StreamReader, UTF-8, BOM-detecting) and returns Content() with the shim
+  injected on EnableScripts=true rows. DISCLOSED DEVIATION (§11, supervisor
+  decides): injection is CONDITIONAL on EnableScripts — under script-src
+  'none' (static rows) the shim could never execute (sandbox="" + CSP block
+  all scripts), so static rows keep the R51 verbatim-bytes contract and the
+  shim is never dead payload. One-line change if unconditional is wanted.
+- Tests — unit: Unit/Security/HtmlStorageShimTests.cs (9 tests: placement,
+  case-insensitivity, attributes, <header> non-match, prepend, empty, first-
+  head-only, ordering-before-lesson-scripts, storage surface).
+- Tests — integration: HtmlViewHttpIntegrationTests updated to the R56
+  contract — the R51 byte-verbatim test became
+  View_ValidToken_InjectsStorageShim_WithCspHeader_NoStore_NoXfo (expected
+  body composed from the LITERAL stored fixture, not from Inject — no
+  tautology) + NEW View_StaticRow_ServedVerbatim_NoShim + NEW
+  View_HeadlessLesson_ShimPrepended (new HeadlessHtmlId fixture row).
+- E2E — NEW student-web/e2e/w13.6-html-storage-shim.e2e.mjs (w13.1 harness
+  contract): S1 proves the shim ENGAGES in a REAL Chromium opaque origin
+  (localStorage becomes an OWN window property = defineProperty ran) and the
+  fixture script (localStorage.setItem('x','y')) runs to completion with ZERO
+  SecurityError; S2 proves static rows carry no shim and stay inert. HARNESS
+  FIDELITY: the suite route-mocks html-view (like w13.1), so the mock serves
+  STORED+SHIM with the shim copied VERBATIM from the C# class — the real
+  server transform is covered by the integration tests above. Registered in
+  ci.yml after player-hls-option-c (make it an actual CI gate).
+- Docs — WIP_STATUS.md (this section).
+
+UNVERIFIED (§11): CI gates (dotnet build/test incl. Postgres job, full
+frontend ladder) run on push — verification evidence recorded in the R56
+report; nothing here claims a green CI run before it exists.
+
+RESUME_FROM: feat/13.6-html-storage-shim — 1 local commit on top of
+main @ b4bd8f82 (SHA in the R56 report). Local verification evidence
+(dotnet test + w13.6/w13.1 e2e) recorded in the R56 report; tree clean;
+NOT pushed.
+NEXT: Supervisor review → PAT → push → CI green → PR → merge (STOP GATE §2).
 
 ## ─── R51 — CURRENT STATE (this branch) ────────────────
 Branch: feat/13.5-html-api-endpoint, cut from main @ be307c9
