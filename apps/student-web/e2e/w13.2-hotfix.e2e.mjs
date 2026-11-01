@@ -91,7 +91,9 @@ function isBenignConsole(text) {
   );
 }
 function classifyConsole(text) {
-  if (/Blocked script execution in 'about:srcdoc'/.test(text) || /Content Security Policy/.test(text)) {
+  // R47: the lesson frame is a blob: URL now — sandbox/CSP block reports name
+  // the blob URL instead of about:srcdoc; both are PASS evidence.
+  if (/Blocked script execution in '(about:srcdoc|blob:[^']*)'/.test(text) || /Content Security Policy/.test(text)) {
     securityBlocks.push(text);
     return;
   }
@@ -303,9 +305,13 @@ async function assertContextMenuPrevented(page, label) {
   check(`${label}: contextmenu on player stage is PREVENTED`, prevented === true, `defaultPrevented=${prevented}`);
 }
 
+/** The lesson execution context (R47: blob: URL — opaque origin via sandbox;
+ *  CDP evaluation still reaches it). '' / 'about:srcdoc' kept for fallback. */
 function srcdocFrame(page) {
   return page.frames().find(
-    (frame) => frame !== page.mainFrame() && (frame.url() === 'about:srcdoc' || frame.url() === ''),
+    (frame) =>
+      frame !== page.mainFrame() &&
+      (frame.url() === 'about:srcdoc' || frame.url() === '' || frame.url().startsWith('blob:')),
   ) ?? null;
 }
 
@@ -359,7 +365,9 @@ async function main() {
       check('S1a: sandbox="allow-scripts" on trusted rows', sandboxAttr === 'allow-scripts', `sandbox="${sandboxAttr}"`);
 
       const frame = await waitForSrcdoc(page);
-      check('S1b: srcdoc frame attached', !!frame);
+      check('S1b: content frame attached', !!frame);
+      check('S1b2: frame loaded via blob: URL — parent app-shell CSP is NOT inherited (R47)',
+        !!frame && frame.url().startsWith('blob:'), frame ? frame.url() : 'no-frame');
 
       if (frame) {
         // Render fidelity: the ORIGINAL fixture survives byte-for-byte at the DOM level —
@@ -426,7 +434,7 @@ async function main() {
         check('S2b: NO horizontal scroll after fit (document scrollWidth ≤ viewport)', zoomProbe.docScrollW <= zoomProbe.vw + 2, `docScrollW=${zoomProbe.docScrollW} vw=${zoomProbe.vw}`);
         check('S2c: platform fit prelude EXECUTED (window.__cms_fit === true) — we control the CSP', zoomProbe.fitMarker === true, `__cms_fit=${zoomProbe.fitMarker}`);
       } else {
-        check('S2: srcdoc frame attached', false);
+        check('S2: content frame attached', false);
       }
       await context.close();
     }
@@ -449,7 +457,7 @@ async function main() {
         check('S3: body.zoom === 1 at 1440px (no shrink for fitting content)', parseFloat(probe.zoom) === 1 && probe.inlineZoom === '', JSON.stringify(probe));
         check('S3b: fit prelude executed at desktop too (window.__cms_fit === true)', probe.fitMarker === true, `__cms_fit=${probe.fitMarker}`);
       } else {
-        check('S3: srcdoc frame attached', false);
+        check('S3: content frame attached', false);
       }
       await page.screenshot({ path: `${SHOT_DIR}/w13.2-html-1440.png` });
       await context.close();
@@ -484,7 +492,7 @@ async function main() {
         check('S4e: platform prelude present in DOM (fit style + fit script, ready for trusted rows)',
           probe.fitStyle && probe.fitScript);
       } else {
-        check('S4: srcdoc frame attached', false);
+        check('S4: content frame attached', false);
       }
       await context.close();
     }
@@ -553,7 +561,7 @@ async function main() {
     if (consoleErrors.length) check('console clean (unexpected errors only)', false, consoleErrors.slice(0, 3).join(' | '));
     else check('console clean (unexpected errors only)', true);
     check('evidence: sandbox/CSP block reports present (static-row protection is REAL)',
-      securityBlocks.some((t) => /Blocked script execution in 'about:srcdoc'/.test(t)),
+      securityBlocks.some((t) => /Blocked script execution in '(about:srcdoc|blob:[^']*)'/.test(t)),
       `${securityBlocks.length} block report(s)`);
     if (pageErrors.length) check('no page errors', false, pageErrors.slice(0, 3).join(' | '));
     else check('no page errors', true);
