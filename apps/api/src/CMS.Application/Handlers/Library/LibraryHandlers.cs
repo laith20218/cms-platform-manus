@@ -448,7 +448,9 @@ public class LibraryHandlers :
                     {
                         await _storage.DeleteAsync(req.FileKey, ct);
                     }
-                    catch (Exception cleanupEx)
+                    // R44 (CodeQL note): no bare catch-all — cancellation propagates
+                    // instead of being swallowed by best-effort blob cleanup.
+                    catch (Exception cleanupEx) when (cleanupEx is not OperationCanceledException)
                     {
                         _logger.LogWarning(cleanupEx,
                             "Blob cleanup after failed HTML processing also failed; an orphaned blob remains. FileKey={FileKey}",
