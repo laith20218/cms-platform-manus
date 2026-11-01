@@ -3,6 +3,7 @@ import {
   caseFoldItem, clearSearchCache, findMatches, getCachedPageSearchViewport, getPageSearchItems,
   matchFallbackBoxes, textBoxToNormalizedViewportBox, type SearchMatch, type SearchTextItem,
 } from '../pdf-search';
+import { buildReverseIndexMap, normalizeArabicPresentationForms } from '../pdf-text';
 import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 /** Wave 11.11 — search-engine falsification: Arabic presentation-form
@@ -431,9 +432,19 @@ describe('matchFallbackBoxes (12.2.B M1 — warm cache, no DOM resolution)', () 
   });
 });
 
-describe('matchFallbackBoxes (12.2.B M2 — ligature-safe fallback)', () => {
+describe('matchFallbackBoxes (12.3.B M2 — ligature-accurate fallback via reverse map)', () => {
   const IDENTITY = [1, 0, 0, 1, 0, 0];
   const VIEWPORT = { transform: IDENTITY, width: 400, height: 400 };
+  /** Builds the item the way getPageSearchItems does: normalized str +
+   *  rawLength + reverseIndex only when the normalization expanded. */
+  const expandedItemOf = (raw: string): SearchTextItem => {
+    const str = normalizeArabicPresentationForms(raw);
+    return {
+      str, transform: IDENTITY, width: 100, height: 10,
+      rawLength: raw.length,
+      ...(str.length !== raw.length ? { reverseIndex: buildReverseIndexMap(raw, str) ?? undefined } : {}),
+    };
+  };
   const itemOf = (str: string, rawLength?: number): SearchTextItem => ({
     str, transform: IDENTITY, width: 100, height: 10,
     ...(rawLength !== undefined ? { rawLength } : {}),
@@ -443,12 +454,38 @@ describe('matchFallbackBoxes (12.2.B M2 — ligature-safe fallback)', () => {
     boxes: [{ itemIndex, sliceStart, sliceEnd, transform: IDENTITY, width: 100, height: 10 }],
   });
 
-  it('M2: a ligature-expanded item (rawLength ≠ str.length) keeps the FULL-item box', () => {
-    // lam-alef family: normalization expanded 3 raw glyphs → 4 base chars;
-    // slice [0, 2) of the EXPANDED domain must NOT become a half-item box.
-    const boxes = matchFallbackBoxes(matchOf(0, 0, 2), [itemOf('\u0639\u0644\u0627\u062C', 3)], VIEWPORT);
+  it('M2: a ligature slice lands within ±2% of the correct visual span', () => {
+    // RAW pdf.js stream: ع + U+FEFB (lam-alef ISOLATED, ONE glyph) + ج
+    // → normalized علاج (4 base chars, 3 glyphs). The match covers slice
+    // [1, 3) of the normalized domain = 'لا' = EXACTLY the middle (ligature)
+    // glyph → fractions 1/3..2/3 on the glyph domain. The old
+    // normalized-domain math would claim 1/4..3/4 of the run. Viewport
+    // conversion: fractions × item.width(100px) ÷ viewport(400px) = /12.
+    const raw = '\u0639\uFEFB\u062C';
+    const item = expandedItemOf(raw);
+    expect(item.reverseIndex).toBeDefined();
+    const boxes = matchFallbackBoxes(matchOf(0, 1, 3), [item], VIEWPORT);
     expect(boxes).toHaveLength(1);
+    expect(Math.abs(boxes[0].left - (1 / 3) * (100 / 400))).toBeLessThanOrEqual(0.005);
+    expect(Math.abs(boxes[0].width - (1 / 3) * (100 / 400))).toBeLessThanOrEqual(0.005);
+  });
+
+  it('M2: full-item match on an expanded item still covers the WHOLE run', () => {
+    const raw = '\u0639\uFEFB\u062C';
+    const boxes = matchFallbackBoxes(matchOf(0, 0, 4), [expandedItemOf(raw)], VIEWPORT);
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0].left).toBeCloseTo(0, 6);
     expect(boxes[0].width).toBeCloseTo(100 / 400, 6);
+  });
+
+  it('M2: leading ligature expansion shifts the following slice correctly', () => {
+    // RAW: U+FEFB + ب + ث (3 glyphs) → normalized لا + ب + ث (4 chars).
+    // Slice [2, 4) = 'بث' = glyphs 1..3 → fractions 1/3..3/3 (viewport: ×100/400).
+    const raw = '\uFEFB\u0628\u062B';
+    const boxes = matchFallbackBoxes(matchOf(0, 2, 4), [expandedItemOf(raw)], VIEWPORT);
+    expect(boxes).toHaveLength(1);
+    expect(Math.abs(boxes[0].left - (1 / 3) * (100 / 400))).toBeLessThanOrEqual(0.005);
+    expect(boxes[0].width).toBeCloseTo((2 / 3) * (100 / 400), 6);
   });
 
   it('M2: non-expanded items (rawLength === str.length) keep proportional slices', () => {
@@ -459,5 +496,11 @@ describe('matchFallbackBoxes (12.2.B M2 — ligature-safe fallback)', () => {
   it('M2: items without rawLength (legacy fixtures) keep proportional slices', () => {
     const boxes = matchFallbackBoxes(matchOf(0, 0, 2), [itemOf('abcd')], VIEWPORT);
     expect(boxes[0].width).toBeCloseTo((100 * 2) / 4 / 400, 6);
+  });
+
+  it('M2 defensive: an expanded item with NO reverse map keeps the whole-item floor', () => {
+    const boxes = matchFallbackBoxes(matchOf(0, 1, 3), [itemOf('\u0639\u0644\u0627\u062C', 3)], VIEWPORT);
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0].width).toBeCloseTo(100 / 400, 6);
   });
 });

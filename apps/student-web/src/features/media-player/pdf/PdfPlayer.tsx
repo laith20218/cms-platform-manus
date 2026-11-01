@@ -841,8 +841,11 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           return;
         }
         // Wave 12.2.B (M1) — the fallback is the extracted pure helper: warm
-        // cache → proportional slices (M2 keeps ligature-expanded items
-        // whole-item); cold cache → whole-item boxes (the honest floor).
+        // cache → proportional slices. Wave 12.3.B (M2) — expansion items
+        // (lam-alef ligatures) map their slices through the extraction-time
+        // reverse index, so fractions are measured on the GLYPH domain the
+        // advance width covers; cold cache → whole-item boxes (the honest
+        // floor).
         for (const normalized of matchFallbackBoxes(match, cachedItems, viewport)) {
           target.push({
             left: normalized.left * cssWidth,
