@@ -257,7 +257,14 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
 
   /* ---- Wave 12.3.A (A.2/A.3) — the mobile drawers are CONTROLLED here:
           the bottom action bar is their only trigger below `lg` (the old
-          floating toggles were removed). ---- */
+          floating toggles were removed).
+          Hotfix R35.1 — the removal is TOTAL: no Thumbnails/Study-Tools
+          floating toggle renders in the DOM at ANY width (the w12.3-mobile
+          e2e asserts zero `[data-testid*="floating"]` / pdf-thumbs-open /
+          pdf-study-tools-open nodes at 375+414, in the default state AND
+          during focus mode — nothing can be stranded by the focus collapse).
+          ≥ lg keeps the docked rails only; no floating cluster exists there
+          either. ---- */
   const [thumbsDrawerOpen, setThumbsDrawerOpen] = useState(false);
   const [toolsDrawerOpen, setToolsDrawerOpen] = useState(false);
 
@@ -1080,7 +1087,12 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
         />
         {/* Wave 12.2.C.2 (E2) — the page stage joins the dark ramp: the white
             .pdf-page sheets are the ONLY light surface left (paper contract,
-            non-negotiable). #071426 = the approved stage token. */}
+            non-negotiable). #071426 = the approved stage token.
+            Hotfix R35.2 — overflow-x-auto (was overflow-x-hidden): at zoom
+            > 100% the page column is wider than the viewport and the clipped
+            inline-end side (LEFT in RTL) was unreachable on touch. The
+            scroller now pans horizontally; touchAction gains `pan-x` so the
+            browser owns one-axis panning + pinch-zoom on the same surface. */}
         <div
           ref={scrollRef}
           data-testid="pdf-scroll"
@@ -1089,8 +1101,8 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           tabIndex={0}
           role="region"
           aria-label="تمرير صفحات المستند"
-          className="h-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden rounded-3xl bg-[#071426] px-3 py-4 outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8] sm:px-6"
-          style={{ touchAction: 'pan-y pinch-zoom' }}
+          className="h-full min-w-0 flex-1 overflow-y-auto overflow-x-auto rounded-3xl bg-[#071426] px-3 py-4 outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8] sm:px-6"
+          style={{ touchAction: 'pan-x pan-y pinch-zoom' }}
         >
           {/* Wave 12.2.C.1 (E7) — max-w-4xl removed: the column fills the row
               (fitScale + ResizeObserver already cap the page width); px-2/

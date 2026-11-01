@@ -1,5 +1,14 @@
 /**
  * Wave 12.3.A — mobile UX hardening E2E (375px + 414px large phone).
+ * Hotfix R35 — extends the matrix with the three field-reported bugs:
+ *  - R35.1 floating toggles: absent in the DEFAULT state (M3) AND never
+ *    stranded by the focus collapse (probed during focus mode too);
+ *  - R35.2 zoom > 100%: pdf-scroll flips to overflow-x-auto + pan-x — at
+ *    150% zoom scrollWidth > clientWidth and the inline-end side (LEFT in
+ *    RTL) is reachable by scrolling; fit restores the zero-overflow §13
+ *    contract;
+ *  - R35.3 study-tools drawer is a SLIM icon rail: width < 100px, slide-in
+ *    animation (pdf-drawer-start, 200ms) + transition utilities present.
  *
  * Supervisor A.6 contract:
  *  - M1 top bar single row (pdf-top-bar clientHeight <= 56px) at 375 & 414;
@@ -259,6 +268,29 @@ async function main() {
       await page.locator('[data-testid="pdf-mobile-tools"]').click();
       await page.locator('[data-testid="pdf-study-tools-close"]').waitFor({ state: 'visible', timeout: 4000 });
       await page.screenshot({ path: `${SHOT_DIR}/w12.3-${width}-tools-drawer.png` });
+      // R35.3 — the study-tools drawer is a SLIM icon rail (< 100px wide;
+      // was 85vw) with a real slide-in (pdf-drawer-start 200ms keyframes +
+      // transition-all/duration-200/ease-out utilities on the element).
+      const slimDrawer = await page.evaluate(() => {
+        const drawer = document.querySelector('[data-testid="pdf-study-tools-drawer"]');
+        if (!drawer) return null;
+        const style = getComputedStyle(drawer);
+        return {
+          w: drawer.getBoundingClientRect().width,
+          animationName: style.animationName,
+          transitionDuration: style.transitionDuration,
+        };
+      });
+      check(
+        `${label} R35.3a: tools drawer slim (< 100px)`,
+        !!slimDrawer && slimDrawer.w > 0 && slimDrawer.w < 100,
+        `w=${slimDrawer?.w}`,
+      );
+      check(
+        `${label} R35.3b: drawer slide-in animation + 200ms transition`,
+        !!slimDrawer && slimDrawer.animationName.includes('pdf-drawer-start-in') && slimDrawer.transitionDuration.includes('0.2'),
+        JSON.stringify(slimDrawer),
+      );
       // The desktop rail also renders the focus toggle (display:none at this
       // width) — scope to the VISIBLE drawer copy.
       await page.locator('[data-testid="pdf-study-focus"]:visible').waitFor({ state: 'visible', timeout: 4000 });
@@ -285,6 +317,10 @@ async function main() {
           bottomBar: probe('pdf-mobile-action-bar'),
           statusBar: probe('pdf-status-bar'),
           pill: document.querySelectorAll('[data-testid="pdf-focus-exit"]').length,
+          // R35.1 — the removed floating toggles must NEVER be stranded by
+          // the focus collapse: zero matching nodes while chrome is hidden.
+          floatingAny: document.querySelectorAll('[data-testid*="floating"]').length,
+          oldTriggers: document.querySelectorAll('[data-testid="pdf-thumbs-open"], [data-testid="pdf-study-tools-open"]').length,
         };
       });
       check(
@@ -295,6 +331,11 @@ async function main() {
         JSON.stringify(hiddenState),
       );
       check(`${label} M5b: focus hides the floating exit pill on mobile`, hiddenState.pill === 0, `pills=${hiddenState.pill}`);
+      check(
+        `${label} R35.1: no floating toggles stranded in focus mode`,
+        hiddenState.floatingAny === 0 && hiddenState.oldTriggers === 0,
+        `floating=${hiddenState.floatingAny} old=${hiddenState.oldTriggers}`,
+      );
       await page.screenshot({ path: `${SHOT_DIR}/w12.3-${width}-focus.png` });
 
       // Tap to reveal — chrome peeks for 3s. The scroll column is the tap
@@ -328,6 +369,70 @@ async function main() {
       await page.locator('[data-testid="pdf-focus-exit"]').click();
       await page.locator('[data-testid="pdf-controls-bar"]').waitFor({ state: 'visible', timeout: 4000 });
       check(`${label} M5e: exit focus via revealed pill`, true);
+
+      // R35.2 — zoom > 100% must allow horizontal panning (the inline-end
+      // side — LEFT in RTL — was clipped by overflow-x-hidden). Drive the
+      // bottom-bar zoom menu to 150%, assert overflow + pan, restore fit.
+      await page.locator('[data-testid="pdf-mobile-zoom"]').click();
+      await page.locator('[data-testid="pdf-mobile-zoom-in"]').click(); // 100 → 125
+      await page.waitForTimeout(150);
+      await page.locator('[data-testid="pdf-mobile-zoom-in"]').click(); // 125 → 150
+      await page.waitForTimeout(150);
+      await page.locator('[data-testid="pdf-scroll"]').click({ position: { x: 30, y: 30 } }); // dismiss menu
+      await page.waitForTimeout(450); // canvas re-render settle
+      const zoomProbe = await page.evaluate(() => {
+        const scroller = document.querySelector('[data-testid="pdf-scroll"]');
+        return {
+          zoomLabel: document.querySelector('[data-testid="pdf-mobile-zoom"]')?.textContent?.trim() ?? '',
+          touchActionInline: scroller ? scroller.style.touchAction : '',
+          touchActionComputed: scroller ? getComputedStyle(scroller).touchAction : '',
+          overflowX: scroller ? getComputedStyle(scroller).overflowX : '',
+          scrollWidth: scroller ? scroller.scrollWidth : -1,
+          clientWidth: scroller ? scroller.clientWidth : -1,
+        };
+      });
+      check(`${label} R35.2a: zoom menu reached 150%`, zoomProbe.zoomLabel.includes('150'), zoomProbe.zoomLabel);
+      // Chromium folds the computed value of `pan-x pan-y pinch-zoom` into
+      // its EXACT equivalent keyword `manipulation` (pan + pinch-zoom, no
+      // double-tap-zoom) — accept either serialization of the same contract.
+      const touchOk = zoomProbe.touchActionInline.includes('pan-x') && zoomProbe.touchActionInline.includes('pinch-zoom')
+        && (zoomProbe.touchActionComputed === 'manipulation' || zoomProbe.touchActionComputed.includes('pan-x'));
+      check(
+        `${label} R35.2b: scroller overflow-x auto + pan-x pinch-zoom`,
+        zoomProbe.overflowX === 'auto' && touchOk,
+        `${zoomProbe.overflowX}/${zoomProbe.touchActionInline} => ${zoomProbe.touchActionComputed}`,
+      );
+      check(
+        `${label} R35.2c: h-overflow exists at 150% (scrollWidth > clientWidth)`,
+        zoomProbe.scrollWidth > zoomProbe.clientWidth,
+        `${zoomProbe.scrollWidth}/${zoomProbe.clientWidth}`,
+      );
+      // RTL scroll model: inline-start (RIGHT) = scrollLeft 0; scrolling
+      // toward the inline-end (LEFT) drives scrollLeft NEGATIVE (Chromium
+      // follows the CSSOM spec). A negative scrollLeft ⇔ the left side of
+      // the zoomed page is now reachable.
+      const panProbe = await page.evaluate(() => {
+        const scroller = document.querySelector('[data-testid="pdf-scroll"]');
+        const before = scroller ? scroller.scrollLeft : null;
+        scroller?.scrollBy({ left: -160, behavior: 'instant' });
+        return { before, after: scroller ? scroller.scrollLeft : null };
+      });
+      check(
+        `${label} R35.2d: left side reachable (scrollLeft pans negative)`,
+        panProbe.before === 0 && panProbe.after !== null && panProbe.after < -40,
+        JSON.stringify(panProbe),
+      );
+      await page.screenshot({ path: `${SHOT_DIR}/w12.3-${width}-zoom-150.png` });
+      // Restore fit — the §13 zero-overflow contract must hold again.
+      await page.locator('[data-testid="pdf-mobile-zoom"]').click();
+      await page.locator('[data-testid="pdf-mobile-zoom-fit"]').click();
+      await page.waitForTimeout(500);
+      const fitProbe = await horizontalScrollProbe(page);
+      check(
+        `${label} R35.2e: fit restores zero horizontal scroll`,
+        fitProbe.scrollerScrollWidth === fitProbe.scrollerClientWidth && fitProbe.docScrollWidth <= fitProbe.innerWidth,
+        `doc=${fitProbe.docScrollWidth}/${fitProbe.innerWidth} column=${fitProbe.scrollerScrollWidth}/${fitProbe.scrollerClientWidth}`,
+      );
 
       await context.close();
     }
