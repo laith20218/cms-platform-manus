@@ -8,6 +8,7 @@ using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
 using CMS.Domain.Enums;
 using CMS.Infrastructure.Persistence;
+using CMS.Infrastructure.Security;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
@@ -31,6 +32,13 @@ namespace CMS.Tests.Integration;
 ///  - View: 401 expired / used / mismatched fileId, 200 valid.
 ///  - CSP header: script-src 'unsafe-inline' when EnableScripts=true, 'none'
 ///    otherwise; frame-ancestors = the student-web origin (Cors:StudentApp).
+///
+/// R56 additions: the INTERACTIVE response body carries the HtmlStorageShim
+/// right after the &lt;head&gt; open tag (or prepended when the document has
+/// none); STATIC rows stay verbatim (script-src 'none' makes the shim dead
+/// bytes, and the R51 zero-modification contract is preserved for them). The
+/// stored object is never rewritten — the fake storage keeps the original
+/// bytes and every assertion reads back from it as ground truth.
 /// </summary>
 public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFactory>
 {
@@ -154,7 +162,7 @@ public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFac
     }
 
     [Fact]
-    public async Task View_ValidToken_ServesOriginalBytes_WithCspHeader_NoStore_NoXfo()
+    public async Task View_ValidToken_InjectsStorageShim_WithCspHeader_NoStore_NoXfo()
     {
         var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.InteractiveHtmlId, SignedToken(), HtmlViewHttpFactory.InstallationA));
         issue.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -172,9 +180,51 @@ public sealed class HtmlViewHttpIntegrationTests : IClassFixture<HtmlViewHttpFac
         response.Content.Headers.ContentType!.ToString().Should().Be("text/html; charset=utf-8");
         response.Headers.Contains("X-Frame-Options").Should().BeFalse("frame-ancestors is the sole embedding control for this document");
 
-        var body = await response.Content.ReadAsByteArrayAsync();
-        body.Should().Equal(_factory.Storage.Objects[$"library/html/{_factory.InteractiveHtmlId:N}"],
-            "the endpoint streams the ORIGINAL stored bytes — zero server-side modification");
+        // R56 — the interactive response = stored bytes + shim right after <head>.
+        // Expected body is composed from the LITERAL stored fixture (read back
+        // from the storage fake as ground truth), NOT from HtmlStorageShim.Inject,
+        // so this cannot pass by tautology.
+        var stored = Encoding.UTF8.GetString(_factory.Storage.Objects[$"library/html/{_factory.InteractiveHtmlId:N}"]);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Be(stored.Replace("<head>", "<head>" + HtmlStorageShim.ScriptTag, StringComparison.Ordinal),
+            "R56: the interactive response carries exactly the stored bytes plus the shim after <head> — nothing else changes");
+        body.Should().Contain($"<head><script id=\"{HtmlStorageShim.ScriptId}\">");
+        body.IndexOf(HtmlStorageShim.ScriptId, StringComparison.Ordinal)
+            .Should().BeLessThan(body.IndexOf("window.__r51", StringComparison.Ordinal),
+                "the shim must be defined before the lesson's own script runs");
+        _factory.Storage.Objects[$"library/html/{_factory.InteractiveHtmlId:N}"]
+            .Should().Equal(Encoding.UTF8.GetBytes(stored), "storage keeps the ORIGINAL bytes — the transform is response-only");
+    }
+
+    [Fact]
+    public async Task View_StaticRow_ServedVerbatim_NoShim()
+    {
+        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.StaticHtmlId, SignedToken(), HtmlViewHttpFactory.InstallationA));
+        issue.StatusCode.Should().Be(HttpStatusCode.OK);
+        var url = (await issue.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
+
+        var response = await _factory.Client.GetAsync(url);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var stored = Encoding.UTF8.GetString(_factory.Storage.Objects[$"library/html/{_factory.StaticHtmlId:N}"]);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Be(stored, "static rows keep the R51 verbatim-bytes contract (scripts are blocked there — no shim, no mutation)");
+        body.Should().NotContain(HtmlStorageShim.ScriptId);
+    }
+
+    [Fact]
+    public async Task View_HeadlessLesson_ShimPrepended()
+    {
+        var issue = await _factory.Client.SendAsync(_factory.IssueRequest(_factory.HeadlessHtmlId, SignedToken(), HtmlViewHttpFactory.InstallationA));
+        issue.StatusCode.Should().Be(HttpStatusCode.OK);
+        var url = (await issue.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
+
+        var response = await _factory.Client.GetAsync(url);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().StartWith(HtmlStorageShim.ScriptTag, "a document without <head> gets the shim prepended (R56 workorder contract)");
+        body.Should().Contain("window.__headless=true;");
     }
 
     [Fact]
@@ -249,6 +299,7 @@ public sealed class HtmlViewHttpFactory : WebApplicationFactory<Program>, IAsync
     public Guid SubjectId { get; private set; }
     public Guid InteractiveHtmlId { get; private set; }
     public Guid StaticHtmlId { get; private set; }
+    public Guid HeadlessHtmlId { get; private set; }
     public Guid DraftHtmlId { get; private set; }
     public Guid PdfFileId { get; private set; }
     public Guid ForeignHtmlId { get; private set; }
@@ -343,6 +394,14 @@ public sealed class HtmlViewHttpFactory : WebApplicationFactory<Program>, IAsync
         };
         StaticHtmlId = staticRow.Id;
         staticRow.FileUrl = $"library/html/{StaticHtmlId:N}";
+        var headless = new LibraryFile
+        {
+            SubjectId = subject.Id, Type = LibraryFileType.Html,
+            Title = "درس R51 بلا رأس", FileSize = 256,
+            FileFormat = "text/html", Status = ContentStatus.Published, VirusScanStatus = VirusScanStatus.Clean, EnableScripts = true,
+        };
+        HeadlessHtmlId = headless.Id;
+        headless.FileUrl = $"library/html/{HeadlessHtmlId:N}";
         var draft = new LibraryFile
         {
             SubjectId = subject.Id, Type = LibraryFileType.Html,
@@ -372,9 +431,13 @@ public sealed class HtmlViewHttpFactory : WebApplicationFactory<Program>, IAsync
             "<!DOCTYPE html><html dir=\"rtl\"><head><title>R51 interactive</title></head><body><h1>درس القلب</h1><script>window.__r51=true;</script></body></html>");
         Storage.Objects[$"library/html/{StaticHtmlId:N}"] = Encoding.UTF8.GetBytes(
             "<!DOCTYPE html><html dir=\"rtl\"><head><title>R51 static</title></head><body><p>نص ثابت</p></body></html>");
+        // R56 — a document with NO <head>: the shim must be PREPENDED.
+        Storage.Objects[$"library/html/{HeadlessHtmlId:N}"] = Encoding.UTF8.GetBytes(
+            "<p>درس بدون وسم head</p><script>window.__headless=true;</script>");
 
         db.AddRange(university, college, year, semester, subject, outsideSubject, student, student2);
         db.AddRange(interactive, staticRow, draft, pdf, foreign);
+        db.Add(headless);
         db.DeviceBindings.Add(new DeviceBinding { StudentId = student.Id, DeviceFingerprint = InstallationA, IsActive = true });
         db.DeviceBindings.Add(new DeviceBinding { StudentId = student2.Id, DeviceFingerprint = InstallationA, IsActive = true });
         db.StudentSubscriptions.Add(new StudentSubscription
