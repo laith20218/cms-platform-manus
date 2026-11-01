@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getDocument, TextLayer, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { AlertTriangle, LoaderCircle, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Focus, LoaderCircle, RotateCcw } from 'lucide-react';
 import { libraryApi } from '@/features/library/services/library-api';
 import { usePdfAnnotations } from './usePdfAnnotations';
 import { PdfControlsBar } from './PdfControlsBar';
@@ -14,12 +14,15 @@ import {
 } from './pdf-geometry';
 import { NoteLayer } from './pdf-note-layer';
 import { PdfSearchPanel } from './pdf-search-panel';
+import { PdfStatusBar } from './PdfStatusBar';
+import { StudyToolsPanel } from './StudyToolsPanel';
+import { ThumbnailsRail } from './ThumbnailsRail';
 import {
   documentSearchCacheKey, findMatches, getCachedPageSearchItems, getCachedPageSearchSourceIndexes,
-  getCachedPageSearchViewport, getPageSearchItems, textBoxToNormalizedViewportBox,
+  getCachedPageSearchViewport, getPageSearchItems, matchFallbackBoxes,
   type SearchHitBox, type SearchMatch,
 } from './pdf-search';
-import { createSearchSpanMap, resolveSearchMatchRects } from './pdf-search-dom';
+import { createSearchSpanMap, createSearchResolveStats, resolveSearchMatchRects, type SearchResolveStats } from './pdf-search-dom';
 import type {
   NormalizedPoint, NormalizedRect, NoteAnnotation, PdfAnnotation, PdfPlayerProps, PdfTool, ShapeKind,
 } from './pdf-types';
@@ -178,6 +181,12 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
    * proportional slice box (layer not built, or span verification failed). */
   const [resolvedHitRects, setResolvedHitRects] = useState<Record<string, Array<NormalizedRect[] | null>>>({});
   const docFingerprint = useMemo(() => (doc ? documentSearchCacheKey(doc) : ''), [doc]);
+
+  /* ---- Wave 12.2.C.5 — focus mode: chrome collapses around the page. The
+          center scroll column NEVER collapses (red line); the rails, top bar
+          and status bar animate away while staying mounted. ---- */
+  const [focusMode, setFocusMode] = useState(false);
+  const toggleFocusMode = useCallback(() => setFocusMode((mode) => !mode), []);
   const lastNavIndexRef = useRef(-1);
   const currentPageRef = useRef(currentPage);
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
@@ -556,6 +565,30 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [undo, redo]);
 
+  /* ---- Wave 12.2.C.5 — Escape exits focus mode; F toggles it. Editable
+          targets (inputs/textareas) are guarded exactly like the history
+          chords above. Escape ALSO lands in PlayerShell's onEscapeKeyDown,
+          which suppresses the Radix shell dismissal while the player root
+          carries [data-pdf-focus-mode] (state re-renders one tick later, so
+          the attribute is still present during this very keypress). ---- */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && focusMode) {
+        event.preventDefault();
+        setFocusMode(false);
+        return;
+      }
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key.toLowerCase() !== 'f') return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      event.preventDefault();
+      setFocusMode((mode) => !mode);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [focusMode]);
+
   /* ---- Navigation / zoom callbacks ---- */
   const goToPage = useCallback((target: number) => {
     const clamped = Math.max(1, Math.min(dims?.length ?? 1, target));
@@ -711,10 +744,12 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
       const cssHeight = dim.height * renderScale;
       // Wave 12.1 — per-match DOM rects (char-precise) when the page's text
       // layer has been resolved; null entries → proportional slice fallback
-      // for that match. Cached search items supply the ORIGINAL item lengths
-      // the fallback fractions need.
+      // for that match. Wave 12.2.B (M1) — the cached items feed the fallback
+      // slices whenever the sweep warmed the cache, INDEPENDENT of the DOM
+      // resolution outcome (the old `resolved ?` gate silently downgraded
+      // warm-cache pages with no resolution to whole-item boxes).
       const resolved = resolvedHitRects[`${fingerprint}:${page}`];
-      const cachedItems = resolved ? getCachedPageSearchItems(doc, page) : null;
+      const cachedItems = getCachedPageSearchItems(doc, page);
       const firstGlobal = matchesByPage.firstGlobalIndex.get(page) ?? 0;
       const target: SearchHitBox[] = [];
       pageMatches.forEach((match, matchIndex) => {
@@ -732,19 +767,10 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           }
           return;
         }
-        for (const box of match.boxes) {
-          const item = cachedItems?.[box.itemIndex];
-          const itemLength = item?.str.length ?? 0;
-          const normalized = textBoxToNormalizedViewportBox(
-            box,
-            viewport.transform,
-            viewport.width,
-            viewport.height,
-            itemLength > 0
-              ? { startFraction: box.sliceStart / itemLength, endFraction: box.sliceEnd / itemLength }
-              : undefined,
-          );
-          if (!normalized) continue;
+        // Wave 12.2.B (M1) — the fallback is the extracted pure helper: warm
+        // cache → proportional slices (M2 keeps ligature-expanded items
+        // whole-item); cold cache → whole-item boxes (the honest floor).
+        for (const normalized of matchFallbackBoxes(match, cachedItems, viewport)) {
           target.push({
             left: normalized.left * cssWidth,
             top: normalized.top * cssHeight,
@@ -793,10 +819,21 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   }
 
   return (
-    <div className="flex h-full w-full flex-col gap-3" data-testid={testId ?? 'pdf-player'}>
+    <div
+      className="flex h-full w-full flex-col gap-3"
+      data-testid={testId ?? 'pdf-player'}
+      data-pdf-focus-mode={focusMode ? 'true' : undefined}
+    >
+      {/* Wave 12.2.C.5 — the top bar collapses to max-h-0/opacity-0 in focus
+          mode (keep-mounted, overflow clipped, never display:none); the
+          floating exit pill takes over as the visible chrome. */}
+      <div
+        className={`shrink-0 overflow-hidden transition-all duration-200 ease-out motion-reduce:transition-none ${
+          focusMode ? 'max-h-0 -translate-y-3 opacity-0' : 'max-h-60 translate-y-0 opacity-100'
+        }`}
+      >
       <PdfControlsBar
         tool={tool}
-        onToolChange={(next) => { setTool(next); setSelectedShapeId(null); }}
         highlightColor={highlightColor}
         onHighlightColorChange={setHighlightColor}
         penColor={penColor}
@@ -835,16 +872,57 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
         canZoomIn={zoomIndex < ZOOM_STEPS.length - 1}
         canZoomOut={zoomIndex > 0}
         saving={saving}
+        focusMode={focusMode}
+        onToggleFocus={toggleFocusMode}
       />
+      </div>
 
-      <div className="relative min-h-0 flex-1">
+      {/* Wave 12.2.C.1 — MAIN ROW: [StudyToolsPanel] [CenterScroll] [ThumbnailsRail].
+          The flex-row order is LOGICAL (inline-start → inline-end): in the app's
+          RTL layout study tools land RIGHT, the center column MIDDLE, and the
+          thumbnails rail LEFT — the approved mockup. The row is the positioned
+          ancestor of the floating search panel (z-30, internal to the row).
+          RED LINE: the center scroll column is ALWAYS mounted and NEVER
+          collapses (no display:none / w-0) — unmounting it would destroy
+          canvas state, scroll position and the page IO observers. */}
+      <div className="relative min-h-0 flex-1 flex flex-row">
+        <StudyToolsPanel
+          tool={tool}
+          onToolChange={(next) => { setTool(next); setSelectedShapeId(null); }}
+          highlightColor={highlightColor}
+          onHighlightColorChange={setHighlightColor}
+          penColor={penColor}
+          onPenColorChange={setPenColor}
+          shapeKind={shapeKind}
+          onShapeKindChange={setShapeKind}
+          shapeColor={shapeColor}
+          onShapeColorChange={setShapeColor}
+          noteColor={noteColor}
+          onNoteColorChange={setNoteColor}
+          searchOpen={searchOpen}
+          onSearchToggle={searchOpen ? closeSearch : openSearch}
+          scannedPage={scannedPage}
+          scannedTitle={SCANNED_PAGE_TOOLTIP}
+          focusMode={focusMode}
+        />
+        {/* Wave 12.2.C.2 (E2) — the page stage joins the dark ramp: the white
+            .pdf-page sheets are the ONLY light surface left (paper contract,
+            non-negotiable). #071426 = the approved stage token. */}
         <div
           ref={scrollRef}
           data-testid="pdf-scroll"
-          className="h-full overflow-y-auto overflow-x-hidden rounded-3xl bg-[#cbd5e1] px-3 py-4 sm:px-6"
+          /* Wave 12.2.D (axe) — focusable scroll region: keyboard users can
+             scroll the document column (axe scrollable-region-focusable). */
+          tabIndex={0}
+          role="region"
+          aria-label="تمرير صفحات المستند"
+          className="h-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden rounded-3xl bg-[#071426] px-3 py-4 outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8] sm:px-6"
           style={{ touchAction: 'pan-y pinch-zoom' }}
         >
-          <div ref={contentRef} className="mx-auto w-full max-w-4xl">
+          {/* Wave 12.2.C.1 (E7) — max-w-4xl removed: the column fills the row
+              (fitScale + ResizeObserver already cap the page width); px-2/
+              sm:px-4 keep breathing room against the rail edges. */}
+          <div ref={contentRef} className="mx-auto w-full px-2 sm:px-4">
             {fitScale !== null && renderScale !== null && dims.map((dim, index) => {
               const pageNumber = index + 1;
               const cssWidth = dim.width * renderScale;
@@ -887,8 +965,39 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           </div>
         </div>
 
-        {/* Wave 11.11 — floating search panel: overlays the scroll column
-            (top-right), never the toolbar; z-30 inside this wrapper only. */}
+        {/* Wave 12.2.C.3 — inline-end rail slot (LEFT in RTL). Lazy 96px
+            thumbnails, module-level offscreen canvas, FIFO-120 cache. */}
+        <ThumbnailsRail
+          doc={doc}
+          dims={dims}
+          activePage={currentPage}
+          cacheKey={docFingerprint}
+          onGoToPage={goToPage}
+          focusMode={focusMode}
+        />
+
+        {/* Wave 12.2.C.5 — focus-mode floating exit pill (the top bar is
+            collapsed; Escape/F work as well). Centered via inset-x so no
+            physical left/right offsets ever enter the tree. */}
+        {focusMode && (
+          <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center">
+            <button
+              type="button"
+              onClick={toggleFocusMode}
+              aria-label="إنهاء وضع التركيز (Esc)"
+              title="إنهاء وضع التركيز (Esc)"
+              data-testid="pdf-focus-exit"
+              className="press pointer-events-auto inline-flex h-12 items-center gap-2 rounded-full border border-[#1e293b] bg-[#0b1120]/90 px-4 text-xs font-bold text-slate-200 shadow-2xl backdrop-blur transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+            >
+              <Focus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+              إنهاء وضع التركيز
+            </button>
+          </div>
+        )}
+
+        {/* Wave 11.11 — floating search panel: now anchored to the MAIN ROW
+            (12.2.C.1), so it floats over the center column between the rails;
+            z-30 internal to this wrapper. */}
         {searchOpen && (
           <PdfSearchPanel
             query={searchQuery}
@@ -902,6 +1011,19 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           />
         )}
       </div>
+
+      {/* Wave 12.2.C.5 — status bar: page x/y · zoom % · saving · search i/n;
+          hides through the same keep-mounted animation in focus mode. */}
+      <PdfStatusBar
+        page={currentPage}
+        pageCount={pageCount}
+        zoomPercent={zoomPercent}
+        saving={saving}
+        searchOpen={searchOpen}
+        matchCount={searchMatches.length}
+        activeMatchIndex={safeActiveMatchIndex}
+        focusMode={focusMode}
+      />
 
       {/* Invisible watermark layer — silent protection (mirrors DocumentViewer). */}
       {watermark && (
@@ -949,8 +1071,9 @@ interface PageViewProps {
   searchSlices: SearchMatch[];
   /** Wave 12.1 — sweep generation (query identity) guarding the resolver cache. */
   searchGeneration: number;
-  /** Wave 12.1 — reports per-match DOM-resolved rects (null = unresolved). */
-  onSearchRectsResolved: (pageNumber: number, rects: Array<NormalizedRect[] | null> | null) => void;
+  /** Wave 12.1 — reports per-match DOM-resolved rects (null = unresolved).
+   *  Wave 12.2.B (M3) — carries the optional per-run resolver stats. */
+  onSearchRectsResolved: (pageNumber: number, rects: Array<NormalizedRect[] | null> | null, stats?: SearchResolveStats) => void;
   /** Wave 11.11-C — reports text-layer presence after each page render. */
   onTextLayerState: (pageNumber: number, hasText: boolean) => void;
   registerPage: (pageNumber: number, el: HTMLElement | null) => void;
@@ -996,7 +1119,6 @@ const PageView = memo(function PageView({
   const resolveStateRef = useRef<{ version: number; generation: number; count: number }>({
     version: -1, generation: -1, count: 0,
   });
-
   // Hotfix R15.3 — the active stroke lives in refs, never in React state:
   // pointermove appends to the buffer and repaints ONE <path> via its d
   // attribute (rAF-throttled); React state is touched exactly once, on
@@ -1148,9 +1270,20 @@ const PageView = memo(function PageView({
       };
       spanMapRef.current = spanMap;
     }
-    const rects = searchSlices.map((match) => resolveSearchMatchRects(spanMap.map.spanForItem, match, pageRect));
+    const stats = createSearchResolveStats();
+    const rects = searchSlices.map((match) => resolveSearchMatchRects(spanMap.map.spanForItem, match, pageRect, stats));
     resolveStateRef.current = { version: layerVersion, generation: searchGeneration, count: searchSlices.length };
-    onSearchRectsResolved(pageNumber, rects);
+    // Wave 12.2.B (M3) — resolver observability: per-run counters surfaced as
+    // a data attribute on the layer, a DEV console.warn, and the (optional)
+    // stats payload of onSearchRectsResolved for the future status bar.
+    layer.dataset.resolverNulls = String(stats.nullCount);
+    if (import.meta.env.DEV && stats.nullCount > 0) {
+      console.warn(
+        `[PdfPlayer] search resolver: ${stats.nullCount}/${searchSlices.length} matches unresolved on page ${pageNumber}`,
+        stats.reasons,
+      );
+    }
+    onSearchRectsResolved(pageNumber, rects, stats);
   }, [layerVersion, searchSlices, searchGeneration, doc, pageNumber, onSearchRectsResolved]);
 
   // The pdf.js getPage call needs the page proxy before the first render —
@@ -1252,12 +1385,16 @@ const PageView = memo(function PageView({
       const overlayBox = overlay.getBoundingClientRect();
       const pageWidthPx = overlayBox.width > 0 ? overlayBox.width : cssWidth;
       const hitSet = new Set(collectEraserHitIds(annotations, path, ERASER_RADIUS_PX / pageWidthPx, pageWidthPx));
-      overlay.querySelectorAll('[data-annotation-id]').forEach((el) => {
+      // Wave 12.2.A — PAGE-level query: committed highlights live in the
+      // sibling blend SVG (z 10), not the ink overlay, so the dim preview
+      // must sweep [data-annotation-id] across the whole page box — the same
+      // page-host pattern the note preview below already uses.
+      const pageEl = overlay.parentElement;
+      pageEl?.querySelectorAll('[data-annotation-id]').forEach((el) => {
         const id = el.getAttribute('data-annotation-id') ?? '';
         el.classList.toggle('pdf-erase-preview', hitSet.has(id));
       });
       // Notes live in the DOM layer above (z 25) — the page box hosts both.
-      const pageEl = overlay.parentElement;
       pageEl?.querySelectorAll('[data-note-id]').forEach((el) => {
         const id = el.getAttribute('data-note-id') ?? '';
         el.classList.toggle('pdf-erase-preview', hitSet.has(id));
@@ -1268,7 +1405,9 @@ const PageView = memo(function PageView({
   const clearLiveEraser = useCallback(() => {
     if (eraserRafRef.current) { cancelAnimationFrame(eraserRafRef.current); eraserRafRef.current = 0; }
     const overlay = overlayRef.current;
-    overlay?.querySelectorAll('.pdf-erase-preview').forEach((el) => el.classList.remove('pdf-erase-preview'));
+    // Wave 12.2.A — one PAGE-level sweep clears ink/shapes AND highlights
+    // (the z-10 blend SVG is a sibling of the overlay inside the page box);
+    // note icons ride the same host.
     overlay?.parentElement?.querySelectorAll('.pdf-erase-preview').forEach((el) => el.classList.remove('pdf-erase-preview'));
     eraserPathRef.current = null;
   }, []);
@@ -1461,7 +1600,9 @@ const PageView = memo(function PageView({
         {annotations.map((annotation) => {
           if (annotation.annotationType !== 'Highlight') return null;
           return (
-            <g key={annotation.id} className="pdf-highlight">
+            // Wave 12.2.A — data-annotation-id lets the eraser's page-level
+            // preview dim committed highlights exactly like ink/shapes/notes.
+            <g key={annotation.id} className="pdf-highlight" data-annotation-id={annotation.id}>
               {annotation.payload.rects.map((rect, index) => (
                 <rect key={index} x={rect.x} y={rect.y} width={rect.w} height={rect.h} fill={annotation.payload.color} />
               ))}

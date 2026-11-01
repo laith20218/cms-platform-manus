@@ -29,6 +29,10 @@
   /* Blue (calm medical signal — actions, active states) */
   --cms-teal-700: #1e6feb;
   --cms-teal-600: #2d7ff0;
+  /* Wave 12.2.D (axe D.2) — AA-darker step: white on teal-600 measured
+     3.66:1 and teal-700 on teal-50 measured 4.26:1 (nav labels); teal-800
+     gives ≥ 4.5:1 in both pairings. */
+  --cms-teal-800: #1559c8;
   --cms-teal-500: #4a90f5;
   --cms-teal-400: #6ba5f7;
   --cms-teal-100: #dbeafe;
@@ -49,7 +53,11 @@
   --cms-line-strong: #cbd5e1;
   --cms-text: #0f172a;
   --cms-text-soft: #475569;
-  --cms-text-muted: #94a3b8;
+  /* Wave 12.2.D (axe D.2) — AA contrast on light surfaces: #94a3b8 measured
+     2.56:1 on white (12px meta text); #64748b = 4.76:1. The PLAYER chrome
+     keeps slate-400 (#94a3b8) — on the #0b1120 rail/bar ramp it measures
+     ≈ 5.7:1 and passes; this token is the light-app-surface muted. */
+  --cms-text-muted: #64748b;
   --cms-text-inverse: #ffffff;
 
   /* Surfaces */
@@ -323,7 +331,11 @@
   /* Text — slate-100 primary, never pure white */
   --cms-text: #f1f5f9;
   --cms-text-soft: #cbd5e1;
-  --cms-text-muted: #94a3b8;
+  /* Wave 12.2.D (axe D.2) — AA contrast on light surfaces: #94a3b8 measured
+     2.56:1 on white (12px meta text); #64748b = 4.76:1. The PLAYER chrome
+     keeps slate-400 (#94a3b8) — on the #0b1120 rail/bar ramp it measures
+     ≈ 5.7:1 and passes; this token is the light-app-surface muted. */
+  --cms-text-muted: #64748b;
   --cms-text-inverse: #0b1120;
 
   /* Surfaces — elevated slate cards on the navy page */

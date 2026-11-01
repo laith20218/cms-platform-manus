@@ -1,5 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createSearchSpanMap, resolveSearchMatchRects, type SearchResolveContext } from '../pdf-search-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createSearchResolveStats, createSearchSpanMap, resolveSearchMatchRects,
+  type SearchResolveContext,
+} from '../pdf-search-dom';
 import type { SearchMatch, SearchMatchBox } from '../pdf-search';
 
 /**
@@ -209,5 +212,102 @@ describe('resolveSearchMatchRects (Wave 12.1)', () => {
     const rects = resolveSearchMatchRects(map.spanForItem, matchOf([{ itemIndex: 0, sliceStart: 0, sliceEnd: 1 }]), pageRect());
     expect(rects).not.toBeNull();
     expect(rects![0].w).toBeCloseTo((80 * 1) / 2 / 400, 6);
+  });
+});
+
+describe('resolveSearchMatchRects stats (12.2.B M3)', () => {
+  it('a resolved match bumps resolvedCount only', () => {
+    const { layer } = buildLayer(['Differential Diagnosis']);
+    const map = createSearchSpanMap(layer, resolveContext(['Differential Diagnosis']));
+    const stats = createSearchResolveStats();
+    const rects = resolveSearchMatchRects(map.spanForItem, matchOf([{ itemIndex: 0, sliceStart: 0, sliceEnd: 12 }]), pageRect(), stats);
+    expect(rects).not.toBeNull();
+    expect(stats.resolvedCount).toBe(1);
+    expect(stats.nullCount).toBe(0);
+  });
+
+  it('empty-boxes branch increments nullCount + reasons["empty-boxes"]', () => {
+    const stats = createSearchResolveStats();
+    expect(resolveSearchMatchRects([], matchOf([]), pageRect(), stats)).toBeNull();
+    expect(stats.nullCount).toBe(1);
+    expect(stats.reasons['empty-boxes']).toBe(1);
+    expect(stats.resolvedCount).toBe(0);
+  });
+
+  it('missing-span branch (unverified span) increments nullCount + reasons["missing-span"]', () => {
+    const { layer } = buildLayer(['Diff']);
+    const map = createSearchSpanMap(layer, resolveContext(['Diffx']));
+    const stats = createSearchResolveStats();
+    resolveSearchMatchRects(map.spanForItem, matchOf([{ itemIndex: 0, sliceStart: 0, sliceEnd: 2 }]), pageRect(), stats);
+    expect(stats.nullCount).toBe(1);
+    expect(stats.reasons['missing-span']).toBe(1);
+  });
+
+  it('missing-text-node branch (span content nested in an element) increments reasons["missing-text-node"]', () => {
+    // A span whose textContent verifies but carries NO direct text node —
+    // the content lives inside an <em> child (firstTextNode returns null).
+    const layer = document.createElement('div');
+    layer.className = 'pdf-text-layer';
+    const span = document.createElement('span');
+    const em = document.createElement('em');
+    em.textContent = 'Diff';
+    span.appendChild(em);
+    layer.appendChild(span);
+    document.body.appendChild(layer);
+    const map = createSearchSpanMap(layer, resolveContext(['Diff']));
+    expect(map.spanForItem[0]).toBe(span);
+    const stats = createSearchResolveStats();
+    resolveSearchMatchRects(map.spanForItem, matchOf([{ itemIndex: 0, sliceStart: 0, sliceEnd: 2 }]), pageRect(), stats);
+    expect(stats.nullCount).toBe(1);
+    expect(stats.reasons['missing-text-node']).toBe(1);
+  });
+
+  it('collapsed-range branch increments nullCount + reasons["collapsed-range"]', () => {
+    const { layer } = buildLayer(['Differential Diagnosis']);
+    const map = createSearchSpanMap(layer, resolveContext(['Differential Diagnosis']));
+    const stats = createSearchResolveStats();
+    resolveSearchMatchRects(map.spanForItem, matchOf([{ itemIndex: 0, sliceStart: 5, sliceEnd: 5 }]), pageRect(), stats);
+    expect(stats.nullCount).toBe(1);
+    expect(stats.reasons['collapsed-range']).toBe(1);
+  });
+
+  it('range-throw branch increments nullCount + reasons["range-throw"]', () => {
+    const { layer } = buildLayer(['Differential Diagnosis']);
+    const map = createSearchSpanMap(layer, resolveContext(['Differential Diagnosis']));
+    const stats = createSearchResolveStats();
+    const original = document.createRange;
+    vi.spyOn(document, 'createRange').mockImplementation(() => {
+      throw new DOMException('range factory down', 'InvalidStateError');
+    });
+    try {
+      resolveSearchMatchRects(map.spanForItem, matchOf([{ itemIndex: 0, sliceStart: 0, sliceEnd: 12 }]), pageRect(), stats);
+    } finally {
+      (document.createRange as unknown as { mockRestore: () => void }).mockRestore?.();
+      document.createRange = original;
+    }
+    expect(stats.nullCount).toBe(1);
+    expect(stats.reasons['range-throw']).toBe(1);
+  });
+
+  it('empty-rects branch (degenerate page box) increments nullCount + reasons["empty-rects"]', () => {
+    const { layer } = buildLayer(['Differential Diagnosis']);
+    const map = createSearchSpanMap(layer, resolveContext(['Differential Diagnosis']));
+    const stats = createSearchResolveStats();
+    const degenerate = { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+    resolveSearchMatchRects(map.spanForItem, matchOf([{ itemIndex: 0, sliceStart: 0, sliceEnd: 12 }]), degenerate, stats);
+    expect(stats.nullCount).toBe(1);
+    expect(stats.reasons['empty-rects']).toBe(1);
+  });
+
+  it('a mixed run aggregates per outcome (2 resolved + 1 null)', () => {
+    const { layer } = buildLayer(['Differential Diagnosis']);
+    const map = createSearchSpanMap(layer, resolveContext(['Differential Diagnosis']));
+    const stats = createSearchResolveStats();
+    resolveSearchMatchRects(map.spanForItem, matchOf([{ itemIndex: 0, sliceStart: 0, sliceEnd: 12 }]), pageRect(), stats);
+    resolveSearchMatchRects(map.spanForItem, matchOf([{ itemIndex: 0, sliceStart: 13, sliceEnd: 22 }]), pageRect(), stats);
+    resolveSearchMatchRects(map.spanForItem, matchOf([{ itemIndex: 0, sliceStart: 5, sliceEnd: 5 }]), pageRect(), stats);
+    expect(stats.resolvedCount).toBe(2);
+    expect(stats.nullCount).toBe(1);
+    expect(stats.reasons['collapsed-range']).toBe(1);
   });
 });

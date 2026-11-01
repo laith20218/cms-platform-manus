@@ -47,6 +47,46 @@ export interface SearchResolveContext {
   rawIndexOfItem: readonly number[];
 }
 
+/**
+ * Wave 12.2.B (M3) — per-run resolver observability. The caller (PdfPlayer's
+ * PageView resolution effect) creates one accumulator per page-resolution
+ * pass; every resolveSearchMatchRects outcome bumps exactly one counter.
+ * Surfaced as: console.warn (DEV only), a `data-resolver-nulls` attribute on
+ * the text-layer element, and the onSearchRectsResolved callback (the status
+ * bar consumes it in a later wave).
+ */
+export type SearchNullReason =
+  | 'empty-boxes'
+  | 'missing-span'
+  | 'missing-text-node'
+  | 'collapsed-range'
+  | 'range-throw'
+  | 'empty-rects';
+
+export interface SearchResolveStats {
+  /** Matches that produced ≥ 1 normalized rect. */
+  resolvedCount: number;
+  /** Matches that degraded to the data-only fallback. */
+  nullCount: number;
+  /** nullCount broken down by branch — the field diagnostic. */
+  reasons: Record<SearchNullReason, number>;
+}
+
+export function createSearchResolveStats(): SearchResolveStats {
+  return {
+    resolvedCount: 0,
+    nullCount: 0,
+    reasons: {
+      'empty-boxes': 0,
+      'missing-span': 0,
+      'missing-text-node': 0,
+      'collapsed-range': 0,
+      'range-throw': 0,
+      'empty-rects': 0,
+    },
+  };
+}
+
 export interface SearchSpanMap {
   /** Filtered item k → its leaf span, or null when unverifiable. */
   spanForItem: Array<HTMLElement | null>;
@@ -97,36 +137,51 @@ export function createSearchSpanMap(layerEl: HTMLElement, ctx: SearchResolveCont
  * automatically — the match is contiguous), normalized with rectsFromRange.
  * Returns null when the match cannot be pinned (missing/unverified spans,
  * degenerate range) — the caller then paints the proportional fallback.
+ *
+ * Wave 12.2.B (M3): when `stats` is passed, every outcome bumps exactly one
+ * counter — resolvedCount on success, nullCount + the specific reason on
+ * every null branch. Pure with respect to the DOM: the stats object is the
+ * only mutation.
  */
 export function resolveSearchMatchRects(
   spanForItem: ReadonlyArray<HTMLElement | null>,
   match: SearchMatch,
   pageRect: DOMRect,
+  stats?: SearchResolveStats,
 ): NormalizedRect[] | null {
+  const note = (reason: SearchNullReason): null => {
+    if (stats) {
+      stats.nullCount += 1;
+      stats.reasons[reason] += 1;
+    }
+    return null;
+  };
   const boxes = match.boxes;
-  if (boxes.length === 0) return null;
+  if (boxes.length === 0) return note('empty-boxes');
   const firstBox = boxes[0];
   const lastBox = boxes[boxes.length - 1];
   const firstSpan = spanForItem[firstBox.itemIndex] ?? null;
   const lastSpan = spanForItem[lastBox.itemIndex] ?? null;
-  if (!firstSpan || !lastSpan) return null;
+  if (!firstSpan || !lastSpan) return note('missing-span');
   const startText = firstTextNode(firstSpan);
   const endText = firstTextNode(lastSpan);
-  if (!startText || !endText) return null;
+  if (!startText || !endText) return note('missing-text-node');
   // Offsets are UTF-16 indices into the item string; the span text was
   // verified byte-equal, so they are directly Range-valid. Clamp defensively
   // — a Range throw must degrade to the fallback, never crash the page.
   const startOffset = Math.min(firstBox.sliceStart, startText.length);
   const endOffset = Math.min(lastBox.sliceEnd, endText.length);
-  if (startText === endText && startOffset >= endOffset) return null;
+  if (startText === endText && startOffset >= endOffset) return note('collapsed-range');
   try {
     const range = document.createRange();
     range.setStart(startText, startOffset);
     range.setEnd(endText, endOffset);
     const rects = rectsFromRange(range, pageRect);
-    return rects.length > 0 ? rects : null;
+    if (rects.length === 0) return note('empty-rects');
+    if (stats) stats.resolvedCount += 1;
+    return rects;
   } catch {
-    return null;
+    return note('range-throw');
   }
 }
 

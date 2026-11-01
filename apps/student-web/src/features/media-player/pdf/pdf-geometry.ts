@@ -299,11 +299,13 @@ export function isDegenerateArrow(x1: number, y1: number, x2: number, y2: number
 }
 
 /* ===== Wave 11.11 — smart eraser (F2 Phase 3) =====
- * Whole-annotation erase (supervisor-locked scope: Ink + Shapes + Notes —
- * highlights stay text-anchored and are NOT erasable). The eraser gesture is
- * a page-normalized polyline; an annotation is erased when ANY point of the
- * densified gesture path comes within the eraser contact radius of its drawn
- * geometry. Pure and dependency-free per the module contract above. */
+ * Whole-annotation erase: Ink + Shapes + Notes — and, since Wave 12.2.A
+ * (E1 lift-lock), Highlights too: their stored payload is plain
+ * page-normalized line rects, so the same contact test applies. The eraser
+ * gesture is a page-normalized polyline; an annotation is erased when ANY
+ * point of the densified gesture path comes within the eraser contact
+ * radius of its drawn geometry. Pure and dependency-free per the module
+ * contract above. */
 
 /** On-screen half-size of a sticky-note icon (h-9 w-9 → 18px). The icon is
  *  fixed-px DOM (it does not scale with the page), so the caller passes the
@@ -385,7 +387,9 @@ function rectOutlinePoints(box: NormalizedRect): NormalizedPoint[] {
  *    rect/ellipse is not geometry); the arrow tests its shaft segment, which
  *    with the contact radius covers the pixel-space head wings (≤5px lateral);
  *  - Note: the anchor point, widened by the fixed-px icon radius;
- *  - Highlight: never erased (text-anchored, out of the locked scope).
+ *  - Highlight: point-in-rect over every stored line rect, widened by the
+ *    contact radius (E1 lift-lock, Wave 12.2.A — highlights join the
+ *    erasable scope).
  * All shapes reuse normalizeBox so legacy negative-w/h payloads behave like
  * the R25-corrected selection path. Box shapes are bbox-prefiltered (with
  * chord slack for the ellipse sampling) before edge iteration.
@@ -450,7 +454,18 @@ export function eraserHitTest(
     return Math.hypot(nx - payload.x, ny - payload.y) <= contact + iconPad;
   }
 
-  // Highlight — the eraser does not remove highlights (locked scope).
+  // Wave 12.2.A (E1 lift-lock) — highlights ARE erasable: a gesture point
+  // inside any stored line rect (padded by the contact radius) erases the
+  // whole annotation — the same whole-annotation undo unit as notes.
+  if ('rects' in payload) {
+    const pad = contact;
+    return payload.rects.some((r) =>
+      nx >= r.x - pad && nx <= r.x + r.w + pad &&
+      ny >= r.y - pad && ny <= r.y + r.h + pad
+    );
+  }
+
+  // Unknown payload shape — no drawable geometry to hit.
   return false;
 }
 

@@ -161,7 +161,7 @@ export function PlayerShell({
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.22, ease: 'easeOut' }}
-                className="fixed inset-0 z-50 bg-[#020617]/60"
+                className="fixed inset-0 z-50 bg-[#071426]/60"
               />
             </DialogPrimitive.Overlay>
 
@@ -181,6 +181,15 @@ export function PlayerShell({
                 const target = event.target as HTMLElement | null;
                 if (target?.closest?.('[data-pdf-note-editor]') || target?.closest?.('[data-pdf-search-panel]')) {
                   event.preventDefault();
+                  return;
+                }
+                /* Wave 12.2.C.5 — focus mode consumes Escape: it exits focus,
+                   never the shell. The player root carries
+                   [data-pdf-focus-mode="true"] while focus mode is active
+                   (PdfPlayer), so the DOM query is authoritative even when the
+                   focused element is the body. */
+                if (document.querySelector('[data-pdf-focus-mode="true"]')) {
+                  event.preventDefault();
                 }
               }}
               {...(subtitle ? {} : { 'aria-describedby': undefined })}
@@ -191,7 +200,7 @@ export function PlayerShell({
                 exit={{ opacity: 0, scale: 0.98, y: 12 }}
                 transition={{ duration: 0.32, ease: SHELL_EASE }}
                 data-testid={testId}
-                className="fixed inset-0 z-50 bg-[#0b1120]/95 outline-none backdrop-blur-2xl"
+                className="fixed inset-0 z-50 bg-[#071426]/95 outline-none backdrop-blur-2xl"
               >
                 {/* STAGE — the fullscreen target. Opaque so the fullscreen
                     session never shows the transparent glass over black. */}
@@ -199,7 +208,7 @@ export function PlayerShell({
                   ref={setStage}
                   data-player-stage="true"
                   data-testid="player-stage"
-                  className="flex h-full w-full select-none flex-col bg-[#0b1120]"
+                  className="flex h-full w-full select-none flex-col bg-[#071426]"
                 >
                   {/* Header — stays visible in fullscreen (task contract). */}
                   <header className="flex shrink-0 items-start justify-between gap-3 px-4 pb-1 pt-4 sm:px-6 sm:pt-5">
@@ -222,6 +231,7 @@ export function PlayerShell({
                       </div>
                       {protection && (
                         <span
+                          role="img"
                           title="الحماية من النسخ مفعّلة داخل المشغّل"
                           aria-label="الحماية من النسخ مفعّلة داخل المشغّل"
                           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-teal-400/20 bg-teal-400/10 text-teal-300"

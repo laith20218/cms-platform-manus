@@ -2118,3 +2118,80 @@ awaiting supervisor review of Phase58 SQL before any production application
 - Cause: `pdfjs-dist@6.4.299` added as a dependency of apps/student-web.
 - Requested authorization: YES (retroactive — should have been requested pre-commit)
 - Reviewer: pending
+
+═══════════════════════════════════════════════════════════════
+## Wave 12.2 — IMPLEMENT COMPLETE (PART I, 8 commits, NOT pushed)
+═══════════════════════════════════════════════════════════════
+STATUS: VERIFIED — branch feat/12.2-ui-overhaul, 8 commits from
+main @ c141eac. Working tree clean. ZERO pushes (awaiting PAT).
+NO apps/api changes, NO DB/migrations, NO z-index changes
+(0/10/11/15/20/25 intact), NO measureText.
+
+### Commit SHAs (topological, oldest first)
+1. bad7098  fix(pdf): eraser removes highlights (12.2.A)
+2. c2711b2  fix(pdf): search fallback M1/M2/M3 (12.2.B)
+3. 993a7af  refactor(pdf): main-row layout with rail slots (12.2.C.1)
+4. 8861ef9  style(pdf): dark theme #071426 family (12.2.C.2)
+5. 153cbe1  feat(pdf): lazy thumbnails rail (12.2.C.3)  [fixup folded:
+            onDone paint callback — freshly rendered thumbs now repaint]
+6. b0f07fb  feat(pdf): study tools panel (12.2.C.4)
+7. 4307d9d  feat(pdf): focus mode + status bar (12.2.C.5)
+8. 8be182c  test(pdf): §13 matrix + axe-core + RTL guard (12.2.D)
+
+### Verification ladder (final, rebased tree)
+- tsc -b: 0 errors
+- eslint --max-warnings=0: clean
+- vitest: 316/316 (was 294 → +22: 7 eraser/highlight, 7 M1/M2, 8 M3)
+- e2e player-pdf-11.11: 19/19 (12.1 widthRatio=1 Latin gate unchanged ✓)
+- e2e player-pdf: 27/27, Peak RSS 1066MB (§4 ceiling 1600MB)
+- e2e w12.2-matrix (NEW): 21/21 — 4 widths × 5 states, 0 horizontal
+  scroll anywhere; 16 axe runs (375+1440) → 0 critical/serious.
+- Evidence: apps/student-web/e2e/screenshots/ (git-ignored, on disk):
+  w12.2-*.png (20), axe-results.json, rtl-guard.txt,
+  w12.2-verification-ladder.txt
+
+### §13 checklist — PASS for all UI commits (3-8)
+□ Typography/line-height ✓ (Arabic UI copy unchanged conventions)
+□ 4px spacing grid ✓   □ Ramp tokens only ✓ (E2; app-side AA fix:
+  --cms-text-muted #94a3b8→#64748b, + --cms-teal-800 nav step — axe)
+□ hover/focus-visible/active/disabled on every control ✓
+□ motion 150-250ms ease-out + motion-reduce:transition-none ✓
+□ RTL: logical props only in NEW code; 17 grep hits ALL grandfathered
+  (canvas geometry / pre-existing page-anchored) — rtl-guard.txt
+□ WCAG 2.2 AA: axe clean; 48px targets; aria-pressed/aria-current ✓
+□ 4 widths × 5 states: 0 horizontal scroll ✓ (HARD-FAIL gate)
+
+### Supervisor-flagged deviations (all documented in code)
+1. C.4: the six `pdf-tool-*` testids moved to the StudyToolsPanel rail;
+   the bottom bar's tool cluster was REMOVED (bar keeps contextual rows,
+   undo/redo, delete, nav, zoom). Necessary: duplicate ids would break
+   S1/S1c (`[data-testid^="pdf-tool-"]` count === 6) and strict-mode
+   clicks. Rail palettes use pdf-rail-*; search=pdf-study-search;
+   bookmarks=pdf-bookmarks-toggle (outside the 6-count).
+2. C.2: #071426 = stage family (shell :164/:194/:202 + pdf-scroll);
+   #0b1120 = bar/rail/popovers (ColorPicker :128/:146, note editor :104);
+   PdfControlsBar :229/:305 + pdf-search-panel :50 confirmed as-is.
+3. 12.2.B M2 = the sanctioned INTERIM (full-item box for ligature-expanded
+   items via rawLength; TODO(12.3) reverse-map comment in place).
+4. E2E maintenance: dragOnPage (11.11 suite) now maps fractions onto the
+   canvas ∩ pdf-scroll visible band (E7 full-width pages extend below the
+   fold); w12.2 runner filters harness-abort resource-load console noise.
+
+### UNVERIFIED / deferred (§11)
+- M2 ligature boxes in a REAL Arabic lam-alef document: unit-falsified
+  (fixtures) + e2e fixture's Arabic is ToUnicode-mangled (S6 comment) —
+  production-behavior proof remains UNVERIFIED per §11.
+- axe "dashboard" scan runs against the harness error/empty state
+  (data endpoints deliberately aborted) — disclosed in the runner.
+- onSearchRectsResolved stats payload: exposed (M3) but not yet consumed
+  by a status-bar surface (per spec: future wave).
+- e2e fixture regenerates on first run; hash not pinned (known risk).
+
+RESUME_FROM:
+WIP_STATUS.md — Wave 12.2 IMPLEMENT complete.
+STATUS: VERIFIED (8 commits on feat/12.2-ui-overhaul @ 8be182c; full
+ladder green; evidence pack on disk; tree clean; NOT pushed).
+NEXT: Supervisor review of the 8 SHAs + §13 evidence → PAT → push →
+Wave 12.3 (study-tools lists v2, reverse-map for ligature items,
+thumbnails/FIFO observability, status-bar M3 consumption).
+═══════════════════════════════════════════════════════════════

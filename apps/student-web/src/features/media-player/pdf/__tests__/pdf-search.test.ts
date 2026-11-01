@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import {
   caseFoldItem, clearSearchCache, findMatches, getCachedPageSearchViewport, getPageSearchItems,
-  textBoxToNormalizedViewportBox, type SearchTextItem,
+  matchFallbackBoxes, textBoxToNormalizedViewportBox, type SearchMatch, type SearchTextItem,
 } from '../pdf-search';
 import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
@@ -390,5 +390,74 @@ describe('getCachedPageSearchViewport (R30.1)', () => {
     expect(getCachedPageSearchViewport(doc, 2)).toBeNull();
     const other = stubDoc('fp-vp3', ['one']).doc;
     expect(getCachedPageSearchViewport(other, 1)).toBeNull();
+  });
+});
+
+describe('matchFallbackBoxes (12.2.B M1 — warm cache, no DOM resolution)', () => {
+  const IDENTITY = [1, 0, 0, 1, 0, 0];
+  const VIEWPORT = { transform: IDENTITY, width: 400, height: 400 };
+  const itemOf = (str: string, rawLength?: number): SearchTextItem => ({
+    str, transform: IDENTITY, width: 100, height: 10,
+    ...(rawLength !== undefined ? { rawLength } : {}),
+  });
+  const matchOf = (itemIndex: number, sliceStart: number, sliceEnd: number): SearchMatch => ({
+    page: 1, str: 'x',
+    boxes: [{ itemIndex, sliceStart, sliceEnd, transform: IDENTITY, width: 100, height: 10 }],
+  });
+
+  it('M1: warm item cache + NO DOM resolution → proportional slice (not whole-item)', () => {
+    // 'Differential' = 12 of 22 chars → the box covers 12/22 of the run.
+    const boxes = matchFallbackBoxes(matchOf(0, 0, 12), [itemOf('Differential Diagnosis')], VIEWPORT);
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0].width).toBeCloseTo((100 * 12) / 22 / 400, 6);
+    // The run STARTS at the item origin — left edge stays position-anchored.
+    expect(boxes[0].left).toBeCloseTo(0, 6);
+  });
+
+  it('M1: partial run inside the item — left edge advances proportionally', () => {
+    const boxes = matchFallbackBoxes(matchOf(0, 13, 22), [itemOf('Differential Diagnosis')], VIEWPORT);
+    expect(boxes[0].left).toBeCloseTo((100 * 13) / 22 / 400, 6);
+    expect(boxes[0].width).toBeCloseTo((100 * 9) / 22 / 400, 6);
+  });
+
+  it('M1: cold cache (null) still degrades honestly to the whole-item box', () => {
+    const boxes = matchFallbackBoxes(matchOf(0, 0, 12), null, VIEWPORT);
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0].width).toBeCloseTo(100 / 400, 6);
+  });
+
+  it('M1: null viewport yields no boxes (degenerate page)', () => {
+    expect(matchFallbackBoxes(matchOf(0, 0, 1), [itemOf('abc')], null)).toEqual([]);
+  });
+});
+
+describe('matchFallbackBoxes (12.2.B M2 — ligature-safe fallback)', () => {
+  const IDENTITY = [1, 0, 0, 1, 0, 0];
+  const VIEWPORT = { transform: IDENTITY, width: 400, height: 400 };
+  const itemOf = (str: string, rawLength?: number): SearchTextItem => ({
+    str, transform: IDENTITY, width: 100, height: 10,
+    ...(rawLength !== undefined ? { rawLength } : {}),
+  });
+  const matchOf = (itemIndex: number, sliceStart: number, sliceEnd: number): SearchMatch => ({
+    page: 1, str: 'x',
+    boxes: [{ itemIndex, sliceStart, sliceEnd, transform: IDENTITY, width: 100, height: 10 }],
+  });
+
+  it('M2: a ligature-expanded item (rawLength ≠ str.length) keeps the FULL-item box', () => {
+    // lam-alef family: normalization expanded 3 raw glyphs → 4 base chars;
+    // slice [0, 2) of the EXPANDED domain must NOT become a half-item box.
+    const boxes = matchFallbackBoxes(matchOf(0, 0, 2), [itemOf('\u0639\u0644\u0627\u062C', 3)], VIEWPORT);
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0].width).toBeCloseTo(100 / 400, 6);
+  });
+
+  it('M2: non-expanded items (rawLength === str.length) keep proportional slices', () => {
+    const boxes = matchFallbackBoxes(matchOf(0, 0, 2), [itemOf('\u0639\u0644\u0627\u062C', 4)], VIEWPORT);
+    expect(boxes[0].width).toBeCloseTo((100 * 2) / 4 / 400, 6);
+  });
+
+  it('M2: items without rawLength (legacy fixtures) keep proportional slices', () => {
+    const boxes = matchFallbackBoxes(matchOf(0, 0, 2), [itemOf('abcd')], VIEWPORT);
+    expect(boxes[0].width).toBeCloseTo((100 * 2) / 4 / 400, 6);
   });
 });
