@@ -28,7 +28,13 @@ public class AcademicController : ControllerBase
     }
 
     private Guid? GetStudentId() => User.IsInRole("student") && Guid.TryParse(User.FindFirst("sub")?.Value, out var id) ? id : null;
-    private Guid GetAdminId() => Guid.Parse(User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
+
+    /// <summary>W14.2 A.5 (R75 P2): Guid.Parse replaced with TryParse — a malformed admin
+    /// subject claim now yields 401 via the UnauthorizedAccessException mapping instead of
+    /// an unhandled FormatException (500).</summary>
+    private Guid GetAdminId() => Guid.TryParse(User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var adminId)
+        ? adminId
+        : throw new UnauthorizedAccessException("معرّف المدير في الرمز غير صالح");
 
     private async Task<bool> CanManageAsync(string resource, string action, string entityType, Guid entityId, CancellationToken ct) =>
         await _permissions.HasPermissionAsync(GetAdminId(), resource, action, ct)
@@ -294,7 +300,11 @@ public class AcademicController : ControllerBase
 
         var signedEntitlements = _services.GetRequiredService<ISignedEntitlementService>();
         var validation = await signedEntitlements.ValidateAsync(token, studentId, installationId, subjectId, ct);
-        return validation.IsValid ? null : Forbid();
+        // W14.2 A.2 (R75 G-2 P1): ProblemDetails-with-detail 403 instead of a bare Forbid().
+        return validation.IsValid
+            ? null
+            : Problem(statusCode: StatusCodes.Status403Forbidden,
+                detail: validation.FailureReason ?? "الاشتراك لا يغطي محتوى هذه المادة");
     }
 
     // ===== Lectures =====

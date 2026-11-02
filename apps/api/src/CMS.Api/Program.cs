@@ -149,6 +149,9 @@ try
         options.AddPolicy("password-reset", context => FixedWindow(context, 3, TimeSpan.FromMinutes(15)));
         options.AddPolicy("auth", context => FixedWindow(context, 8, TimeSpan.FromMinutes(5)));
         options.AddPolicy("questions", context => FixedWindow(context, 60, TimeSpan.FromMinutes(1)));
+        // W14.2 A.6 (R75 P2): exam-session lifecycle endpoints (start/answer/submit/cancel)
+        // get their own generous-but-bounded quota so bursts cannot hammer session state.
+        options.AddPolicy("exam-session", context => FixedWindow(context, 120, TimeSpan.FromMinutes(1)));
         options.AddPolicy("search", context => FixedWindow(context, 30, TimeSpan.FromMinutes(1)));
         options.AddPolicy("health", context => FixedWindow(context, 600, TimeSpan.FromMinutes(1)));
         options.AddPolicy("static", context => FixedWindow(context, 600, TimeSpan.FromMinutes(1)));

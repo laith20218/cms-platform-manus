@@ -14,7 +14,10 @@ namespace CMS.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/admin/exams")]
-[Authorize]
+// W14.2 A.4 (R75 P2): double-layer auth — class-level role gate PLUS the per-endpoint
+// permission policies. A bare [Authorize] previously let any authenticated principal
+// (including students) reach the policy layer before being rejected.
+[Authorize(Roles = "admin,super_admin")]
 public sealed class AdminExamsController : ControllerBase
 {
     private readonly MediatR.ISender _mediator;

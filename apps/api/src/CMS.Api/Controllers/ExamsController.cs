@@ -4,6 +4,7 @@ using CMS.Application.DTOs.Exams;
 using CMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace CMS.Api.Controllers;
@@ -48,6 +49,7 @@ public sealed class ExamsController : ControllerBase
     }
 
     [HttpPost("{examId:guid}/start")]
+    [EnableRateLimiting("exam-session")]
     public async Task<ActionResult<ExamSessionDto>> StartExam(Guid examId, [FromBody] StartExamSessionDto? dto, CancellationToken ct)
     {
         var studentId = GetStudentId();
@@ -71,6 +73,7 @@ public sealed class ExamsController : ControllerBase
     }
 
     [HttpPut("sessions/{sessionId:guid}/questions/{questionId:guid}/answer")]
+    [EnableRateLimiting("exam-session")]
     public async Task<ActionResult<SaveExamAnswerResultDto>> SaveAnswer(Guid sessionId, Guid questionId, [FromBody] SaveExamAnswerDto dto, CancellationToken ct)
     {
         if (dto.QuestionId != questionId) return BadRequest("معرف السؤال في المسار لا يطابق جسم الطلب");
@@ -83,6 +86,7 @@ public sealed class ExamsController : ControllerBase
     }
 
     [HttpPost("sessions/{sessionId:guid}/submit")]
+    [EnableRateLimiting("exam-session")]
     public async Task<ActionResult<ExamResultDto>> SubmitExam(Guid sessionId, [FromBody] SubmitExamDto? dto, CancellationToken ct)
     {
         var studentId = GetStudentId();
@@ -94,6 +98,7 @@ public sealed class ExamsController : ControllerBase
     }
 
     [HttpPost("sessions/{sessionId:guid}/cancel")]
+    [EnableRateLimiting("exam-session")]
     public async Task<IActionResult> CancelExam(Guid sessionId, CancellationToken ct)
     {
         var studentId = GetStudentId();
@@ -155,6 +160,11 @@ public sealed class ExamsController : ControllerBase
             ?? Request.Headers["X-Device-Fingerprint"].FirstOrDefault();
         if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(installationId)) return Unauthorized();
         var validation = await _signedEntitlements.ValidateAsync(token, studentId, installationId, subjectId, ct);
-        return validation.IsValid ? null : Forbid();
+        // W14.2 A.2 (R75 G-2 P1): every 403 MUST be ProblemDetails with a human-readable
+        // detail — a bare Forbid() yields an empty 403 body that clients cannot act on.
+        return validation.IsValid
+            ? null
+            : Problem(statusCode: StatusCodes.Status403Forbidden,
+                detail: validation.FailureReason ?? "الاشتراك لا يغطي محتوى هذه المادة");
     }
 }

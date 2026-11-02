@@ -7,6 +7,7 @@ using CMS.Domain.Entities;
 using CMS.Domain.Enums;
 using CMS.Domain.Exceptions;
 using CMS.Application.Interfaces;
+using CMS.Application.Handlers.Exams;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -31,6 +32,9 @@ public class OfflineHandlers :
     private readonly IConfiguration _configuration;
     private readonly IOfflinePackageLifecycleService _packageLifecycle;
     private readonly ISecurityAuditWriter _audit;
+
+    /// <summary>R75 P0 (W14.2 A.1): tolerated client clock skew when validating synced answer timestamps.</summary>
+    private static readonly TimeSpan SyncClockSkewTolerance = TimeSpan.FromMinutes(5);
 
     public OfflineHandlers(IApplicationDbContext db, IUnitOfWork unitOfWork, ICacheService cache, IConfiguration configuration, IOfflinePackageLifecycleService packageLifecycle, ISecurityAuditWriter audit)
     {
@@ -83,10 +87,9 @@ public class OfflineHandlers :
             var exam = await _db.Exams.AsNoTracking().FirstOrDefaultAsync(e => e.Id == req.ExamId, ct);
             if (exam != null)
             {
-                // TODO(W14.2): legacy read path — Question.ExamId filter, scheduled for
-                // removal in Wave 14.2 once offline packages read the reworked exam
-                // model (QuestionUsage / ExamQuestion). Do not extend this branch.
-                query = query.Where(q => q.ExamId == req.ExamId);
+                // W14.2 A.3 (R75 P1): legacy Question.ExamId read retired — exam membership
+                // is resolved through the authoritative ExamQuestion composition join (D6).
+                query = query.Where(q => _db.ExamQuestions.Any(eq => eq.ExamId == req.ExamId && eq.QuestionId == q.Id));
                 examTitle = exam.TitleAr;
             }
         }
@@ -189,6 +192,27 @@ public class OfflineHandlers :
             throw new ForbiddenException("manifest الحزمة لا يطابق الطالب أو انتهى أو لا يملك نطاق محتوى");
         }
 
+        // R75 P0 (W14.2 A.1): a sync that references an exam session must OWN that session —
+        // the JWT-derived StudentId is compared against the session's owner, and grading is
+        // performed against the immutable ExamSessionQuestion snapshot instead of the live bank.
+        var snapshotsByQuestion = new Dictionary<Guid, ExamSessionQuestion>();
+        if (req.ExamSessionId.HasValue)
+        {
+            var ownsSession = await _db.ExamSessions.AsNoTracking()
+                .AnyAsync(session => session.Id == req.ExamSessionId.Value && session.StudentId == req.StudentId, ct);
+            if (!ownsSession)
+            {
+                await _audit.LogSecurityEventAsync(req.StudentId, null, SecurityEventType.OfflineSyncRejected, SecuritySeverity.Warning, "Offline sync rejected: exam session not owned by the authenticated student", ct: ct);
+                throw new ForbiddenException("جلسة الامتحان غير مملوكة لهذا الطالب");
+            }
+
+            var requestedQuestionIds = req.Answers.Select(answer => answer.QuestionId).Distinct().ToList();
+            snapshotsByQuestion = await _db.ExamSessionQuestions.AsNoTracking()
+                .Where(snapshot => snapshot.ExamSessionId == req.ExamSessionId.Value
+                    && snapshot.SourceQuestionId != null && requestedQuestionIds.Contains(snapshot.SourceQuestionId.Value))
+                .ToDictionaryAsync(snapshot => snapshot.SourceQuestionId!.Value, snapshot => snapshot, ct);
+        }
+
         // Get cached package metadata only after durable ownership and manifest-scope validation.
         var cacheKey = $"offline:{req.PackageId}";
         var metadata = await _cache.GetAsync<dynamic>(cacheKey, ct);
@@ -238,17 +262,47 @@ public class OfflineHandlers :
                     continue;
                 }
 
-                // Determine correct answer
-                var correctOption = question.Options.FirstOrDefault(o => o.IsCorrect);
-                var isCorrect = answer.SelectedOptionId == correctOption?.Id.ToString();
-
-                // Verify with client-reported correctness (optional sanity check)
-                // If client says correct but server says wrong, trust the server
-                if (answer.IsCorrect != isCorrect)
+                // R75 P0 (W14.2 A.1): timestamp sanity replaces the former empty tamper-check
+                // block. Future-dated answers indicate clock tampering; stale answers fall
+                // outside any meaningful sync window. Both are rejected, never graded.
+                if (answer.AnsweredAt > DateTime.UtcNow.Add(SyncClockSkewTolerance) || answer.AnsweredAt < DateTime.UtcNow.AddDays(-30))
                 {
-                    // Log potential tampering attempt
-                    // In production, this could trigger a security alert
+                    failed++;
+                    errors.Add($"السؤال {answer.QuestionId}: وقت الإجابة غير منطقي");
+                    if (answer.AnsweredAt > DateTime.UtcNow.Add(SyncClockSkewTolerance))
+                        await _audit.LogSecurityEventAsync(req.StudentId, null, SecurityEventType.OfflineSyncRejected, SecuritySeverity.Warning, $"Offline sync rejected: future-dated answer for question {answer.QuestionId}", ct: ct);
+                    continue;
                 }
+
+                // R75 P0 (W14.2 A.1): grade against the ExamSessionQuestion snapshot when the
+                // sync is bound to an exam session (option identity + IsCorrect flags captured
+                // at session start); otherwise grade against the server-side cache captured at
+                // package issue time, falling back to the live bank only when absent.
+                bool isCorrect;
+                Guid? sessionQuestionId = null;
+                if (snapshotsByQuestion.TryGetValue(answer.QuestionId, out var snapshot))
+                {
+                    var correctSnapshotIds = ExamQueryHandlers.Deserialize<List<ExamQueryHandlers.SnapshotOption>>(snapshot.OptionsJson)
+                        .Where(option => option.IsCorrect)
+                        .Select(option => option.Id)
+                        .ToHashSet();
+                    isCorrect = Guid.TryParse(answer.SelectedOptionId, out var selectedSnapshotId) && correctSnapshotIds.Contains(selectedSnapshotId);
+                    sessionQuestionId = snapshot.Id;
+                }
+                else
+                {
+                    var cachedCorrect = correctAnswersRaw is not null && correctAnswersRaw.TryGetValue(answer.QuestionId, out var cachedAnswer)
+                        ? cachedAnswer
+                        : null;
+                    var correctOption = cachedCorrect is not null ? null : question.Options.FirstOrDefault(o => o.IsCorrect);
+                    isCorrect = string.Equals(answer.SelectedOptionId, cachedCorrect ?? correctOption?.Id.ToString(), StringComparison.OrdinalIgnoreCase);
+                }
+
+                // R75 P0 (W14.2 A.1): the former empty tamper-check block — a client-reported
+                // correctness mismatch is now recorded as a security warning. The server's
+                // grade is always authoritative.
+                if (answer.IsCorrect != isCorrect)
+                    await _audit.LogSecurityEventAsync(req.StudentId, null, SecurityEventType.OfflineSyncRejected, SecuritySeverity.Warning, $"Offline sync correctness mismatch reported by client for question {answer.QuestionId}", ct: ct);
 
                 // Check if first attempt
                 var isFirstAttempt = !await _db.AttemptLogs
@@ -260,6 +314,7 @@ public class OfflineHandlers :
                     StudentId = req.StudentId,
                     QuestionId = answer.QuestionId,
                     ExamSessionId = req.ExamSessionId,
+                    ExamSessionQuestionId = sessionQuestionId,
                     SelectedAnswer = answer.SelectedOptionId,
                     IsCorrect = isCorrect,
                     IsFirstAttempt = isFirstAttempt,
