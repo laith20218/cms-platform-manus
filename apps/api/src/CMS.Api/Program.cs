@@ -105,6 +105,14 @@ try
         });
 
     // === CORS ===
+    // R62 §2.A: the request headers are enumerated EXPLICITLY instead of relying on
+    // AllowAnyHeader() so the preflight contract is deterministic and auditable. The list
+    // covers every header the clients actually send: Authorization + X-Installation-Id +
+    // X-Device-Fingerprint (student-web api-client.ts request interceptor), X-Entitlement
+    // (entitlementRequestConfig() — the header whose absence/mismatch produced the Wave 12.4
+    // courses preflight failure), Content-Type + Accept + Accept-Language (axios defaults),
+    // and X-Correlation-Id (CorrelationIdMiddleware honours it when present). Header-name
+    // matching in preflight evaluation is case-insensitive per the Fetch specification.
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("CMS", policy =>
@@ -113,7 +121,15 @@ try
                     builder.Configuration["Cors:StudentApp"] ?? "https://app.cms.example.com",
                     builder.Configuration["Cors:AdminApp"] ?? "https://admin.cms.example.com"
                 )
-                .AllowAnyHeader()
+                .WithHeaders(
+                    "Authorization",
+                    "Content-Type",
+                    "Accept",
+                    "Accept-Language",
+                    "X-Entitlement",
+                    "X-Installation-Id",
+                    "X-Device-Fingerprint",
+                    "X-Correlation-Id")
                 .AllowAnyMethod()
                 .AllowCredentials();
         });
@@ -256,6 +272,9 @@ try
     app.UseSerilogRequestLogging();
     app.UseHttpsRedirection();
     app.UseCors("CMS");
+    // R62 §2.A.3 — completes Origin-rejected preflights with a bare 204 (no ACAO) so they can
+    // never surface as 401/403 from the auth layers below. See the middleware's XML doc.
+    app.UseMiddleware<CorsPreflightCompletionMiddleware>();
     app.UseRateLimiter();
     app.UseAuthentication();
     app.UseMiddleware<SessionValidationMiddleware>();
