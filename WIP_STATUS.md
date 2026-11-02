@@ -102,3 +102,66 @@ build script (`tsc -b && vite build`) also re-verifies both.
 See `git log main..feat/12.4a-video-controls --oneline` for the exact SHAs;
 the four commits above correspond 1:1 to the workorder map. STOP GATE:
 pushing requires supervisor PAT (next round).
+
+## ─── R69 — Courses 403 truthfulness: content scope + issue guard (feat/12.4c-courses-scope) ───
+
+Workorder PART I — R69. Root cause per R68 DIAG accepted: device binding exonerated;
+the 403 was a CONTENT-SCOPE denial (zero-grant students got 200-OK zero-scope tokens;
+CourseHandlers hard-403'd the missing VideoAudio scope) that the frontend mislabeled
+as a session/device failure — feeding the unfixable issue→403 self-heal loop.
+
+### Implementation (workorder §2 map)
+
+- §2.A `CourseHandlers.cs` — subject gate switched "video" → "read" (content-agnostic):
+  a read-capable student without VideoAudio now gets `[]` (locked UI), never 403.
+- §2.B `SignedEntitlementService.IssueAsync` — zero-active-grants guard now throws
+  `ForbiddenException("No active grants for this student.")` → 403 ProblemDetails at
+  the source, instead of minting a structurally useless zero-scope token with 200.
+- §2.C `CoursesController.EntitlementRejectionAsync` — audit line now carries
+  `validation.FailureReason` (fixed reason strings; no token material, no user input).
+- §2.D `CoursesCatalog.tsx` — subjects filtered by `hasScope(s,'VideoAudio')` BEFORE
+  querying; spec locked-state text "لا توجد كورسات فيديو متاحة لحسابك. يرجى تفعيل اشتراك."
+  when empty; denial cards are variant-aware (`data-variant`): no-grants card has NO
+  login button (activation CTA instead), device card keeps it; queryFn threads the
+  ProblemDetails reason (courses GET body, else the forced /issue body) into
+  `EntitlementDeniedError.reason`.
+- §2.E `api-client.ts` — 403 reason = ProblemDetails `detail` → `title` →
+  `X-Entitlement-Error` header → 'unknown' (generic card fallback).
+
+### Deviations from the workorder (§10 zero-flattery disclosure)
+
+1. §2.B's literal `IssueResult.Failure(...)` — `IssueAsync` returns `Task<string>` and
+   the codebase signals failure by throwing; implemented as `ForbiddenException` (the
+   project's 403 mapping, ExceptionHandlingMiddleware) — no interface ripple.
+2. §2.C's literal `_logger.LogWarning` — CoursesController has no `_logger`; the reason
+   rides the EXISTING `ISecurityAuditWriter` audit line (durable + queryable).
+3. `useMySubjects.ts` (scope addition, justified): my-subjects is JWT-only
+   (AcademicController never validates X-Entitlement) but eagerly minted tokens; post
+   §2.B that would 403 the whole My Studies shell for zero-grant students (false
+   "connection error" instead of the truthful locked state). Header removed.
+4. `LockedEmptyState` reused for the locked state (existing component, WCAG-ready);
+   spec text carried verbatim as the title.
+
+### Verification ladder (final state)
+
+```
+pnpm --filter @cms/student-web exec tsc -b        → exit 0
+pnpm --filter @cms/student-web lint               → exit 0 (--max-warnings=0)
+pnpm --filter @cms/student-web exec vitest run    → 25 files, 355/355 passed
+dotnet test CMS.sln                               → 607/607 passed (27 skipped: Testcontainers/Postgres, no Docker in sandbox)
+pnpm --filter @cms/student-web build              → exit 0 (SW generated, 68 entries)
+node e2e/r69-courses-scope.e2e.mjs                → 14/14 passed, 0 app console errors
+```
+
+Evidence: `e2e/screenshots/r69-no-grants-desktop.png`, `r69-no-grants-mobile.png`,
+`r69-locked-mobile.png` (+ device-fallback desktop). 375px retry target ≥44×44px asserted.
+
+### Out of scope / untouched
+
+- No DB migrations, no lockfile changes (§3).
+- Device-binding logic untouched (exonerated R68); `/auth/refresh` & session middleware
+  untouched; Library/Exams catalogs untouched (same pattern risk — future round).
+- Production /courses/subject 403 bodies stay EMPTY (Forbid()) per spec §2.E — frontend
+  falls back to the generic card; a `Problem(...)` response shape is an optional follow-up.
+
+STOP GATE: commits are LOCAL on feat/12.4c-courses-scope — push requires supervisor PAT.

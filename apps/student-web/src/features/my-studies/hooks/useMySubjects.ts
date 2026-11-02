@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/services/api-client';
-import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
 
 /**
  * A subject entry as returned by GET /subjects/my-subjects — the subjects the
@@ -26,8 +25,13 @@ export function useMySubjects() {
     queryKey: ['my-subjects-entitled'],
     staleTime: 60_000,
     queryFn: async (): Promise<MySubjectEntry[]> => {
-      const config = await entitlementRequestConfig();
-      const res = await apiClient.get('/subjects/my-subjects', config);
+      // R69 — GET /subjects/my-subjects is JWT-authorised only (AcademicController
+      // runs no X-Entitlement validation on it). Requesting an entitlement token
+      // here made the whole My Studies shell throw once POST /entitlements/issue
+      // started returning 403 for zero-grant students (R69 §2.B guard) — turning
+      // the truthful "locked" state into a false connection error. The subjects
+      // list must resolve so every tab can render its own locked state.
+      const res = await apiClient.get('/subjects/my-subjects');
       const list = res.data?.items ?? res.data ?? [];
       return Array.isArray(list) ? list : [];
     },

@@ -3,15 +3,25 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  AlertTriangle, BookOpen, Clock, Eye, GraduationCap, LogIn, MonitorPlay, PlayCircle,
+  AlertTriangle, BookOpen, Clock, Eye, GraduationCap, KeyRound, LogIn, MonitorPlay, PlayCircle,
   RotateCcw, ShieldAlert, Target,
 } from 'lucide-react';
 import {
-  coursesApi, EntitlementDeniedError, isEntitlementDenied,
+  coursesApi, DenialVariant, EntitlementDeniedError, isEntitlementDenied, variantForReason,
 } from '../services/courses-api';
 import { getEntitlementToken } from '@/features/entitlements/services/entitlement-api';
-import { useMySubjects } from '../hooks/useMySubjects';
+import { hasScope, useMySubjects } from '../hooks/useMySubjects';
 import { LockedEmptyState } from './LockedEmptyState';
+
+/** R69 §2.E — pull the ProblemDetails reason (detail, then title) out of an axios
+ * rejection without assuming the body exists — /courses/ Forbid() bodies are EMPTY. */
+function extractProblemDetail(error: unknown): string | null {
+  const body = (error as { response?: { data?: { detail?: unknown; title?: unknown } } } | undefined)?.response?.data;
+  if (!body || typeof body !== 'object') return null;
+  if (typeof body.detail === 'string' && body.detail) return body.detail;
+  if (typeof body.title === 'string' && body.title) return body.title;
+  return null;
+}
 
 /**
  * Catalog of courses across every subject the student is entitled to (VideoAudio
@@ -29,12 +39,17 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
   const mySubjects = useMySubjects();
   const allSubjects = mySubjects.data ?? [];
 
-  const subjects = subjectId ? allSubjects.filter((s) => s.id === subjectId) : allSubjects;
+  // R69 §2.D — only subjects the student holds a VideoAudio-capable grant for can
+  // ever serve courses. Querying the others was guaranteed 403 (R68 DIAG) — the
+  // doomed calls fed the issue→403 loop and the false "device unauthorized" card.
+  const videoSubjects = allSubjects.filter((s) => hasScope(s, 'VideoAudio'));
+  const subjects = subjectId ? videoSubjects.filter((s) => s.id === subjectId) : videoSubjects;
 
-  // R62 §2.B.2 — a 403 broadcast from the api-client interceptor (any /courses/ call)
-  // means the session/device failed entitlement validation. The query below retries
-  // once with a freshly issued entitlement (§2.C). Cleared whenever a load succeeds.
-  const [entitlementDenied, setEntitlementDenied] = useState(false);
+  // R62 §2.B.2 + R69 §2.D — a 403 broadcast from the api-client interceptor means
+  // entitlement validation failed; the query below retries once with a freshly
+  // issued entitlement (§2.C). The variant picks the truthful card (subscription
+  // vs session/device). Cleared whenever a load succeeds.
+  const [entitlementDenied, setEntitlementDenied] = useState<DenialVariant | null>(null);
 
   const {
     data: courses, isLoading, isError, isFetching, error, refetch,
@@ -48,6 +63,7 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
       let loaded = 0;
       let failed = 0;
       let sawForbidden = false;
+      let denialReason = 'unknown';
 
       const loadSubjects = async (ids: string[]) => {
         loaded = 0;
@@ -60,7 +76,12 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
               loaded += 1;
             } catch (loadError) {
               failed += 1; // partial failure — keep going, remember it
-              if (isEntitlementDenied(loadError)) sawForbidden = true;
+              if (isEntitlementDenied(loadError)) {
+                sawForbidden = true;
+                // R69 §2.D — keep the server's ProblemDetails reason (if any) so the
+                // denial card can be the truthful variant instead of a guess.
+                denialReason = extractProblemDetail(loadError) ?? denialReason;
+              }
             }
           })
         );
@@ -76,15 +97,20 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
         all.length = 0;
         try {
           await getEntitlementToken(true); // forceRenewal — bypasses the (now empty) cache
-        } catch {
-          // Re-issue itself failed → fall through; the retry below replays the denial.
+        } catch (issueError) {
+          // R69 §2.B/§2.D — post-guard, POST /entitlements/issue 403s ONLY for
+          // "No active grants for this student."; its ProblemDetails reason is the
+          // most truthful denial signal available (the /courses/ Forbid() body is
+          // empty), so it overrides the opaque 'unknown'.
+          const issueReason = extractProblemDetail(issueError);
+          if (issueReason) denialReason = issueReason;
         }
         await loadSubjects(subjects.map((s) => s.id));
       }
 
-      // Total denial even after the self-heal attempt → the specific session/device UI.
+      // Total denial even after the self-heal attempt → the specific truthful card.
       if (sawForbidden && loaded === 0) {
-        throw new EntitlementDeniedError();
+        throw new EntitlementDeniedError(denialReason);
       }
       // TOTAL failure: every subject blew up → throw so isError kicks in.
       if (loaded === 0 && failed > 0) {
@@ -107,9 +133,16 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
   useEffect(() => {
     const onEntitlementError = (event: Event) => {
       if (fetchingRef.current) return;
-      const detail = (event as CustomEvent<{ url?: string }>).detail;
-      if (!detail?.url || detail.url.includes('/courses/')) {
-        setEntitlementDenied(true);
+      const detail = (event as CustomEvent<{ url?: string; reason?: string }>).detail;
+      if (!detail?.url) return;
+      // R69 §2.B/§2.D — a 403 from POST /entitlements/issue can ONLY mean the
+      // student holds no active grants → the no-subscription card.
+      if (detail.url.includes('/entitlements/issue')) {
+        setEntitlementDenied('no-grants');
+        return;
+      }
+      if (detail.url.includes('/courses/')) {
+        setEntitlementDenied(variantForReason(detail.reason));
       }
     };
     window.addEventListener('cms-entitlement-error', onEntitlementError);
@@ -118,17 +151,19 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
 
   // A successful load invalidates any stale denial flag (self-heal path or retry).
   useEffect(() => {
-    if (courses !== undefined) setEntitlementDenied(false);
+    if (courses !== undefined) setEntitlementDenied(null);
   }, [courses]);
 
-  // R62 §2.B.2 — the specific "session expired / device unauthorized" card.
-  const showEntitlementCard =
-    entitlementDenied || (isError && error instanceof EntitlementDeniedError);
-  if (showEntitlementCard) {
+  // R62 §2.B.2 + R69 §2.D — the truthful denial card (subscription vs session/device).
+  const queryDenied = isError && error instanceof EntitlementDeniedError
+    ? variantForReason(error.reason)
+    : null;
+  if (entitlementDenied || queryDenied) {
     return (
       <EntitlementErrorCard
+        variant={queryDenied ?? entitlementDenied ?? 'device'}
         onRetry={() => {
-          setEntitlementDenied(false);
+          setEntitlementDenied(null);
           refetch();
         }}
       />
@@ -159,13 +194,18 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
     return <CatalogErrorCard onRetry={() => mySubjects.refetch()} />;
   }
 
-  // No active subscription code → locked state with the activation CTA.
-  // (Based on the FULL entitled list — a subject filter must not fake a lock.)
-  if (allSubjects.length === 0) {
-    return <LockedEmptyState title="الكورسات مُقفلة" hint="كورسات الفيديو والصوت لموادك تُفتح بعد تفعيل كود اشتراك يشمل محتوى الفيديو." />;
+  // R69 §2.D — no VideoAudio-capable subject (no grants at all, or grants that do
+  // not include video content) → the truthful locked state with the activation CTA.
+  if (videoSubjects.length === 0) {
+    return (
+      <LockedEmptyState
+        title="لا توجد كورسات فيديو متاحة لحسابك. يرجى تفعيل اشتراك."
+        hint="كورسات الفيديو والصوت لموادك تُفتح بعد تفعيل كود اشتراك يشمل محتوى الفيديو."
+      />
+    );
   }
 
-  // Deep-linked subject the student holds no grant for (stale link).
+  // Deep-linked subject the student holds no VideoAudio grant for (stale link).
   if (subjectId && subjects.length === 0) {
     return (
       <div className="text-center py-14 rounded-3xl border border-dashed border-[var(--c-border)]" data-testid="courses-subject-locked">
@@ -264,35 +304,63 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
 }
 
 /**
- * R62 §2.B.2 — the entitlement-denial card. Shown when course requests are rejected
- * with 403 (session expired / device no longer authorized) even after one automatic
- * entitlement re-issue + retry. WCAG 2.2 AA: role="alert" announces the state to
- * screen readers, both actions are ≥44 px keyboard-reachable targets with visible
- * focus outlines.
+ * R62 §2.B.2 + R69 §2.D — the entitlement-denial card, now variant-aware:
+ *  - `device`: session expired / device no longer authorized — keeps the login link.
+ *  - `no-grants`: subscription state — NO login button (a new session cannot fix a
+ *    missing subscription); the activation route is the actionable fix.
+ * WCAG 2.2 AA: role="alert" announces the state to screen readers, actions are
+ * ≥44 px keyboard-reachable targets with visible focus outlines.
  */
-function EntitlementErrorCard({ onRetry }: { onRetry: () => void }) {
+function EntitlementErrorCard({ variant, onRetry }: { variant: DenialVariant; onRetry: () => void }) {
+  const copy =
+    variant === 'no-grants'
+      ? {
+          title: 'لا يوجد اشتراك فعّال يتيح الكورسات',
+          body: 'كورسات الفيديو والصوت لموادك تُفتح بعد تفعيل كود اشتراك يشمل محتوى الفيديو.',
+          showLogin: false,
+        }
+      : {
+          title: 'انتهت صلاحية الجلسة أو الجهاز غير مصرح له',
+          body: 'يرجى إعادة تسجيل الدخول للوصول إلى كورساتك.',
+          showLogin: true,
+        };
   return (
     <div
       role="alert"
       className="flex flex-col items-center justify-center gap-4 rounded-3xl border border-dashed border-[var(--c-border-strong)] bg-[var(--c-surface)] px-8 py-14 text-center"
       data-testid="courses-entitlement-error"
+      data-variant={variant}
     >
       <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--c-danger-50)]">
-        <ShieldAlert className="h-8 w-8 text-[var(--c-danger-500)]" aria-hidden="true" />
+        {variant === 'no-grants'
+          ? <KeyRound className="h-8 w-8 text-[var(--c-danger-500)]" aria-hidden="true" />
+          : <ShieldAlert className="h-8 w-8 text-[var(--c-danger-500)]" aria-hidden="true" />}
       </div>
       <div className="space-y-1">
-        <h3 className="text-base font-bold text-[var(--c-text)]">انتهت صلاحية الجلسة أو الجهاز غير مصرح له</h3>
-        <p className="text-sm text-[var(--c-text-muted)]">يرجى إعادة تسجيل الدخول للوصول إلى كورساتك.</p>
+        <h3 className="text-base font-bold text-[var(--c-text)]">{copy.title}</h3>
+        <p className="text-sm text-[var(--c-text-muted)]">{copy.body}</p>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-3">
-        <Link
-          to="/login"
-          className="press inline-flex min-h-11 items-center gap-2 rounded-2xl px-6 py-2.5 text-sm font-bold text-white shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--c-primary-700)]"
-          style={{ background: 'var(--c-primary-700)' }}
-          data-testid="entitlement-login-link"
-        >
-          <LogIn className="h-4 w-4" aria-hidden="true" /> تسجيل الدخول
-        </Link>
+        {copy.showLogin && (
+          <Link
+            to="/login"
+            className="press inline-flex min-h-11 items-center gap-2 rounded-2xl px-6 py-2.5 text-sm font-bold text-white shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--c-primary-700)]"
+            style={{ background: 'var(--c-primary-700)' }}
+            data-testid="entitlement-login-link"
+          >
+            <LogIn className="h-4 w-4" aria-hidden="true" /> تسجيل الدخول
+          </Link>
+        )}
+        {variant === 'no-grants' && (
+          <Link
+            to="/activate-code"
+            className="press inline-flex min-h-11 items-center gap-2 rounded-2xl px-6 py-2.5 text-sm font-bold text-white shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--c-primary-700)]"
+            style={{ background: 'var(--c-primary-700)' }}
+            data-testid="entitlement-activate-link"
+          >
+            <KeyRound className="h-4 w-4" aria-hidden="true" /> تفعيل كود
+          </Link>
+        )}
         <button
           type="button"
           onClick={onRetry}
