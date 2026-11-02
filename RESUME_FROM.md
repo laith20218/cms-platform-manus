@@ -1,22 +1,28 @@
 # RESUME_FROM — next session start point
 
-- **Branch**: `feat/12.5-tech-debt` (5 commits, LOCAL — do NOT push without supervisor PAT, §2).
-- **Base**: main @ `6a28f6d` (PR #68 merged; Render live).
-- **HEAD**: `f70b478` (see `git log main..feat/12.5-tech-debt --oneline` for the commit map).
-- **State**: Wave 12.5 (Tech Debt) implemented per R72 — 5 commits: backend
-  FileBookmark stack + migration `AddFileBookmarks` (applies on deploy ONLY),
-  bookmarks server migration + optimistic UI + one-time import, 403
-  ProblemDetails reason, 20 silent-error sites surfaced, WIP_STATUS refresh.
-- **Verification (final ladder, all green)**: dotnet 619/619 (27 skipped
-  Testcontainers) · tsc 0 · lint 0 · vitest 364/364 · build 0 ·
-  e2e pdf-11.11 26/26 · pdf 27/27 · video 29/29 · §13 pack
-  (`e2e/screenshots/w12.5-bookmarks-*.png` + `w12.5-bookmarks-axe.json`,
-  axe 0 blocking at 5 widths) · catalog-error e2e 7/7 @375px.
-- **Next round (R73)**: supervisor review of this branch → push + PR + CI +
-  merge + Render deploy verification (the R70 playbook; migration
-  `AddFileBookmarks` applies during deploy — verify `file_bookmarks` exists in
-  Neon and GET /library/{id}/bookmarks responds).
-- **Environment note**: `public/e2e-test-video.mp4` is a git-IGNORED fixture;
-  if `player-video.e2e.mjs` times out on resume-seek, regenerate with the
-  ffmpeg command documented in that file's header (missing fixture = the
-  failure signature; A/B-proven 2026-11-02).
+- **Branch**: `feat/14.1-data-foundations` (1 commit, LOCAL — do NOT push without supervisor approval, §2).
+- **Base**: main @ `65a2e50` (PR #69 merged; all prior waves closed/deployed).
+- **State**: Wave 14.1 (Data Model Foundations) implemented per PART I —
+  entities `ExamCourse` / `ExamCourseItem` / `PracticeSession` / `PracticeAnswer`
+  (D1/D6/D13), `Question.QuestionUsage` (D3), `Exam.ModelLetter` (D7),
+  `ErrorReport.ReportType` (D12), EF config + hand-authored migration
+  `20261116120000_AddWave14ExamsRework` + snapshot extended in the same commit,
+  TODO(W14.2) markers on the two legacy read-path filter sites, idempotent Neon
+  SQL mirror at `scripts/migrations/Wave14ExamsRework.sql`.
+- **Verification (in-sandbox, .NET 9.0.320)**: dotnet build 0 errors ·
+  dotnet test 619/619 passed (27 skipped Testcontainers, same as baseline) ·
+  `dotnet ef migrations has-pending-model-changes` → "No changes" (snapshot parity
+  tool-proven). Deviations from the PART I brief are ALL disclosed in
+  WIP_STATUS.md → "Deviations" (Exam file location, ErrorReport.QuestionId
+  pre-existing, index supersession, chosen FK behaviors, FreeOrPaid semantics,
+  Semester as int).
+- **Next round (W14.2)**: supervisor review of this branch → push approval →
+  PR + CI + merge + Render deploy (migration applies during deploy — verify
+  `exam_courses`, `exam_course_items`, `practice_sessions`, `practice_answers`
+  exist in Neon and `questions.question_usage`/`error_reports.report_type`
+  backfills landed). THEN Wave 14.2 = API logic (ExamCourse endpoints, D3
+  filtering, D5 admin editor backend, D12 report submission), removal of the two
+  TODO(W14.2) legacy read paths.
+- **Environment note**: this sandbox HAS the .NET 9 SDK at `/home/z/.dotnet`
+  (`export PATH=/home/z/.dotnet:$PATH`); dotnet-ef 9.0.22 restores from
+  `.config/dotnet-tools.json`. No Docker → 27 Testcontainers tests skip (expected).

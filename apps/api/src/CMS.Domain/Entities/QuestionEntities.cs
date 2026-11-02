@@ -11,6 +11,13 @@ namespace CMS.Domain.Entities;
 public class Question : AuditableEntity
 {
     public QuestionType Type { get; private set; }
+    /// <summary>
+    /// Wave 14.1 (D3): where this question may be used — practice drills, official
+    /// exams, or both. Separated from Type (MCQ/TF/Essay) so a question can be
+    /// exam-locked without changing its shape. Defaults to Both; legacy rows are
+    /// backfilled to Both by the W14.1 migration (zero behavior change).
+    /// </summary>
+    public QuestionUsage QuestionUsage { get; private set; } = QuestionUsage.Both;
     public Guid SubjectId { get; private set; }
     public Guid? LectureId { get; private set; }
     public Guid? ExamId { get; private set; }
@@ -247,6 +254,12 @@ public class Exam : AuditableEntity
     public string Slug { get; private set; } = string.Empty;
     public string? Description { get; private set; }
     public ExamType ExamType { get; private set; }
+    /// <summary>
+    /// Wave 14.1 (D7): model-paper letter for نموذجي exams (A/B/C) — NULL for normal
+    /// exams. Pairs with ExamCourseType.Model bundles; a student picks a letter and
+    /// practices/sits that paper's question set.
+    /// </summary>
+    public char? ModelLetter { get; private set; }
     public int Year { get; private set; }
     public int DurationMinutes { get; private set; } = 60;
     public int TotalQuestions { get; private set; }

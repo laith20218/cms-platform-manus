@@ -1,82 +1,111 @@
-# WIP_STATUS — main @ 6a28f6d → feat/12.5-tech-debt (Wave 12.5: Technical Debt)
+# WIP_STATUS — main @ 65a2e50 → feat/14.1-data-foundations (Wave 14.1: Data Model Foundations)
 
 ## ─── STATE ───────────────────────────────────────────────
-Waves 13.x and 12.4 are CLOSED and deployed:
-- PR #66 (12.4a video controls) — merged, Render live since e7cd6a6.
-- PR #67 (12.4b) — merged (zero apps/api delta).
-- PR #68 (12.4c courses content-scope + issue guard, R69) — pushed in R70,
-  all CI green (incl. CodeQL), merged as 6a28f6d; Render auto-deploy
-  confirmed live on 6a28f6d (dep-dbk0ms3ncjis73e3s39g, trigger new_commit).
-- R68 DIAG accepted (device binding exonerated; scope semantics root cause).
+Waves 11.x, 12.x, 13.x are CLOSED and deployed (main @ 65a2e50, PR #69 merged).
+R75 DIAG ACCEPTED — the 13 decisions D1–D13 are LOCKED and drive this wave.
 
-Verification ledger (last recorded): backend 607/607 · vitest 355/355 ·
-e2e 14/14 · CodeQL/Trivy/Lighthouse green · 375px + WCAG 2.2 AA ladder green.
+Verification ladder (this wave, in-sandbox — .NET 9 SDK 9.0.320 PRESENT, unlike
+Phase61/62): **dotnet build 0 errors** · **dotnet test 619/619 passed, 0 failed,
+27 skipped (Testcontainers — no Docker in sandbox; same 27 as the 12.5 baseline)** ·
+**`dotnet ef migrations has-pending-model-changes` → "No changes"** (hand-edited
+snapshot verified semantically identical to the live model by the tool itself).
 
-## ─── WAVE 12.5 — IMPLEMENTED (this branch, 5 commits, NOT pushed) ───
-R71 DIAG accepted; all 7 supervisor decisions LOCKED and implemented (Q1–Q7).
+## ─── WAVE 14.1 — IMPLEMENTED (this branch, 1 commit, NOT pushed) ───
+Backend ONLY. No API endpoints touched. No business logic. Entities + EF config +
+one hand-authored migration + two TODO markers + docs.
 
-### Commit map (PART I R72 → commits)
+### What was added
 
-1. **feat(api) 12.5.B** — `FileBookmark` entity (unique StudentId+FileId+PageNumber,
-   check `page_number >= 1`, cascading FKs, Snippet ≤120), EF migration
-   `AddFileBookmarks` (§3 permission GRANTED — file only, applied by deploy,
-   never run manually against Neon), MediatR handlers (GET list / idempotent
-   per-page POST upsert / owner-only DELETE → 403 foreign id), entitlement-gated
-   endpoints under `api/v1/library` mirroring annotations, 9 handler tests.
-2. **feat(student-web) 12.5.B** — bookmarks → server API: `usePdfBookmarks`
-   (query + optimistic onMutate/onError-rollback mutations + server-truth
-   toggle resolve for the pending-add race), one-time per-file legacy import
-   (POST each → remove key → `cms:pdf:bookmarks:migrated:v1` marker; Q2),
-   `pdf-bookmarks.ts` reduced to types + pure ordering + legacy readers,
-   e2e S9 rewritten (server store: add→reload→persists, delete→gone,
-   import→key removed) + bookmarks routes added to w12.3-matrix.
-3. **fix(api) 12.5.A.5 (Q5)** — CoursesController 403 = ProblemDetails with
-   `validation.FailureReason` (bare Forbid() dropped it — the R68 masquerade
-   root); audit line preserved; unit tests assert the body carries the reason.
-4. **fix(student-web) 12.5.A** — 20 silent error sites (R71 §A inventory):
-   Group 1 catalogs ×4 → R69 taxonomy ported (`loadCatalogAcrossSubjects` +
-   shared CatalogErrorCards; per-subject failures collected, bounded self-heal,
-   throw on total failure, empty state only on genuine 200-empty);
-   Group 2 profile ×2 → inline status text (password pattern);
-   Group 3 session ×3 → single deduped session-expired toast (Q4);
-   Group 4 query pages ×9 → error cards / inline cascade retry (DashboardPage
-   pattern), notifications mutations get onError toasts, PermissionProvider
-   surfaces a banner + `isError` in context;
-   Group 5 media ×3 → audio-markers failure banner + retry, once-per-session
-   progress-save toast (Q3). Tests: dedup unit tests + catalog error e2e (7/7).
-5. **docs 12.5.C** — this refresh.
+1. **New entities (one file each, FileBookmark 12.5.B style — public setters,
+   EF materialization ctor, XML docs):**
+   - `CMS.Domain/Entities/ExamCourse.cs` (D1) — SubjectId FK, NameAr/NameEn,
+     Description?, CoverUrl?, Year (int, `Exam.Year` convention), Semester (int
+     number), CourseType (`ExamCourseType`: First/Second/Supplementary/Model/Practice),
+     FreeOrPaid (bool — **true = paid**, false = free), SortOrder, Status (ContentStatus).
+   - `CMS.Domain/Entities/ExamCourseItem.cs` (D1/D6) — join row; (ExamCourseId,
+     ExamId) UNIQUE; both FKs cascade.
+   - `CMS.Domain/Entities/PracticeSession.cs` (D13) — StudentId, ExamModelId,
+     StartedAt, LastAccessedAt, Score?, Status (`PracticeSessionStatus`:
+     InProgress/Completed).
+   - `CMS.Domain/Entities/PracticeAnswer.cs` (D13) — PracticeSessionId, QuestionId,
+     SelectedAnswer?, IsCorrect? (NULL = ungraded), AnsweredAt.
+2. **New enums** — `CMS.Domain/Enums/Wave14Enums.cs`: `ExamCourseType`,
+   `QuestionUsage` (Practice/Exam/Both, default Both — D3), `PracticeSessionStatus`,
+   `ReportType` (Typo/WrongAnswer/BadImage/Other — D12). All stored as plain int
+   (repo convention, zero HasConversion anywhere).
+3. **Modified entities:**
+   - `Question.QuestionUsage` (D3) — private set + initializer Both; `Create()` NOT
+     signature-changed (§12: no API logic).
+   - `Exam.ModelLetter` (D7) — `char?`, NULL for normal exams.
+   - `ErrorReport.ReportType` (D12) — initializer Other.
+4. **EF config** — `ApplicationDbContext.cs` + `IApplicationDbContext.cs`: 4 new
+   DbSets; fluent blocks; FK behaviors per spec: PracticeSession→students CASCADE,
+   PracticeAnswer→practice_sessions CASCADE, ExamCourse→subjects RESTRICT. Extra
+   indexes: exam_courses(subject_id, year, semester) for D4 filters,
+   practice_sessions(student_id, status), practice_answers(session, question),
+   error_reports(question_id, status) per spec.
+5. **Migration `20261116120000_AddWave14ExamsRework`** — hand-authored, attributes
+   on the class, NO Designer (Phase61/62 precedent); snapshot hand-extended in the
+   SAME commit (repo ruling: next tool migration must diff cleanly). Creates ONLY
+   new tables/columns; backfills: questions.question_usage=2 (Both),
+   error_reports.report_type=3 (Other). Idempotent SQL mirror for Neon:
+   `scripts/migrations/Wave14ExamsRework.sql`.
+6. **P0 legacy read path — documentation only (2.E):** TODO(W14.2) markers at
+   `QuestionHandlers.cs:43-47` (GetQuestionsQuery ExamId filter) and
+   `OfflineHandlers.cs:86-89` (offline package exam filter). Logic UNCHANGED.
 
-### §13 evidence (commits 2 & 4)
+### §13 evidence (this wave)
 
-- `e2e/w12.5-bookmarks-axe.mjs`: 5 widths (375/414/768/1024/1440) — axe
-  (wcag2a/2aa/21aa/22aa) **0 blocking at every width**, zero horizontal page
-  scroll, panel targets ≥44px (rows + remove = 44px, rail add = 48px);
-  screenshots `e2e/screenshots/w12.5-bookmarks-*.png` + `w12.5-bookmarks-axe.json`.
-- PRE-EXISTING findings (A/B-proven on main @ 6a28f6d, NOT regressions, §12
-  out of scope): rail toggle compresses to 22px at 1024×768 (12.2/12.3 rail
-  flex behavior); panel close button 40px (12.3 chrome).
-- RTL grep: zero directional utilities in added lines (commits 2 & 4).
-- `e2e/w12.5-catalog-error.e2e.mjs` @375px: error card not empty state,
-  retry ≥44px, zero h-scroll — 7/7.
+- `dotnet build CMS.sln` → 0 errors (19 pre-existing CS0618/CS86xx warnings, ALL in
+  CMS.Tests which is historically exempt from TreatWarningsAsErrors; zero in the
+  4 product projects).
+- `dotnet test CMS.sln` → Passed! Failed: 0, Passed: 619, Skipped: 27, Total: 646 —
+  identical counts to the last recorded green ladder (W12.5: 619/619, 27 skipped).
+- `dotnet ef migrations has-pending-model-changes` (pinned local tool 9.0.22 via
+  `.config/dotnet-tools.json`) → "No changes have been made to the model since the
+  last migration." — proves snapshot ↔ model parity without human eyeballing.
+- Migration ID 20261116120000 sorts AFTER 20261115120000_Phase62 (apply order safe).
 
-### Deviations (§10 disclosure)
+### Deviations from the PART I brief (§10 disclosure — all spec-vs-origin conflicts,
+### resolved per §9 ground truth)
 
-1. Q2's import flag: the locked flag name `cms:pdf:bookmarks:migrated:v1` is set
-   as the device marker, but the import GATE is per-file legacy keys (a single
-   global gate would silently drop every other document's bookmarks). Keys are
-   removed only after a successful import; a failed import retries next mount.
-2. Q7 delete by bookmarkId: the page→id resolution happens server-truth-first
-   (fresh GET) inside the mutations, which also closes the pending-add race.
-3. LibraryCatalog previously fetched my-subjects inline; it now shares
-   `useMySubjects` (consistent entitlement signal across all four catalogs).
+1. **`Exam` is NOT in `ExamLifecycleEntities.cs`** — it lives in
+   `QuestionEntities.cs:241-400` (that file only holds ExamQuestion/ExamSessionQuestion).
+   `ModelLetter` was added where Exam actually is.
+2. **`ErrorReport.QuestionId` ALREADY EXISTS** (required FK + navigation, Phase59 —
+   `OperationalEntities.cs:232`). The brief said "add QuestionId (nullable)" — NOT
+   duplicated; this wave adds only `ReportType` + the (question_id, status) index.
+3. **Index consequence:** adding the (QuestionId, Status) composite makes EF's
+   ForeignKeyIndexConvention DROP the conventional single-column
+   `ix_error_reports_question_id` (same leading column) — migration therefore does
+   DropIndex + CreateIndex; snapshot updated to match (tool-verified).
+4. **One commit, not the repo's usual multi-commit-per-wave map** — supervisor's
+   brief wins (§12). WIP_STATUS/RESUME_FROM updates ride inside the single commit.
+5. **FK behaviors chosen where the brief was silent (reviewable):**
+   ExamCourseItem→exam CASCADE (join row meaningless alone),
+   PracticeSession→exam RESTRICT (protect history, D2 spirit),
+   PracticeAnswer→question RESTRICT (same), ErrorReport→question stays CASCADE
+   (pre-existing Phase59 behavior, untouched).
+6. **`FreeOrPaid` semantics:** bool per brief; documented as **true = paid**,
+   false = free (default). If the supervisor intended the inverse, it is a
+   one-line entity + comment change before push.
+7. **`Semester` is a plain int** (semester number 1..3) per the brief's "Year,
+   Semester" — NOT an FK to the `semesters` lookup table. Flag for 14.2 if D4
+   filter joins need the lookup.
+8. **Sandbox bonus:** dotnet build/test/ef-parity actually EXECUTED here (Phase61/62
+   could not — no SDK). New-column defaults are backfill-only (no HasDefaultValue in
+   fluent/snapshot), matching the Phase62 `enable_scripts` precedent.
 
 ### Out of scope / untouched (§12)
 
-- Annotations, media bookmarks, favorites public interfaces (Q constraint).
-- No z-index changes; no measureText.
-- Pre-existing 1024×768 rail compression + 40px panel close button (A/B-proven).
+- No API endpoints, no handlers logic, no DTOs, no frontends, no new tests beyond
+  existing suites (entity-only wave; handler tests come with 14.2 logic).
+- Vercel/Render/Neon/Upstash credentials shared in chat: NOT used, NOT stored.
+  **SUPERVISOR ACTION: rotate all of them + the two account passwords — they were
+  pasted in plaintext.**
 
 ## ─── git log (this branch) ───────────────────────────────
 
-`git log main..feat/12.5-tech-debt --oneline` — 5 commits; STOP GATE: push
-requires supervisor PAT (next round). Migration applies on Render deploy only.
+1 commit on `feat/14.1-data-foundations`; STOP GATE: push requires supervisor
+approval (§2). Migration applies on Render deploy ONLY — the Neon SQL mirror is
+for supervisor-run application/review, never the CI path.
