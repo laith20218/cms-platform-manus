@@ -54,3 +54,13 @@ export async function entitlementRequestConfig() {
 export function clearEntitlementToken(): void {
   sessionStorage.removeItem(STORAGE_KEY);
 }
+
+// R62 §2.C — H1 mitigation. A 403 from any entitlement-gated endpoint means the cached
+// signed entitlement failed server-side validation (signature / device binding / expiry /
+// scope — SignedEntitlementService.ValidateAsync). Evict it immediately so the next
+// entitlementRequestConfig() call re-issues a FRESH token via POST /entitlements/issue
+// instead of replaying the stale one for up to 20 minutes (the old cache-only-evicted-
+// on-expiry behavior). The event is dispatched by the api-client response interceptor.
+if (typeof window !== 'undefined') {
+  window.addEventListener('cms-entitlement-error', () => clearEntitlementToken());
+}

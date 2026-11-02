@@ -83,6 +83,23 @@ apiClient.interceptors.response.use(
       }
     }
 
+    // R62 §2.B.1 — a 403 is an entitlement/session denial, NOT a connection error.
+    // Broadcast a typed event so feature UIs can render the specific "session/device"
+    // state (CoursesCatalog) and the entitlement cache can self-heal (the eviction
+    // listener in entitlement-api.ts). The error still rejects below, preserving
+    // per-caller handling.
+    if (error.response?.status === 403) {
+      const problem = error.response?.data as { detail?: string; title?: string } | undefined;
+      window.dispatchEvent(
+        new CustomEvent('cms-entitlement-error', {
+          detail: {
+            url: typeof originalRequest?.url === 'string' ? originalRequest.url : '',
+            reason: problem?.detail || problem?.title || 'forbidden',
+          },
+        })
+      );
+    }
+
     return Promise.reject(error);
   }
 );

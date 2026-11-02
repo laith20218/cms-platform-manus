@@ -1,11 +1,15 @@
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  AlertTriangle, BookOpen, Clock, Eye, GraduationCap, MonitorPlay, PlayCircle,
-  RotateCcw, Target,
+  AlertTriangle, BookOpen, Clock, Eye, GraduationCap, LogIn, MonitorPlay, PlayCircle,
+  RotateCcw, ShieldAlert, Target,
 } from 'lucide-react';
-import { coursesApi } from '../services/courses-api';
+import {
+  coursesApi, EntitlementDeniedError, isEntitlementDenied,
+} from '../services/courses-api';
+import { getEntitlementToken } from '@/features/entitlements/services/entitlement-api';
 import { useMySubjects } from '../hooks/useMySubjects';
 import { LockedEmptyState } from './LockedEmptyState';
 
@@ -27,25 +31,61 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
 
   const subjects = subjectId ? allSubjects.filter((s) => s.id === subjectId) : allSubjects;
 
-  const { data: courses, isLoading, isError, refetch } = useQuery({
+  // R62 §2.B.2 — a 403 broadcast from the api-client interceptor (any /courses/ call)
+  // means the session/device failed entitlement validation. The query below retries
+  // once with a freshly issued entitlement (§2.C). Cleared whenever a load succeeds.
+  const [entitlementDenied, setEntitlementDenied] = useState(false);
+
+  const {
+    data: courses, isLoading, isError, isFetching, error, refetch,
+  } = useQuery({
     queryKey: ['courses-catalog', subjects.map((s) => s.id).join(',')],
     enabled: subjects.length > 0,
-    retry: 1,
+    // A denial is terminal for this attempt — the in-queryFn self-heal already retried.
+    retry: (failureCount, failure) => !(failure instanceof EntitlementDeniedError) && failureCount < 1,
     queryFn: async () => {
+      const all: Awaited<ReturnType<typeof coursesApi.getSubjectCourses>> = [];
       let loaded = 0;
       let failed = 0;
-      const all: Awaited<ReturnType<typeof coursesApi.getSubjectCourses>> = [];
-      await Promise.all(
-        subjects.map(async (subject) => {
-          try {
-            const items = await coursesApi.getSubjectCourses(subject.id);
-            all.push(...items);
-            loaded += 1;
-          } catch {
-            failed += 1; // partial failure — keep going, remember it
-          }
-        })
-      );
+      let sawForbidden = false;
+
+      const loadSubjects = async (ids: string[]) => {
+        loaded = 0;
+        failed = 0;
+        await Promise.all(
+          ids.map(async (id) => {
+            try {
+              const items = await coursesApi.getSubjectCourses(id);
+              all.push(...items);
+              loaded += 1;
+            } catch (loadError) {
+              failed += 1; // partial failure — keep going, remember it
+              if (isEntitlementDenied(loadError)) sawForbidden = true;
+            }
+          })
+        );
+      };
+
+      await loadSubjects(subjects.map((s) => s.id));
+
+      // R62 §2.C (H1 mitigation) — a 403 means the CACHED signed entitlement failed
+      // server-side validation. The eviction listener has already dropped it; force
+      // ONE re-issue and retry the failed subjects a single time before declaring
+      // a denial. Bounded: this runs at most once per queryFn invocation.
+      if (sawForbidden) {
+        all.length = 0;
+        try {
+          await getEntitlementToken(true); // forceRenewal — bypasses the (now empty) cache
+        } catch {
+          // Re-issue itself failed → fall through; the retry below replays the denial.
+        }
+        await loadSubjects(subjects.map((s) => s.id));
+      }
+
+      // Total denial even after the self-heal attempt → the specific session/device UI.
+      if (sawForbidden && loaded === 0) {
+        throw new EntitlementDeniedError();
+      }
       // TOTAL failure: every subject blew up → throw so isError kicks in.
       if (loaded === 0 && failed > 0) {
         throw new Error('courses-catalog-unreachable');
@@ -53,6 +93,47 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
       return all;
     },
   });
+
+  // Events arriving while a fetch is in flight are IGNORED: the in-queryFn self-heal
+  // (§2.C) owns that window and already retries once — reacting to its own 403s here
+  // would flash the denial card over legitimately-partial results (mixed-scope
+  // students) and could race the retry. Idle-time events (mid-session revocation)
+  // are exactly the user-facing case this card exists for.
+  const fetchingRef = useRef(false);
+  useEffect(() => {
+    fetchingRef.current = isFetching;
+  }, [isFetching]);
+
+  useEffect(() => {
+    const onEntitlementError = (event: Event) => {
+      if (fetchingRef.current) return;
+      const detail = (event as CustomEvent<{ url?: string }>).detail;
+      if (!detail?.url || detail.url.includes('/courses/')) {
+        setEntitlementDenied(true);
+      }
+    };
+    window.addEventListener('cms-entitlement-error', onEntitlementError);
+    return () => window.removeEventListener('cms-entitlement-error', onEntitlementError);
+  }, []);
+
+  // A successful load invalidates any stale denial flag (self-heal path or retry).
+  useEffect(() => {
+    if (courses !== undefined) setEntitlementDenied(false);
+  }, [courses]);
+
+  // R62 §2.B.2 — the specific "session expired / device unauthorized" card.
+  const showEntitlementCard =
+    entitlementDenied || (isError && error instanceof EntitlementDeniedError);
+  if (showEntitlementCard) {
+    return (
+      <EntitlementErrorCard
+        onRetry={() => {
+          setEntitlementDenied(false);
+          refetch();
+        }}
+      />
+    );
+  }
 
   if (mySubjects.isLoading) {
     return (
@@ -178,6 +259,49 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
           </Link>
         </motion.div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * R62 §2.B.2 — the entitlement-denial card. Shown when course requests are rejected
+ * with 403 (session expired / device no longer authorized) even after one automatic
+ * entitlement re-issue + retry. WCAG 2.2 AA: role="alert" announces the state to
+ * screen readers, both actions are ≥44 px keyboard-reachable targets with visible
+ * focus outlines.
+ */
+function EntitlementErrorCard({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col items-center justify-center gap-4 rounded-3xl border border-dashed border-[var(--c-border-strong)] bg-[var(--c-surface)] px-8 py-14 text-center"
+      data-testid="courses-entitlement-error"
+    >
+      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--c-danger-50)]">
+        <ShieldAlert className="h-8 w-8 text-[var(--c-danger-500)]" aria-hidden="true" />
+      </div>
+      <div className="space-y-1">
+        <h3 className="text-base font-bold text-[var(--c-text)]">انتهت صلاحية الجلسة أو الجهاز غير مصرح له</h3>
+        <p className="text-sm text-[var(--c-text-muted)]">يرجى إعادة تسجيل الدخول للوصول إلى كورساتك.</p>
+      </div>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <Link
+          to="/login"
+          className="press inline-flex min-h-11 items-center gap-2 rounded-2xl px-6 py-2.5 text-sm font-bold text-white shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--c-primary-700)]"
+          style={{ background: 'var(--c-primary-700)' }}
+          data-testid="entitlement-login-link"
+        >
+          <LogIn className="h-4 w-4" aria-hidden="true" /> تسجيل الدخول
+        </Link>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="press inline-flex min-h-11 items-center gap-2 rounded-2xl border border-[var(--c-border-strong)] px-6 py-2.5 text-sm font-bold text-[var(--c-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--c-primary-700)]"
+          data-testid="entitlement-retry-button"
+        >
+          <RotateCcw className="h-4 w-4" aria-hidden="true" /> إعادة المحاولة
+        </button>
+      </div>
     </div>
   );
 }
