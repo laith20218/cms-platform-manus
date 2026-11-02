@@ -45,6 +45,9 @@ public class QuestionQueryHandlers :
         // column for future removal.
         if (req.ExamId.HasValue)
             query = query.Where(q => _db.ExamQuestions.Any(eq => eq.ExamId == req.ExamId && eq.QuestionId == q.Id));
+        // W14.2 E.1 (D3): usage filter — "practice" also admits Both, "exam" also admits Both.
+        if (!string.IsNullOrWhiteSpace(req.Usage) && Enum.TryParse<QuestionUsage>(req.Usage, true, out var usage))
+            query = query.Where(q => q.QuestionUsage == usage || q.QuestionUsage == QuestionUsage.Both);
         if (!string.IsNullOrEmpty(req.Difficulty) && Enum.TryParse<Difficulty>(req.Difficulty, true, out var diff))
             query = query.Where(q => q.Difficulty == diff);
         if (!string.IsNullOrEmpty(req.Search))
@@ -184,7 +187,8 @@ public class QuestionQueryHandlers :
     private static QuestionListItemDto MapToListItem(Question q, bool isFavorite) => new(
         q.Id, q.Text.Length > 150 ? q.Text[..150] + "..." : q.Text,
         q.Type.ToString(), q.Difficulty.ToString(),
-        q.Tags, q.Lecture?.NameAr, q.Year, null, isFavorite
+        q.Tags, q.Lecture?.NameAr, q.Year, null, isFavorite,
+        q.QuestionUsage.ToString() // W14.2 E.1 (D3)
     );
 
     private static QuestionDto MapToDto(Question q, bool isFavorite) => new(

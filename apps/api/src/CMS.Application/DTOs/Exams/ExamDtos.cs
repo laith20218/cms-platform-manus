@@ -23,7 +23,9 @@ public record ExamDto(
     bool AllowReview,
     bool ShowCorrectAnswers,
     bool ShowExplanations,
-    string Status
+    string Status,
+    // W14.2 E.2 (D7): model-paper letter for نموذجي exams — null for normal exams.
+    string? ModelLetter = null
 );
 
 public record ExamListItemDto(
@@ -40,7 +42,9 @@ public record ExamListItemDto(
     bool CanStart,
     string? StartBlockedReason,
     int? RemainingAttempts,
-    bool HasInProgressSession
+    bool HasInProgressSession,
+    // W14.2 E.2 (D7): model-paper letter — null for normal exams.
+    string? ModelLetter = null
 );
 
 // ===== Student session =====
@@ -139,7 +143,9 @@ public record AdminExamListItemDto(
     string Status,
     int AttemptsCount,
     int CompletedCount,
-    double? AverageScore
+    double? AverageScore,
+    // W14.2 E.2 (D7): model-paper letter — null for normal exams.
+    string? ModelLetter = null
 );
 
 public record AdminExamDetailsDto(ExamDto Exam, List<AdminExamQuestionDto> Questions);

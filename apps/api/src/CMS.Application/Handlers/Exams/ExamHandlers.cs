@@ -66,7 +66,8 @@ public sealed class ExamQueryHandlers :
                 available && !hasReachedLimit,
                 blockedReason,
                 exam.MaxAttempts.HasValue ? Math.Max(0, exam.MaxAttempts.Value - countedAttempts) : null,
-                inProgress);
+                inProgress,
+                exam.ModelLetter?.ToString()); // W14.2 E.2 (D7)
         }).ToList();
     }
 
@@ -113,7 +114,8 @@ public sealed class ExamQueryHandlers :
         exam.TotalQuestions, exam.PassingScore, exam.AvailableFrom, exam.AvailableUntil,
         exam.MaxAttempts, exam.ShuffleQuestions, exam.ShuffleOptions,
         exam.ShowResultsImmediately, exam.AllowReview, exam.ShowCorrectAnswers,
-        exam.ShowExplanations, exam.Status.ToString());
+        exam.ShowExplanations, exam.Status.ToString(),
+        exam.ModelLetter?.ToString()); // W14.2 E.2 (D7)
 
     internal static ExamSessionDto BuildSessionDto(ExamSession session)
     {
@@ -988,7 +990,8 @@ public sealed class AdminExamQueryHandlers :
                 exam.AvailableFrom, exam.AvailableUntil, exam.MaxAttempts, exam.Status.ToString(),
                 exam.Sessions.Count,
                 exam.Sessions.Count(session => session.Status == ExamSessionStatus.Completed || session.Status == ExamSessionStatus.TimedOut),
-                exam.Sessions.Where(session => (session.Status == ExamSessionStatus.Completed || session.Status == ExamSessionStatus.TimedOut) && session.Score.HasValue).Select(session => session.Score).Average()))
+                exam.Sessions.Where(session => (session.Status == ExamSessionStatus.Completed || session.Status == ExamSessionStatus.TimedOut) && session.Score.HasValue).Select(session => session.Score).Average(),
+                exam.ModelLetter.ToString())) // W14.2 E.2 (D7)
             .ToListAsync(ct);
         return new PagedExamResultDto<AdminExamListItemDto>(exams, NormalizePage(req.Page) + 1, NormalizePageSize(req.PageSize), total);
     }

@@ -48,7 +48,7 @@ public class QuestionsController : ControllerBase
     [EnableRateLimiting("questions")]
     public async Task<IActionResult> GetQuestions(
         [FromQuery] Guid? subjectId, [FromQuery] Guid? lectureId, [FromQuery] Guid? examId,
-        [FromQuery] string? difficulty, [FromQuery] string? search,
+        [FromQuery] string? difficulty, [FromQuery] string? search, [FromQuery] string? usage,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
         [FromQuery] string sort = "createdAt", [FromQuery] string order = "desc",
         CancellationToken ct = default)
@@ -79,7 +79,7 @@ public class QuestionsController : ControllerBase
         var rejection = await EntitlementRejectionAsync(studentId.Value, resolvedSubjectId, ct);
         if (rejection is not null) return rejection;
 
-        var result = await _mediator.Send(new GetQuestionsQuery(resolvedSubjectId, lectureId, examId, studentId, difficulty, search, page, pageSize, sort, order), ct);
+        var result = await _mediator.Send(new GetQuestionsQuery(resolvedSubjectId, lectureId, examId, studentId, difficulty, search, page, pageSize, sort, order, usage), ct);
         return Ok(result);
     }
 

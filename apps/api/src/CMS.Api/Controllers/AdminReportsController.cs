@@ -100,6 +100,8 @@ public class AdminReportsController : ControllerBase
             studentId = r.StudentId,
             studentName = students.TryGetValue(r.StudentId, out var s) ? s.FullName : null,
             reasonType = r.ReasonType.ToString(),
+            // W14.2 E.3 (D12): triage classification surfaced to the moderation list.
+            reportType = r.ReportType.ToString(),
             description = r.Description,
             status = r.Status.ToString(),
             assignedTo = r.AssignedTo,

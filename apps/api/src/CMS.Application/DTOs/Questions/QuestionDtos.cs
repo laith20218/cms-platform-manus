@@ -28,7 +28,9 @@ public record QuestionListItemDto(
     string? LectureTitle,
     int? Year,
     QuestionUserAnswerDto? UserAnswer,
-    bool IsFavorite
+    bool IsFavorite,
+    // W14.2 E.1 (D3): where the question may be used — Practice/Exam/Both.
+    string QuestionUsage = "Both"
 );
 
 public record QuestionOptionDto(

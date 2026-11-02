@@ -14,7 +14,9 @@ public record GetQuestionsQuery(
     int Page = 1,
     int PageSize = 20,
     string Sort = "createdAt",
-    string Order = "desc"
+    string Order = "desc",
+    // W14.2 E.1 (D3): optional usage filter (practice|exam|both).
+    string? Usage = null
 ) : IRequest<PagedResult<QuestionListItemDto>>;
 
 public record GetQuestionByIdQuery(Guid Id, Guid? StudentId) : IRequest<QuestionDto>;
