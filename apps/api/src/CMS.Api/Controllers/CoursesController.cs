@@ -118,6 +118,11 @@ public class CoursesController : ControllerBase
         // SignedEntitlementService, e.g. "Entitlement device mismatch" — no token
         // material, no user input) so 403s are diagnosable from the audit trail.
         await _audit.LogSecurityEventAsync(studentId, null, SecurityEventType.EntitlementDenied, SecuritySeverity.Warning, $"Entitlement validation denied access: {validation.FailureReason}", ct: ct);
-        return Forbid();
+        // R72 / 12.5.A.5 (Q5) — the bare Forbid() DROPPED the reason, which is why
+        // this denial masqueraded as an opaque device failure for so long (R68
+        // finding). Return ProblemDetails carrying the fixed reason string so the
+        // student-web error taxonomy (api-client 403 → ProblemDetails.detail →
+        // variant card) can classify the denial truthfully.
+        return Problem(statusCode: StatusCodes.Status403Forbidden, detail: validation.FailureReason);
     }
 }
