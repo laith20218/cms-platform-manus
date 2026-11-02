@@ -117,9 +117,13 @@ public class CourseHandlers :
     // ===== Student: catalog =====
     public async Task<List<CourseListItemDto>> Handle(GetSubjectCoursesQuery req, CancellationToken ct)
     {
-        // Subject-level access first (mirrors GetLibraryFilesQuery), then the content-scope
-        // filter: only students with a VideoAudio-capable grant see the course catalog.
-        if (!await _entitlements.CanAccessSubjectAsync(req.StudentId, req.SubjectId, "video", ct))
+        // R69 §2.A — the subject-level gate uses the CONTENT-AGNOSTIC "read" scope:
+        // any active grant over the subject passes. A student who can read the subject
+        // but holds no VideoAudio-capable grant then falls through to the content-scope
+        // filter below and receives an EMPTY list (locked UI) — never the old hard 403,
+        // which the frontend mislabeled as a session/device failure and which made the
+        // R62 self-heal loop issue→403 forever (R68 DIAG).
+        if (!await _entitlements.CanAccessSubjectAsync(req.StudentId, req.SubjectId, "read", ct))
             throw new ForbiddenException("لا تملك صلاحية الوصول إلى كورسات هذه المادة");
         if (!await _entitlements.CanAccessSubjectContentAsync(req.StudentId, req.SubjectId, SubscriptionContentScope.VideoAudio, ct))
             return [];

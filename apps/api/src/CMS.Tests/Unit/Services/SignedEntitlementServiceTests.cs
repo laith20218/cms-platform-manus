@@ -90,6 +90,39 @@ public class SignedEntitlementServiceTests
         result.FailureReason.Should().Contain("scope");
     }
 
+    // ===== R69 §2.B — the zero-grant issue guard =====
+
+    [Fact]
+    public async Task IssueAsync_BoundDeviceButZeroActiveGrants_ThrowsForbidden()
+    {
+        // Seeded context has NO StudentSubscriptions — the device binding is active,
+        // so the OLD code minted a 200 OK token with empty AllowedSubjects and every
+        // gated GET 403'd seconds later (the R68 issue→403 loop).
+        await using var db = TestDbHelper.CreateInMemoryContext();
+        var student = await db.Students.SingleAsync();
+        db.DeviceBindings.Add(new DeviceBinding { StudentId = student.Id, DeviceFingerprint = DeviceId, IsActive = true });
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var act = () => service.IssueAsync(student.Id, DeviceId);
+
+        (await act.Should().ThrowAsync<CMS.Domain.Exceptions.ForbiddenException>())
+            .Where(e => e.Message.Contains("No active grants"));
+    }
+
+    [Fact]
+    public async Task IssueAsync_ActiveGrants_IssuesToken()
+    {
+        // Guard-rail for the guard: the entitled path must still mint a token.
+        await using var db = await CreateEntitledContextAsync();
+        var student = await db.Students.SingleAsync();
+        var service = CreateService(db);
+
+        var token = await service.IssueAsync(student.Id, DeviceId);
+
+        token.Should().Contain(".");
+    }
+
     private static SignedEntitlementService CreateService(CMS.Infrastructure.Persistence.ApplicationDbContext db) => new(db, new ConfigurationBuilder()
         .AddInMemoryCollection(new Dictionary<string, string?>
         {
