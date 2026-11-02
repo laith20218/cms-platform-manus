@@ -43,7 +43,7 @@ public sealed class AdminQuestionsController : ControllerBase
         CancellationToken ct = default)
     {
         if (subjectId == Guid.Empty) return BadRequest(new { error = "subjectId is required" });
-        if (!await CanManageSubjectAsync(Actions.View, subjectId, ct)) return Forbid();
+        if (!await CanManageSubjectAsync(Actions.View, subjectId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         if (lectureId.HasValue && !await LectureBelongsToSubjectAsync(lectureId.Value, subjectId, ct))
             return BadRequest(new { error = "lectureId does not belong to subjectId" });
 
@@ -104,7 +104,7 @@ public sealed class AdminQuestionsController : ControllerBase
             .Include(item => item.Options)
             .FirstOrDefaultAsync(item => item.Id == id && item.Status != ContentStatus.Deleted, ct);
         if (question is null) return NotFound();
-        if (!await CanManageSubjectAsync(Actions.View, question.SubjectId, ct)) return Forbid();
+        if (!await CanManageSubjectAsync(Actions.View, question.SubjectId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         return Ok(ToDetail(question));
     }
@@ -221,6 +221,144 @@ public sealed class AdminQuestionsController : ControllerBase
             || !await _permissions.IsInScopeAsync(adminId.Value, "subject", report.Question.SubjectId, ct))
             return null;
         return report;
+    }
+
+    /// <summary>W14.2 C.1: 403s carry ProblemDetails detail (wave constraint).</summary>
+    private ObjectResult Forbidden403() =>
+        Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء على هذا السؤال");
+
+    // ===== W14.2 C.1 — editor completion endpoints =====
+
+    /// <summary>Duplicates a question with its options, images and metadata as a fresh Draft.</summary>
+    [HttpPost("{id:guid}/duplicate")]
+    [Authorize(Policy = Policies.QuestionCreate)]
+    public async Task<ActionResult<AdminQuestionDetailDto>> Duplicate(Guid id, CancellationToken ct)
+    {
+        var adminId = GetAdminId();
+        if (!adminId.HasValue) return Unauthorized();
+        var source = await _db.Questions
+            .Include(item => item.Options)
+            .Include(item => item.Images)
+            .FirstOrDefaultAsync(item => item.Id == id && item.Status != ContentStatus.Deleted, ct);
+        if (source is null) return NotFound();
+        if (!await CanManageSubjectAsync(Actions.Create, source.SubjectId, ct)) return Forbidden403();
+
+        var copy = Question.Create(source.Text, source.Type, source.SubjectId, source.LectureId,
+            source.Difficulty, source.Tags.ToList(), adminId.Value);
+        copy.UpdateExplanation(source.Explanation);
+        if (!string.IsNullOrWhiteSpace(source.Reference)) copy.SetReference(source.Reference);
+        if (!string.IsNullOrWhiteSpace(source.ParagraphTag)) copy.SetParagraphTag(source.ParagraphTag);
+        if (source.Year.HasValue) copy.SetYear(source.Year);
+        if (source.Type == QuestionType.Essay)
+        {
+            copy.SetCorrectAnswer(source.CorrectAnswer);
+        }
+        else
+        {
+            foreach (var option in source.Options.OrderBy(option => option.SortOrder))
+                copy.AddOption(option.Text, option.IsCorrect, option.OptionLetter);
+        }
+        await _db.Questions.AddAsync(copy, ct);
+        foreach (var image in source.Images)
+            await _db.QuestionImages.AddAsync(QuestionImage.Create(copy.Id, image.ImageUrl, image.AltText, image.SortOrder), ct);
+        await _db.SaveChangesAsync(ct);
+        return Ok(ToDetail(copy));
+    }
+
+    /// <summary>Reverts a published question to Draft (only Published rows qualify).</summary>
+    [HttpPost("{id:guid}/unpublish")]
+    [Authorize(Policy = Policies.QuestionEdit)]
+    public async Task<IActionResult> Unpublish(Guid id, CancellationToken ct)
+    {
+        var question = await _db.Questions.FirstOrDefaultAsync(item => item.Id == id, ct);
+        if (question is null) return NotFound();
+        if (!await CanManageSubjectAsync(Actions.Edit, question.SubjectId, ct)) return Forbidden403();
+        question.Unpublish();
+        await _db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
+    /// <summary>Student-view rendering of the question — no correctness flags, no explanation.</summary>
+    [HttpGet("{id:guid}/preview")]
+    [Authorize(Policy = Policies.QuestionView)]
+    public async Task<ActionResult<QuestionPreviewDto>> Preview(Guid id, CancellationToken ct)
+    {
+        var question = await _db.Questions.AsNoTracking()
+            .Include(item => item.Options)
+            .Include(item => item.Images)
+            .FirstOrDefaultAsync(item => item.Id == id, ct);
+        if (question is null) return NotFound();
+        if (!await CanManageSubjectAsync(Actions.View, question.SubjectId, ct)) return Forbidden403();
+        return Ok(new QuestionPreviewDto(
+            question.Id, question.Text, question.Type.ToString(), question.Difficulty.ToString(), question.Tags,
+            question.Options.OrderBy(option => option.SortOrder)
+                .Select(option => new PreviewOptionDto(option.Id, option.OptionLetter, option.Text, option.ImageUrl)).ToList(),
+            question.Images.OrderBy(image => image.SortOrder)
+                .Select(image => new PreviewImageDto(image.ImageUrl, image.AltText, image.SortOrder)).ToList()));
+    }
+
+    /// <summary>Bulk publish — per-question scope check; out-of-scope or already-published ids are skipped (reported, not fatal).</summary>
+    [HttpPost("bulk-publish")]
+    [Authorize(Policy = Policies.QuestionEdit)]
+    public async Task<ActionResult<BulkQuestionResultDto>> BulkPublish([FromBody] BulkQuestionActionDto dto, CancellationToken ct)
+    {
+        var (adminId, questions, notFound) = await LoadBulkBatchAsync(dto, ct);
+        if (adminId is null) return Unauthorized();
+        if (dto.Ids.Count == 0) return BadRequest(new { error = "ids is required" });
+        if (dto.Ids.Count > 100) return BadRequest(new { error = "bulk limit is 100 ids" });
+
+        int succeeded = 0, skipped = 0;
+        foreach (var question in questions)
+        {
+            if (!await CanManageSubjectAsync(Actions.Edit, question.SubjectId, ct) || question.Status == ContentStatus.Published)
+            {
+                skipped++;
+                continue;
+            }
+            question.Publish();
+            succeeded++;
+        }
+        await _db.SaveChangesAsync(ct);
+        return Ok(new BulkQuestionResultDto(dto.Ids.Count, succeeded, skipped, notFound));
+    }
+
+    /// <summary>Bulk archive — Deleted/Archived ids are skipped; already-deleted rows never resurrect.</summary>
+    [HttpPost("bulk-archive")]
+    [Authorize(Policy = Policies.QuestionEdit)]
+    public async Task<ActionResult<BulkQuestionResultDto>> BulkArchive([FromBody] BulkQuestionActionDto dto, CancellationToken ct)
+    {
+        var (adminId, questions, notFound) = await LoadBulkBatchAsync(dto, ct);
+        if (adminId is null) return Unauthorized();
+        if (dto.Ids.Count == 0) return BadRequest(new { error = "ids is required" });
+        if (dto.Ids.Count > 100) return BadRequest(new { error = "bulk limit is 100 ids" });
+
+        int succeeded = 0, skipped = 0;
+        foreach (var question in questions)
+        {
+            if (!await CanManageSubjectAsync(Actions.Edit, question.SubjectId, ct)
+                || question.Status is ContentStatus.Archived or ContentStatus.Deleted)
+            {
+                skipped++;
+                continue;
+            }
+            question.Archive();
+            succeeded++;
+        }
+        await _db.SaveChangesAsync(ct);
+        return Ok(new BulkQuestionResultDto(dto.Ids.Count, succeeded, skipped, notFound));
+    }
+
+    /// <summary>Shared loader for the bulk endpoints — skips Deleted rows, never resurrects them.</summary>
+    private async Task<(Guid? AdminId, List<CMS.Domain.Entities.Question> Questions, List<Guid> NotFoundIds)> LoadBulkBatchAsync(BulkQuestionActionDto dto, CancellationToken ct)
+    {
+        var adminId = GetAdminId();
+        if (!adminId.HasValue || dto.Ids.Count == 0) return (adminId, new List<CMS.Domain.Entities.Question>(), new List<Guid>());
+        var questions = await _db.Questions
+            .Include(item => item.Options) // Publish() validates options — never load bare rows.
+            .Where(item => dto.Ids.Contains(item.Id) && item.Status != ContentStatus.Deleted)
+            .ToListAsync(ct);
+        var found = questions.Select(item => item.Id).ToHashSet();
+        return (adminId, questions, dto.Ids.Where(id => !found.Contains(id)).ToList());
     }
 
     private async Task<bool> CanManageSubjectAsync(string action, Guid subjectId, CancellationToken ct)

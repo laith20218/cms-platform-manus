@@ -51,7 +51,7 @@ public class AdminReportsController : ControllerBase
         CancellationToken ct = default)
     {
         var adminId = GetAdminId();
-        if (!await _permissions.HasPermissionAsync(adminId, Resources.Reports, Actions.View, ct)) return Forbid();
+        if (!await _permissions.HasPermissionAsync(adminId, Resources.Reports, Actions.View, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -132,7 +132,7 @@ public class AdminReportsController : ControllerBase
     public async Task<IActionResult> TransitionStatus(Guid reportId, [FromBody] TransitionReportStatusRequest body, CancellationToken ct = default)
     {
         var adminId = GetAdminId();
-        if (!await _permissions.HasPermissionAsync(adminId, Resources.Reports, Actions.Edit, ct)) return Forbid();
+        if (!await _permissions.HasPermissionAsync(adminId, Resources.Reports, Actions.Edit, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var report = await _db.ErrorReports.FirstOrDefaultAsync(r => r.Id == reportId, ct);
         if (report is null) return NotFound(new ProblemDetails
@@ -224,7 +224,7 @@ public class AdminReportsController : ControllerBase
     public async Task<IActionResult> Assign(Guid reportId, [FromBody] AssignReportRequest body, CancellationToken ct = default)
     {
         var adminId = GetAdminId();
-        if (!await _permissions.HasPermissionAsync(adminId, Resources.Reports, Actions.Edit, ct)) return Forbid();
+        if (!await _permissions.HasPermissionAsync(adminId, Resources.Reports, Actions.Edit, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var report = await _db.ErrorReports.FirstOrDefaultAsync(r => r.Id == reportId, ct);
         if (report is null) return NotFound();

@@ -5,6 +5,7 @@ using CMS.Application.DTOs.Exams;
 using CMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace CMS.Api.Controllers;
 
@@ -22,11 +23,13 @@ public sealed class AdminExamsController : ControllerBase
 {
     private readonly MediatR.ISender _mediator;
     private readonly IPermissionService _permissions;
+    private readonly IApplicationDbContext _db;
 
-    public AdminExamsController(MediatR.ISender mediator, IPermissionService permissions)
+    public AdminExamsController(MediatR.ISender mediator, IPermissionService permissions, IApplicationDbContext db)
     {
         _mediator = mediator;
         _permissions = permissions;
+        _db = db;
     }
 
     [HttpGet]
@@ -50,7 +53,7 @@ public sealed class AdminExamsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!adminId.HasValue) return Unauthorized();
-        if (!await CanManageAsync(adminId.Value, Actions.View, "exam", id, ct)) return Forbid();
+        if (!await CanManageAsync(adminId.Value, Actions.View, "exam", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         return Ok(await _mediator.Send(new GetAdminExamByIdQuery(id, adminId.Value), ct));
     }
 
@@ -66,7 +69,7 @@ public sealed class AdminExamsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!adminId.HasValue) return Unauthorized();
-        if (!await CanManageAsync(adminId.Value, Actions.Edit, "subject", subjectId, ct)) return Forbid();
+        if (!await CanManageAsync(adminId.Value, Actions.Edit, "subject", subjectId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         return Ok(await _mediator.Send(new GetExamQuestionCandidatesQuery(subjectId, lectureId, search, page, pageSize), ct));
     }
 
@@ -76,7 +79,7 @@ public sealed class AdminExamsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!adminId.HasValue) return Unauthorized();
-        if (!await CanManageAsync(adminId.Value, Actions.Create, "subject", dto.SubjectId, ct)) return Forbid();
+        if (!await CanManageAsync(adminId.Value, Actions.Create, "subject", dto.SubjectId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var exam = await _mediator.Send(new CreateExamCommand(ToConfiguration(dto), adminId.Value), ct);
         return CreatedAtAction(nameof(Get), new { id = exam.Id }, exam);
     }
@@ -87,7 +90,7 @@ public sealed class AdminExamsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!adminId.HasValue) return Unauthorized();
-        if (!await CanManageAsync(adminId.Value, Actions.Edit, "exam", id, ct)) return Forbid();
+        if (!await CanManageAsync(adminId.Value, Actions.Edit, "exam", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         return Ok(await _mediator.Send(new UpdateExamCommand(id, ToConfiguration(dto), adminId.Value), ct));
     }
 
@@ -97,7 +100,7 @@ public sealed class AdminExamsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!adminId.HasValue) return Unauthorized();
-        if (!await CanManageAsync(adminId.Value, Actions.Edit, "exam", id, ct)) return Forbid();
+        if (!await CanManageAsync(adminId.Value, Actions.Edit, "exam", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         return Ok(await _mediator.Send(new ReplaceExamQuestionsCommand(id, dto.QuestionIds, adminId.Value), ct));
     }
 
@@ -107,7 +110,7 @@ public sealed class AdminExamsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!adminId.HasValue) return Unauthorized();
-        if (!await CanManageAsync(adminId.Value, Actions.Edit, "exam", id, ct)) return Forbid();
+        if (!await CanManageAsync(adminId.Value, Actions.Edit, "exam", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _mediator.Send(new PublishExamCommand(id, adminId.Value), ct);
         return NoContent();
     }
@@ -118,7 +121,7 @@ public sealed class AdminExamsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!adminId.HasValue) return Unauthorized();
-        if (!await CanManageAsync(adminId.Value, Actions.Edit, "exam", id, ct)) return Forbid();
+        if (!await CanManageAsync(adminId.Value, Actions.Edit, "exam", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _mediator.Send(new ArchiveExamCommand(id, adminId.Value), ct);
         return NoContent();
     }
@@ -129,7 +132,7 @@ public sealed class AdminExamsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!adminId.HasValue) return Unauthorized();
-        if (!await CanManageAsync(adminId.Value, Actions.Delete, "exam", id, ct)) return Forbid();
+        if (!await CanManageAsync(adminId.Value, Actions.Delete, "exam", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _mediator.Send(new DeleteExamCommand(id, adminId.Value), ct);
         return NoContent();
     }
@@ -145,9 +148,65 @@ public sealed class AdminExamsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!adminId.HasValue) return Unauthorized();
-        if (!await CanManageAsync(adminId.Value, Actions.View, "exam", id, ct)) return Forbid();
+        if (!await CanManageAsync(adminId.Value, Actions.View, "exam", id, ct)) return Forbidden403();
         return Ok(await _mediator.Send(new GetAdminExamResultsQuery(id, adminId.Value, status, page, pageSize), ct));
     }
+
+    /// <summary>W14.2 C.2: reverts a published exam to Draft. Existing sessions keep their snapshots (D2).</summary>
+    [HttpPost("{id:guid}/unpublish")]
+    [Authorize(Policy = Policies.ExamEdit)]
+    public async Task<IActionResult> Unpublish(Guid id, CancellationToken ct)
+    {
+        var adminId = GetAdminId();
+        if (!adminId.HasValue) return Unauthorized();
+        if (!await CanManageAsync(adminId.Value, Actions.Edit, "exam", id, ct)) return Forbidden403();
+        await _mediator.Send(new UnpublishExamCommand(id, adminId.Value), ct);
+        return NoContent();
+    }
+
+    /// <summary>W14.2 C.2: full-order replace of the exam's question composition order.</summary>
+    [HttpPut("{id:guid}/reorder")]
+    [Authorize(Policy = Policies.ExamManageQuestions)]
+    public async Task<ActionResult<AdminExamDetailsDto>> Reorder(Guid id, [FromBody] ReorderExamQuestionsDto dto, CancellationToken ct)
+    {
+        var adminId = GetAdminId();
+        if (!adminId.HasValue) return Unauthorized();
+        if (!await CanManageAsync(adminId.Value, Actions.Edit, "exam", id, ct)) return Forbidden403();
+        return Ok(await _mediator.Send(new ReorderExamQuestionsCommand(id, dto.QuestionIds, adminId.Value), ct));
+    }
+
+    /// <summary>W14.2 C.2: student-view rendering of the exam — ordered questions, no correctness flags.</summary>
+    [HttpGet("{id:guid}/preview")]
+    [Authorize(Policy = Policies.ExamView)]
+    public async Task<ActionResult<AdminExamPreviewDto>> Preview(Guid id, CancellationToken ct)
+    {
+        var adminId = GetAdminId();
+        if (!adminId.HasValue) return Unauthorized();
+        if (!await CanManageAsync(adminId.Value, Actions.View, "exam", id, ct)) return Forbidden403();
+
+        var exam = await _db.Exams.AsNoTracking()
+            .Include(item => item.ExamQuestions).ThenInclude(item => item.Question).ThenInclude(question => question.Options)
+            .Include(item => item.ExamQuestions).ThenInclude(item => item.Question).ThenInclude(question => question.Images)
+            .FirstOrDefaultAsync(item => item.Id == id && item.DeletedAt == null, ct);
+        if (exam is null) return NotFound();
+
+        return Ok(new AdminExamPreviewDto(
+            exam.Id, exam.TitleAr, exam.DurationMinutes, exam.TotalQuestions, exam.Status.ToString(),
+            exam.ExamQuestions.OrderBy(item => item.SortOrder).Select(item => new ExamPreviewQuestionDto(
+                item.QuestionId,
+                item.SortOrder + 1,
+                item.Question.Text,
+                item.Question.Type.ToString(),
+                item.Question.Difficulty.ToString(),
+                item.Question.Options.OrderBy(option => option.SortOrder)
+                    .Select(option => new ExamPreviewOptionDto(option.Id, option.OptionLetter, option.Text, option.ImageUrl)).ToList(),
+                item.Question.Images.OrderBy(image => image.SortOrder)
+                    .Select(image => new ExamPreviewImageDto(image.ImageUrl, image.AltText, image.SortOrder)).ToList())).ToList()));
+    }
+
+    /// <summary>W14.2 constraint: 403s carry ProblemDetails detail.</summary>
+    private ObjectResult Forbidden403() =>
+        Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء على هذا الاختبار");
 
     private Guid? GetAdminId()
     {

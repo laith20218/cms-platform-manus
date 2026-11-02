@@ -161,3 +161,27 @@ public record AdminExamResultDto(
 );
 
 public record PagedExamResultDto<T>(List<T> Items, int Page, int PageSize, int TotalCount);
+
+// ===== W14.2 C.2 — reorder + preview =====
+public record ReorderExamQuestionsDto(List<Guid> QuestionIds);
+
+/// <summary>Student-view rendering of an exam — correctness flags intentionally absent.</summary>
+public record AdminExamPreviewDto(
+    Guid Id,
+    string TitleAr,
+    int DurationMinutes,
+    int TotalQuestions,
+    string Status,
+    List<ExamPreviewQuestionDto> Questions);
+
+public record ExamPreviewQuestionDto(
+    Guid QuestionId,
+    int SortOrder,
+    string Text,
+    string Type,
+    string Difficulty,
+    List<ExamPreviewOptionDto> Options,
+    List<ExamPreviewImageDto> Images);
+
+public record ExamPreviewOptionDto(Guid Id, string Letter, string Text, string? ImageUrl);
+public record ExamPreviewImageDto(string ImageUrl, string? AltText, int SortOrder);

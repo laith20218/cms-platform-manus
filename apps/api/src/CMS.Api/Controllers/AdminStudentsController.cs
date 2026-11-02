@@ -61,7 +61,7 @@ public class AdminStudentsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!await _permissions.HasPermissionAsync(adminId, Resources.Students, Actions.Edit, ct)
-            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Forbid();
+            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var student = await _db.Students.FirstOrDefaultAsync(s => s.Id == studentId, ct);
         if (student is null) return NotFound(new ProblemDetails
@@ -113,7 +113,7 @@ public class AdminStudentsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!await _permissions.HasPermissionAsync(adminId, Resources.Students, Actions.Edit, ct)
-            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Forbid();
+            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         if (file is null || file.Length == 0)
             return BadRequest(new ProblemDetails { Title = "No file provided", Status = 400 });
@@ -218,7 +218,7 @@ public class AdminStudentsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!await _permissions.HasPermissionAsync(adminId, Resources.Students, Actions.Create, ct))
-            return Forbid();
+            return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         // Validate required fields
         if (string.IsNullOrWhiteSpace(body.Phone) || string.IsNullOrWhiteSpace(body.Password)
@@ -240,7 +240,7 @@ public class AdminStudentsController : ControllerBase
 
         // Scope check: admin must be in scope of the university/college/year
         if (!await _permissions.IsInScopeAsync(adminId, "university", body.UniversityId, ct))
-            return Forbid();
+            return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         // Create student
         var passwordHash = _passwordHasher.HashPassword(body.Password);
@@ -279,7 +279,7 @@ public class AdminStudentsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!await _permissions.HasPermissionAsync(adminId, Resources.Students, Actions.View, ct)
-            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Forbid();
+            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var exists = await _db.Students.AnyAsync(s => s.Id == studentId, ct);
         return exists ? null! : NotFound(new ProblemDetails

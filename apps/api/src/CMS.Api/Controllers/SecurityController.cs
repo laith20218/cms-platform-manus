@@ -40,7 +40,7 @@ public class SecurityController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!await _permissions.HasPermissionAsync(adminId, Resources.Logs, Actions.View, ct)
-            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Forbid();
+            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var logs = await _securityService.GetStudentSecurityLogsAsync(studentId, count, ct);
         // Fetch the student + active device binding for richer context
         var student = await _db.Students.AsNoTracking().FirstOrDefaultAsync(s => s.Id == studentId, ct);
@@ -79,7 +79,7 @@ public class SecurityController : ControllerBase
     {
         var adminId = GetAdminId();
         var scope = await _permissions.GetScopeAsync(adminId, ct);
-        if (scope?.IsSuperAdmin != true || !await _permissions.HasPermissionAsync(adminId, Resources.Logs, Actions.View, ct)) return Forbid();
+        if (scope?.IsSuperAdmin != true || !await _permissions.HasPermissionAsync(adminId, Resources.Logs, Actions.View, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var alerts = await _securityService.GetCriticalAlertsAsync(count, ct);
         // Fetch student + admin names for human-readable actor display
         var studentIds = alerts.Where(a => a.StudentId.HasValue).Select(a => a.StudentId!.Value).Distinct().ToList();
@@ -120,7 +120,7 @@ public class SecurityController : ControllerBase
         CancellationToken ct = default)
     {
         var actorAdminId = GetAdminId();
-        if (!await _permissions.HasPermissionAsync(actorAdminId, Resources.Logs, Actions.View, ct)) return Forbid();
+        if (!await _permissions.HasPermissionAsync(actorAdminId, Resources.Logs, Actions.View, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         // Parse enum filters safely (invalid values → null, no 500)
         SecurityEventType? eventTypeEnum = null;
@@ -179,7 +179,7 @@ public class SecurityController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!await _permissions.HasPermissionAsync(adminId, Resources.Students, Actions.Edit, ct)
-            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Forbid();
+            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _securityService.UnbindDeviceAsync(studentId, adminId, ct);
         return NoContent();
     }
@@ -194,7 +194,7 @@ public class SecurityController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!await _permissions.HasPermissionAsync(adminId, Resources.Logs, Actions.View, ct)
-            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Forbid();
+            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var sessions = await _db.UserSessions.AsNoTracking()
             .Where(s => s.UserId == studentId)
@@ -238,7 +238,7 @@ public class SecurityController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!await _permissions.HasPermissionAsync(adminId, Resources.Students, Actions.Edit, ct)
-            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Forbid();
+            || !await _permissions.IsInScopeAsync(adminId, "student", studentId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var session = await _db.UserSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == studentId, ct);
         if (session is null) return NotFound(new ProblemDetails

@@ -154,6 +154,24 @@ public class Question : AuditableEntity
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>W14.2 C.1: reverts a published question to Draft (editor's "إلغاء النشر").
+    /// Only Published rows may be unpublished; anything else keeps its state.</summary>
+    public void Unpublish()
+    {
+        if (Status != ContentStatus.Published)
+            throw new BusinessRuleViolationException("يمكن إلغاء نشر الأسئلة المنشورة فقط");
+        Status = ContentStatus.Draft;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>W14.2 C.1: sets the curriculum year (null clears it) — replaces the reflection
+    /// write previously used by import/create paths.</summary>
+    public void SetYear(int? year)
+    {
+        Year = year;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public void SoftDelete(Guid deletedBy)
     {
         Status = ContentStatus.Deleted;
@@ -400,6 +418,16 @@ public class Exam : AuditableEntity
     public void Archive()
     {
         Status = ContentStatus.Archived;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>W14.2 C.2: reverts a published exam to Draft (editor's "إلغاء النشر").
+    /// Existing sessions keep their snapshots (D2) — only new starts are blocked.</summary>
+    public void Unpublish()
+    {
+        if (Status != ContentStatus.Published)
+            throw new BusinessRuleViolationException("يمكن إلغاء نشر الاختبارات المنشورة فقط");
+        Status = ContentStatus.Draft;
         UpdatedAt = DateTime.UtcNow;
     }
 

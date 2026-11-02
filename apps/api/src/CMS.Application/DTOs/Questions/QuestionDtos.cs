@@ -248,3 +248,19 @@ public record AdminErrorReportListItemDto(
     string? ResolutionNotes);
 
 public record ResolveErrorReportDto(string? Notes = null);
+
+// ===== W14.2 C.1 — bulk + preview =====
+public record BulkQuestionResultDto(int Requested, int Succeeded, int Skipped, List<Guid> NotFoundIds);
+
+/// <summary>Student-view rendering of a question — correctness flags intentionally absent.</summary>
+public record QuestionPreviewDto(
+    Guid Id,
+    string Text,
+    string Type,
+    string Difficulty,
+    List<string> Tags,
+    List<PreviewOptionDto> Options,
+    List<PreviewImageDto> Images);
+
+public record PreviewOptionDto(Guid Id, string Letter, string Text, string? ImageUrl);
+public record PreviewImageDto(string ImageUrl, string? AltText, int SortOrder);

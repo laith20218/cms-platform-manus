@@ -124,7 +124,7 @@ public class AdminDashboardController : ControllerBase
     [Authorize(Policy = Policies.StudentEdit)]
     public async Task<IActionResult> BanStudent(Guid id, [FromBody] BanRequestDto dto, CancellationToken ct)
     {
-        if (!await IsInScopeAsync("student", id, ct)) return Forbid();
+        if (!await IsInScopeAsync("student", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var adminId = GetAdminId();
         await _mediator.Send(new BanStudentCommand(id, dto.Reason, dto.BanUntil, adminId), ct);
         return NoContent();
@@ -137,7 +137,7 @@ public class AdminDashboardController : ControllerBase
     [Authorize(Policy = Policies.StudentEdit)]
     public async Task<IActionResult> UnbanStudent(Guid id, CancellationToken ct)
     {
-        if (!await IsInScopeAsync("student", id, ct)) return Forbid();
+        if (!await IsInScopeAsync("student", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var adminId = GetAdminId();
         await _mediator.Send(new UnbanStudentCommand(id, adminId), ct);
         return NoContent();
@@ -150,7 +150,7 @@ public class AdminDashboardController : ControllerBase
     [Authorize(Policy = Policies.StudentEdit)]
     public async Task<IActionResult> RevokeStudentSessions(Guid id, CancellationToken ct)
     {
-        if (!await IsInScopeAsync("student", id, ct)) return Forbid();
+        if (!await IsInScopeAsync("student", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _sessions.RevokeAllForUserAsync(id, "Revoked by authorized administrator", ct);
         return NoContent();
     }

@@ -85,7 +85,7 @@ public sealed class AdminCoursesController : ControllerBase
         [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
     {
         var scope = await GetAuthorizedScopeAsync(ct);
-        if (scope is null) return Forbid();
+        if (scope is null) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var query = _db.Courses.AsNoTracking().Where(course => course.DeletedAt == null);
         if (!scope.IsSuperAdmin)
@@ -123,10 +123,10 @@ public sealed class AdminCoursesController : ControllerBase
     public async Task<ActionResult<CourseDto>> GetCourse(Guid id, CancellationToken ct)
     {
         var scope = await GetAuthorizedScopeAsync(ct);
-        if (scope is null) return Forbid();
+        if (scope is null) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var subjectId = await SubjectIdForCourseAsync(id, ct);
         if (subjectId is null) return NotFound();
-        if (!await _permissions.IsInScopeAsync(GetAdminId(), "subject", subjectId.Value, ct)) return Forbid();
+        if (!await _permissions.IsInScopeAsync(GetAdminId(), "subject", subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         return Ok(await _mediator.Send(new GetAdminCourseByIdQuery(id), ct));
     }
 
@@ -135,7 +135,7 @@ public sealed class AdminCoursesController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<CourseDto>> Create([FromBody] CreateCourseDto dto, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Create, dto.SubjectId, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Create, dto.SubjectId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var result = await _mediator.Send(new CreateCourseCommand(
             dto.SubjectId, dto.Title, dto.Description, dto.CoverImageUrl, GetAdminId()), ct);
         return Ok(result);
@@ -146,7 +146,7 @@ public sealed class AdminCoursesController : ControllerBase
     {
         var subjectId = await SubjectIdForCourseAsync(id, ct);
         if (subjectId is null) return NotFound();
-        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         return Ok(await _mediator.Send(new UpdateCourseCommand(id, dto.Title, dto.Description, dto.CoverImageUrl), ct));
     }
 
@@ -155,7 +155,7 @@ public sealed class AdminCoursesController : ControllerBase
     {
         var subjectId = await SubjectIdForCourseAsync(id, ct);
         if (subjectId is null) return NotFound();
-        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         return Ok(await _mediator.Send(new PublishCourseCommand(id), ct));
     }
 
@@ -164,7 +164,7 @@ public sealed class AdminCoursesController : ControllerBase
     {
         var subjectId = await SubjectIdForCourseAsync(id, ct);
         if (subjectId is null) return NotFound();
-        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         return Ok(await _mediator.Send(new ArchiveCourseCommand(id), ct));
     }
 
@@ -173,7 +173,7 @@ public sealed class AdminCoursesController : ControllerBase
     {
         var subjectId = await SubjectIdForCourseAsync(id, ct);
         if (subjectId is null) return NotFound();
-        if (!await CanManageAsync(Actions.Delete, subjectId.Value, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Delete, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _mediator.Send(new DeleteCourseCommand(id, GetAdminId()), ct);
         return NoContent();
     }
@@ -186,7 +186,7 @@ public sealed class AdminCoursesController : ControllerBase
     {
         var subjectId = await SubjectIdForCourseAsync(courseId, ct);
         if (subjectId is null) return NotFound();
-        if (!await CanManageAsync(Actions.Create, subjectId.Value, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Create, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         return Ok(await _mediator.Send(new AddYouTubeEpisodeCommand(
             courseId, dto.Title, dto.EpisodeNumber, dto.DurationSeconds, dto.YoutubeVideoId, GetAdminId()), ct));
     }
@@ -196,7 +196,7 @@ public sealed class AdminCoursesController : ControllerBase
     {
         var subjectId = await SubjectIdForEpisodeAsync(id, ct);
         if (subjectId is null) return NotFound();
-        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         return Ok(await _mediator.Send(new UpdateEpisodeCommand(id, dto.Title, dto.EpisodeNumber, dto.DurationSeconds,
             dto.Description, dto.Difficulty, dto.TargetQuality), ct));
     }
@@ -206,7 +206,7 @@ public sealed class AdminCoursesController : ControllerBase
     {
         var subjectId = await SubjectIdForEpisodeAsync(id, ct);
         if (subjectId is null) return NotFound();
-        if (!await CanManageAsync(Actions.Delete, subjectId.Value, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Delete, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _mediator.Send(new DeleteEpisodeCommand(id, GetAdminId()), ct);
         return NoContent();
     }
@@ -224,7 +224,7 @@ public sealed class AdminCoursesController : ControllerBase
     {
         var subjectId = await SubjectIdForCourseAsync(courseId, ct);
         if (subjectId is null) return NotFound();
-        if (!await CanManageAsync(Actions.Create, subjectId.Value, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Create, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         // Hotfix 10.8c (1.C) guard, retained as defense in depth for any unexpected S3
         // provider failure (observed in production as AmazonS3Exception "Access Denied"):
         // must surface as a clean, actionable 503 — NOT a bare 500. NOTE (10.8f): the
@@ -283,7 +283,7 @@ public sealed class AdminCoursesController : ControllerBase
     {
         var subjectId = await SubjectIdForEpisodeAsync(episodeId, ct);
         if (subjectId is null) return NotFound();
-        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         return Ok(await _mediator.Send(new GetMultipartStatusQuery(episodeId), ct));
     }
 
@@ -298,7 +298,7 @@ public sealed class AdminCoursesController : ControllerBase
     {
         var subjectId = await SubjectIdForEpisodeAsync(episodeId, ct);
         if (subjectId is null) return NotFound();
-        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         // Push 10.5: metadata (title/description/difficulty) rides the complete-upload
         // body from the 10.4 upload panel — null keys keep the initiate-time values.
         // Push 10.8: TargetQuality rides too — THE 10.7 binding gap: the DTO never
@@ -318,7 +318,7 @@ public sealed class AdminCoursesController : ControllerBase
     {
         var subjectId = await SubjectIdForEpisodeAsync(episodeId, ct);
         if (subjectId is null) return NotFound();
-        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         return Ok(await _mediator.Send(new AbortEpisodeProcessingCommand(episodeId, GetAdminId()), ct));
     }
 
@@ -328,7 +328,7 @@ public sealed class AdminCoursesController : ControllerBase
     {
         var subjectId = await SubjectIdForEpisodeAsync(episodeId, ct);
         if (subjectId is null) return NotFound();
-        if (!await CanManageAsync(Actions.Delete, subjectId.Value, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Delete, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _mediator.Send(new AbortEpisodeUploadCommand(episodeId, GetAdminId()), ct);
         return NoContent();
     }

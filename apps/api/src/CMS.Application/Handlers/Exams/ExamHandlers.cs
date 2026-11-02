@@ -199,7 +199,10 @@ public sealed class ExamSessionHandlers :
     IRequestHandler<ReplaceExamQuestionsCommand, AdminExamDetailsDto>,
     IRequestHandler<PublishExamCommand, Unit>,
     IRequestHandler<ArchiveExamCommand, Unit>,
-    IRequestHandler<DeleteExamCommand, Unit>
+    IRequestHandler<DeleteExamCommand, Unit>,
+    // W14.2 C.2 — editor completion endpoints
+    IRequestHandler<UnpublishExamCommand, Unit>,
+    IRequestHandler<ReorderExamQuestionsCommand, AdminExamDetailsDto>
 {
     private readonly IApplicationDbContext _db;
     private readonly IUnitOfWork _unitOfWork;
@@ -521,6 +524,46 @@ public sealed class ExamSessionHandlers :
         await _unitOfWork.SaveChangesAsync(ct);
         await AuditAsync(null, req.DeletedBy, $"Exam soft deleted: {exam.Id}", ct);
         return Unit.Value;
+    }
+
+    /// <summary>W14.2 C.2: reverts a published exam to Draft. Existing sessions keep their
+    /// snapshots (D2); only new starts are blocked by the published-status check.</summary>
+    public async Task<Unit> Handle(UnpublishExamCommand req, CancellationToken ct)
+    {
+        var exam = await _db.Exams.FirstOrDefaultAsync(item => item.Id == req.Id && item.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Exam", req.Id);
+        exam.Unpublish();
+        await _unitOfWork.SaveChangesAsync(ct);
+        await AuditAsync(null, req.UpdatedBy, $"Exam unpublished: {exam.Id}", ct);
+        return Unit.Value;
+    }
+
+    /// <summary>W14.2 C.2: replaces the exam's question order. The submitted list must cover
+    /// every composed question exactly once — partial orders are rejected.</summary>
+    public async Task<AdminExamDetailsDto> Handle(ReorderExamQuestionsCommand req, CancellationToken ct)
+    {
+        var exam = await _db.Exams
+            .Include(item => item.ExamQuestions)
+            .FirstOrDefaultAsync(item => item.Id == req.ExamId && item.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Exam", req.ExamId);
+        if (req.QuestionIds.Count == 0)
+            throw new DomainException("قائمة الترتيب لا يمكن أن تكون فارغة");
+        if (req.QuestionIds.Distinct().Count() != req.QuestionIds.Count)
+            throw new DomainException("لا يمكن تكرار السؤال نفسه في قائمة الترتيب");
+
+        var byQuestion = exam.ExamQuestions.ToDictionary(item => item.QuestionId);
+        var unknownId = req.QuestionIds.Except(byQuestion.Keys).FirstOrDefault();
+        if (unknownId != Guid.Empty)
+            throw new NotFoundException("ExamQuestion", unknownId);
+        if (req.QuestionIds.Count != exam.ExamQuestions.Count)
+            throw new DomainException("قائمة الترتيب يجب أن تحوي كل أسئلة الاختبار");
+
+        for (var index = 0; index < req.QuestionIds.Count; index++)
+            byQuestion[req.QuestionIds[index]].MoveTo(index);
+        await _unitOfWork.SaveChangesAsync(ct);
+        await AuditAsync(null, req.UpdatedBy, $"Exam question order replaced: {exam.Id}; count={req.QuestionIds.Count}", ct);
+
+        return await BuildAdminDetailAsync(exam.Id, ct);
     }
 
     internal static async Task FinalizeSessionAsync(ExamSession session, ExamSessionStatus terminalStatus, CancellationToken ct)

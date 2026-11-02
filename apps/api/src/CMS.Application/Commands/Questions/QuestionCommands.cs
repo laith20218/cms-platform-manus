@@ -68,3 +68,6 @@ public record ImportQuestionsCommand(
 
 // ===== Paged Result =====
 public record PagedResult<T>(List<T> Items, int Total, int Page, int PageSize, int TotalPages);
+
+// ===== W14.2 C.1 — editor completion endpoints =====
+public record BulkQuestionActionDto(List<Guid> Ids);

@@ -49,3 +49,8 @@ public record ReplaceExamQuestionsCommand(Guid ExamId, IReadOnlyList<Guid> Quest
 public record PublishExamCommand(Guid Id, Guid PublishedBy) : IRequest<Unit>;
 public record ArchiveExamCommand(Guid Id, Guid ArchivedBy) : IRequest<Unit>;
 public record DeleteExamCommand(Guid Id, Guid DeletedBy) : IRequest<Unit>;
+
+// ===== W14.2 C.2 — editor completion endpoints =====
+public record UnpublishExamCommand(Guid Id, Guid UpdatedBy) : IRequest<Unit>;
+/// <summary>Full ordered list of the exam's bank questions; index becomes ExamQuestion.SortOrder.</summary>
+public record ReorderExamQuestionsCommand(Guid ExamId, List<Guid> QuestionIds, Guid UpdatedBy) : IRequest<AdminExamDetailsDto>;

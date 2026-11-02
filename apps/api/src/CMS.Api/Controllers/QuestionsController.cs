@@ -193,7 +193,7 @@ public class QuestionsController : ControllerBase
     public async Task<ActionResult<QuestionDto>> CreateQuestion(
         [FromBody] CreateQuestionDto dto, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Create, "subject", dto.SubjectId, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Create, "subject", dto.SubjectId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var result = await _mediator.Send(new CreateQuestionCommand(
             dto.Text, dto.Type, dto.SubjectId, dto.LectureId,
             dto.Difficulty, dto.Tags, dto.Options, dto.CorrectOptionId, dto.CorrectAnswer,
@@ -211,7 +211,7 @@ public class QuestionsController : ControllerBase
     public async Task<ActionResult<QuestionDto>> UpdateQuestion(
         Guid id, [FromBody] UpdateQuestionDto dto, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var result = await _mediator.Send(new UpdateQuestionCommand(
             id, dto.Text, dto.Difficulty, dto.Tags, dto.Explanation, dto.Reference, dto.Options, dto.CorrectAnswer,
             dto.Year, dto.ParagraphTag
@@ -226,7 +226,7 @@ public class QuestionsController : ControllerBase
     [Authorize(Roles = "admin,super_admin")]
     public async Task<IActionResult> DeleteQuestion(Guid id, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Delete, "question", id, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Delete, "question", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _mediator.Send(new DeleteQuestionCommand(id, GetAdminId()), ct);
         return NoContent();
     }
@@ -238,7 +238,7 @@ public class QuestionsController : ControllerBase
     [Authorize(Roles = "admin,super_admin")]
     public async Task<IActionResult> PublishQuestion(Guid id, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _mediator.Send(new PublishQuestionCommand(id), ct);
         return NoContent();
     }
@@ -250,7 +250,7 @@ public class QuestionsController : ControllerBase
     [Authorize(Roles = "admin,super_admin")]
     public async Task<IActionResult> ArchiveQuestion(Guid id, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _mediator.Send(new ArchiveQuestionCommand(id), ct);
         return NoContent();
     }
@@ -263,7 +263,7 @@ public class QuestionsController : ControllerBase
     public async Task<ActionResult<ImportResultDto>> ImportQuestions(
         [FromBody] ImportQuestionsDto dto, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Import, "subject", dto.SubjectId, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Import, "subject", dto.SubjectId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var result = await _mediator.Send(new ImportQuestionsCommand(
             dto.SubjectId, dto.LectureId, dto.Questions, GetAdminId()
         ), ct);

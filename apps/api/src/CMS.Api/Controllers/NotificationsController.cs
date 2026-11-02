@@ -115,7 +115,7 @@ public class NotificationsController : ControllerBase
     public async Task<ActionResult<SendNotificationResultDto>> SendNotification(
         [FromBody] SendNotificationDto dto, CancellationToken ct)
     {
-        if (!await CanTargetAsync(Actions.Create, dto.TargetType, dto.TargetId, ct)) return Forbid();
+        if (!await CanTargetAsync(Actions.Create, dto.TargetType, dto.TargetId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         try
         {
             var result = await _mediator.Send(new SendNotificationCommand(
@@ -150,7 +150,7 @@ public class NotificationsController : ControllerBase
             .Where(notification => notification.Id == id)
             .Select(notification => new { TargetType = notification.TargetType.ToString(), notification.TargetId })
             .FirstOrDefaultAsync(ct);
-        if (target is null || !await CanTargetAsync(Actions.View, target.TargetType, target.TargetId, ct)) return Forbid();
+        if (target is null || !await CanTargetAsync(Actions.View, target.TargetType, target.TargetId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var result = await _mediator.Send(new GetNotificationStatsQuery(id), ct);
         return Ok(result);
     }
@@ -166,7 +166,7 @@ public class NotificationsController : ControllerBase
     {
         var adminId = GetAdminId();
         if (!await _permissions.HasPermissionAsync(adminId, Resources.Notifications, Actions.View, ct)
-            || (await _permissions.GetScopeAsync(adminId, ct))?.IsSuperAdmin != true) return Forbid();
+            || (await _permissions.GetScopeAsync(adminId, ct))?.IsSuperAdmin != true) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var result = await _mediator.Send(new GetSentNotificationsQuery(page, pageSize), ct);
         return Ok(result);
     }
