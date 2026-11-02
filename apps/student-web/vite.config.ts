@@ -34,13 +34,19 @@ export default defineConfig(({ mode }) => {
               options: { cacheName: 'google-fonts-cache', expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 } }
             },
             {
+              // R62 §2.B.3 — API responses are NEVER served from or added to the SW cache.
+              // The old NetworkFirst handler could serve a stale cached 200 after a 10 s
+              // timeout (masking 403/auth failures with old data — a documented DIAG 12.4
+              // hazard) and made the service worker the apparent initiator of failing API
+              // calls in DevTools. NetworkOnly keeps the SW in the request path for
+              // bookkeeping but always hits the network and never stores a response.
+              // Preflight OPTIONS requests are never intercepted here regardless —
+              // browsers do not route CORS preflights through service workers.
               urlPattern: /^https:\/\/.*\.onrender\.com\/api\/.*$/i,
-              handler: 'NetworkFirst',
+              handler: 'NetworkOnly',
               options: {
                 cacheName: 'api-cache',
-                networkTimeoutSeconds: 10,
-                expiration: { maxEntries: 50, maxAgeSeconds: 60 * 5 },
-                cacheableResponse: { statuses: [0, 200] }
+                networkTimeoutSeconds: 10
               }
             }
           ]
