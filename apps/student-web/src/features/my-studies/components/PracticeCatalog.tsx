@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -6,8 +6,11 @@ import {
   BookOpen, CheckCircle2, ChevronLeft, CircleHelp, LoaderCircle, Target,
 } from 'lucide-react';
 import { academicApi, type LectureSummary } from '@/features/subjects/services/academic-api';
-import { useMySubjects, hasScope, type MySubjectEntry } from '../hooks/useMySubjects';
+import { useMySubjects, hasScope } from '../hooks/useMySubjects';
 import { LockedEmptyState } from './LockedEmptyState';
+import { CatalogEntitlementErrorCard, CatalogErrorCard } from './CatalogErrorCards';
+import { loadCatalogAcrossSubjects } from '../utils/catalog-load';
+import { variantForReason, EntitlementDeniedError } from '../services/courses-api';
 
 interface PracticeLecture extends LectureSummary {
   subjectId: string;
@@ -39,30 +42,60 @@ export function PracticeCatalog({ subjectId }: { subjectId?: string | null }) {
     [practiceSubjects, subjectId]
   );
 
-  const { data: lectures, isLoading } = useQuery({
+  // Wave 12.5.A (Group 1) — R69 taxonomy: per-subject failures surface, never
+  // a silent empty list (`catch {}` used to hide total outages here).
+  const [entitlementDenied, setEntitlementDenied] = useState<ReturnType<typeof variantForReason> | null>(null);
+  const { data: lectures, isLoading, isError, isFetching, error, refetch } = useQuery({
     queryKey: ['practice-catalog', effectiveSubjects.map((s) => s.id).join(',')],
     enabled: effectiveSubjects.length > 0,
-    queryFn: async (): Promise<PracticeLecture[]> => {
-      const all: PracticeLecture[] = [];
-      await Promise.all(
-        effectiveSubjects.map(async (subject: MySubjectEntry) => {
-          try {
-            const items = await academicApi.getLectures(subject.id);
-            items.forEach((lecture) => {
-              all.push({
-                ...lecture,
-                subjectId: subject.id,
-                subjectSlug: subject.slug,
-                subjectName: subject.nameAr,
-              });
-            });
-          } catch { /* silent — subject may hold no accessible lectures */ }
-        })
-      );
-      // Only lectures that actually carry questions are practicable.
-      return all.filter((lecture) => lecture.questionsCount > 0);
-    },
+    retry: (failureCount, failure) => !(failure instanceof EntitlementDeniedError) && failureCount < 1,
+    queryFn: async (): Promise<PracticeLecture[]> =>
+      loadCatalogAcrossSubjects(effectiveSubjects.map((s) => s.id), async (subjectId) => {
+        const items = await academicApi.getLectures(subjectId);
+        const subject = effectiveSubjects.find((s) => s.id === subjectId);
+        // Only lectures that actually carry questions are practicable.
+        return items
+          .filter((lecture) => lecture.questionsCount > 0)
+          .map((lecture) => ({
+            ...lecture,
+            subjectId,
+            subjectSlug: subject?.slug ?? '',
+            subjectName: subject?.nameAr ?? '',
+          }));
+      }),
   });
+
+  const fetchingRef = useRef(false);
+  useEffect(() => { fetchingRef.current = isFetching; }, [isFetching]);
+  useEffect(() => {
+    const onEntitlementError = (event: Event) => {
+      if (fetchingRef.current) return;
+      const detail = (event as CustomEvent<{ url?: string; reason?: string }>).detail;
+      if (!detail?.url) return;
+      if (detail.url.includes('/entitlements/issue')) { setEntitlementDenied('no-grants'); return; }
+      if (detail.url.includes('/lectures') || detail.url.includes('/subjects/')) {
+        setEntitlementDenied(variantForReason(detail.reason));
+      }
+    };
+    window.addEventListener('cms-entitlement-error', onEntitlementError);
+    return () => window.removeEventListener('cms-entitlement-error', onEntitlementError);
+  }, []);
+  useEffect(() => {
+    if (lectures !== undefined) setEntitlementDenied(null);
+  }, [lectures]);
+
+  const queryDenied = isError && error instanceof EntitlementDeniedError
+    ? variantForReason(error.reason)
+    : null;
+  if (entitlementDenied || queryDenied) {
+    return (
+      <CatalogEntitlementErrorCard
+        variant={queryDenied ?? entitlementDenied ?? 'device'}
+        onRetry={() => { setEntitlementDenied(null); refetch(); }}
+        testId="practice-catalog-entitlement-error"
+      />
+    );
+  }
 
   if (mySubjects.isLoading) {
     return (
@@ -98,6 +131,18 @@ export function PracticeCatalog({ subjectId }: { subjectId?: string | null }) {
       <div className="flex items-center justify-center py-16" data-testid="practice-loading">
         <LoaderCircle className="w-8 h-8 animate-spin text-[var(--c-text-muted)]" />
       </div>
+    );
+  }
+
+  // Wave 12.5.A (Group 1) — every subject failed → honest error, never "empty".
+  if (isError) {
+    return (
+      <CatalogErrorCard
+        onRetry={() => refetch()}
+        testId="practice-catalog-error"
+        title="تعذّر تحميل دورات الأسئلة"
+        body="حدث خطأ في الاتصال. تحقّق من الشبكة ثم أعد المحاولة."
+      />
     );
   }
 

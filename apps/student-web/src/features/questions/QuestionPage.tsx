@@ -84,7 +84,7 @@ export default function QuestionPage() {
   // alone used to throw `options.map is not a function` and blank the page
   // behind the route ErrorBoundary. The current question is hydrated with the
   // FULL payload (GET /questions/{id}) below before it can render.
-  const { data: questionsData, isLoading } = useQuery({
+  const { data: questionsData, isLoading, isError, refetch } = useQuery({
     queryKey: questionId ? ['questions', 'focus', questionId] : ['questions', 'lecture', lectureId],
     queryFn: () => questionId ? questionApi.getById(questionId) : questionApi.getByLecture(lectureId!),
     enabled: !!lectureId || !!questionId,
@@ -260,6 +260,23 @@ export default function QuestionPage() {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="w-8 h-8 animate-spin text-[var(--c-primary-700)]" />
+      </div>
+    );
+  }
+
+  // Wave 12.5.A (Group 4) — a failed fetch used to fall into the "no questions"
+  // empty state. Honest error card instead.
+  if (isError) {
+    return (
+      <div role="alert" className="mx-auto max-w-md rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center" data-testid="questions-error">
+        <h2 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل الأسئلة</h2>
+        <p className="mt-2 text-sm text-[var(--c-text-muted)]">حدث خطأ في الاتصال. تحقّق من الشبكة ثم أعد المحاولة.</p>
+        <button
+          onClick={() => refetch()}
+          className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"
+        >
+          إعادة المحاولة
+        </button>
       </div>
     );
   }

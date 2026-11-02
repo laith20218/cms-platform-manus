@@ -41,30 +41,41 @@ export default function SubjectsPage() {
 
   const mySubjects = useMySubjects();
 
-  const { data: universities, isLoading: uniLoading } = useQuery({
+  const { data: universities, isLoading: uniLoading, isError: uniError, refetch: refetchUnis } = useQuery({
     queryKey: ['universities'],
     queryFn: () => academicApi.getUniversities(),
   });
-  const { data: colleges } = useQuery({
+  // Wave 12.5.A (Group 4) — each cascade level now surfaces its own failure
+  // (refetch + inline hint) instead of leaving a silently-empty dropdown.
+  const { data: colleges, isError: collegesError, refetch: refetchColleges } = useQuery({
     queryKey: ['colleges', selectedUni],
     queryFn: () => academicApi.getColleges(selectedUni!),
     enabled: !!selectedUni,
   });
-  const { data: years } = useQuery({
+  const { data: years, isError: yearsError, refetch: refetchYears } = useQuery({
     queryKey: ['years', selectedCollege],
     queryFn: () => academicApi.getYears(selectedCollege!),
     enabled: !!selectedCollege,
   });
-  const { data: semesters } = useQuery({
+  const { data: semesters, isError: semestersError, refetch: refetchSemesters } = useQuery({
     queryKey: ['semesters', selectedYear],
     queryFn: () => academicApi.getSemesters(selectedYear!),
     enabled: !!selectedYear,
   });
-  const { data: subjects, isFetching: subjectsLoading } = useQuery({
+  const { data: subjects, isFetching: subjectsLoading, isError: subjectsError, refetch: refetchSubjects } = useQuery({
     queryKey: ['subjects', selectedSemester],
     queryFn: () => academicApi.getSubjects(selectedSemester!),
     enabled: !!selectedSemester,
   });
+
+  // The one inline banner for whichever cascade level failed (retry reloads it).
+  const failedCascade =
+    (uniError && { label: 'الجامعات', retry: refetchUnis }) ??
+    (collegesError && { label: 'الكليات', retry: refetchColleges }) ??
+    (yearsError && { label: 'السنوات الدراسية', retry: refetchYears }) ??
+    (semestersError && { label: 'الفصول', retry: refetchSemesters }) ??
+    (subjectsError && { label: 'المواد', retry: refetchSubjects }) ??
+    null;
 
   const uniList = universities?.items ?? [];
   const mySubjectsList = mySubjects.data ?? [];
@@ -106,6 +117,22 @@ export default function SubjectsPage() {
     );
   }
 
+  // Wave 12.5.A (Group 4) — the universities query ITSELF failed → honest retry,
+  // not an empty browse page.
+  if (uniError) {
+    return (
+      <div role="alert" className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center" data-testid="subjects-error">
+        <p className="font-bold text-[var(--c-text)]">تعذر تحميل قائمة الجامعات</p>
+        <button
+          onClick={() => refetchUnis()}
+          className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"
+        >
+          إعادة المحاولة
+        </button>
+      </div>
+    );
+  }
+
   const currentStep: 'uni' | 'college' | 'year' | 'semester' | 'subjects' | 'done'
     = !selectedUni ? 'uni'
     : !selectedCollege ? 'college'
@@ -125,6 +152,25 @@ export default function SubjectsPage() {
           <p className="text-sm text-[var(--c-text-muted)]">تصفّح الهيكل الأكاديمي وابدأ الدراسة</p>
         </div>
       </div>
+
+      {/* Wave 12.5.A (Group 4) — a failed cascade level says so, with a retry;
+          it used to leave a silently-empty dropdown. */}
+      {failedCascade && (
+        <div
+          role="alert"
+          data-testid="subjects-cascade-error"
+          className="flex min-h-11 flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--c-border-strong)] bg-[var(--c-surface)] px-4 py-2 text-sm"
+        >
+          <span className="font-semibold text-[var(--c-text)]">تعذر تحميل {failedCascade.label} — قد تظهر قوائم فارغة.</span>
+          <button
+            type="button"
+            onClick={() => failedCascade.retry()}
+            className="press inline-flex min-h-11 items-center rounded-lg bg-[var(--c-primary-700)] px-4 py-1.5 text-xs font-bold text-white"
+          >
+            إعادة المحاولة
+          </button>
+        </div>
+      )}
 
       {/* ===== Breadcrumb path (sticky) ===== */}
       <div

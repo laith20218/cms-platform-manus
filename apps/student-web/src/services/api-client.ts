@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 import { getOrCreateInstallationId } from '@/utils';
+import { notifySessionExpired } from '@/services/session-expiry';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 type RetriableRequestConfig = InternalAxiosRequestConfig & { _retry?: boolean };
@@ -79,6 +80,10 @@ apiClient.interceptors.response.use(
       } catch {
         sessionStorage.removeItem('cms-access-token');
         sessionStorage.removeItem('cms-refresh-token');
+        // Wave 12.5.A (Group 3) — the forced logout stays fail-closed, but it is no
+        // longer SILENT: one shared toast explains why the student landed on /login
+        // (a transient refresh-network failure used to log the student out invisibly).
+        notifySessionExpired();
         if (window.location.pathname !== '/login') window.location.assign('/login');
       }
     }

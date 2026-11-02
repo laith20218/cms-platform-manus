@@ -1,10 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { FileText, FileSpreadsheet, Image, Video, Music, ChevronLeft, LoaderCircle, Filter } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
 import type { LibraryFile } from './services/library-api';
+import {
+  CatalogEntitlementErrorCard, CatalogErrorCard,
+} from '@/features/my-studies/components/CatalogErrorCards';
+import { loadCatalogAcrossSubjects } from '@/features/my-studies/utils/catalog-load';
+import { variantForReason, EntitlementDeniedError } from '@/features/my-studies/services/courses-api';
+import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
 
 const TYPE_ICONS: Record<string, typeof FileText> = {
   Pdf: FileText, Html: FileText, Image: Image, Video: Video, Audio: Music,
@@ -19,34 +25,73 @@ const TYPE_LABELS: Record<string, string> = {
 export function LibraryCatalogPage() {
   const [filterType, setFilterType] = useState('');
   const [page, setPage] = useState(1);
+  // Wave 12.5.A (Group 1) — the R69 CoursesCatalog taxonomy, ported: per-subject
+  // failures are no longer swallowed (`catch {}` rendered a FALSE "no files").
+  const mySubjects = useMySubjects();
+  const subjects = mySubjects.data ?? [];
+  const [entitlementDenied, setEntitlementDenied] = useState<ReturnType<typeof variantForReason> | null>(null);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['library-catalog', filterType, page],
-    queryFn: async () => {
-      const config = await entitlementRequestConfig();
-      // Fetch student's subscribed subjects
-      const subjectsRes = await apiClient.get('/subjects/my-subjects', config);
-      const subjectsList = subjectsRes.data?.items ?? subjectsRes.data ?? [];
-
-      // Fetch library files for each subject in parallel
-      const allFiles: Array<LibraryFile & { subjectId: string; subjectName: string }> = [];
-      await Promise.all(
-        subjectsList.map(async (subject: { id: string; nameAr?: string; name?: string }) => {
-          try {
-            const res = await apiClient.get(`/library/subject/${subject.id}`, {
-              ...await entitlementRequestConfig(),
-              params: { type: filterType || undefined, page: 1, pageSize: 100 },
-            });
-            const items = res.data?.items ?? [];
-            items.forEach((f: LibraryFile) => {
-              allFiles.push({ ...f, subjectId: subject.id, subjectName: subject.nameAr ?? subject.name ?? subject.id });
-            });
-          } catch { /* silent — subject may have no files */ }
-        })
-      );
-      return allFiles;
-    },
+  const { data, isLoading, isError, isFetching, error, refetch } = useQuery({
+    queryKey: ['library-catalog', filterType, page, subjects.map((s) => s.id).join(',')],
+    enabled: subjects.length > 0,
+    retry: (failureCount, failure) => !(failure instanceof EntitlementDeniedError) && failureCount < 1,
+    queryFn: async (): Promise<Array<LibraryFile & { subjectId: string; subjectName: string }>> =>
+      loadCatalogAcrossSubjects(subjects.map((s) => s.id), async (subjectId) => {
+        const res = await apiClient.get(`/library/subject/${subjectId}`, {
+          ...await entitlementRequestConfig(),
+          params: { type: filterType || undefined, page: 1, pageSize: 100 },
+        });
+        const subject = subjects.find((s) => s.id === subjectId);
+        const items = res.data?.items ?? [];
+        return items.map((f: LibraryFile) => ({
+          ...f,
+          subjectId,
+          subjectName: subject?.nameAr ?? subjectId,
+        }));
+      }),
   });
+
+  // Idle-time 403 events (mid-session revocation) surface the truthful card.
+  const fetchingRef = useRef(false);
+  useEffect(() => { fetchingRef.current = isFetching; }, [isFetching]);
+  useEffect(() => {
+    const onEntitlementError = (event: Event) => {
+      if (fetchingRef.current) return;
+      const detail = (event as CustomEvent<{ url?: string; reason?: string }>).detail;
+      if (!detail?.url) return;
+      if (detail.url.includes('/entitlements/issue')) { setEntitlementDenied('no-grants'); return; }
+      if (detail.url.includes('/library/')) setEntitlementDenied(variantForReason(detail.reason));
+    };
+    window.addEventListener('cms-entitlement-error', onEntitlementError);
+    return () => window.removeEventListener('cms-entitlement-error', onEntitlementError);
+  }, []);
+  useEffect(() => {
+    if (data !== undefined) setEntitlementDenied(null);
+  }, [data]);
+
+  const queryDenied = isError && error instanceof EntitlementDeniedError
+    ? variantForReason(error.reason)
+    : null;
+  if (entitlementDenied || queryDenied) {
+    return (
+      <CatalogEntitlementErrorCard
+        variant={queryDenied ?? entitlementDenied ?? 'device'}
+        onRetry={() => { setEntitlementDenied(null); refetch(); }}
+        testId="library-catalog-entitlement-error"
+      />
+    );
+  }
+
+  if (mySubjects.isError) {
+    return (
+      <CatalogErrorCard
+        onRetry={() => mySubjects.refetch()}
+        testId="library-catalog-error"
+        title="تعذّر تحميل المكتبة"
+        body="حدث خطأ في الاتصال. تحقّق من الشبكة ثم أعد المحاولة."
+      />
+    );
+  }
 
   const files = data ?? [];
 
@@ -80,6 +125,13 @@ export function LibraryCatalogPage() {
         <div className="flex items-center justify-center py-16">
           <LoaderCircle className="w-8 h-8 animate-spin text-[var(--c-text-muted)]" />
         </div>
+      ) : isError ? (
+        <CatalogErrorCard
+          onRetry={() => refetch()}
+          testId="library-catalog-error"
+          title="تعذّر تحميل المكتبة"
+          body="حدث خطأ في الاتصال. تحقّق من الشبكة ثم أعد المحاولة."
+        />
       ) : files.length === 0 ? (
         <div className="text-center py-16">
           <FileText className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" />

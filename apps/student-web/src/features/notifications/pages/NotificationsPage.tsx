@@ -23,7 +23,7 @@ export default function NotificationsPage() {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['notifications', filter],
     queryFn: () => notificationApi.getNotifications(filter === 'unread'),
   });
@@ -40,6 +40,10 @@ export default function NotificationsPage() {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       queryClient.invalidateQueries({ queryKey: ['unread-count'] });
     },
+    // Wave 12.5.A (Group 4) — mark-as-read failures were silent before.
+    onError: () => {
+      toast.error('تعذر تعليم الإشعار كمقروء. حاول مجددًا.');
+    },
   });
 
   const markAllReadMutation = useMutation({
@@ -48,6 +52,10 @@ export default function NotificationsPage() {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       queryClient.invalidateQueries({ queryKey: ['unread-count'] });
       toast.success('تم تعليم جميع الإشعارات كمقروءة');
+    },
+    // Wave 12.5.A (Group 4) — mark-all failures were silent before.
+    onError: () => {
+      toast.error('تعذر تعليم جميع الإشعارات كمقروءة. حاول مجددًا.');
     },
   });
 
@@ -110,6 +118,18 @@ export default function NotificationsPage() {
       {/* Notifications List */}
       {isLoading ? (
         <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-[var(--c-primary-700)]" /></div>
+      ) : isError ? (
+        // Wave 12.5.A (Group 4) — a failed load used to render the "no notifications"
+        // empty state (a lie when the API is down). Honest error card instead.
+        <div role="alert" className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center" data-testid="notifications-error">
+          <p className="font-bold text-[var(--c-text)]">تعذر تحميل الإشعارات</p>
+          <button
+            onClick={() => refetch()}
+            className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"
+          >
+            إعادة المحاولة
+          </button>
+        </div>
       ) : notifications.length === 0 ? (
         <div className="text-center py-20">
           <Bell className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-muted)] opacity-50" />

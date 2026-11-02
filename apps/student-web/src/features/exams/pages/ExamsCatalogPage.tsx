@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ClipboardCheck, Clock, ChevronLeft, LoaderCircle, Target } from 'lucide-react';
@@ -6,6 +6,9 @@ import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
 import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
 import { LockedEmptyState } from '@/features/my-studies/components/LockedEmptyState';
+import { CatalogEntitlementErrorCard, CatalogErrorCard } from '@/features/my-studies/components/CatalogErrorCards';
+import { loadCatalogAcrossSubjects } from '@/features/my-studies/utils/catalog-load';
+import { variantForReason, EntitlementDeniedError } from '@/features/my-studies/services/courses-api';
 
 interface ExamListItem {
   id: string;
@@ -37,29 +40,66 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
   const allSubjects = mySubjects.data ?? [];
   const subjects = subjectId ? allSubjects.filter((s) => s.id === subjectId) : allSubjects;
 
-  const { data: subjectsWithExams, isLoading } = useQuery({
+  // Wave 12.5.A (Group 1) — R69 taxonomy: per-subject failures surface, never
+  // a silent subject-vanish (`catch { exams: [] }` used to drop whole subjects).
+  const [entitlementDenied, setEntitlementDenied] = useState<ReturnType<typeof variantForReason> | null>(null);
+  const { data: subjectsWithExams, isLoading, isError, isFetching, error, refetch } = useQuery({
     queryKey: ['exams-catalog', subjects.map((s) => s.id).join(',')],
     enabled: subjects.length > 0,
-    queryFn: async (): Promise<SubjectWithExams[]> => {
-      // Fetch exams for each entitled subject in parallel
-      const result = await Promise.all(
-        subjects.map(async (subject) => {
-          try {
-            const examsRes = await apiClient.get(`/exams/by-subject/${subject.id}`, await entitlementRequestConfig());
-            const exams = Array.isArray(examsRes.data) ? examsRes.data : (examsRes.data?.items ?? []);
-            return {
-              subjectId: subject.id,
-              subjectName: subject.nameAr,
-              exams: exams.filter((e: ExamListItem) => e.status === 'Published'),
-            };
-          } catch {
-            return { subjectId: subject.id, subjectName: subject.nameAr, exams: [] };
-          }
-        })
-      );
-      return result.filter((s) => s.exams.length > 0);
-    },
+    retry: (failureCount, failure) => !(failure instanceof EntitlementDeniedError) && failureCount < 1,
+    queryFn: async (): Promise<SubjectWithExams[]> =>
+      loadCatalogAcrossSubjects(subjects.map((s) => s.id), async (subjectId) => {
+        const subject = subjects.find((s) => s.id === subjectId);
+        const examsRes = await apiClient.get(`/exams/by-subject/${subjectId}`, await entitlementRequestConfig());
+        const exams = Array.isArray(examsRes.data) ? examsRes.data : (examsRes.data?.items ?? []);
+        return [{
+          subjectId,
+          subjectName: subject?.nameAr ?? subjectId,
+          exams: exams.filter((e: ExamListItem) => e.status === 'Published'),
+        }];
+      }),
   });
+
+  const fetchingRef = useRef(false);
+  useEffect(() => { fetchingRef.current = isFetching; }, [isFetching]);
+  useEffect(() => {
+    const onEntitlementError = (event: Event) => {
+      if (fetchingRef.current) return;
+      const detail = (event as CustomEvent<{ url?: string; reason?: string }>).detail;
+      if (!detail?.url) return;
+      if (detail.url.includes('/entitlements/issue')) { setEntitlementDenied('no-grants'); return; }
+      if (detail.url.includes('/exams/')) setEntitlementDenied(variantForReason(detail.reason));
+    };
+    window.addEventListener('cms-entitlement-error', onEntitlementError);
+    return () => window.removeEventListener('cms-entitlement-error', onEntitlementError);
+  }, []);
+  useEffect(() => {
+    if (subjectsWithExams !== undefined) setEntitlementDenied(null);
+  }, [subjectsWithExams]);
+
+  const queryDenied = isError && error instanceof EntitlementDeniedError
+    ? variantForReason(error.reason)
+    : null;
+  if (entitlementDenied || queryDenied) {
+    return (
+      <CatalogEntitlementErrorCard
+        variant={queryDenied ?? entitlementDenied ?? 'device'}
+        onRetry={() => { setEntitlementDenied(null); refetch(); }}
+        testId="exams-catalog-entitlement-error"
+      />
+    );
+  }
+
+  if (mySubjects.isError) {
+    return (
+      <CatalogErrorCard
+        onRetry={() => mySubjects.refetch()}
+        testId="exams-catalog-error"
+        title="تعذّر تحميل الاختبارات"
+        body="حدث خطأ في الاتصال. تحقّق من الشبكة ثم أعد المحاولة."
+      />
+    );
+  }
 
   const examTypeBadge = (type: string) => {
     const t = (type || '').toLowerCase();
@@ -74,6 +114,18 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
       <div className="flex items-center justify-center py-16">
         <LoaderCircle className="w-8 h-8 animate-spin text-[var(--c-text-muted)]" />
       </div>
+    );
+  }
+
+  // Wave 12.5.A (Group 1) — every subject failed → honest error, never "empty".
+  if (isError) {
+    return (
+      <CatalogErrorCard
+        onRetry={() => refetch()}
+        testId="exams-catalog-error"
+        title="تعذّر تحميل الاختبارات"
+        body="حدث خطأ في الاتصال. تحقّق من الشبكة ثم أعد المحاولة."
+      />
     );
   }
 
