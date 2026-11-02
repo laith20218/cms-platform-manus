@@ -40,6 +40,10 @@ public class QuestionQueryHandlers :
 
         if (req.SubjectId.HasValue) query = query.Where(q => q.SubjectId == req.SubjectId);
         if (req.LectureId.HasValue) query = query.Where(q => q.LectureId == req.LectureId);
+        // TODO(W14.2): legacy read path — filters by Question.ExamId, which the D3/D6
+        // rework replaces with bank picking via ExamQuestion + QuestionUsage. This
+        // branch (and its offline twin in OfflineHandlers.cs) is scheduled for
+        // removal in Wave 14.2 — do not extend it.
         if (req.ExamId.HasValue) query = query.Where(q => q.ExamId == req.ExamId);
         if (!string.IsNullOrEmpty(req.Difficulty) && Enum.TryParse<Difficulty>(req.Difficulty, true, out var diff))
             query = query.Where(q => q.Difficulty == diff);

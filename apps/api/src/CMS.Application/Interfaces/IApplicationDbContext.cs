@@ -26,6 +26,12 @@ public interface IApplicationDbContext
     DbSet<AttemptLog> AttemptLogs { get; }
     DbSet<ErrorReport> ErrorReports { get; }
 
+    // Wave 14.1 (D1/D13): exam-course bundles + DB-backed practice tracking
+    DbSet<ExamCourse> ExamCourses { get; }
+    DbSet<ExamCourseItem> ExamCourseItems { get; }
+    DbSet<PracticeSession> PracticeSessions { get; }
+    DbSet<PracticeAnswer> PracticeAnswers { get; }
+
     DbSet<LibraryFile> LibraryFiles { get; }
     DbSet<LibraryView> LibraryViews { get; }
     DbSet<LectureCompletion> LectureCompletions { get; }

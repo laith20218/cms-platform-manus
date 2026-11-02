@@ -83,6 +83,9 @@ public class OfflineHandlers :
             var exam = await _db.Exams.AsNoTracking().FirstOrDefaultAsync(e => e.Id == req.ExamId, ct);
             if (exam != null)
             {
+                // TODO(W14.2): legacy read path — Question.ExamId filter, scheduled for
+                // removal in Wave 14.2 once offline packages read the reworked exam
+                // model (QuestionUsage / ExamQuestion). Do not extend this branch.
                 query = query.Where(q => q.ExamId == req.ExamId);
                 examTitle = exam.TitleAr;
             }

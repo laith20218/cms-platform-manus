@@ -231,6 +231,14 @@ public class ErrorReport : BaseEntity
     public Guid StudentId { get; set; }
     public Guid QuestionId { get; set; }
     public ErrorReportReason ReasonType { get; set; }
+    /// <summary>
+    /// Wave 14.1 (D12): report classification so question reports can be triaged
+    /// (typo / wrong answer / bad image / other). Defaults to Other; legacy rows
+    /// are backfilled to Other by the W14.1 migration (meaning preserved).
+    /// NOTE: QuestionId itself predates this wave — it is the required FK added
+    /// with Phase59, left untouched here (spec delta disclosed in WIP_STATUS).
+    /// </summary>
+    public ReportType ReportType { get; set; } = ReportType.Other;
     public string? Description { get; set; }
     public string? ScreenshotUrl { get; set; }
     public ErrorReportStatus Status { get; set; } = ErrorReportStatus.Pending;

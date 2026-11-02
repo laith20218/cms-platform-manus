@@ -33,6 +33,12 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<AttemptLog> AttemptLogs => Set<AttemptLog>();
     public DbSet<ErrorReport> ErrorReports => Set<ErrorReport>();
 
+    // Wave 14.1 (D1/D13): exam-course bundles + DB-backed practice tracking
+    public DbSet<ExamCourse> ExamCourses => Set<ExamCourse>();
+    public DbSet<ExamCourseItem> ExamCourseItems => Set<ExamCourseItem>();
+    public DbSet<PracticeSession> PracticeSessions => Set<PracticeSession>();
+    public DbSet<PracticeAnswer> PracticeAnswers => Set<PracticeAnswer>();
+
     // Library
     public DbSet<LibraryFile> LibraryFiles => Set<LibraryFile>();
     public DbSet<LibraryView> LibraryViews => Set<LibraryView>();
@@ -173,6 +179,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             // Consumed by Phase59AddErrorReportForeignKeys (guarded SQL).
             entity.HasIndex(x => new { x.Status, x.AssignedTo })
                 .HasDatabaseName("ix_error_reports_status_assigned_to");
+            // Wave 14.1 (D10/D12): per-question report table lookup. The composite
+            // supersedes the conventional single-column FK index (leading-column rule).
+            entity.HasIndex(x => new { x.QuestionId, x.Status });
         });
         modelBuilder.Entity<SystemSetting>(entity =>
         {
@@ -276,6 +285,45 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.Property(x => x.Snippet).HasMaxLength(120);
             entity.HasOne(x => x.File).WithMany().HasForeignKey(x => x.FileId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Wave 14.1 (D1): exam-course bundles ("الدورات الامتحانية"). Subject is RESTRICT
+        // (same ruling as Course — subjects are soft-deleted in practice; a hard delete
+        // must never destroy sellable bundles). The (SubjectId, Year, Semester) composite
+        // serves the D4 academic-filter browsing queries; it also covers the FK column.
+        modelBuilder.Entity<ExamCourse>(entity =>
+        {
+            entity.HasIndex(x => new { x.SubjectId, x.Year, x.Semester });
+            entity.Property(x => x.NameAr).HasMaxLength(200);
+            entity.Property(x => x.NameEn).HasMaxLength(200);
+            entity.Property(x => x.CoverUrl).HasMaxLength(500);
+            entity.HasOne(x => x.Subject).WithMany().HasForeignKey(x => x.SubjectId).OnDelete(DeleteBehavior.Restrict);
+        });
+        // Wave 14.1 (D6): join rows to bank exams; (ExamCourseId, ExamId) UNIQUE — an
+        // exam ships at most once per bundle. Both sides cascade: a join row has no
+        // meaning without either side.
+        modelBuilder.Entity<ExamCourseItem>(entity =>
+        {
+            entity.HasIndex(x => new { x.ExamCourseId, x.ExamId }).IsUnique();
+            entity.HasOne(x => x.ExamCourse).WithMany(x => x.Items).HasForeignKey(x => x.ExamCourseId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Exam).WithMany().HasForeignKey(x => x.ExamId).OnDelete(DeleteBehavior.Cascade);
+        });
+        // Wave 14.1 (D13): DB-backed practice tracking. Student cascades (private
+        // derivative); the model exam is RESTRICT — never silently delete exam history.
+        modelBuilder.Entity<PracticeSession>(entity =>
+        {
+            entity.HasIndex(x => new { x.StudentId, x.Status });
+            entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.ExamModel).WithMany().HasForeignKey(x => x.ExamModelId).OnDelete(DeleteBehavior.Restrict);
+        });
+        // Wave 14.1 (D13): one saved answer per (session, question) query path. The
+        // session cascades with its owner; Question is RESTRICT (D2 spirit — a question
+        // with answer history must not hard-delete silently).
+        modelBuilder.Entity<PracticeAnswer>(entity =>
+        {
+            entity.HasIndex(x => new { x.PracticeSessionId, x.QuestionId });
+            entity.HasOne(x => x.PracticeSession).WithMany(x => x.Answers).HasForeignKey(x => x.PracticeSessionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Question).WithMany().HasForeignKey(x => x.QuestionId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // Push 10.3: rich media metadata + transcoding lifecycle. Title already existed on
