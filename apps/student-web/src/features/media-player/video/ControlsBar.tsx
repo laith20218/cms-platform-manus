@@ -78,7 +78,14 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
       data-testid="video-controls-bar"
       data-visible={controlsVisible ? 'true' : 'false'}
       className={cn(
-        'pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-3 pb-2 pt-10 transition-opacity duration-300 sm:px-4 sm:pb-3',
+        // 12.4.A — @container: the controls adapt to the BAR's real width, not
+        // the viewport. At ≥lg the course page puts the player in a ~302px
+        // side-by-side column; viewport-based `sm:` kept all 7 buttons there,
+        // the row wrapped to 2 lines and the bar covered the whole 16:9 box —
+        // the center play button became unclickable (DIAG: row y=63..157 vs
+        // button center y=85 of 170). Container queries fold on narrow boxes
+        // at ANY viewport.
+        '@container pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-3 pb-2 pt-10 transition-opacity duration-300 @sm:px-4 @sm:pb-3',
         controlsVisible ? 'opacity-100' : 'opacity-0',
       )}
     >
@@ -87,7 +94,7 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
           (otherwise the gradient area swallows taps meant for the center play
           button / double-tap zones on short mobile players). */}
       <SliderPrimitive.Root
-        className={cn('group relative flex h-7 w-full touch-none select-none items-center outline-none', controlsVisible && 'pointer-events-auto')}
+        className={cn('group relative flex h-6 w-full touch-none select-none items-center outline-none', controlsVisible && 'pointer-events-auto')}
         value={sliderValue}
         max={durationKnown ? duration : 100}
         step={1}
@@ -107,11 +114,21 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
         <SliderPrimitive.Thumb
           data-testid="video-seek-thumb"
           className="block h-4 w-4 rounded-full bg-white shadow ring-2 ring-teal-400/60 transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-4"
+          aria-label="شريط التقدم"
           aria-valuetext={seekValueText(currentTime, durationKnown ? duration : 0)}
         />
       </SliderPrimitive.Root>
 
-      <div className={cn('mt-1 flex items-center gap-1 sm:gap-1.5', controlsVisible && 'pointer-events-auto')}>
+      <div
+        data-testid="video-controls-row"
+        className={cn(
+          // 12.4.A Bug C — flex-wrap + justify-center (mirrors PdfControlsBar):
+          // 7×44px targets + the time display overflowed a 351px content box at
+          // 375px and were silently clipped by overflow-hidden ancestors.
+          'mt-1 flex flex-wrap items-center justify-center gap-1 sm:gap-1.5',
+          controlsVisible && 'pointer-events-auto',
+        )}
+      >
         {/* Play / Pause — bottom-left (physical) */}
         <button
           type="button"
@@ -124,7 +141,7 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
         </button>
 
         {/* Time: current / total */}
-        <div dir="rtl" className="flex shrink-0 items-center gap-1 px-1 font-mono text-[11px] tabular-nums text-white/90 sm:text-xs" data-testid="video-time-display">
+        <div dir="rtl" className="flex shrink-0 items-center gap-1 px-0.5 font-mono text-[10px] tabular-nums text-white/90 @sm:text-xs" data-testid="video-time-display">
           <span className="font-semibold text-white">{formatMediaDuration(currentTime)}</span>
           <span aria-hidden="true" className="text-white/50">/</span>
           <span className="text-white/60">{durationKnown ? formatMediaDuration(duration) : '--:--'}</span>
@@ -143,7 +160,7 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
           >
             {muted || volume === 0 ? <VolumeX className="h-5 w-5" strokeWidth={2} /> : <Volume2 className="h-5 w-5" strokeWidth={2} />}
           </button>
-          <div className="hidden w-0 overflow-hidden transition-[width] duration-200 group-focus-within/vol:w-24 group-hover/vol:w-24 sm:block">
+          <div className="hidden w-0 overflow-hidden transition-[width] duration-200 group-focus-within/vol:w-24 group-hover/vol:w-24 @lg:block">
             <SliderPrimitive.Root
               className="flex h-11 w-24 touch-none select-none items-center px-2 outline-none"
               value={[muted ? 0 : volume]}
@@ -156,7 +173,7 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
               <div className="relative h-1.5 w-full rounded-full bg-white/25">
                 <div className="absolute inset-y-0 left-0 rounded-full bg-white" style={{ width: `${(muted ? 0 : volume) * 100}%` }} />
               </div>
-              <SliderPrimitive.Thumb className="block h-3.5 w-3.5 rounded-full bg-white shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300" />
+              <SliderPrimitive.Thumb aria-label="مستوى الصوت" className="block h-3.5 w-3.5 rounded-full bg-white shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300" />
             </SliderPrimitive.Root>
           </div>
         </div>
@@ -166,7 +183,7 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
           <SelectPrimitive.Trigger
             aria-label="سرعة التشغيل"
             data-testid="video-rate-trigger"
-            className="press flex h-11 min-w-14 items-center justify-center gap-0.5 rounded-full px-2 font-mono text-xs font-bold tabular-nums text-white transition-colors hover:bg-white/15"
+            className="press flex h-11 min-w-11 items-center justify-center gap-0.5 rounded-full px-1.5 font-mono text-xs font-bold tabular-nums text-white transition-colors hover:bg-white/15"
           >
             <span>{formatRate(rate)}</span>
             <SelectPrimitive.Icon>
@@ -211,7 +228,12 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
             aria-pressed={isFavorite}
             data-testid="video-favorite-button"
             className={cn(
-              'press flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 disabled:opacity-60',
+              // 12.4.A Bug C — star/bookmark fold away on narrow CONTAINERS
+              // (@sm = bar ≥ 384px): the row cannot fit seven 44px targets in
+              // ~280px (375px phones AND the ≥lg side-by-side player column);
+              // on such boxes both actions remain available from the episode
+              // card / favorites page.
+              'press hidden h-11 w-11 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 disabled:opacity-60 @sm:flex',
               isFavorite && 'text-amber-400',
             )}
           >
@@ -225,7 +247,7 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
           onClick={onOpenBookmark}
           aria-label="حفظ مقطع (علامة مرجعية)"
           data-testid="video-bookmark-button"
-          className="press flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15"
+          className="press hidden h-11 w-11 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 @sm:flex"
         >
           <Bookmark className="h-5 w-5" strokeWidth={2} />
         </button>
