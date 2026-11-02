@@ -483,7 +483,7 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
             <GraduationCap className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
+            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-soft)' }}>
               {isArabic ? 'الدورات الامتحانية' : 'Exam courses'}
             </p>
             <h2 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
@@ -628,7 +628,7 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
                   style={inputStyle}
                 />
               </label>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <label className="block">
                   {fieldLabel(isArabic ? 'السنة *' : 'Year *')}
                   <input
@@ -719,7 +719,7 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
                       className="w-24 h-16 rounded-lg border flex items-center justify-center"
                       style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-100)' }}
                     >
-                      <ImagePlus className="w-5 h-5" style={{ color: 'var(--cms-text-muted)' }} />
+                      <ImagePlus className="w-5 h-5" style={{ color: 'var(--cms-text-soft)' }} />
                     </div>
                   )}
                   <div className="flex flex-col gap-2">
@@ -773,7 +773,7 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
                 </button>
               </div>
               {editor.detail.items.length === 0 ? (
-                <div className="flex flex-col items-center justify-center text-center py-10" style={{ color: 'var(--cms-text-muted)' }}>
+                <div className="flex flex-col items-center justify-center text-center py-10" style={{ color: 'var(--cms-text-soft)' }}>
                   <PackageOpen className="w-6 h-6 opacity-50" />
                   <p className="mt-2 text-sm">
                     {isArabic ? 'لا توجد اختبارات في الدورة بعد — أضف أول اختبار من بنك المادة.' : 'No exams in this bundle yet — add the first one from the subject bank.'}
@@ -797,7 +797,7 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
                         <div className="text-sm font-medium leading-snug" style={{ color: 'var(--cms-text)' }}>
                           {item.examTitleAr}
                         </div>
-                        <div className="mt-1 flex items-center gap-2 flex-wrap text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
+                        <div className="mt-1 flex items-center gap-2 flex-wrap text-[11px]" style={{ color: 'var(--cms-text-soft)' }}>
                           {item.modelLetter && <span className="font-mono">{isArabic ? 'نموذج' : 'Model'} {item.modelLetter}</span>}
                           <span>{item.examTotalQuestions} {isArabic ? 'سؤال' : 'questions'}</span>
                           <span>· {item.examDurationMinutes} {isArabic ? 'دقيقة' : 'min'}</span>
@@ -844,7 +844,7 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
               )}
             </div>
           ) : (
-            <p className="text-xs rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-muted)', background: 'var(--cms-ivory-100)' }}>
+            <p className="text-xs rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)', background: 'var(--cms-ivory-100)' }}>
               {isArabic
                 ? 'أنشئ الدورة أولاً — بعدها يمكنك إضافة اختبارات المادة وترتيبها.'
                 : 'Create the bundle first — then you can add and order the subject exams.'}
@@ -857,13 +857,13 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
           className="rounded-xl border bg-white flex flex-col items-center justify-center text-center py-16"
           style={{ borderColor: 'var(--cms-line)' }}
         >
-          <div className="p-3 rounded-full" style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
+          <div className="p-3 rounded-full" style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}>
             <GraduationCap className="w-7 h-7" />
           </div>
           <p className="mt-3 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
             {isArabic ? 'اختر مادة لإدارة دوراتها الامتحانية.' : 'Select a subject to manage its exam bundles.'}
           </p>
-          <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+          <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
             {isArabic ? 'التدرج الأكاديمي أعلاه يقودك من الجامعة إلى المادة.' : 'The hierarchy above leads from university down to subject.'}
           </p>
         </div>
@@ -892,20 +892,20 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
               className="rounded-xl border bg-white flex flex-col items-center justify-center text-center py-16"
               style={{ borderColor: 'var(--cms-line)' }}
             >
-              <div className="p-3 rounded-full" style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
+              <div className="p-3 rounded-full" style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}>
                 <PackageOpen className="w-6 h-6" />
               </div>
               <p className="mt-3 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
                 {isArabic ? 'لا توجد دورات امتحانية' : 'No exam bundles'}
               </p>
-              <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+              <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
                 {isArabic ? 'أنشئ أول دورة لهذه المادة بزر «دورة جديدة».' : 'Create the first bundle for this subject with "New bundle".'}
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
+            <div className="overflow-x-auto [contain:paint] rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
               <table className="w-full text-sm">
-                <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
+                <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}>
                   <tr>
                     <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الدورة' : 'Bundle'}</th>
                     <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'السنة / الفصل' : 'Year / Semester'}</th>
@@ -924,7 +924,7 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
                           {course.nameAr}
                         </div>
                         {course.nameEn && (
-                          <div className="text-xs mt-0.5" style={{ color: 'var(--cms-text-muted)' }}>{course.nameEn}</div>
+                          <div className="text-xs mt-0.5" style={{ color: 'var(--cms-text-soft)' }}>{course.nameEn}</div>
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
@@ -961,9 +961,9 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
                             onClick={() => void openEdit(course)}
                             disabled={busy}
                             className={`${iconBtnClass} hover:bg-teal-50`}
-                            style={{ color: 'var(--cms-text-muted)' }}
+                            style={{ color: 'var(--cms-text-soft)' }}
                             onMouseEnter={(event) => { event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
-                            onMouseLeave={(event) => { event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
+                            onMouseLeave={(event) => { event.currentTarget.style.color = 'var(--cms-text-soft)'; }}
                           >
                             <ClipboardList className="w-4 h-4" />
                           </button>
@@ -974,9 +974,9 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
                             onClick={() => void openPreview(course)}
                             disabled={previewLoading}
                             className={`${iconBtnClass} hover:bg-teal-50`}
-                            style={{ color: 'var(--cms-text-muted)' }}
+                            style={{ color: 'var(--cms-text-soft)' }}
                             onMouseEnter={(event) => { event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
-                            onMouseLeave={(event) => { event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
+                            onMouseLeave={(event) => { event.currentTarget.style.color = 'var(--cms-text-soft)'; }}
                           >
                             <Eye className="w-4 h-4" />
                           </button>
@@ -1070,11 +1070,11 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
             </div>
             <div className="overflow-y-auto p-4 space-y-2" style={{ maxHeight: '50vh' }}>
               {pickerLoading ? (
-                <div className="flex items-center justify-center py-10" style={{ color: 'var(--cms-text-muted)' }}>
+                <div className="flex items-center justify-center py-10" style={{ color: 'var(--cms-text-soft)' }}>
                   <LoaderCircle className="w-5 h-5 animate-spin" />
                 </div>
               ) : pickerExams.filter(exam => !bundledExamIds.has(exam.id)).length === 0 ? (
-                <p className="text-sm text-center py-10" style={{ color: 'var(--cms-text-muted)' }}>
+                <p className="text-sm text-center py-10" style={{ color: 'var(--cms-text-soft)' }}>
                   {isArabic ? 'لا توجد اختبارات متاحة للإضافة — كل اختبارات المادة مضافة بالفعل.' : 'Nothing left to add — every subject exam is already in the bundle.'}
                 </p>
               ) : (
@@ -1086,7 +1086,7 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
                   >
                     <div className="flex-1 min-w-[160px]">
                       <div className="text-sm font-medium leading-snug" style={{ color: 'var(--cms-text)' }}>{exam.titleAr}</div>
-                      <div className="mt-1 flex items-center gap-2 flex-wrap text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
+                      <div className="mt-1 flex items-center gap-2 flex-wrap text-[11px]" style={{ color: 'var(--cms-text-soft)' }}>
                         <span>{exam.examType}</span>
                         <span>· {exam.totalQuestions} {isArabic ? 'سؤال' : 'questions'}</span>
                         <span>· {exam.durationMinutes} {isArabic ? 'دقيقة' : 'min'}</span>
@@ -1131,7 +1131,7 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
             <div className="flex items-start justify-between gap-3 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
               <div className="min-w-0">
                 <h3 className="font-semibold truncate" style={{ color: 'var(--cms-text)' }}>{preview.nameAr}</h3>
-                <div className="mt-1 flex items-center gap-2 flex-wrap text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                <div className="mt-1 flex items-center gap-2 flex-wrap text-xs" style={{ color: 'var(--cms-text-soft)' }}>
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full border ${courseTypeBadgeClass(preview.courseType)}`}>
                     {courseTypeLabel(preview.courseType, isArabic)}
                   </span>
@@ -1171,7 +1171,7 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
                   {isArabic ? `اختبارات الدورة (${preview.items.length}) — بترتيب ظهورها للطالب` : `Bundle exams (${preview.items.length}) — in student order`}
                 </h4>
                 {preview.items.length === 0 ? (
-                  <p className="text-sm py-4 text-center" style={{ color: 'var(--cms-text-muted)' }}>
+                  <p className="text-sm py-4 text-center" style={{ color: 'var(--cms-text-soft)' }}>
                     {isArabic ? 'لا توجد اختبارات في هذه الدورة بعد.' : 'No exams in this bundle yet.'}
                   </p>
                 ) : (
@@ -1186,7 +1186,7 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
                         </span>
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium leading-snug" style={{ color: 'var(--cms-text)' }}>{item.examTitleAr}</div>
-                          <div className="mt-0.5 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
+                          <div className="mt-0.5 text-[11px]" style={{ color: 'var(--cms-text-soft)' }}>
                             {item.examTotalQuestions} {isArabic ? 'سؤال' : 'questions'} · {item.examDurationMinutes} {isArabic ? 'دقيقة' : 'min'}
                             {item.modelLetter ? ` · ${isArabic ? 'نموذج' : 'Model'} ${item.modelLetter}` : ''}
                           </div>

@@ -640,6 +640,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
+              aria-label={isArabic ? 'تصفية حالة الاختبار' : 'Filter by exam status'}
               className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
               style={{ borderColor: 'var(--cms-line-strong)' }}
             >
@@ -675,7 +676,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     <h3 className="font-semibold text-sm truncate" style={{ color: 'var(--cms-text)' }}>
                       {isArabic ? `إحصائيات: ${statsExam.titleAr}` : `Stats: ${statsExam.titleAr}`}
                     </h3>
-                    <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                    <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
                       {isArabic ? 'مؤشرات المحاولات والدرجات وتحليل كل سؤال.' : 'Attempt metrics, score analytics, and per-question breakdown.'}
                     </p>
                   </div>
@@ -715,7 +716,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   <>
                     {stats.started === 0 && stats.attempts === 0 ? (
                       /* B.4 honesty: a fresh exam shows an explicit empty state, never misleading zeros. */
-                      <div className="flex flex-col items-center justify-center text-center py-10" style={{ color: 'var(--cms-text-muted)' }}>
+                      <div className="flex flex-col items-center justify-center text-center py-10" style={{ color: 'var(--cms-text-soft)' }}>
                         <TrendingUp className="w-6 h-6 opacity-50" />
                         <p className="mt-2 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
                           {isArabic ? 'لا توجد محاولات بعد.' : 'No attempts yet.'}
@@ -737,7 +738,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             { icon: XCircle, label: isArabic ? 'ملغاة' : 'Cancelled', value: stats.cancelled },
                           ].map(card => (
                             <div key={card.label} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)' }}>
-                              <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                              <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
                                 <card.icon className="w-3.5 h-3.5" />
                                 {card.label}
                               </div>
@@ -749,11 +750,11 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         {/* Pass/fail + scores + duration */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                           <div className="rounded-lg border p-4" style={{ borderColor: 'var(--cms-line)' }}>
-                            <p className="text-xs font-medium mb-2" style={{ color: 'var(--cms-text-muted)' }}>
+                            <p className="text-xs font-medium mb-2" style={{ color: 'var(--cms-text-soft)' }}>
                               {isArabic ? 'النجاح مقابل الرسوب' : 'Pass vs fail'}
                             </p>
                             {stats.pass + stats.fail === 0 ? (
-                              <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لا توجد نتائج مصححة بعد.' : 'No graded results yet.'}</p>
+                              <p className="text-sm" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'لا توجد نتائج مصححة بعد.' : 'No graded results yet.'}</p>
                             ) : (
                               <div>
                                 <div className="flex items-center justify-between text-xs mb-1">
@@ -768,26 +769,26 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             )}
                           </div>
                           <div className="rounded-lg border p-4" style={{ borderColor: 'var(--cms-line)' }}>
-                            <p className="text-xs font-medium mb-2" style={{ color: 'var(--cms-text-muted)' }}>
+                            <p className="text-xs font-medium mb-2" style={{ color: 'var(--cms-text-soft)' }}>
                               {isArabic ? 'الدرجات (من المصححة آلياً)' : 'Scores (auto-graded)'}
                             </p>
                             <div className="flex items-center gap-4 text-sm">
                               <div>
-                                <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'المعدل' : 'Mean'}</div>
+                                <div className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'المعدل' : 'Mean'}</div>
                                 <div className="font-bold" style={{ color: 'var(--cms-text)' }}>{stats.meanScore == null ? '—' : `${stats.meanScore.toFixed(1)}%`}</div>
                               </div>
                               <div>
-                                <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'الوسيط' : 'Median'}</div>
+                                <div className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'الوسيط' : 'Median'}</div>
                                 <div className="font-bold" style={{ color: 'var(--cms-text)' }}>{stats.medianScore == null ? '—' : `${stats.medianScore.toFixed(1)}%`}</div>
                               </div>
                             </div>
                           </div>
                           <div className="rounded-lg border p-4" style={{ borderColor: 'var(--cms-line)' }}>
-                            <p className="text-xs font-medium mb-2" style={{ color: 'var(--cms-text-muted)' }}>
+                            <p className="text-xs font-medium mb-2" style={{ color: 'var(--cms-text-soft)' }}>
                               {isArabic ? 'متوسط زمن الحل' : 'Average duration'}
                             </p>
                             <div className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--cms-text)' }}>
-                              <Timer className="w-4 h-4" style={{ color: 'var(--cms-text-muted)' }} />
+                              <Timer className="w-4 h-4" style={{ color: 'var(--cms-text-soft)' }} />
                               {stats.avgDurationSeconds > 0
                                 ? `${Math.floor(stats.avgDurationSeconds / 60)} ${isArabic ? 'دقيقة' : 'min'} ${Math.round(stats.avgDurationSeconds % 60)} ${isArabic ? 'ثانية' : 'sec'}`
                                 : '—'}
@@ -805,7 +806,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                               const max = Math.max(...stats.distribution.map(item => item.count), 1);
                               return (
                                 <div key={bucket.label} className="flex items-center gap-2">
-                                  <span className="w-14 text-[11px] font-mono shrink-0 text-start" style={{ color: 'var(--cms-text-muted)' }}>{bucket.label}</span>
+                                  <span className="w-14 text-[11px] font-mono shrink-0 text-start" style={{ color: 'var(--cms-text-soft)' }}>{bucket.label}</span>
                                   <div className="flex-1 h-5 rounded bg-slate-100 overflow-hidden">
                                     <div
                                       className="h-full rounded transition-all"
@@ -827,13 +828,13 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         {isArabic ? `إحصائيات الأسئلة (${questionStats.length})` : `Question stats (${questionStats.length})`}
                       </h4>
                       {questionStats.length === 0 ? (
-                        <p className="text-sm py-4 text-center" style={{ color: 'var(--cms-text-muted)' }}>
+                        <p className="text-sm py-4 text-center" style={{ color: 'var(--cms-text-soft)' }}>
                           {isArabic ? 'لا توجد أسئلة في هذا الاختبار.' : 'This exam has no questions.'}
                         </p>
                       ) : (
-                        <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--cms-line)' }}>
+                        <div className="overflow-x-auto [contain:paint] rounded-lg border" style={{ borderColor: 'var(--cms-line)' }}>
                           <table className="w-full text-sm">
-                            <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
+                            <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}>
                               <tr>
                                 <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">#</th>
                                 <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'السؤال' : 'Question'}</th>
@@ -847,7 +848,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             <tbody className="divide-y" style={{ borderColor: 'var(--cms-line)' }}>
                               {questionStats.map(row => (
                                 <tr key={row.questionId} className={row.problematic ? 'bg-red-50/60' : 'hover:bg-slate-50/70'}>
-                                  <td className="px-3 py-2.5 text-xs font-semibold" style={{ color: 'var(--cms-text-muted)' }}>{row.sortOrder}</td>
+                                  <td className="px-3 py-2.5 text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>{row.sortOrder}</td>
                                   <td className="px-3 py-2.5 max-w-sm">
                                     <button
                                       type="button"
@@ -862,7 +863,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                                   <td className="px-3 py-2.5 font-semibold" style={{ color: 'var(--cms-text)' }}>{row.attempts}</td>
                                   <td className="px-3 py-2.5">
                                     {row.attempts === 0 ? (
-                                      <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>—</span>
+                                      <span className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>—</span>
                                     ) : (
                                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border font-medium ${
                                         row.correctPercent >= 70 ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
@@ -938,9 +939,9 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
+            <div className="overflow-x-auto [contain:paint] rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
               <table className="w-full text-sm">
-                <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
+                <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}>
                   <tr>
                     <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'عنوان الاختبار' : 'Exam title'}</th>
                     <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'النوع' : 'Type'}</th>
@@ -959,11 +960,11 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         <div className="font-medium text-sm leading-snug truncate" style={{ color: 'var(--cms-text)' }}>
                           {exam.titleAr}
                         </div>
-                        <div className="text-xs font-mono mt-0.5" style={{ color: 'var(--cms-text-muted)' }}>
+                        <div className="text-xs font-mono mt-0.5" style={{ color: 'var(--cms-text-soft)' }}>
                           {exam.slug}
                         </div>
                         {(exam.availableFrom || exam.availableUntil || exam.maxAttempts) && (
-                          <div className="mt-1 text-[10px] flex flex-wrap gap-2" style={{ color: 'var(--cms-text-muted)' }}>
+                          <div className="mt-1 text-[10px] flex flex-wrap gap-2" style={{ color: 'var(--cms-text-soft)' }}>
                             {exam.availableFrom && (
                               <span>{isArabic ? 'من' : 'From'} {new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium' }).format(new Date(exam.availableFrom))}</span>
                             )}
@@ -995,10 +996,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-semibold" style={{ color: 'var(--cms-text)' }}>
-                          {exam.completedCount}<span style={{ color: 'var(--cms-text-muted)' }}>/{exam.attemptsCount}</span>
+                          {exam.completedCount}<span style={{ color: 'var(--cms-text-soft)' }}>/{exam.attemptsCount}</span>
                         </div>
                         {exam.averageScore != null && (
-                          <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                          <div className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
                             {isArabic ? 'المعدل' : 'Avg'}: {exam.averageScore.toFixed(0)}%
                           </div>
                         )}
@@ -1104,7 +1105,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>
                       {isArabic ? 'بلاغات الأسئلة' : 'Question reports'}
                     </h3>
-                    <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                    <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
                       {isArabic ? 'بلاغات الطلاب عن أخطاء الأسئلة — ضمن نطاقك الأكاديمي.' : 'Student reports about question errors — within your academic scope.'}
                     </p>
                   </div>
@@ -1151,7 +1152,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     {[0, 1, 2].map(row => <div key={row} className="h-20 rounded-lg bg-slate-100 animate-pulse" />)}
                   </div>
                 ) : reports.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center text-center py-10" style={{ color: 'var(--cms-text-muted)' }}>
+                  <div className="flex flex-col items-center justify-center text-center py-10" style={{ color: 'var(--cms-text-soft)' }}>
                     <Flag className="w-6 h-6 opacity-50" />
                     <p className="mt-2 text-sm">
                       {isArabic ? 'لا توجد بلاغات ضمن هذه التصفية.' : 'No reports match this filter.'}
@@ -1168,7 +1169,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${reportStatusBadgeClass(report.status)}`}>
                             {reportStatusLabel(report.status, isArabic)}
                           </span>
-                          <span className="text-xs ms-auto" style={{ color: 'var(--cms-text-muted)' }}>
+                          <span className="text-xs ms-auto" style={{ color: 'var(--cms-text-soft)' }}>
                             {new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(report.createdAt))}
                           </span>
                         </div>
@@ -1187,7 +1188,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                           </p>
                         )}
                         {report.resolutionNotes && (
-                          <p className="mt-2 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                          <p className="mt-2 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
                             {isArabic ? 'ملاحظات الحل:' : 'Resolution notes:'} {report.resolutionNotes}
                           </p>
                         )}
@@ -1824,9 +1825,9 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     </p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--cms-line)' }}>
+                  <div className="overflow-x-auto [contain:paint] rounded-lg border" style={{ borderColor: 'var(--cms-line)' }}>
                     <table className="w-full text-sm">
-                      <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
+                      <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}>
                         <tr>
                           <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الطالب' : 'Student'}</th>
                           <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الحالة' : 'Status'}</th>

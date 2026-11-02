@@ -634,7 +634,8 @@ function App() {
           <div className="top-actions">
             <button className="lang-btn" onClick={() => setCommandPaletteOpen(true)} aria-label={isArabic ? 'بحث سريع' : 'Command palette'} title="Ctrl+K">
               <Search size={15} />
-              <span style={{ fontSize: '11px', opacity: 0.6 }}>⌘K</span>
+              {/* W14.3 §13: opacity 0.6 → soft token — the hint failed contrast (2.68:1). */}
+              <span style={{ fontSize: '11px', color: 'var(--cms-text-soft)' }}>⌘K</span>
             </button>
             <div className={`status-indicator ${apiStatus === 'healthy' ? '' : apiStatus === 'degraded' ? 'degraded' : 'unknown'}`} title={statusLabel}>
               <span className="dot" />
