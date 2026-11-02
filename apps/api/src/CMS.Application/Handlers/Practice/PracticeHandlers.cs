@@ -122,6 +122,10 @@ public sealed class PracticeHandlers :
         }
         session.LastAccessedAt = DateTime.UtcNow;
 
+        // Persist the answer FIRST — completion is evaluated against the store, not the
+        // un-saved change tracker (queries never see pending Added rows).
+        await _unitOfWork.SaveChangesAsync(ct);
+
         var totalQuestions = compositionIds.Count;
         decimal? score = null;
         if (totalQuestions > 0 && await AllGradedAsync(session.Id, totalQuestions, ct))
@@ -130,9 +134,8 @@ public sealed class PracticeHandlers :
             score = Math.Round((decimal)correct / totalQuestions * 100, 2);
             session.Score = score;
             session.Status = PracticeSessionStatus.Completed;
+            await _unitOfWork.SaveChangesAsync(ct);
         }
-
-        await _unitOfWork.SaveChangesAsync(ct);
 
         var answeredCount = await _db.PracticeAnswers.CountAsync(item => item.PracticeSessionId == session.Id, ct);
         return new SubmitPracticeAnswerResultDto(session.Id, req.QuestionId, isCorrect, answeredCount, totalQuestions, score, session.Status.ToString());

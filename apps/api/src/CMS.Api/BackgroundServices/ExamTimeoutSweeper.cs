@@ -62,8 +62,10 @@ public sealed class ExamTimeoutSweeper : BackgroundService
         var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
         var now = DateTime.UtcNow;
+        // Scoring touches SessionQuestions + AttemptLogs only — the Exam include is
+        // deliberately omitted so an orphaned session (defensive: no principal row)
+        // can still be finalized instead of silently vanishing from the batch.
         var expired = await db.ExamSessions
-            .Include(session => session.Exam)
             .Include(session => session.SessionQuestions)
             .Include(session => session.AttemptLogs)
             .Where(session => session.Status == ExamSessionStatus.InProgress && session.ExpiresAt < now)

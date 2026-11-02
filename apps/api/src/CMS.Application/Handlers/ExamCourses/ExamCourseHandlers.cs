@@ -28,13 +28,11 @@ public sealed class ExamCourseHandlers :
 {
     private readonly IApplicationDbContext _db;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IPermissionService _permissions;
 
-    public ExamCourseHandlers(IApplicationDbContext db, IUnitOfWork unitOfWork, IPermissionService permissions)
+    public ExamCourseHandlers(IApplicationDbContext db, IUnitOfWork unitOfWork)
     {
         _db = db;
         _unitOfWork = unitOfWork;
-        _permissions = permissions;
     }
 
     public async Task<ExamCourseDetailDto> Handle(CreateExamCourseCommand req, CancellationToken ct)

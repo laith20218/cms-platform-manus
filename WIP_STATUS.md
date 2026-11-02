@@ -1,111 +1,160 @@
-# WIP_STATUS — main @ 65a2e50 → feat/14.1-data-foundations (Wave 14.1: Data Model Foundations)
+# WIP_STATUS — feat/14.2-backend-api (Wave 14.2: Backend API Completeness)
 
 ## ─── STATE ───────────────────────────────────────────────
-Waves 11.x, 12.x, 13.x are CLOSED and deployed (main @ 65a2e50, PR #69 merged).
-R75 DIAG ACCEPTED — the 13 decisions D1–D13 are LOCKED and drive this wave.
+Wave 14.1 is MERGED (main @ 87d93d5, PR #70). This branch implements Wave 14.2
+(R75 P0/P1/P2 backend fixes + W14.1 entity APIs + missing admin endpoints) —
+**6 commits, LOCAL ONLY — push requires supervisor approval (§2)**.
 
-Verification ladder (this wave, in-sandbox — .NET 9 SDK 9.0.320 PRESENT, unlike
-Phase61/62): **dotnet build 0 errors** · **dotnet test 619/619 passed, 0 failed,
-27 skipped (Testcontainers — no Docker in sandbox; same 27 as the 12.5 baseline)** ·
-**`dotnet ef migrations has-pending-model-changes` → "No changes"** (hand-edited
-snapshot verified semantically identical to the live model by the tool itself).
+Verification ladder (this wave, in-sandbox, .NET 9 SDK 9.0.320):
+**dotnet build 0 errors** (warnings all pre-existing, all in CMS.Tests) ·
+**dotnet test 637/637 passed, 0 failed, 27 skipped (Testcontainers — no Docker;
+same 27 as the 12.5/14.1 baseline)** — 619 baseline + 18 new W14.2 tests ·
+**`dotnet ef migrations has-pending-model-changes` → "No changes"** (run after
+every commit; zero schema changes this wave — §3 honored).
 
-## ─── WAVE 14.1 — IMPLEMENTED (this branch, 1 commit, NOT pushed) ───
-Backend ONLY. No API endpoints touched. No business logic. Entities + EF config +
-one hand-authored migration + two TODO markers + docs.
+## ─── COMMITS (this branch, oldest → newest) ───────────────
 
-### What was added
+1. `0639228` fix(api): wave 14.2 security & consistency (P0/P1/P2)
+2. `af9dcb9` feat(api): wave 14.2 domain APIs (ExamCourse, Practice, Reports)
+3. `f74c102` feat(api): wave 14.2 missing admin endpoints
+4. `2875017` feat(api): wave 14.2 stats + sweeper + heartbeat
+5. `515cc4f` feat(api): wave 14.2 DTO alignment
+6. `<HEAD>`  test(api): wave 14.2 regression suite + WIP_STATUS
 
-1. **New entities (one file each, FileBookmark 12.5.B style — public setters,
-   EF materialization ctor, XML docs):**
-   - `CMS.Domain/Entities/ExamCourse.cs` (D1) — SubjectId FK, NameAr/NameEn,
-     Description?, CoverUrl?, Year (int, `Exam.Year` convention), Semester (int
-     number), CourseType (`ExamCourseType`: First/Second/Supplementary/Model/Practice),
-     FreeOrPaid (bool — **true = paid**, false = free), SortOrder, Status (ContentStatus).
-   - `CMS.Domain/Entities/ExamCourseItem.cs` (D1/D6) — join row; (ExamCourseId,
-     ExamId) UNIQUE; both FKs cascade.
-   - `CMS.Domain/Entities/PracticeSession.cs` (D13) — StudentId, ExamModelId,
-     StartedAt, LastAccessedAt, Score?, Status (`PracticeSessionStatus`:
-     InProgress/Completed).
-   - `CMS.Domain/Entities/PracticeAnswer.cs` (D13) — PracticeSessionId, QuestionId,
-     SelectedAnswer?, IsCorrect? (NULL = ungraded), AnsweredAt.
-2. **New enums** — `CMS.Domain/Enums/Wave14Enums.cs`: `ExamCourseType`,
-   `QuestionUsage` (Practice/Exam/Both, default Both — D3), `PracticeSessionStatus`,
-   `ReportType` (Typo/WrongAnswer/BadImage/Other — D12). All stored as plain int
-   (repo convention, zero HasConversion anywhere).
-3. **Modified entities:**
-   - `Question.QuestionUsage` (D3) — private set + initializer Both; `Create()` NOT
-     signature-changed (§12: no API logic).
-   - `Exam.ModelLetter` (D7) — `char?`, NULL for normal exams.
-   - `ErrorReport.ReportType` (D12) — initializer Other.
-4. **EF config** — `ApplicationDbContext.cs` + `IApplicationDbContext.cs`: 4 new
-   DbSets; fluent blocks; FK behaviors per spec: PracticeSession→students CASCADE,
-   PracticeAnswer→practice_sessions CASCADE, ExamCourse→subjects RESTRICT. Extra
-   indexes: exam_courses(subject_id, year, semester) for D4 filters,
-   practice_sessions(student_id, status), practice_answers(session, question),
-   error_reports(question_id, status) per spec.
-5. **Migration `20261116120000_AddWave14ExamsRework`** — hand-authored, attributes
-   on the class, NO Designer (Phase61/62 precedent); snapshot hand-extended in the
-   SAME commit (repo ruling: next tool migration must diff cleanly). Creates ONLY
-   new tables/columns; backfills: questions.question_usage=2 (Both),
-   error_reports.report_type=3 (Other). Idempotent SQL mirror for Neon:
-   `scripts/migrations/Wave14ExamsRework.sql`.
-6. **P0 legacy read path — documentation only (2.E):** TODO(W14.2) markers at
-   `QuestionHandlers.cs:43-47` (GetQuestionsQuery ExamId filter) and
-   `OfflineHandlers.cs:86-89` (offline package exam filter). Logic UNCHANGED.
+## ─── WHAT WAS IMPLEMENTED ────────────────────────────────
 
-### §13 evidence (this wave)
+### Phase A — Security & Consistency (commit 1)
+- **A.1 Offline sync P0** (`OfflineHandlers.cs`): sync bound to an exam session now
+  verifies ownership (JWT-derived StudentId vs `ExamSession.StudentId` → 403 + audit),
+  grades against the immutable `ExamSessionQuestion` snapshot (option identity +
+  IsCorrect flags, `AttemptLog.ExamSessionQuestionId` now linked), and the former
+  EMPTY tamper-check block is replaced by timestamp sanity (future-dated/stale
+  answers rejected + security audit) plus a client-mismatch audit event. Non-session
+  syncs grade against the server-side cache captured at package issue time, falling
+  back to the live bank only when the cache entry is absent.
+- **A.2 403 → ProblemDetails** (`ExceptionHandlingMiddleware` already produced detail
+  for ForbiddenException; the bare `Forbid()` sites did not): the 4 R75 sites
+  (ExamsController, QuestionsController, AcademicController, OfflineController
+  entitlement rejections) now return `Problem(403, detail: FailureReason ?? …)`.
+  In commit 3 the wave constraint "EVERY 403 = ProblemDetails with detail" was
+  applied to ALL remaining bare `Forbid()` sites: **90 sites across 13 controllers**
+  mechanically converted (behavior-preserving: 403→403 with body). `rg "return Forbid\(\);"`
+  over CMS.Api/Controllers → 0 hits.
+- **A.3 Legacy Question.ExamId reads retired** (`QuestionHandlers.cs:46-47`,
+  `OfflineHandlers.cs:88`): both TODO(W14.2) markers removed; exam membership now
+  resolved via the `ExamQuestion` join. Column KEPT (dormant) per brief — no migration.
+- **A.4 AdminExamsController double auth**: class-level `[Authorize(Roles="admin,super_admin")]`
+  added (was bare `[Authorize]`); per-endpoint policies unchanged.
+- **A.5 Guid.Parse → TryParse** (`QuestionsController.GetAdminId`,
+  `AcademicController.GetAdminId`): malformed admin subject claim now → 401
+  (UnauthorizedAccessException mapping) instead of FormatException → 500.
+- **A.6 Rate limiter "exam-session"** (Program.cs, 120 req/min) applied to
+  start / answer / submit / cancel in ExamsController.
 
-- `dotnet build CMS.sln` → 0 errors (19 pre-existing CS0618/CS86xx warnings, ALL in
-  CMS.Tests which is historically exempt from TreatWarningsAsErrors; zero in the
-  4 product projects).
-- `dotnet test CMS.sln` → Passed! Failed: 0, Passed: 619, Skipped: 27, Total: 646 —
-  identical counts to the last recorded green ladder (W12.5: 619/619, 27 skipped).
-- `dotnet ef migrations has-pending-model-changes` (pinned local tool 9.0.22 via
-  `.config/dotnet-tools.json`) → "No changes have been made to the model since the
-  last migration." — proves snapshot ↔ model parity without human eyeballing.
-- Migration ID 20261116120000 sorts AFTER 20261115120000_Phase62 (apply order safe).
+### Phase B — Domain APIs (commit 2)
+- **B.1 ExamCourse admin** (D1/D5/D6): `ExamCourseHandlers` (Create/Update/Publish/
+  Archive/SoftDelete/AddExam/RemoveExam/Reorder) + `AdminExamCoursesController`
+  (double-layer auth: class roles + per-endpoint policies `ExamCourse*` mapped to
+  the `exams` resource — no new permission rows; per-mutation subject scope check).
+  Publish requires ≥1 exam (D6 spirit). AddExam is bank-only + same-subject-only +
+  unique (course,exam).
+- **B.2 ExamCourse student** (D4): `StudentExamCourseHandlers` (published-only list
+  with subject/year/semester URL filters; detail with per-student attempt state)
+  + `ExamCoursesController` (entitlement gate via signed entitlement, fail-closed
+  re-check inside handlers).
+- **B.3 Practice (D13)**: `PracticeHandlers` (idempotent get-or-create start;
+  answer upsert graded vs bank — MCQ/TF single, MultipleSelect set-equality, Essay
+  NULL=ungraded; auto-complete when every composed question is graded → Score frozen;
+  reset-question unfreezes; reset-session wipes; progress counts). `PracticeController`
+  with ownership + entitlement gates.
+- **B.4 Reports (D12)**: `ReportQuestionDto/Command` extended with optional
+  `ReportType` (unknown → Other; legacy clients unaffected). Admin triage:
+  `GET /admin/questions/reports?status=&type=` (scope-narrowed) and
+  `PUT /admin/questions/reports/{id}/resolve|reject` (resolver identity persisted).
 
-### Deviations from the PART I brief (§10 disclosure — all spec-vs-origin conflicts,
-### resolved per §9 ground truth)
+### Phase C — Missing admin endpoints (commit 3)
+- Questions: `duplicate` (options+images+metadata as fresh Draft), `unpublish`
+  (Published→Draft only), `preview` (student view — no correctness/explanation),
+  `bulk-publish` / `bulk-archive` (≤100 ids, per-question scope check, skips
+  reported not fatal, Deleted rows never resurrected).
+- Exams: `unpublish` (D2: existing sessions keep snapshots), `reorder`
+  (full-order replace of `ExamQuestion.SortOrder`), `preview` (student view).
+- Domain additions (pure code, zero schema impact): `Question.Unpublish()`,
+  `Question.SetYear()`, `Exam.Unpublish()`.
 
-1. **`Exam` is NOT in `ExamLifecycleEntities.cs`** — it lives in
-   `QuestionEntities.cs:241-400` (that file only holds ExamQuestion/ExamSessionQuestion).
-   `ModelLetter` was added where Exam actually is.
-2. **`ErrorReport.QuestionId` ALREADY EXISTS** (required FK + navigation, Phase59 —
-   `OperationalEntities.cs:232`). The brief said "add QuestionId (nullable)" — NOT
-   duplicated; this wave adds only `ReportType` + the (question_id, status) index.
-3. **Index consequence:** adding the (QuestionId, Status) composite makes EF's
-   ForeignKeyIndexConvention DROP the conventional single-column
-   `ix_error_reports_question_id` (same leading column) — migration therefore does
-   DropIndex + CreateIndex; snapshot updated to match (tool-verified).
-4. **One commit, not the repo's usual multi-commit-per-wave map** — supervisor's
-   brief wins (§12). WIP_STATUS/RESUME_FROM updates ride inside the single commit.
-5. **FK behaviors chosen where the brief was silent (reviewable):**
-   ExamCourseItem→exam CASCADE (join row meaningless alone),
-   PracticeSession→exam RESTRICT (protect history, D2 spirit),
-   PracticeAnswer→question RESTRICT (same), ErrorReport→question stays CASCADE
-   (pre-existing Phase59 behavior, untouched).
-6. **`FreeOrPaid` semantics:** bool per brief; documented as **true = paid**,
-   false = free (default). If the supervisor intended the inverse, it is a
-   one-line entity + comment change before push.
-7. **`Semester` is a plain int** (semester number 1..3) per the brief's "Year,
-   Semester" — NOT an FK to the `semesters` lookup table. Flag for 14.2 if D4
-   filter joins need the lookup.
-8. **Sandbox bonus:** dotnet build/test/ef-parity actually EXECUTED here (Phase61/62
-   could not — no SDK). New-column defaults are backfill-only (no HasDefaultValue in
-   fluent/snapshot), matching the Phase62 `enable_scripts` precedent.
+### Phase D — Stats + Sweeper + Heartbeat (commit 4)
+- **D.1** `GET /admin/exams/{id}/stats` — started/attempts (scored = Completed+
+  TimedOut)/completed/timeouts/inProgress/cancelled/pass/fail/mean/median/
+  avgDurationSeconds/decile distribution. Scope-checked (`exam` entity).
+- **D.2** `GET /admin/exams/{id}/question-stats` — per composed question:
+  attempts, correct%, mostCommonWrongChoice (option-letter rendered when
+  resolvable), avgDurationSeconds, problematicFlag (attempts≥10 && correct<40%).
+- **D.3** `CMS.Api/BackgroundServices/ExamTimeoutSweeper` — plain BackgroundService
+  (Hangfire stays UNWIRED per ruling), 30s loop + 45s initial delay, batches of 50,
+  reuses the single finalize path (`ExamQueryHandlers.FinalizeTimedOutSessionIfNeededAsync`
+  made public for exactly this). Registered as HostedService in Program.cs.
+  The Exam include was deliberately dropped from its query (scoring needs only
+  SessionQuestions + AttemptLogs) so an orphaned session finalizes instead of
+  silently vanishing (found via the new sweeper tests — see deviations).
+- **D.4** `POST /api/v1/exams/sessions/{id}/heartbeat` — ownership + entitlement,
+  lazy-finalizes an expired session, returns authoritative remainingSeconds.
 
-### Out of scope / untouched (§12)
+### Phase E — DTO alignment (commit 5)
+- `QuestionListItemDto` + `QuestionUsage` (string); `GET /questions?usage=practice|exam`
+  filter (admits Both — D3).
+- `ExamDto` / `ExamListItemDto` / `AdminExamListItemDto` + `ModelLetter` (A/B/C, D7).
+- Admin reports list payload + `reportType` (D12).
 
-- No API endpoints, no handlers logic, no DTOs, no frontends, no new tests beyond
-  existing suites (entity-only wave; handler tests come with 14.2 logic).
+### Phase F — Regression tests (commit 6, 18 new)
+- `ExamCourseHandlersTests` (6): create validation, publish gating, bank-only/
+  same-subject/unique add, reorder, remove+soft-delete, student fail-closed gate.
+- `PracticeHandlersTests` (4): idempotent start, grading+auto-complete+unfreeze,
+  reset-all + progress accounting, foreign session/question rejection.
+- `QuestionReportW14Tests` (4): ReportType persisted / default Other, resolve &
+  reject persist resolver identity (controller-level with mocked permissions),
+  bulk publish/archive + unknown-id reporting.
+- `OfflineSyncOwnershipTests` (2): sync with a session owned by ANOTHER student →
+  403 + audit + zero attempts recorded; future-dated answers rejected.
+- `ExamTimeoutSweeperTests` (2): finalizes ONLY expired InProgress sessions
+  (Completed/TimedOut/Cancelled untouched); idempotent second run.
+
+## ─── §10 DEVIATIONS / DISCLOSURES ────────────────────────
+
+1. **D.4 LastAccessedAt NOT persisted** — `ExamSession` has no such column and W14.2
+   is migration-frozen (§3). Heartbeat therefore validates ownership + lazily
+   finalizes + returns remaining seconds; expiry authority is `ExpiresAt` (sweeper),
+   not last-access. Adding the column is a candidate for W14.3.
+2. **A.2 extended wave-wide (90 sites, 13 controllers)** — the brief listed 4 sites;
+   the hard constraint said EVERY 403. All bare `Forbid()` now carry ProblemDetails
+   detail (single generic Arabic reason per controller family; per-site reasons
+   remain a future polish).
+3. **C.2 `PUT /admin/exams/{id}/reorder` = question-order replace** — the brief did
+   not specify the reorder target; exam SortOrder is already editable via
+   UpdateExamCommand, so the endpoint reorders the exam's `ExamQuestion` rows
+   (full-list replace, partial orders rejected).
+4. **Sweeper skips the Exam include** (see D.3) — surfaced by the new tests: with
+   EF InMemory, `Include(Exam)` over a missing principal silently drops the row.
+   Production data always has the principal; the sweeper is now orphan-proof.
+5. **Practice auto-complete** — the brief defines no "complete practice" endpoint;
+   the session auto-completes (Score frozen, D13) when every composed question
+   carries a graded answer; reset paths unfreeze it.
+6. **B.4 list scope model** — super admin sees all reports; a scoped admin is
+   narrowed by SubjectId; a scoped admin with NO academic scope gets a
+   ProblemDetails 403 (fail-closed, mirrors ApplyScopeAsync).
+7. **ExamCourse soft-delete = Status=Deleted** — `ExamCourse : BaseEntity` has no
+   DeletedAt column (W14.1 shape), so soft delete is status-based. No migration.
+8. **Duplicate question copies text/options/images/metadata but not `TextHtml`** —
+   no domain setter exists for `Question.TextHtml` today (write-legacy field);
+   flagged for W14.3 if the HTML editor needs it.
+
+## ─── Out of scope / untouched (§12) ──────────────────────
+- No frontend changes (admin-web / student-web untouched). No lockfile changes.
+- ZERO migrations — snapshot untouched; EF parity tool-proven after every commit.
+- Hangfire remains package-only (unwired) per the BackgroundService ruling.
 - Vercel/Render/Neon/Upstash credentials shared in chat: NOT used, NOT stored.
-  **SUPERVISOR ACTION: rotate all of them + the two account passwords — they were
-  pasted in plaintext.**
+  **SUPERVISOR ACTION (still outstanding since W14.1): rotate all of them + the
+  two account passwords — they were pasted in plaintext.**
 
 ## ─── git log (this branch) ───────────────────────────────
-
-1 commit on `feat/14.1-data-foundations`; STOP GATE: push requires supervisor
-approval (§2). Migration applies on Render deploy ONLY — the Neon SQL mirror is
-for supervisor-run application/review, never the CI path.
+6 commits on `feat/14.2-backend-api` (base `87d93d5`).
+STOP GATE: push requires supervisor approval (§2) + PAT.
