@@ -45,8 +45,7 @@ export default defineConfig(({ mode }) => {
               urlPattern: /^https:\/\/.*\.onrender\.com\/api\/.*$/i,
               handler: 'NetworkOnly',
               options: {
-                cacheName: 'api-cache',
-                networkTimeoutSeconds: 10
+                cacheName: 'api-cache'
               }
             }
           ]
