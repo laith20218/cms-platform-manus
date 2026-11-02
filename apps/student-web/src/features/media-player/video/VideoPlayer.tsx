@@ -60,7 +60,10 @@ import { ControlsBar } from './ControlsBar';
 const DOUBLE_TAP_MS = 280;
 const SKIP_SECONDS = 10;
 const KEYBOARD_SKIP_SECONDS = 5;
-const CONTROLS_AUTO_HIDE_MS = 2600;
+// 12.4.A Bug B — 2600ms was both shorter than the user-reported expectation
+// (~5s) and, combined with the (now removed) single-tap visibility toggle,
+// made the bar vanish almost immediately after a touch.
+const CONTROLS_AUTO_HIDE_MS = 5000;
 const PROGRESS_SAVE_INTERVAL_MS = 10_000;
 
 /**
@@ -635,6 +638,13 @@ export default function VideoPlayer({
     }, CONTROLS_AUTO_HIDE_MS);
   }, []);
 
+  // 12.4.A Bug B — unmount hygiene: the auto-hide and deferred single-tap
+  // timers must never fire after teardown (setState-on-unmounted).
+  useEffect(() => () => {
+    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+    if (singleTapTimerRef.current !== null) window.clearTimeout(singleTapTimerRef.current);
+  }, []);
+
   const showRipple = useCallback((side: 'left' | 'right', x: number, y: number) => {
     if (rippleClearTimerRef.current !== null) window.clearTimeout(rippleClearTimerRef.current);
     setRipple({ key: Date.now(), side, x, y });
@@ -645,27 +655,40 @@ export default function VideoPlayer({
 
   const [localFullscreen, setLocalFullscreen] = useState(false);
   useEffect(() => {
-    const sync = () => setLocalFullscreen(document.fullscreenElement === containerRef.current);
+    const sync = () => {
+      setLocalFullscreen(document.fullscreenElement === containerRef.current);
+      // 12.4.A Bug B — a fullscreen transition (enter or exit) surfaces the
+      // controls and re-arms the auto-hide timer, so the bar can never vanish
+      // mid-transition (the old code kept the pre-transition deadline).
+      bumpControls();
+    };
     document.addEventListener('fullscreenchange', sync);
     return () => document.removeEventListener('fullscreenchange', sync);
-  }, []);
+  }, [bumpControls]);
   const isFullscreen = shell?.isFullscreen ?? localFullscreen;
 
   const toggleFullscreen = useCallback(async () => {
-    if (shell) {
-      const handled = await shell.toggleFullscreen();
-      if (handled) return;
-    }
-    // Inline hosting (no shell) — fullscreen our own container; iPhone Safari
-    // supports neither → the video element's native fullscreen is the only way.
-    const container = containerRef.current;
     try {
-      if (document.fullscreenElement) { await document.exitFullscreen(); return; }
-      if (container?.requestFullscreen) { await container.requestFullscreen(); return; }
-    } catch { /* fall through to native video fullscreen */ }
-    const video = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
-    video?.webkitEnterFullscreen?.();
-  }, [shell]);
+      if (shell) {
+        const handled = await shell.toggleFullscreen();
+        if (handled) return;
+      }
+      // Inline hosting (no shell) — fullscreen our own container; iPhone Safari
+      // supports neither → the video element's native fullscreen is the only way.
+      const container = containerRef.current;
+      try {
+        if (document.fullscreenElement) { await document.exitFullscreen(); return; }
+        if (container?.requestFullscreen) { await container.requestFullscreen(); return; }
+      } catch { /* fall through to native video fullscreen */ }
+      const video = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+      video?.webkitEnterFullscreen?.();
+    } finally {
+      // 12.4.A Bug B — every exit path (shell, document enter/exit, caught
+      // error, native iOS) re-arms the timer; the early `return`s above bypass
+      // a trailing call, so the finally is the only complete reset point.
+      bumpControls();
+    }
+  }, [shell, bumpControls]);
 
   /* ============ keyboard ============ */
 
@@ -736,8 +759,11 @@ export default function VideoPlayer({
     singleTapTimerRef.current = window.setTimeout(() => {
       singleTapTimerRef.current = null;
       if (event.pointerType === 'mouse') togglePlay();
-      // Touch: tap toggles the controls' visibility only.
-      else setControlsVisible((visible) => !visible);
+      // 12.4.A Bug B — touch: a tap only SURFACES the controls and re-arms
+      // the auto-hide deadline. The old toggle inverted visibility ~280ms
+      // after the pointerup bump, so the bar vanished ~0.3s after every tap.
+      // Show-on-tap + auto-hide-after-5s is the entire touch contract now.
+      else bumpControls();
     }, DOUBLE_TAP_MS);
   }, [bumpControls, seekBy, showRipple, togglePlay]);
 

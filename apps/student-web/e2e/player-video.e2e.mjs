@@ -469,6 +469,26 @@ try {
 
   /* ================= Mobile (375×667) — layout + tap zones ================= */
   const mobile = await newStudentContext(browser, { width: 375, height: 667 });
+  // 12.4.A — the auto-hide timing specs below need a SWAP-FREE lease: the base
+  // mock's ttl=8 cascade re-arms a silent refresh every ~3s, and a swap's
+  // restore can momentarily pause the element — if that instant lands on the
+  // 5s hide deadline, the timer's `!video.paused` guard skips the hide and
+  // nothing re-arms it (no user events in between) → false flake. ttl=3600
+  // pushes the next silent refresh ~59min out (arm = max(3s, (ttl−60)·1s)).
+  // Shadows the base playback-url route (last registered wins).
+  let noSwapLease = 0;
+  await mobile.route(`**/api/v1/media/course-episode/${EPISODE_ID}/playback-url`, async (route) => {
+    noSwapLease += 1;
+    await route.fulfill({
+      json: {
+        url: `${VIDEO_URL}?lease=${noSwapLease}`,
+        ttlSeconds: 3600,
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        contentType: 'video/mp4',
+        supportsRange: true,
+      },
+    });
+  });
   const mPage = await mobile.newPage();
   await openPlayer(mPage);
   await mPage.getByTestId('video-center-play').click();
@@ -481,6 +501,36 @@ try {
     noHScroll && controlsBox.width <= 376,
     `controlsW=${controlsBox.width.toFixed(0)} noHScroll=${noHScroll}`,
   );
+
+  // 12.4.A Bug C — the ROW itself must not overflow at 375px. The old flex row
+  // (no flex-wrap; 7×44px targets + time display ≈ 390px in a 351px content
+  // box) was silently clipped by overflow-hidden ancestors: favorite/bookmark
+  // (and sometimes fullscreen) were UNREACHABLE on phones. flex-wrap +
+  // below-sm folding fixes it; this asserts the contract at the exact width.
+  {
+    const row = await mPage.evaluate(() => {
+      const el = document.querySelector('[data-testid="video-controls-row"]');
+      return el ? { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth } : null;
+    });
+    check(
+      'mobile 375px: controls ROW scrollWidth <= clientWidth (zero overflow)',
+      !!row && row.scrollWidth <= row.clientWidth,
+      row ? `scrollWidth=${row.scrollWidth} clientWidth=${row.clientWidth}` : 'video-controls-row testid MISSING',
+    );
+    // The folded actions must be truly hidden below sm (display:none — they
+    // stay mounted, so the assertion is on computed style, not DOM absence)…
+    const foldedGone = await mPage.evaluate(() => {
+      const hidden = (testId) => {
+        const el = document.querySelector(`[data-testid="${testId}"]`);
+        return !el || getComputedStyle(el).display === 'none';
+      };
+      return hidden('video-favorite-button') && hidden('video-bookmark-button');
+    });
+    check('mobile 375px: favorite + bookmark folded away below sm', foldedGone);
+    // …and fullscreen must remain reachable at 375px (the original complaint).
+    const fullscreenReachable = await mPage.getByTestId('video-fullscreen').isVisible();
+    check('mobile 375px: fullscreen button still visible', fullscreenReachable);
+  }
 
   // Double-tap works with touch on mobile too. (N11 11.5.4: locator.tap retry — see 10/11.)
   {
@@ -498,6 +548,70 @@ try {
     check('mobile double-tap RIGHT: +10s', t1 - t0 >= 8.5 && t1 - t0 <= 11.5, `${t0.toFixed(1)}→${t1.toFixed(1)}`);
   }
 
+  // 12.4.A Bug B — touch auto-hide contract: a single tap surfaces the bar and
+  // re-arms 5s; there is NO visibility toggle anymore (the old code inverted
+  // visibility ~280ms after the pointerup bump → bar gone ~0.3s after every
+  // tap). Bar must be visible immediately, STILL visible at ~4s (< 5s, the old
+  // code fails this), hidden by ~6s (≥ 5s). Video keeps playing throughout.
+  {
+    const barVisible = () => mPage.evaluate(
+      () => document.querySelector('[data-testid="video-controls-bar"]')?.getAttribute('data-visible') ?? 'missing');
+    await mPage.getByTestId('video-tap-zone-right').tap(); // single tap → bump + re-arm
+    await mPage.waitForTimeout(150);
+    const vis0 = await barVisible();
+    await mPage.waitForTimeout(4_000);
+    const vis4 = await barVisible();
+    // Hide deadline = last bump (the deferred single-tap bump at +280ms) + 5s
+    // ≈ 5.3s wall after the tap. Poll with slack instead of a fixed sleep so a
+    // slow evaluate can never race the deadline.
+    let vis6 = vis4;
+    try {
+      await mPage.waitForFunction(
+        () => document.querySelector('[data-testid="video-controls-bar"]')?.getAttribute('data-visible') === 'false',
+        null, { timeout: 3_500 },
+      );
+      vis6 = 'false';
+    } catch { /* keep last observed value */ }
+    check(
+      'auto-hide (touch): tap → visible @0s, still visible @4s, hidden @~5.3s',
+      vis0 === 'true' && vis4 === 'true' && vis6 === 'false',
+      `@0=${vis0} @4s=${vis4} @6s=${vis6}`,
+    );
+  }
+
+  // 12.4.A Bug B — fullscreen transitions must reset the auto-hide timer:
+  // visible on enter, hidden again after ≥5s of playback, visible on exit.
+  {
+    const barVisible = () => mPage.evaluate(
+      () => document.querySelector('[data-testid="video-controls-bar"]')?.getAttribute('data-visible') ?? 'missing');
+    const wake = async () => {
+      await mPage.getByTestId('video-tap-zone-right').tap(); // bump → row clickable again
+      await mPage.waitForTimeout(150);
+    };
+
+    await wake(); // bar auto-hid during the timing spec → wake before clicking
+    await mPage.getByTestId('video-fullscreen').click();
+    await mPage.waitForFunction(() => !!document.fullscreenElement, null, { timeout: 5_000 });
+    const enterVis = await barVisible();
+
+    await mPage.waitForTimeout(5_500); // ≥ 5s while playing → must auto-hide
+    const hiddenVis = await barVisible();
+
+    await wake(); // hidden again → wake before the exit click
+    await mPage.getByTestId('video-fullscreen').click();
+    await mPage.waitForFunction(() => !document.fullscreenElement, null, { timeout: 5_000 });
+    const exitVis = await barVisible();
+
+    check(
+      'fullscreen: visible on enter, hidden after 5s, visible again on exit',
+      enterVis === 'true' && hiddenVis === 'false' && exitVis === 'true',
+      `enter=${enterVis} @5.5s=${hiddenVis} exit=${exitVis}`,
+    );
+  }
+
+  // Screenshot with the controls surfaced (§13 evidence pack).
+  await mPage.getByTestId('video-tap-zone-right').tap();
+  await mPage.waitForTimeout(300);
   await mPage.screenshot({ path: path.join(SHOT_DIR, 'video-player-02-mobile-375.png') });
   await mobile.close();
 
