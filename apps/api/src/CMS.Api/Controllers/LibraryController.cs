@@ -411,7 +411,7 @@ public class LibraryController : ControllerBase
         var validation = await _signedEntitlements.ValidateAsync(token, studentId, installationId, subjectId, ct);
         if (validation.IsValid) return null;
         await _audit.LogSecurityEventAsync(studentId, null, SecurityEventType.EntitlementDenied, SecuritySeverity.Warning, "Entitlement validation denied access", ct: ct);
-        return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
+        return Forbid();
     }
 
     private async Task<bool> CanManageAsync(string action, string entityType, Guid entityId, CancellationToken ct) =>
@@ -428,7 +428,7 @@ public class LibraryController : ControllerBase
     [Authorize(Roles = "admin,super_admin")]
     public async Task<ActionResult<UploadUrlDto>> RequestUploadUrl([FromBody] RequestUploadUrlDto dto, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Create, "subject", dto.SubjectId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
+        if (!await CanManageAsync(Actions.Create, "subject", dto.SubjectId, ct)) return Forbid();
         var result = await _mediator.Send(new RequestUploadUrlCommand(
             dto.FileName, dto.ContentType, dto.FileSize,
             dto.SubjectId, dto.LectureId, dto.Type,
@@ -447,7 +447,7 @@ public class LibraryController : ControllerBase
     [Authorize(Roles = "admin,super_admin")]
     public async Task<ActionResult<LibraryFileDto>> CompleteUpload([FromBody] CompleteUploadDto dto, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Edit, "library_file", dto.FileId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
+        if (!await CanManageAsync(Actions.Edit, "library_file", dto.FileId, ct)) return Forbid();
         // Push 10.5: optional metadata override (null = keep upload-url-time values).
         // Push 10.8: TargetQuality rides too (the 10.7 binding gap — the DTO never
         // exposed the key, so the admin's pick was dropped at this boundary).
@@ -470,7 +470,7 @@ public class LibraryController : ControllerBase
     [Authorize(Roles = "admin,super_admin")]
     public async Task<ActionResult<LibraryFileDto>> UpdateFile(Guid id, [FromBody] UpdateLibraryFileDto dto, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Edit, "library_file", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
+        if (!await CanManageAsync(Actions.Edit, "library_file", id, ct)) return Forbid();
         var result = await _mediator.Send(new UpdateLibraryFileCommand(id, dto.Title, dto.Description, dto.Tags, dto.LectureId,
             dto.Difficulty, dto.TargetQuality), ct);
         return Ok(result);
@@ -483,7 +483,7 @@ public class LibraryController : ControllerBase
     [Authorize(Roles = "admin,super_admin")]
     public async Task<ActionResult<LibraryFileDto>> PublishFile(Guid id, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Edit, "library_file", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
+        if (!await CanManageAsync(Actions.Edit, "library_file", id, ct)) return Forbid();
         return Ok(await _mediator.Send(new PublishLibraryFileCommand(id, GetAdminId()), ct));
     }
 
@@ -494,7 +494,7 @@ public class LibraryController : ControllerBase
     [Authorize(Roles = "admin,super_admin")]
     public async Task<ActionResult<LibraryFileDto>> ArchiveFile(Guid id, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Edit, "library_file", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
+        if (!await CanManageAsync(Actions.Edit, "library_file", id, ct)) return Forbid();
         return Ok(await _mediator.Send(new ArchiveLibraryFileCommand(id, GetAdminId()), ct));
     }
 
@@ -505,7 +505,7 @@ public class LibraryController : ControllerBase
     [Authorize(Roles = "admin,super_admin")]
     public async Task<IActionResult> DeleteFile(Guid id, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Delete, "library_file", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
+        if (!await CanManageAsync(Actions.Delete, "library_file", id, ct)) return Forbid();
         await _mediator.Send(new DeleteLibraryFileCommand(id, GetAdminId()), ct);
         return NoContent();
     }
