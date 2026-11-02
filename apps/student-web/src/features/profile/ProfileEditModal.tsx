@@ -58,14 +58,24 @@ export function ProfileEditModal({
     queryFn: async () => {
       if (profile.universityId) return academicApi.getColleges(profile.universityId);
       const universities = await academicApi.getUniversities(1, 100);
-      const lists = await Promise.all(
-        universities.items.map((u) => academicApi.getColleges(u.id).catch(() => []))
+      // Wave 12.5.A (Group 4) — per-university failures are COUNTED, not swallowed:
+      // a partial failure keeps whatever loaded; a TOTAL failure throws so the
+      // modal says so (the dropdown used to render silently empty and the student
+      // could not pick their college).
+      const results = await Promise.allSettled(
+        universities.items.map((u) => academicApi.getColleges(u.id))
       );
-      return lists.flat();
+      const ok = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+      if (ok.length === 0 && results.length > 0 && results.every((r) => r.status === 'rejected')) {
+        throw new Error('colleges-unavailable');
+      }
+      return ok;
     },
     enabled: open,
     staleTime: 5 * 60_000,
   });
+  // Total colleges failure → the inline hint below replaces the silent empty list.
+  const collegesUnavailable = colleges.isError;
 
   // Year list: filtered by the CHOSEN college (hierarchy guard in the UI).
   const years = useQuery({
@@ -151,15 +161,30 @@ export function ProfileEditModal({
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <span className="mb-1.5 block text-sm font-bold text-[var(--cms-text-soft)]">الكلية</span>
-            <FormSelect
-              testId="edit-college"
-              value={form.collegeId}
-              placeholder="اختر الكلية…"
-              items={(colleges.data ?? []).map((c) => ({ value: c.id, label: c.nameAr, hint: `${c.yearsCount} سنوات` }))}
-              loading={colleges.isLoading}
-              disabled={save.isPending}
-              onValueChange={(value) => setForm((f) => ({ ...f, collegeId: value, academicYearId: '' }))}
-            />
+            {collegesUnavailable ? (
+              // Wave 12.5.A (Group 4) — the list failed wholesale; say so + retry
+              // instead of a silent empty dropdown.
+              <div role="alert" className="flex min-h-11 flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--cms-line-strong)] bg-[var(--cms-surface-2)] px-3 py-2" data-testid="edit-colleges-error">
+                <span className="text-xs font-semibold text-[var(--cms-text-soft)]">تعذر تحميل قائمة الكليات.</span>
+                <button
+                  type="button"
+                  onClick={() => colleges.refetch()}
+                  className="press inline-flex min-h-9 items-center rounded-md bg-[var(--cms-teal-600)] px-3 py-1 text-xs font-bold text-white"
+                >
+                  إعادة المحاولة
+                </button>
+              </div>
+            ) : (
+              <FormSelect
+                testId="edit-college"
+                value={form.collegeId}
+                placeholder="اختر الكلية…"
+                items={(colleges.data ?? []).map((c) => ({ value: c.id, label: c.nameAr, hint: `${c.yearsCount} سنوات` }))}
+                loading={colleges.isLoading}
+                disabled={save.isPending}
+                onValueChange={(value) => setForm((f) => ({ ...f, collegeId: value, academicYearId: '' }))}
+              />
+            )}
           </div>
           <div>
             <span className="mb-1.5 block text-sm font-bold text-[var(--cms-text-soft)]">السنة الدراسية</span>

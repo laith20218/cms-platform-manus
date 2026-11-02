@@ -32,16 +32,21 @@ export default function ProfilePage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordStatus, setPasswordStatus] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
+  // Wave 12.5.A (Group 2) — the avatar/email saves used to fail SILENTLY (the
+  // catch blocks were empty "keep state" comments). Both now carry inline error
+  // status text, mirroring the password-change contract above.
   const [passwordBusy, setPasswordBusy] = useState(false);
   // Avatar upload state — the freshly signed preview URL shows instantly while
   // the profile query refetches (Push 8 avatar fix).
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [freshAvatarUrl, setFreshAvatarUrl] = useState<string | null>(null);
+  const [avatarStatus, setAvatarStatus] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Email edit state
   const [emailEditing, setEmailEditing] = useState(false);
   const [emailValue, setEmailValue] = useState('');
   const [emailBusy, setEmailBusy] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
   // Profile edit modal (Push 9 Task 5): name + college + year
   const [editOpen, setEditOpen] = useState(false);
 
@@ -109,7 +114,7 @@ export default function ProfilePage() {
       if (result.previewUrl) setFreshAvatarUrl(result.previewUrl);
       await queryClient.invalidateQueries({ queryKey: ['student-profile'] });
     } catch {
-      // error — the profile query won't update, avatar stays unchanged
+      setAvatarStatus({ kind: 'error', text: 'تعذر رفع الصورة الشخصية. تحقق من الاتصال وحاول مجددًا.' });
     } finally {
       setAvatarBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -123,8 +128,10 @@ export default function ProfilePage() {
       await profileApi.updateEmail(emailValue.trim() || null);
       await queryClient.invalidateQueries({ queryKey: ['student-profile'] });
       setEmailEditing(false);
+      setEmailStatus(null);
     } catch {
-      // keep editing open on error
+      // Keep the editor open AND say why nothing happened.
+      setEmailStatus({ kind: 'error', text: 'تعذر حفظ البريد الإلكتروني. تحقق من الاتصال وحاول مجددًا.' });
     } finally {
       setEmailBusy(false);
     }
@@ -217,6 +224,15 @@ export default function ProfilePage() {
             </div>
           </div>
         </div>
+        {avatarStatus && (
+          <p
+            role="alert"
+            data-testid="avatar-upload-error"
+            className="mt-3 flex items-center gap-2 rounded-lg bg-[var(--cms-danger-50)] px-3 py-2 text-sm text-[var(--cms-danger)]"
+          >
+            {avatarStatus.text}
+          </p>
+        )}
       </section>
 
       {/* ===== 2-column grid: account info + academic path ===== */}
@@ -274,6 +290,17 @@ export default function ProfilePage() {
                     <Mail className="h-3.5 w-3.5" />
                     {data.email ? 'تعديل' : 'إضافة'}
                   </button>
+                </dd>
+              )}
+              {emailStatus && (
+                <dd>
+                  <p
+                    role="alert"
+                    data-testid="email-save-error"
+                    className="mt-2 flex items-center gap-2 rounded-lg bg-[var(--cms-danger-50)] px-3 py-2 text-xs text-[var(--cms-danger)]"
+                  >
+                    {emailStatus.text}
+                  </p>
                 </dd>
               )}
             </div>

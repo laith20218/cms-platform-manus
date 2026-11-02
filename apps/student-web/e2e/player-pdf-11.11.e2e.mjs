@@ -90,6 +90,17 @@ function check(name, ok, extra = '') {
   console.log(`${ok ? '  PASS' : '! FAIL'}  ${name}${extra ? ` — ${extra}` : ''}`);
 }
 
+/** Node-side poll for in-memory mock-store state (the route handlers run in
+ *  this process, so server-side persistence is asserted directly). */
+async function waitForCondition(predicate, label, { timeoutMs = 8000, intervalMs = 100 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`waitForCondition timed out: ${label}`);
+}
+
 /** Appears-and-settles wait built on Playwright's own retry machinery. */
 async function waitVisible(locator, { timeoutMs = 8000 } = {}) {
   await locator.first().waitFor({ state: 'visible', timeout: timeoutMs });
@@ -119,10 +130,13 @@ const pageErrors = [];
 const annotationStore = new Map();
 /** Every POST batch carrying deletedIds — the eraser wire contract probe. */
 const deletedBatches = [];
+/** Wave 12.5.B — in-memory page-bookmark store backing the /bookmarks mock routes. */
+const bookmarkStore = new Map();
 
 async function newPdfContext(browser, viewport) {
   annotationStore.clear();
   deletedBatches.length = 0;
+  bookmarkStore.clear();
   const context = await browser.newContext({ viewport, locale: 'ar', hasTouch: true });
   await context.addInitScript(() => {
     sessionStorage.setItem('cms-access-token', 'e2e-dummy-access');
@@ -205,6 +219,31 @@ async function newPdfContext(browser, viewport) {
       deletedBatches.push({ ids: [...body.deletedIds], at: Date.now() });
     }
     return route.fulfill({ json: { appliedCount: applied, serverTime: new Date().toISOString() } });
+  });
+
+  // Wave 12.5.B — page bookmarks: GET list / POST add (idempotent per page) /
+  // DELETE by row id, all backed by the in-memory bookmarkStore so the
+  // reload-persistence scenarios exercise the real client-server contract.
+  await context.route(`**/api/v1/library/${FILE_ID}/bookmarks`, async (route) => {
+    const method = route.request().method();
+    if (method === 'GET') {
+      return route.fulfill({ json: Array.from(bookmarkStore.values()) });
+    }
+    const body = route.request().postDataJSON();
+    const page = body.pageNumber;
+    // Idempotent per page (the server's unique triple): re-add refreshes the snippet.
+    const existing = Array.from(bookmarkStore.values()).find((row) => row.pageNumber === page);
+    const row = existing ?? { id: `bm-${page}-${Date.now()}`, pageNumber: page };
+    row.snippet = body.snippet ?? null;
+    row.updatedAt = new Date().toISOString();
+    if (!existing) row.createdAt = new Date().toISOString();
+    bookmarkStore.set(row.id, row);
+    return route.fulfill({ json: row });
+  });
+  await context.route(/\/api\/v1\/library\/bookmarks\/[^/]+$/, async (route) => {
+    const id = route.request().url().split('/').pop();
+    bookmarkStore.delete(id);
+    return route.fulfill({ status: 204, body: '' });
   });
 
   context.on('page', (page) => {
@@ -735,7 +774,7 @@ async function main() {
       await context.close();
     }
 
-    /* ===== S9 — Wave 12.3.C: bookmark v1 → reload → persists ===== */
+    /* ===== S9 — Wave 12.5.B: bookmark → server store → reload persists → delete gone ===== */
     {
       const { context } = await newPdfContext(browser, { width: 1280, height: 800 });
       const page = await context.newPage();
@@ -754,29 +793,64 @@ async function main() {
       await page.locator('[data-testid="pdf-bookmark-add"]').click();
       const toastText = await page.locator('[data-sonner-toast]').first().innerText().catch(() => '');
       check(
-        '12.3-C S9a: add-bookmark toast fires for the current page',
+        '12.5-B S9a: add-bookmark toast fires for the current page',
         toastText.includes('علامة مرجعية') && toastText.includes('2'),
         toastText.slice(0, 60),
       );
-      const storedBefore = await page.evaluate(() => {
-        const keys = Object.keys(window.localStorage).filter((k) => k.startsWith('cms:pdf:bookmarks:'));
-        return keys.map((k) => ({ key: k, value: JSON.parse(window.localStorage.getItem(k) ?? '[]') }));
-      });
+      // The row must reach the SERVER store (the new persistence contract),
+      // and the client must NOT write legacy localStorage keys anymore.
+      await waitForCondition(() => Array.from(bookmarkStore.values()).some((row) => row.pageNumber === 2),
+        'POST /bookmarks landed in the server store');
+      const storedBefore = await page.evaluate(() =>
+        Object.keys(window.localStorage).filter((k) => k.startsWith('cms:pdf:bookmarks:') && !k.endsWith(':migrated:v1')));
       check(
-        '12.3-C S9b: bookmark persisted to localStorage keyed by fileId',
-        storedBefore.length === 1 && storedBefore[0].value.some((b) => b.page === 2),
+        '12.5-B S9b: no legacy localStorage writes (server is the store)',
+        storedBefore.length === 0,
         JSON.stringify(storedBefore),
       );
 
-      // RELOAD → reopen → the bookmarks list still shows page 2.
+      // RELOAD → reopen → the bookmarks list still shows page 2 (server-backed).
       await page.reload({ waitUntil: 'domcontentloaded' });
       await openPdfPlayer(page);
       await page.locator('[data-testid="pdf-bookmarks-toggle"]').click();
       await page.locator('[data-testid="pdf-study-lists"]').waitFor({ state: 'visible', timeout: 4000 });
       const row = page.locator('[data-testid="pdf-list-row"][data-page="2"]');
       await row.waitFor({ state: 'visible', timeout: 4000 });
-      check('12.3-C S9c: bookmark survives a full page reload', true, 'row data-page=2 visible');
+      check('12.5-B S9c: bookmark survives a full page reload (server-backed)', true, 'row data-page=2 visible');
       await page.screenshot({ path: `${SHOT_DIR}/w12.3-s9-bookmarks.png` });
+
+      // DELETE via the panel row → row gone → RELOAD → still gone.
+      await page.locator('[data-testid="pdf-bookmark-remove"]').click();
+      await waitForCondition(() => bookmarkStore.size === 0, 'DELETE removed the row from the server store');
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await openPdfPlayer(page);
+      await page.locator('[data-testid="pdf-bookmarks-toggle"]').click();
+      await page.locator('[data-testid="pdf-study-lists"]').waitFor({ state: 'visible', timeout: 4000 });
+      const gone = await page.locator('[data-testid="pdf-list-row"][data-page="2"]').count();
+      check('12.5-B S9d: deleted bookmark stays gone after a reload', gone === 0, `rows=${gone}`);
+      await page.screenshot({ path: `${SHOT_DIR}/w125-s9d-bookmarks-deleted.png` });
+
+      // ONE-TIME legacy import: a pre-12.5 localStorage key is read on the first
+      // GET, POSTed to the server, and the key is removed.
+      await page.evaluate(() => {
+        window.localStorage.setItem('cms:pdf:bookmarks:55555555-1111-2222-3333-444444444444',
+          JSON.stringify([{ page: 3, addedAt: '2026-01-01T00:00:00Z', snippet: 'scanned shapes page' }]));
+      });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await openPdfPlayer(page);
+      await page.locator('[data-testid="pdf-bookmarks-toggle"]').click();
+      await page.locator('[data-testid="pdf-study-lists"]').waitFor({ state: 'visible', timeout: 4000 });
+      const importedRow = page.locator('[data-testid="pdf-list-row"][data-page="3"]');
+      await importedRow.waitFor({ state: 'visible', timeout: 6000 });
+      await waitForCondition(() =>
+        Array.from(bookmarkStore.values()).some((r) => r.pageNumber === 3), 'import POSTed the legacy row');
+      const legacyKeyAfter = await page.evaluate(() =>
+        Object.keys(window.localStorage).filter((k) => k.startsWith('cms:pdf:bookmarks:55555555')));
+      const importedRowCount = await page.locator('[data-testid="pdf-list-row"][data-page="3"]').count();
+      check('12.5-B S9e: legacy localStorage bookmark imported to the server and key removed',
+        legacyKeyAfter.length === 0 && importedRowCount === 1,
+        `legacyKeys=${legacyKeyAfter.length} rows=${importedRowCount}`);
+      await page.screenshot({ path: `${SHOT_DIR}/w125-s9e-bookmarks-imported.png` });
       await context.close();
     }
 

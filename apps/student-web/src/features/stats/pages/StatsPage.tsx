@@ -11,7 +11,7 @@ import { statsApi } from '../services/stats-api';
 export default function StatsPage() {
   const [period, setPeriod] = useState<'all' | 'month' | 'week'>('all');
 
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading, isError, refetch } = useQuery({
     queryKey: ['my-stats', period],
     queryFn: () => statsApi.getMyStats(period),
   });
@@ -20,7 +20,20 @@ export default function StatsPage() {
     return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-[var(--c-primary-700)]" /></div>;
   }
 
-  if (!stats) return null;
+  // Wave 12.5.A (Group 4) — a failed load used to render a BLANK page (`return null`).
+  if (isError || !stats) {
+    return (
+      <div role="alert" className="mx-auto max-w-2xl rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center" data-testid="stats-error">
+        <h1 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل الإحصائيات</h1>
+        <button
+          onClick={() => refetch()}
+          className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"
+        >
+          إعادة المحاولة
+        </button>
+      </div>
+    );
+  }
 
   const formatTime = (mins: number) => {
     const h = Math.floor(mins / 60);

@@ -1,18 +1,22 @@
 /**
- * Wave 12.3.C — page-level bookmarks, CLIENT-SIDE ONLY (supervisor locked:
- * "bookmarks in localStorage ONLY (no backend)"). PERSISTENCE CONTRACT: keyed
- * per file id; Wave 12.4 will move them to the backend annotations store —
- * the API surface below (load/toggle/list) is deliberately the shape that
- * ports 1:1 to server persistence, so the migration touches this module and
- * nothing else.
+ * Wave 12.5.B — page bookmarks moved to the SERVER (supervisor unlocked the
+ * old "localStorage ONLY" lock): the player now talks to
+ * `/library/{fileId}/bookmarks` (GET list / POST add / DELETE by row id —
+ * see library-api.ts + usePdfBookmarks.ts). This module keeps ONLY:
+ *   1. the `PageBookmark` shape the StudyListsPanel renders (unchanged contract),
+ *   2. the pure ordering/normalization helper (page-ascending, deduped by page),
+ *   3. the LEGACY localStorage reader/cleaner that backs the ONE-TIME import
+ *      of pre-12.5 bookmarks (`cms:pdf:bookmarks:<fileId>` → POST each →
+ *      remove the key). The import itself runs inside usePdfBookmarks' queryFn.
  *
- * Storage shape: `cms:pdf:bookmarks:<fileId>` → JSON array of
- * { page, addedAt, snippet? } sorted page-ascending, deduped by page. Every
- * read is defensive (corrupt/missing → empty list) — a broken localStorage
- * entry must never crash the player.
+ * Legacy storage shape (read-only now): `cms:pdf:bookmarks:<fileId>` → JSON
+ * array of { page, addedAt, snippet? } sorted page-ascending, deduped by page.
+ * Every legacy read is defensive (corrupt/missing → empty list).
  */
 
 export interface PageBookmark {
+  /** Server row id (present after any server round-trip; absent in optimistic rows). */
+  id?: string;
   page: number;
   addedAt: string;
   /** First 30 chars of the page text captured at add time, when available. */
@@ -20,83 +24,77 @@ export interface PageBookmark {
 }
 
 const STORAGE_PREFIX = 'cms:pdf:bookmarks:';
+/** One-time marker set after the first successful legacy import on this device. */
+export const BOOKMARKS_MIGRATED_FLAG = 'cms:pdf:bookmarks:migrated:v1';
 
 function storageKey(fileId: string): string {
   return `${STORAGE_PREFIX}${fileId}`;
 }
 
-function sanitize(raw: unknown): PageBookmark[] {
-  if (!Array.isArray(raw)) return [];
+/** Page-ascending, deduped by page — the canonical list order everywhere. */
+export function orderBookmarks(bookmarks: PageBookmark[]): PageBookmark[] {
   const seen = new Set<number>();
   const out: PageBookmark[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== 'object') continue;
-    const page = (entry as { page?: unknown }).page;
-    if (typeof page !== 'number' || !Number.isFinite(page) || page < 1) continue;
-    if (seen.has(page)) continue;
-    seen.add(page);
+  for (const entry of bookmarks) {
+    if (!entry || typeof entry.page !== 'number' || !Number.isFinite(entry.page) || entry.page < 1) continue;
+    if (seen.has(entry.page)) continue;
+    seen.add(entry.page);
     out.push({
-      page,
-      addedAt: typeof (entry as { addedAt?: unknown }).addedAt === 'string'
-        ? (entry as { addedAt: string }).addedAt
-        : '',
-      ...(typeof (entry as { snippet?: unknown }).snippet === 'string' && (entry as { snippet: string }).snippet
-        ? { snippet: (entry as { snippet: string }).snippet }
-        : {}),
+      ...(entry.id ? { id: entry.id } : {}),
+      page: entry.page,
+      addedAt: typeof entry.addedAt === 'string' ? entry.addedAt : '',
+      ...(typeof entry.snippet === 'string' && entry.snippet ? { snippet: entry.snippet } : {}),
     });
   }
   return out.sort((a, b) => a.page - b.page);
 }
 
-/** Reads the bookmark list of one document (defensive; never throws). */
-export function loadBookmarks(fileId: string): PageBookmark[] {
+/**
+ * Reads the LEGACY localStorage bookmark list of one document (defensive; never
+ * throws). Used exclusively by the one-time import — the app never writes here
+ * anymore.
+ */
+export function readLegacyBookmarks(fileId: string): PageBookmark[] {
   try {
     const raw = window.localStorage.getItem(storageKey(fileId));
     if (!raw) return [];
-    return sanitize(JSON.parse(raw));
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set<number>();
+    const out: PageBookmark[] = [];
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') continue;
+      const page = (entry as { page?: unknown }).page;
+      if (typeof page !== 'number' || !Number.isFinite(page) || page < 1) continue;
+      if (seen.has(page)) continue;
+      seen.add(page);
+      out.push({
+        page,
+        addedAt: typeof (entry as { addedAt?: unknown }).addedAt === 'string'
+          ? (entry as { addedAt: string }).addedAt
+          : '',
+        ...(typeof (entry as { snippet?: unknown }).snippet === 'string' && (entry as { snippet: string }).snippet
+          ? { snippet: (entry as { snippet: string }).snippet }
+          : {}),
+      });
+    }
+    return out.sort((a, b) => a.page - b.page);
   } catch {
     return [];
   }
 }
 
-function persist(fileId: string, bookmarks: PageBookmark[]): PageBookmark[] {
-  const ordered = sanitize(bookmarks);
+/** Removes the LEGACY localStorage key of one document (after a successful import). */
+export function removeLegacyBookmarks(fileId: string): void {
   try {
-    window.localStorage.setItem(storageKey(fileId), JSON.stringify(ordered));
+    window.localStorage.removeItem(storageKey(fileId));
   } catch {
-    // Quota/disabled localStorage: the in-memory list still reflects intent;
-    // persistence resumes on the next successful write. Never throws.
+    /* defensive — storage unavailable; the key (if any) stays and the next
+       import attempt retries. Never throws. */
   }
-  return ordered;
 }
 
-/** Adds (or refreshes) the bookmark for one page. Idempotent per page. */
-export function addBookmark(fileId: string, page: number, snippet?: string): PageBookmark[] {
-  const next = loadBookmarks(fileId).filter((b) => b.page !== page);
-  next.push({ page, addedAt: new Date().toISOString(), ...(snippet ? { snippet } : {}) });
-  return persist(fileId, next);
-}
-
-/** Removes the bookmark of one page (no-op when absent). */
-export function removeBookmark(fileId: string, page: number): PageBookmark[] {
-  return persist(fileId, loadBookmarks(fileId).filter((b) => b.page !== page));
-}
-
-/** Whether one page is bookmarked. */
-export function isBookmarked(fileId: string, page: number): boolean {
-  return loadBookmarks(fileId).some((b) => b.page === page);
-}
-
-/** Test hook — wipes every document's bookmarks (vitest isolation). */
-export function clearAllBookmarks(): void {
-  try {
-    const keys: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i += 1) {
-      const key = window.localStorage.key(i);
-      if (key && key.startsWith(STORAGE_PREFIX)) keys.push(key);
-    }
-    keys.forEach((key) => window.localStorage.removeItem(key));
-  } catch {
-    /* defensive — storage unavailable */
-  }
+/** Whether one page is bookmarked within an ordered list. */
+export function isBookmarked(bookmarks: PageBookmark[], page: number): boolean {
+  return bookmarks.some((b) => b.page === page);
 }

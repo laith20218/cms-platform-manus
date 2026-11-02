@@ -135,6 +135,25 @@ async function newContext(browser, viewport, { authenticated = true, extraQuery 
     if (route.request().method() === 'GET') return route.fulfill({ json: [] });
     return route.fulfill({ json: { appliedCount: 0, serverTime: new Date().toISOString() } });
   });
+  // Wave 12.5.B — page bookmarks are server-persisted now. Per-context store so
+  // every width's "seed ONE bookmark" click starts from an empty list (the store
+  // is scoped to this closure, like the static annotations mock above).
+  const bookmarkStore = new Map();
+  await context.route(`**/api/v1/library/${FILE_ID}/bookmarks`, async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: Array.from(bookmarkStore.values()) });
+    const body = route.request().postDataJSON();
+    const existing = Array.from(bookmarkStore.values()).find((row) => row.pageNumber === body.pageNumber);
+    const row = existing ?? { id: `bm-${body.pageNumber}-${Date.now()}`, pageNumber: body.pageNumber };
+    row.snippet = body.snippet ?? null;
+    if (!existing) row.createdAt = new Date().toISOString();
+    row.updatedAt = new Date().toISOString();
+    bookmarkStore.set(row.id, row);
+    return route.fulfill({ json: row });
+  });
+  await context.route(/\/api\/v1\/library\/bookmarks\/[^/]+$/, async (route) => {
+    bookmarkStore.delete(route.request().url().split('/').pop());
+    return route.fulfill({ status: 204, body: '' });
+  });
 
   context.on('page', (page) => {
     page.on('console', (message) => {

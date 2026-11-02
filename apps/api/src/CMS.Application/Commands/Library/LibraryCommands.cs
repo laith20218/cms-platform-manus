@@ -83,5 +83,14 @@ public record GetFileAnnotationsQuery(Guid FileId, Guid StudentId) : IRequest<Li
 /// <summary>Idempotent batch: client-id-keyed upserts + owner-scoped deletes, one commit.</summary>
 public record SaveFileAnnotationsCommand(Guid FileId, Guid StudentId, SaveFileAnnotationsDto Batch) : IRequest<SaveFileAnnotationsResultDto>;
 
+// ===== Wave 12.5.B: PDF page bookmarks =====
+public record GetFileBookmarksQuery(Guid FileId, Guid StudentId) : IRequest<List<FileBookmarkDto>>;
+
+/// <summary>Idempotent per page: re-adding a bookmarked page refreshes its snippet (unique triple enforced by the DB).</summary>
+public record UpsertFileBookmarkCommand(Guid FileId, Guid StudentId, SaveFileBookmarkDto Bookmark) : IRequest<FileBookmarkDto>;
+
+/// <summary>Owner-only delete; a foreign bookmarkId is a 403 (MediaBookmark precedent).</summary>
+public record DeleteFileBookmarkCommand(Guid StudentId, Guid BookmarkId) : IRequest<Unit>;
+
 // ===== Paged Result =====
 public record PagedResult<T>(List<T> Items, int Total, int Page, int PageSize, int TotalPages);

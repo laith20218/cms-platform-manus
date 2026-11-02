@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -11,6 +11,9 @@ import { entitlementRequestConfig } from '@/features/entitlements/services/entit
 import { cn } from '@/utils';
 import { useMySubjects } from '../hooks/useMySubjects';
 import { LockedEmptyState } from './LockedEmptyState';
+import { CatalogEntitlementErrorCard, CatalogErrorCard } from './CatalogErrorCards';
+import { loadCatalogAcrossSubjects } from '../utils/catalog-load';
+import { variantForReason, EntitlementDeniedError } from '../services/courses-api';
 
 /** Category tabs (Push 5 Task 3) — mirror the backend LibraryFileCategory enum. */
 const CATEGORIES = [
@@ -70,37 +73,57 @@ export function LibraryHub({ subjectId }: { subjectId?: string | null }) {
   const allSubjects = mySubjects.data ?? [];
   const subjects = subjectId ? allSubjects.filter((s) => s.id === subjectId) : allSubjects;
 
-  const { data: files, isLoading } = useQuery({
+  // Wave 12.5.A (Group 1) — R69 taxonomy: per-subject failures surface, never
+  // a silent empty list.
+  const [entitlementDenied, setEntitlementDenied] = useState<ReturnType<typeof variantForReason> | null>(null);
+  const { data: files, isLoading, isError, isFetching, error, refetch } = useQuery({
     queryKey: ['library-hub', subjects.map((s) => s.id).join(',')],
     enabled: subjects.length > 0,
-    queryFn: async (): Promise<HubLibraryFile[]> => {
-      const all: HubLibraryFile[] = [];
-      await Promise.all(
-        subjects.map(async (subject) => {
-          try {
-            const res = await apiClient.get(`/library/subject/${subject.id}`, {
-              ...(await entitlementRequestConfig()),
-              params: { page: 1, pageSize: 100 },
-            });
-            const items = res.data?.items ?? [];
-            items.forEach((f: Omit<HubLibraryFile, 'subjectId' | 'subjectSlug' | 'subjectName'>) => {
-              all.push({
-                ...f,
-                subjectId: subject.id,
-                subjectSlug: subject.slug,
-                subjectName: subject.nameAr,
-              });
-            });
-          } catch { /* silent — subject may hold no accessible files */ }
-        })
-      );
-      // Newest first across subjects.
-      all.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
-      return all;
-    },
+    retry: (failureCount, failure) => !(failure instanceof EntitlementDeniedError) && failureCount < 1,
+    queryFn: async (): Promise<HubLibraryFile[]> =>
+      loadCatalogAcrossSubjects(subjects.map((s) => s.id), async (subjectId) => {
+        const res = await apiClient.get(`/library/subject/${subjectId}`, {
+          ...(await entitlementRequestConfig()),
+          params: { page: 1, pageSize: 100 },
+        });
+        const subject = subjects.find((s) => s.id === subjectId);
+        const items = res.data?.items ?? [];
+        return items.map((f: Omit<HubLibraryFile, 'subjectId' | 'subjectSlug' | 'subjectName'>) => ({
+          ...f,
+          subjectId,
+          subjectSlug: subject?.slug ?? '',
+          subjectName: subject?.nameAr ?? '',
+        }));
+      }),
   });
 
-  const allFiles = useMemo(() => files ?? [], [files]);
+  const fetchingRef = useRef(false);
+  useEffect(() => { fetchingRef.current = isFetching; }, [isFetching]);
+  useEffect(() => {
+    const onEntitlementError = (event: Event) => {
+      if (fetchingRef.current) return;
+      const detail = (event as CustomEvent<{ url?: string; reason?: string }>).detail;
+      if (!detail?.url) return;
+      if (detail.url.includes('/entitlements/issue')) { setEntitlementDenied('no-grants'); return; }
+      if (detail.url.includes('/library/')) setEntitlementDenied(variantForReason(detail.reason));
+    };
+    window.addEventListener('cms-entitlement-error', onEntitlementError);
+    return () => window.removeEventListener('cms-entitlement-error', onEntitlementError);
+  }, []);
+  useEffect(() => {
+    if (files !== undefined) setEntitlementDenied(null);
+  }, [files]);
+
+  const queryDenied = isError && error instanceof EntitlementDeniedError
+    ? variantForReason(error.reason)
+    : null;
+
+  // Hooks BEFORE any early return (rules-of-hooks): derive the sorted list + tabs
+  // regardless of the load state.
+  const allFiles = useMemo(
+    () => (files ?? []).slice().sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')),
+    [files],
+  );
 
   // Available category tabs: always show الكل; show a category tab only when
   // at least one file carries it (clean, honest filtering).
@@ -114,11 +137,44 @@ export function LibraryHub({ subjectId }: { subjectId?: string | null }) {
     [allFiles, category]
   );
 
+  if (entitlementDenied || queryDenied) {
+    return (
+      <CatalogEntitlementErrorCard
+        variant={queryDenied ?? entitlementDenied ?? 'device'}
+        onRetry={() => { setEntitlementDenied(null); refetch(); }}
+        testId="library-hub-entitlement-error"
+      />
+    );
+  }
+
+  if (mySubjects.isError) {
+    return (
+      <CatalogErrorCard
+        onRetry={() => mySubjects.refetch()}
+        testId="library-hub-error"
+        title="تعذّر تحميل المكتبة"
+        body="حدث خطأ في الاتصال. تحقّق من الشبكة ثم أعد المحاولة."
+      />
+    );
+  }
+
   if (mySubjects.isLoading) {
     return (
       <div className="flex items-center justify-center py-16" data-testid="library-loading">
         <LoaderCircle className="w-8 h-8 animate-spin text-[var(--c-text-muted)]" />
       </div>
+    );
+  }
+
+  // Wave 12.5.A (Group 1) — every subject failed → honest error, never "empty".
+  if (isError) {
+    return (
+      <CatalogErrorCard
+        onRetry={() => refetch()}
+        testId="library-hub-error"
+        title="تعذّر تحميل مكتبة المواد"
+        body="حدث خطأ في الاتصال. تحقّق من الشبكة ثم أعد المحاولة."
+      />
     );
   }
 

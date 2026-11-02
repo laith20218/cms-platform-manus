@@ -22,7 +22,7 @@ import { StudyToolsPanel } from './StudyToolsPanel';
 import { ThumbnailsRail } from './ThumbnailsRail';
 import { usePlayerShell } from '../shell-context';
 import { collectHighlights, collectNotes, type StudyListKind } from './study-lists';
-import { addBookmark, isBookmarked, loadBookmarks, removeBookmark, type PageBookmark } from './pdf-bookmarks';
+import { usePdfBookmarks } from './hooks/usePdfBookmarks';
 import {
   documentSearchCacheKey, findMatches, getCachedPageSearchItems, getCachedPageSearchSourceIndexes,
   getCachedPageSearchViewport, getPageSearchItems, matchFallbackBoxes,
@@ -270,14 +270,14 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
 
   /* ---- Wave 12.3.C — study lists (notes/highlights/bookmarks).
           activeList drives the StudyListsPanel (docked ≥ lg / drawer < lg).
-          Bookmarks are PAGE-LEVEL, client-side ONLY — localStorage keyed by
-          fileId in v1; Wave 12.4 moves them to the backend (pdf-bookmarks.ts
-          is written so the port touches that module alone). flashAnnotationId
-          pulses the target's nodes after a list click (1.6s, CSS animation). ---- */
+          Bookmarks are PAGE-LEVEL and SERVER-persisted since Wave 12.5.B
+          (ported out of localStorage — usePdfBookmarks is the optimistic
+          wrapper over /library/{fileId}/bookmarks; the one-time legacy
+          import runs inside its queryFn). flashAnnotationId pulses the
+          target's nodes after a list click (1.6s, CSS animation). ---- */
   const [activeList, setActiveList] = useState<StudyListKind | null>(null);
-  const [bookmarks, setBookmarks] = useState<PageBookmark[]>(() => loadBookmarks(assetId));
+  const { bookmarks, toggle: toggleServerBookmark, remove: removeServerBookmark } = usePdfBookmarks(assetId);
   useEffect(() => {
-    setBookmarks(loadBookmarks(assetId));
     setActiveList(null);
   }, [assetId]);
   const openList = useCallback((kind: StudyListKind) => {
@@ -285,17 +285,21 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     setToolsDrawerOpen(false); // the drawer hands over to the list panel
   }, []);
   const closeList = useCallback(() => setActiveList(null), []);
-  const pageBookmarked = isBookmarked(assetId, currentPage);
+  const pageBookmarked = useMemo(
+    () => bookmarks.some((b) => b.page === currentPage),
+    [bookmarks, currentPage],
+  );
   const toggleBookmark = useCallback(() => {
     const page = currentPageRef.current;
-    if (isBookmarked(assetId, page)) {
-      setBookmarks(removeBookmark(assetId, page));
+    const willAdd = !bookmarks.some((b) => b.page === page);
+    if (!willAdd) {
+      removeServerBookmark(page);
       toast.info(`تمت إزالة العلامة المرجعية عن الصفحة ${page}`, { duration: 2200 });
       return;
     }
-    setBookmarks(addBookmark(assetId, page, getPageSnippet(doc, page) ?? undefined));
+    toggleServerBookmark(page, getPageSnippet(doc, page) ?? undefined);
     toast.info(`تمت إضافة علامة مرجعية للصفحة ${page}`, { duration: 2200 });
-  }, [assetId, doc]);
+  }, [bookmarks, doc, removeServerBookmark, toggleServerBookmark]);
   const [flashAnnotationId, setFlashAnnotationId] = useState<string | null>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashAnnotation = useCallback((id: string | null) => {
@@ -309,8 +313,8 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
   /** Bookmark-row snippet: the page's cached search text, first 30 chars. */
   const snippetFor = useCallback((page: number) => getPageSnippet(doc, page), [doc]);
   const handleBookmarkRemove = useCallback((page: number) => {
-    setBookmarks(removeBookmark(assetId, page));
-  }, [assetId]);
+    removeServerBookmark(page);
+  }, [removeServerBookmark]);
   const notesList = useMemo(() => collectNotes(annotations.values()), [annotations]);
   const highlightsList = useMemo(() => collectHighlights(annotations.values()), [annotations]);
 

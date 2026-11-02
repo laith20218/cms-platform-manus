@@ -39,6 +39,8 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<LectureCompletion> LectureCompletions => Set<LectureCompletion>();
     // Wave 11.8 / F2: student PDF annotations (one row per annotation, client-id-keyed)
     public DbSet<FileAnnotation> FileAnnotations => Set<FileAnnotation>();
+    // Wave 12.5.B: student PDF page bookmarks (one row per bookmarked page, unique per page)
+    public DbSet<FileBookmark> FileBookmarks => Set<FileBookmark>();
 
     // Push 4 / Track 4: courses and episodes
     public DbSet<Course> Courses => Set<Course>();
@@ -263,6 +265,19 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        // Wave 12.5.B: page bookmarks — one row per bookmarked page per student per file.
+        // The unique triple is the idempotency contract: re-adding a bookmarked page
+        // refreshes the snippet instead of inserting a duplicate (the localStorage
+        // module's dedupe-by-page behavior, now enforced by the database).
+        modelBuilder.Entity<FileBookmark>(entity =>
+        {
+            entity.HasIndex(x => new { x.StudentId, x.FileId, x.PageNumber }).IsUnique();
+            entity.HasIndex(x => new { x.StudentId, x.CreatedAt });
+            entity.Property(x => x.Snippet).HasMaxLength(120);
+            entity.HasOne(x => x.File).WithMany().HasForeignKey(x => x.FileId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         // Push 10.3: rich media metadata + transcoding lifecycle. Title already existed on
         // both entities (no length ALTER — a live-data resize could fail the migration apply);
         // the caps below apply to NEW columns only. LibraryFile.Description predates 10.3 and
@@ -347,6 +362,13 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<FileAnnotation>(entity =>
         {
             entity.ToTable(table => table.HasCheckConstraint("ck_file_annotations_page",
+                "(page_number >= 1)"));
+        });
+
+        // Wave 12.5.B: a page bookmark must anchor to a real (1-indexed) page.
+        modelBuilder.Entity<FileBookmark>(entity =>
+        {
+            entity.ToTable(table => table.HasCheckConstraint("ck_file_bookmarks_page",
                 "(page_number >= 1)"));
         });
 

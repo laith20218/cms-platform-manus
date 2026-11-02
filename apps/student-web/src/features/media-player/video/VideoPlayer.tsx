@@ -7,6 +7,7 @@ import { LoaderCircle, MonitorPlay, Play, RotateCcw } from 'lucide-react';
 import { cn, getOrCreateInstallationId } from '@/utils';
 import { useMediaLease, isElementSwapReady, type SwapContext } from '../hooks/useMediaLease';
 import { mediaApi, type MediaAssetType } from '../services/media-api';
+import { notifyProgressSaveFailure } from '@/services/progress-toast';
 import { favoritesApi } from '@/features/favorites/api';
 import { usePlayerShell } from '../shell-context';
 import { BookmarkDialog } from './BookmarkDialog';
@@ -276,7 +277,9 @@ export default function VideoPlayer({
     if (mode === 'final') {
       mediaApi.upsertProgressKeepalive(assetType, assetId, position, dur && Number.isFinite(dur) ? Math.round(dur) : null);
     } else {
-      mediaApi.upsertProgress(assetType, assetId, position, dur && Number.isFinite(dur) ? Math.round(dur) : null).catch(() => {});
+      // Wave 12.5.A (Group 5) — once-per-session signal (see progress-toast.ts).
+      mediaApi.upsertProgress(assetType, assetId, position, dur && Number.isFinite(dur) ? Math.round(dur) : null)
+        .catch(() => notifyProgressSaveFailure());
     }
   }, [assetType, assetId]);
 

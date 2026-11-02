@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { authApi } from '@/features/auth/services/auth-api';
 import { clearEntitlementToken } from '@/features/entitlements/services/entitlement-api';
+import { notifySessionExpired } from '@/services/session-expiry';
 import { AuthContext, type User } from './auth-context';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -16,6 +17,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           sessionStorage.removeItem('cms-access-token');
           sessionStorage.removeItem('cms-refresh-token');
           clearEntitlementToken();
+          // Wave 12.5.A (Group 3) — any /me failure (server error, network blip,
+          // expired session) previously logged the student out with NO signal.
+          notifySessionExpired();
         })
         .finally(() => setIsLoading(false));
     } else {
@@ -56,6 +60,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sessionStorage.setItem('cms-access-token', accessToken);
       sessionStorage.setItem('cms-refresh-token', newRefresh);
     } catch {
+      // Wave 12.5.A (Group 3) — same single-toast contract as the api-client path.
+      notifySessionExpired();
       await logout();
     }
   };

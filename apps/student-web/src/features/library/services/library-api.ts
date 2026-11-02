@@ -2,6 +2,15 @@ import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
 import type { PdfAnnotation, SaveAnnotationsBatch, SaveAnnotationsResult } from '@/features/media-player/pdf/pdf-types';
 
+/** Wire row of a server-persisted page bookmark (Wave 12.5.B). */
+export interface FileBookmarkDto {
+  id: string;
+  pageNumber: number;
+  snippet?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface PagedLibraryFiles {
   items: LibraryFile[];
   total: number;
@@ -153,5 +162,28 @@ export const libraryApi = {
     } else {
       await apiClient.post('/favorites', { libraryFileId: fileId }, config);
     }
+  },
+
+  // ===== Wave 12.5.B: PDF page bookmarks (server-persisted; ported from localStorage) =====
+
+  /** The calling student's own page bookmarks on one PDF (owner-scoped, page-ascending). */
+  getBookmarks: async (fileId: string): Promise<FileBookmarkDto[]> => {
+    const res = await apiClient.get<FileBookmarkDto[]>(`/library/${fileId}/bookmarks`, await entitlementRequestConfig());
+    return res.data ?? [];
+  },
+
+  /** Adds (or refreshes) the bookmark of one page — idempotent per page server-side. */
+  addBookmark: async (fileId: string, page: number, snippet?: string): Promise<FileBookmarkDto> => {
+    const res = await apiClient.post<FileBookmarkDto>(
+      `/library/${fileId}/bookmarks`,
+      { pageNumber: page, snippet: snippet ?? null },
+      await entitlementRequestConfig(),
+    );
+    return res.data;
+  },
+
+  /** Deletes one of the caller's bookmark rows by id (owner-only; foreign id → 403). */
+  deleteBookmark: async (bookmarkId: string): Promise<void> => {
+    await apiClient.delete(`/library/bookmarks/${bookmarkId}`, await entitlementRequestConfig());
   },
 };

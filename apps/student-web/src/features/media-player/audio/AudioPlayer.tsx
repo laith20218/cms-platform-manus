@@ -6,6 +6,7 @@ import { Bookmark, Check, ChevronUp, LoaderCircle, MonitorPlay, Pause, Play, Rot
 import { cn } from '@/utils';
 import { useMediaLease, isElementSwapReady, type SwapContext } from '../hooks/useMediaLease';
 import { mediaApi, type MediaAssetType, type MediaBookmark } from '../services/media-api';
+import { notifyProgressSaveFailure } from '@/services/progress-toast';
 import { usePlayerShell } from '../shell-context';
 import { BookmarkDialog } from '../video/BookmarkDialog';
 import { formatMediaDuration, formatRate, PLAYBACK_RATES } from '../video/time';
@@ -380,7 +381,10 @@ export default function AudioPlayer({
     if (mode === 'final') {
       mediaApi.upsertProgressKeepalive(assetType, assetId, position, dur && Number.isFinite(dur) ? Math.round(dur) : null);
     } else {
-      mediaApi.upsertProgress(assetType, assetId, position, dur && Number.isFinite(dur) ? Math.round(dur) : null).catch(() => {});
+      // Wave 12.5.A (Group 5) — once-per-session signal; the periodic loop keeps
+      // retrying silently after the first visible failure.
+      mediaApi.upsertProgress(assetType, assetId, position, dur && Number.isFinite(dur) ? Math.round(dur) : null)
+        .catch(() => notifyProgressSaveFailure());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assetType, assetId]);
@@ -477,10 +481,15 @@ export default function AudioPlayer({
 
   /* ============ bookmarks (list + create; PATCH/DELETE deferred) ============ */
 
+  // Wave 12.5.A (Group 5) — a markers load failure used to render NO markers with
+  // zero signal. A slim status banner + retry now owns that state (the list itself
+  // stays non-blocking — the player works without markers).
+  const [bookmarksError, setBookmarksError] = useState(false);
+
   const loadBookmarks = useCallback(() => {
     mediaApi.listBookmarks(assetType, assetId)
-      .then((list) => { if (wsRef.current) setBookmarks(list); })
-      .catch(() => { /* markers are best-effort */ });
+      .then((list) => { if (wsRef.current) { setBookmarks(list); setBookmarksError(false); } })
+      .catch(() => { setBookmarksError(true); });
   }, [assetType, assetId]);
 
   // Load once the engine exists (markers need the duration anyway).
@@ -636,6 +645,22 @@ export default function AudioPlayer({
       {/* ===== Waveform + bookmark markers (physical LTR timeline) ===== */}
       <div className="relative" data-testid="audio-waveform-wrap">
         <div ref={waveRef} data-testid="audio-waveform" className="w-full overflow-hidden rounded-2xl" />
+        {bookmarksError && (
+          <div
+            role="status"
+            data-testid="audio-bookmarks-error"
+            className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-200"
+          >
+            <span>تعذّر تحميل العلامات المرجعية.</span>
+            <button
+              type="button"
+              onClick={loadBookmarks}
+              className="press inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-amber-200 underline decoration-amber-400/60 underline-offset-4 hover:text-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" /> إعادة المحاولة
+            </button>
+          </div>
+        )}
         {markersReady && bookmarks.map((bookmarkItem) => (
           <button
             key={bookmarkItem.id}
