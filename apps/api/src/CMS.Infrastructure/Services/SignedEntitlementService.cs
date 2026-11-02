@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using CMS.Application.Interfaces;
 using CMS.Domain.Enums;
+using CMS.Domain.Exceptions;
 using CMS.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -54,6 +55,21 @@ public sealed class SignedEntitlementService : ISignedEntitlementService
             .AnyAsync(d => d.StudentId == studentId && d.IsActive && d.DeviceFingerprint == installationId, ct);
         if (!deviceIsActive)
             throw new UnauthorizedAccessException("The supplied device is not actively bound to this student.");
+
+        // R69 §2.B — a student with zero active grants would otherwise receive a 200 OK
+        // token carrying empty AllowedSubjects, and every entitlement-gated GET would
+        // then 403 seconds later — the unfixable issue→403 self-heal loop (R68 DIAG).
+        // Fail at the source with a distinguishable 403 reason instead of minting a
+        // structurally useless token.
+        var grantsNow = DateTime.UtcNow;
+        var hasActiveGrants = await _db.StudentSubscriptions.AsNoTracking()
+            .AnyAsync(s => s.StudentId == studentId
+                && s.Status == SubscriptionStatus.Active
+                && s.RevokedAt == null
+                && s.StartsAt <= grantsNow
+                && s.ExpiresAt > grantsNow, ct);
+        if (!hasActiveGrants)
+            throw new ForbiddenException("No active grants for this student.");
 
         var scopes = await ResolveScopesAsync(studentId, ct);
         var now = DateTime.UtcNow;

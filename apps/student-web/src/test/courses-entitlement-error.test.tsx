@@ -49,9 +49,11 @@ vi.mock('@/components/layouts/AppShell', () => ({
 import MyStudiesPage from '@/features/my-studies/pages/MyStudiesPage';
 
 // ---- fixtures ----
+// R69 §2.D — CoursesCatalog only queries subjects carrying the VideoAudio scope,
+// so fixtures now mirror the real /subjects/my-subjects payload (contentScopes).
 const SUBJECTS = [
-  { id: 's1', slug: 'مادة-أ', nameAr: 'مادة أ' },
-  { id: 's2', slug: 'مادة-ب', nameAr: 'مادة ب' },
+  { id: 's1', slug: 'مادة-أ', nameAr: 'مادة أ', contentScopes: ['VideoAudio'] },
+  { id: 's2', slug: 'مادة-ب', nameAr: 'مادة ب', contentScopes: ['VideoAudio'] },
 ];
 
 const COURSE_LIST = [{

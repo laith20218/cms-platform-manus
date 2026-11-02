@@ -68,7 +68,7 @@ beforeAll(() => {
 });
 
 // ---- fixtures ----
-const SUBJECTS = [{ id: 's1', slug: 'تشريح-مرضي', nameAr: 'تشريح مرضي' }];
+const SUBJECTS = [{ id: 's1', slug: 'تشريح-مرضي', nameAr: 'تشريح مرضي', contentScopes: ['VideoAudio'] }];
 
 const COURSE_LIST = [{
   id: 'c1', subjectId: 's1', subjectNameAr: 'تشريح مرضي', title: 'كورس التشريح',

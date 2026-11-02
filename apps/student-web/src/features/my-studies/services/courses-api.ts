@@ -9,11 +9,15 @@ import { entitlementRequestConfig } from '@/features/entitlements/services/entit
  */
 
 /** R62 §2.B — typed marker: every entitled subject was denied (HTTP 403) even after
- * one forced entitlement re-issue + retry, i.e. a genuine session/device denial. */
+ * one forced entitlement re-issue + retry, i.e. a genuine access denial. R69 §2.D —
+ * carries the server reason (ProblemDetails `detail` when present, else 'unknown')
+ * so the UI can separate "no subscription" states from session/device failures. */
 export class EntitlementDeniedError extends Error {
-  constructor() {
+  readonly reason: string;
+  constructor(reason = 'unknown') {
     super('entitlement-denied');
     this.name = 'EntitlementDeniedError';
+    this.reason = reason;
   }
 }
 
@@ -22,6 +26,27 @@ export class EntitlementDeniedError extends Error {
  * interceptor internals). */
 export function isEntitlementDenied(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.status === 403;
+}
+
+/** R69 §2.D — which truthful denial card to render. `no-grants` = subscription
+ * state (no login button); `device` = session/device failure (login link kept). */
+export type DenialVariant = 'device' | 'no-grants';
+
+/** R69 §2.D/§2.E — classify a 403 reason. Reasons come from ProblemDetails `detail`
+ * (or the X-Entitlement-Error header) via api-client; 'unknown' falls back to the
+ * existing generic access-denied card so an opaque 403 never invents a
+ * subscription problem. Exported for unit tests. */
+export function variantForReason(reason: string | undefined | null): DenialVariant {
+  const value = (reason ?? '').toLowerCase();
+  if (
+    value.includes('no active grants') ||
+    value.includes('scope') ||
+    value.includes('subscription') ||
+    value.includes('اشتراك')
+  ) {
+    return 'no-grants';
+  }
+  return 'device';
 }
 
 export interface CourseListItem {

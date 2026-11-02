@@ -26,7 +26,9 @@ import SubjectsPage from '@/features/subjects/SubjectsPage';
 // ---- fixtures ----
 const ENTITLED_SUBJECTS = [
   { id: 's1', slug: 'تشريح-مرضي', nameAr: 'تشريح مرضي', contentScopes: ['QuestionsExams', 'LecturesText', 'VideoAudio'] },
-  { id: 's2', slug: 'باطنة', nameAr: 'الباطنة', contentScopes: ['QuestionsExams'] },
+  // R69 §2.D — CoursesCatalog only queries VideoAudio subjects; s2 carries the scope
+  // so these tests keep exercising the subjectId query-param behavior (not scopes).
+  { id: 's2', slug: 'باطنة', nameAr: 'الباطنة', contentScopes: ['QuestionsExams', 'VideoAudio'] },
 ];
 
 const LECTURES_S1 = [

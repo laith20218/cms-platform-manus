@@ -114,7 +114,10 @@ public class CoursesController : ControllerBase
 
         var validation = await _signedEntitlements.ValidateAsync(token, studentId, installationId, subjectId, ct);
         if (validation.IsValid) return null;
-        await _audit.LogSecurityEventAsync(studentId, null, SecurityEventType.EntitlementDenied, SecuritySeverity.Warning, "Entitlement validation denied access", ct: ct);
+        // R69 §2.C — record WHY validation failed (fixed reason strings from
+        // SignedEntitlementService, e.g. "Entitlement device mismatch" — no token
+        // material, no user input) so 403s are diagnosable from the audit trail.
+        await _audit.LogSecurityEventAsync(studentId, null, SecurityEventType.EntitlementDenied, SecuritySeverity.Warning, $"Entitlement validation denied access: {validation.FailureReason}", ct: ct);
         return Forbid();
     }
 }
