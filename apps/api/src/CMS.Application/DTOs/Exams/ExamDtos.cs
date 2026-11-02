@@ -185,3 +185,34 @@ public record ExamPreviewQuestionDto(
 
 public record ExamPreviewOptionDto(Guid Id, string Letter, string Text, string? ImageUrl);
 public record ExamPreviewImageDto(string ImageUrl, string? AltText, int SortOrder);
+
+// ===== W14.2 D.1/D.2/D.4 — exam analytics + heartbeat =====
+public record ExamStatsDto(
+    Guid ExamId,
+    int Started,
+    int Attempts,
+    int Completed,
+    int Timeouts,
+    int InProgress,
+    int Cancelled,
+    int Pass,
+    int Fail,
+    double? MeanScore,
+    double? MedianScore,
+    double AvgDurationSeconds,
+    List<ScoreBucketDto> Distribution);
+
+/// <summary>One decile bucket of the score histogram (label like "70-79"; last bucket "90-100").</summary>
+public record ScoreBucketDto(string Label, int Count);
+
+public record ExamQuestionStatsDto(
+    Guid QuestionId,
+    string Text,
+    int SortOrder,
+    int Attempts,
+    double CorrectPercent,
+    string? MostCommonWrongChoice,
+    double? AvgDurationSeconds,
+    bool Problematic);
+
+public record ExamHeartbeatDto(Guid SessionId, string Status, int RemainingSeconds, DateTime? ExpiresAt);

@@ -204,6 +204,26 @@ public sealed class AdminExamsController : ControllerBase
                     .Select(image => new ExamPreviewImageDto(image.ImageUrl, image.AltText, image.SortOrder)).ToList())).ToList()));
     }
 
+    /// <summary>W14.2 D.1: per-exam analytics (started/attempts/pass/fail/mean/median/distribution/duration/timeouts/inProgress).</summary>
+    [HttpGet("{id:guid}/stats")]
+    [Authorize(Policy = Policies.ExamReadResults)]
+    public async Task<ActionResult<ExamStatsDto>> Stats(Guid id, CancellationToken ct)
+    {
+        var adminId = GetAdminId();
+        if (!adminId.HasValue) return Unauthorized();
+        return Ok(await _mediator.Send(new GetExamStatsQuery(id, adminId.Value), ct));
+    }
+
+    /// <summary>W14.2 D.2: per-question analytics for the exam (correct%, most-common wrong choice, problematic flag).</summary>
+    [HttpGet("{id:guid}/question-stats")]
+    [Authorize(Policy = Policies.ExamReadResults)]
+    public async Task<ActionResult<List<ExamQuestionStatsDto>>> QuestionStats(Guid id, CancellationToken ct)
+    {
+        var adminId = GetAdminId();
+        if (!adminId.HasValue) return Unauthorized();
+        return Ok(await _mediator.Send(new GetExamQuestionStatsQuery(id, adminId.Value), ct));
+    }
+
     /// <summary>W14.2 constraint: 403s carry ProblemDetails detail.</summary>
     private ObjectResult Forbidden403() =>
         Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء على هذا الاختبار");

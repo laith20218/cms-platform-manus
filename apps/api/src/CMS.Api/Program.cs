@@ -54,6 +54,10 @@ try
     // === Infrastructure Services ===
     builder.Services.AddInfrastructureServices(builder.Configuration);
 
+    // === W14.2 D.3: exam timeout sweeper (server-driven timer, D7) ===
+    // Plain BackgroundService per the wave ruling — Hangfire stays unwired.
+    builder.Services.AddHostedService<CMS.Api.BackgroundServices.ExamTimeoutSweeper>();
+
     // === Authentication ===
     var jwtSecret = builder.Configuration["Jwt:Secret"];
     if (string.IsNullOrWhiteSpace(jwtSecret) || Encoding.UTF8.GetByteCount(jwtSecret) < 32)

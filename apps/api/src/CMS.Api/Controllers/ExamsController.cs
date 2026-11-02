@@ -110,6 +110,22 @@ public sealed class ExamsController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// W14.2 D.4 (D7): server-driven timer heartbeat — validates ownership, lazily
+    /// finalizes an expired session, and returns the authoritative remaining seconds.
+    /// </summary>
+    [HttpPost("sessions/{sessionId:guid}/heartbeat")]
+    [EnableRateLimiting("exam-session")]
+    public async Task<ActionResult<ExamHeartbeatDto>> Heartbeat(Guid sessionId, CancellationToken ct)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+        var subjectId = await SubjectIdForOwnedSessionAsync(sessionId, studentId.Value, ct);
+        var rejection = await EntitlementRejectionAsync(studentId.Value, subjectId, ct);
+        if (rejection is not null) return rejection;
+        return Ok(await _mediator.Send(new HeartbeatExamSessionCommand(sessionId, studentId.Value), ct));
+    }
+
     [HttpGet("sessions/{sessionId:guid}/results")]
     public async Task<ActionResult<ExamResultDto>> GetResults(Guid sessionId, CancellationToken ct)
     {

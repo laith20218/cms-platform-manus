@@ -54,3 +54,8 @@ public record DeleteExamCommand(Guid Id, Guid DeletedBy) : IRequest<Unit>;
 public record UnpublishExamCommand(Guid Id, Guid UpdatedBy) : IRequest<Unit>;
 /// <summary>Full ordered list of the exam's bank questions; index becomes ExamQuestion.SortOrder.</summary>
 public record ReorderExamQuestionsCommand(Guid ExamId, List<Guid> QuestionIds, Guid UpdatedBy) : IRequest<AdminExamDetailsDto>;
+
+// ===== W14.2 D.1/D.2/D.4 — stats + heartbeat =====
+public record GetExamStatsQuery(Guid ExamId, Guid AdminId) : IRequest<ExamStatsDto>;
+public record GetExamQuestionStatsQuery(Guid ExamId, Guid AdminId) : IRequest<List<ExamQuestionStatsDto>>;
+public record HeartbeatExamSessionCommand(Guid SessionId, Guid StudentId) : IRequest<ExamHeartbeatDto>;

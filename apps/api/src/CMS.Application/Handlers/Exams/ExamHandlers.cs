@@ -157,7 +157,9 @@ public sealed class ExamQueryHandlers :
             session.ExpiresAt, session.CurrentQuestionOrder, questions);
     }
 
-    internal static async Task<bool> FinalizeTimedOutSessionIfNeededAsync(ExamSession session, CancellationToken ct)
+    /// <summary>W14.2 D.3: shared with the ExamTimeoutSweeper (CMS.Api BackgroundService) —
+    /// public so the sweeper reuses the single finalize path instead of duplicating it.</summary>
+    public static async Task<bool> FinalizeTimedOutSessionIfNeededAsync(ExamSession session, CancellationToken ct)
     {
         if (session.Status != ExamSessionStatus.InProgress || DateTime.UtcNow < session.ExpiresAt)
             return false;
@@ -202,7 +204,9 @@ public sealed class ExamSessionHandlers :
     IRequestHandler<DeleteExamCommand, Unit>,
     // W14.2 C.2 — editor completion endpoints
     IRequestHandler<UnpublishExamCommand, Unit>,
-    IRequestHandler<ReorderExamQuestionsCommand, AdminExamDetailsDto>
+    IRequestHandler<ReorderExamQuestionsCommand, AdminExamDetailsDto>,
+    // W14.2 D.4 — server-driven timer heartbeat (D7)
+    IRequestHandler<HeartbeatExamSessionCommand, ExamHeartbeatDto>
 {
     private readonly IApplicationDbContext _db;
     private readonly IUnitOfWork _unitOfWork;
@@ -564,6 +568,31 @@ public sealed class ExamSessionHandlers :
         await AuditAsync(null, req.UpdatedBy, $"Exam question order replaced: {exam.Id}; count={req.QuestionIds.Count}", ct);
 
         return await BuildAdminDetailAsync(exam.Id, ct);
+    }
+
+    /// <summary>
+    /// W14.2 D.4 (D7): server-driven timer keep-alive. Ownership is enforced, an expired
+    /// session is finalized on the spot (single finalize path), and the client receives
+    /// the authoritative remaining seconds. NOTE: ExamSession has no LastAccessedAt
+    /// column and W14.2 is migration-frozen (§3) — freshness is therefore NOT persisted
+    /// here; the sweeper's ExpiresAt scan is the expiry authority, not last-access.
+    /// </summary>
+    public async Task<ExamHeartbeatDto> Handle(HeartbeatExamSessionCommand req, CancellationToken ct)
+    {
+        var session = await LoadSessionWithSnapshotAsync(req.SessionId, req.StudentId, ct);
+        await EnsureSubjectEntitlementAsync(req.StudentId, session.Exam.SubjectId, ct);
+        if (await ExamQueryHandlers.FinalizeTimedOutSessionIfNeededAsync(session, ct))
+        {
+            await _unitOfWork.SaveChangesAsync(ct);
+            await AuditAsync(req.StudentId, null, $"Exam session timed out (heartbeat): {session.Id}", ct);
+        }
+
+        var inProgress = session.Status == ExamSessionStatus.InProgress;
+        return new ExamHeartbeatDto(
+            session.Id,
+            session.Status.ToString(),
+            inProgress ? Math.Max(0, (int)Math.Ceiling((session.ExpiresAt - DateTime.UtcNow).TotalSeconds)) : 0,
+            inProgress ? session.ExpiresAt : null);
     }
 
     internal static async Task FinalizeSessionAsync(ExamSession session, ExamSessionStatus terminalStatus, CancellationToken ct)
