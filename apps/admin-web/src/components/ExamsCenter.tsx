@@ -42,6 +42,7 @@ import {
   Pencil, Plus, Search, Send, Trash2, X,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
+import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
@@ -143,11 +144,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
-  const [universityId, setUniversityId] = useState('');
-  const [collegeId, setCollegeId] = useState('');
-  const [yearId, setYearId] = useState('');
-  const [semesterId, setSemesterId] = useState('');
-  const [subjectId, setSubjectId] = useState('');
+  // W14.3 D4: the academic selection lives in the URL query string and is
+  // shared across centers (Questions / Exams / Academic / ExamCourses).
+  const academic = useAcademicContext();
+  const { universityId, collegeId, yearId, semesterId, subjectId } = academic;
 
   // === Exams state ===
   const [exams, setExams] = useState<ExamSummary[]>([]);
@@ -178,6 +178,22 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
     void request<{ items: University[] }>('/api/v1/universities?Page=1&PageSize=100')
       .then(data => setUniversities(data.items))
       .catch(error => onError(error instanceof Error ? error.message : 'تعذر تحميل الجامعات.'));
+    // W14.3 D4: hydrate the cascade lists from the shared URL context
+    // (e.g. arriving from the Question Bank with ?univ=…&subject=… already set).
+    void (async () => {
+      const ids = academicIdsOf(academic);
+      if (!ids.universityId && !ids.collegeId && !ids.yearId && !ids.semesterId && !ids.subjectId) return;
+      try {
+        if (ids.universityId) setColleges(await request<College[]>(`/api/v1/universities/${ids.universityId}/colleges`));
+        if (ids.collegeId) setYears(await request<AcademicYear[]>(`/api/v1/colleges/${ids.collegeId}/years`));
+        if (ids.yearId) setSemesters(await request<Semester[]>(`/api/v1/years/${ids.yearId}/semesters`));
+        if (ids.semesterId) setSubjects(await request<Subject[]>(`/api/v1/semesters/${ids.semesterId}/subjects`));
+        try { setLectures(await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${ids.subjectId}/lectures`)); }
+        catch { /* lectures list is optional for the context restore */ }
+      } catch {
+        academic.clear(); // stale context (deleted academic entity?) — drop the URL params
+      }
+    })();
     // The directory is loaded once per authenticated workspace.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -199,34 +215,35 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
   }, [showEditor, subjectId, form.lectureId, candidateQuery]);
 
   async function chooseUniversity(id: string) {
-    setUniversityId(id); setCollegeId(''); setYearId(''); setSemesterId(''); setSubjectId('');
+    academic.chooseUniversity(id);
     setColleges([]); setYears([]); setSemesters([]); setSubjects([]); setLectures([]); closeEditor();
     if (!id) return;
     try { setColleges(await request<College[]>(`/api/v1/universities/${id}/colleges`)); }
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل الكليات.'); }
   }
   async function chooseCollege(id: string) {
-    setCollegeId(id); setYearId(''); setSemesterId(''); setSubjectId('');
+    academic.chooseCollege(id);
     setYears([]); setSemesters([]); setSubjects([]); setLectures([]); closeEditor();
     if (!id) return;
     try { setYears(await request<AcademicYear[]>(`/api/v1/colleges/${id}/years`)); }
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل السنوات.'); }
   }
   async function chooseYear(id: string) {
-    setYearId(id); setSemesterId(''); setSubjectId('');
+    academic.chooseYear(id);
     setSemesters([]); setSubjects([]); setLectures([]); closeEditor();
     if (!id) return;
     try { setSemesters(await request<Semester[]>(`/api/v1/years/${id}/semesters`)); }
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل الفصول.'); }
   }
   async function chooseSemester(id: string) {
-    setSemesterId(id); setSubjectId(''); setSubjects([]); setLectures([]); closeEditor();
+    academic.chooseSemester(id);
+    setSubjects([]); setLectures([]); closeEditor();
     if (!id) return;
     try { setSubjects(await request<Subject[]>(`/api/v1/semesters/${id}/subjects`)); }
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل المواد.'); }
   }
   async function chooseSubject(id: string) {
-    setSubjectId(id); setLectures([]); closeEditor();
+    academic.chooseSubject(id); setLectures([]); closeEditor();
     if (!id) return;
     try { setLectures(await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${id}/lectures`)); }
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل المحاضرات.'); }

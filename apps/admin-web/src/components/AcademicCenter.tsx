@@ -20,6 +20,7 @@ import {
   School, Send, Stethoscope, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
+import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type University = { id: string; nameAr: string; nameEn?: string | null; slug: string; collegesCount: number; isArchived: boolean };
@@ -72,11 +73,10 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
-  const [universityId, setUniversityId] = useState('');
-  const [collegeId, setCollegeId] = useState('');
-  const [yearId, setYearId] = useState('');
-  const [semesterId, setSemesterId] = useState('');
-  const [subjectId, setSubjectId] = useState('');
+  // W14.3 D4: the academic selection lives in the URL query string and is
+  // shared across centers (Questions / Exams / Academic / ExamCourses).
+  const academic = useAcademicContext();
+  const { universityId, collegeId, yearId, semesterId, subjectId } = academic;
   const [busy, setBusy] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [quickForms, setQuickForms] = useState<Record<StageKey, QuickForm>>({
@@ -93,11 +93,13 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
 
+  // W14.3 D4: list clearing only — the ids themselves are cleared by the
+  // academic-context hook (downstream reset lives in the URL now).
   const resetBelow = (level: 'university' | 'college' | 'year' | 'semester' | 'subject') => {
-    if (level === 'university') { setCollegeId(''); setYears([]); setColleges([]); }
-    if (level === 'university' || level === 'college') { setYearId(''); setSemesters([]); }
-    if (level === 'university' || level === 'college' || level === 'year') { setSemesterId(''); setSubjects([]); }
-    if (level !== 'subject') { setSubjectId(''); setLectures([]); }
+    if (level === 'university') { setYears([]); setColleges([]); }
+    if (level === 'university' || level === 'college') { setSemesters([]); }
+    if (level === 'university' || level === 'college' || level === 'year') { setSubjects([]); }
+    if (level !== 'subject') { setLectures([]); }
   };
 
   const archiveSuffix = (includeArchived = showArchived) => (includeArchived ? '&includeArchived=true' : '');
@@ -129,18 +131,37 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
 
   // Initial load — the universities list is the entry directory.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void loadUniversities().catch((error) => onError(error.message)); }, []);
+  useEffect(() => {
+    void loadUniversities().catch((error) => onError(error.message));
+    // W14.3 D4: hydrate the cascade lists from the shared URL context
+    // (e.g. arriving from the Question Bank with ?univ=…&subject=… already set).
+    void (async () => {
+      const ids = academicIdsOf(academic);
+      if (!ids.universityId && !ids.collegeId && !ids.yearId && !ids.semesterId && !ids.subjectId) return;
+      try {
+        if (ids.universityId) await loadColleges(ids.universityId);
+        if (ids.collegeId) await loadYears(ids.collegeId);
+        if (ids.yearId) await loadSemesters(ids.yearId);
+        if (ids.semesterId) await loadSubjects(ids.semesterId);
+        if (ids.subjectId) await loadLectures(ids.subjectId);
+      } catch {
+        academic.clear(); // stale context (deleted academic entity?) — drop the URL params
+      }
+    })();
+    // Hydration runs once on mount; loaders/onError are stable per token (Push pattern).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  async function chooseUniversity(id: string) { setUniversityId(id); resetBelow('university'); if (id) await loadColleges(id).catch((error) => onError(error.message)); }
-  async function chooseCollege(id: string) { setCollegeId(id); resetBelow('college'); if (id) await loadYears(id).catch((error) => onError(error.message)); }
-  async function chooseYear(id: string) { setYearId(id); resetBelow('year'); if (id) await loadSemesters(id).catch((error) => onError(error.message)); }
-  async function chooseSemester(id: string) { setSemesterId(id); resetBelow('semester'); if (id) await loadSubjects(id).catch((error) => onError(error.message)); }
-  async function chooseSubject(id: string) { setSubjectId(id); resetBelow('subject'); if (id) await loadLectures(id).catch((error) => onError(error.message)); }
+  async function chooseUniversity(id: string) { academic.chooseUniversity(id); resetBelow('university'); if (id) await loadColleges(id).catch((error) => onError(error.message)); }
+  async function chooseCollege(id: string) { academic.chooseCollege(id); resetBelow('college'); if (id) await loadYears(id).catch((error) => onError(error.message)); }
+  async function chooseYear(id: string) { academic.chooseYear(id); resetBelow('year'); if (id) await loadSemesters(id).catch((error) => onError(error.message)); }
+  async function chooseSemester(id: string) { academic.chooseSemester(id); resetBelow('semester'); if (id) await loadSubjects(id).catch((error) => onError(error.message)); }
+  async function chooseSubject(id: string) { academic.chooseSubject(id); resetBelow('subject'); if (id) await loadLectures(id).catch((error) => onError(error.message)); }
 
   async function toggleArchived() {
     const next = !showArchived;
     setShowArchived(next);
-    setUniversityId(''); setCollegeId(''); setYearId(''); setSemesterId(''); setSubjectId('');
+    academic.clear();
     setColleges([]); setYears([]); setSemesters([]); setSubjects([]); setLectures([]);
     setOpenQuick(null);
     await loadUniversities(next).catch((error) => onError(error.message));

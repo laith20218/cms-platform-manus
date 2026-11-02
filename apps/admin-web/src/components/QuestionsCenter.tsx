@@ -43,6 +43,7 @@ import {
   Search, Send, Trash2, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
+import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
@@ -219,11 +220,10 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
-  const [universityId, setUniversityId] = useState('');
-  const [collegeId, setCollegeId] = useState('');
-  const [yearId, setYearId] = useState('');
-  const [semesterId, setSemesterId] = useState('');
-  const [subjectId, setSubjectId] = useState('');
+  // W14.3 D4: the academic selection lives in the URL query string and is
+  // shared across centers (Questions / Exams / Academic / ExamCourses).
+  const academic = useAcademicContext();
+  const { universityId, collegeId, yearId, semesterId, subjectId } = academic;
 
   // === Questions state ===
   const [questions, setQuestions] = useState<QuestionSummary[]>([]);
@@ -245,24 +245,32 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     void request<PagedResult<University>>('/api/v1/universities?Page=1&PageSize=100')
       .then(data => setUniversities(data.items))
       .catch(error => onError(error instanceof Error ? error.message : 'تعذر تحميل الجامعات.'));
-    // Push 2 / Track 1: restore the sticky context (cascade + form context) after a reload.
+    // W14.3 D4: hydrate the cascade from the URL (`?univ=…&subject=…`). A legacy
+    // localStorage sticky (pre-D4) migrates into the URL once; afterwards the sticky
+    // keeps only editor defaults (lecture/type/difficulty/tags) for "Save & Add Another".
     void (async () => {
+      let ids = academicIdsOf(academic);
       const sticky = readSticky();
-      if (!sticky?.subjectId) return;
+      if (!ids.subjectId && sticky?.subjectId) {
+        ids = {
+          universityId: sticky.universityId, collegeId: sticky.collegeId,
+          yearId: sticky.yearId, semesterId: sticky.semesterId, subjectId: sticky.subjectId,
+        };
+        academic.hydrate(ids); // seed the URL from the legacy sticky
+      }
+      if (!ids.universityId && !ids.collegeId && !ids.yearId && !ids.semesterId && !ids.subjectId) return;
       try {
-        setUniversityId(sticky.universityId); setCollegeId(sticky.collegeId);
-        setYearId(sticky.yearId); setSemesterId(sticky.semesterId); setSubjectId(sticky.subjectId);
-        if (sticky.universityId) setColleges(await request<College[]>(`/api/v1/universities/${sticky.universityId}/colleges`));
-        if (sticky.collegeId) setYears(await request<AcademicYear[]>(`/api/v1/colleges/${sticky.collegeId}/years`));
-        if (sticky.yearId) setSemesters(await request<Semester[]>(`/api/v1/years/${sticky.yearId}/semesters`));
-        if (sticky.semesterId) setSubjects(await request<Subject[]>(`/api/v1/semesters/${sticky.semesterId}/subjects`));
-        if (sticky.subjectId) {
-          try { setLectures(await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${sticky.subjectId}/lectures`)); }
-          catch { /* lectures list is optional for the sticky restore */ }
+        if (ids.universityId) setColleges(await request<College[]>(`/api/v1/universities/${ids.universityId}/colleges`));
+        if (ids.collegeId) setYears(await request<AcademicYear[]>(`/api/v1/colleges/${ids.collegeId}/years`));
+        if (ids.yearId) setSemesters(await request<Semester[]>(`/api/v1/years/${ids.yearId}/semesters`));
+        if (ids.semesterId) setSubjects(await request<Subject[]>(`/api/v1/semesters/${ids.semesterId}/subjects`));
+        if (ids.subjectId) {
+          try { setLectures(await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${ids.subjectId}/lectures`)); }
+          catch { /* lectures list is optional for the context restore */ }
         }
-        setForm(formFromSticky(sticky));
+        if (sticky?.subjectId === ids.subjectId) setForm(formFromSticky(sticky));
       } catch {
-        writeSticky(null); // stale context (deleted academic entity?) — discard silently
+        academic.clear(); // stale context (deleted academic entity?) — drop the URL params
       }
     })();
     // Initial reference directory only.
@@ -297,7 +305,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   }
 
   async function chooseUniversity(id: string) {
-    setUniversityId(id); setCollegeId(''); setYearId(''); setSemesterId(''); setSubjectId('');
+    academic.chooseUniversity(id);
     setColleges([]); setYears([]); setSemesters([]); setSubjects([]); setLectures([]);
     setForm(emptyForm());
     if (!id) return;
@@ -305,7 +313,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل الكليات.'); }
   }
   async function chooseCollege(id: string) {
-    setCollegeId(id); setYearId(''); setSemesterId(''); setSubjectId('');
+    academic.chooseCollege(id);
     setYears([]); setSemesters([]); setSubjects([]); setLectures([]);
     setForm(emptyForm());
     if (!id) return;
@@ -313,7 +321,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل السنوات.'); }
   }
   async function chooseYear(id: string) {
-    setYearId(id); setSemesterId(''); setSubjectId('');
+    academic.chooseYear(id);
     setSemesters([]); setSubjects([]); setLectures([]);
     setForm(emptyForm());
     if (!id) return;
@@ -321,14 +329,15 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل الفصول.'); }
   }
   async function chooseSemester(id: string) {
-    setSemesterId(id); setSubjectId(''); setSubjects([]); setLectures([]);
+    academic.chooseSemester(id);
+    setSubjects([]); setLectures([]);
     setForm(emptyForm());
     if (!id) return;
     try { setSubjects(await request<Subject[]>(`/api/v1/semesters/${id}/subjects`)); }
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل المواد.'); }
   }
   async function chooseSubject(id: string) {
-    setSubjectId(id); setLectures([]); setForm(emptyForm()); setShowEditor(false);
+    academic.chooseSubject(id); setLectures([]); setForm(emptyForm()); setShowEditor(false);
     if (!id) return;
     try { setLectures(await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${id}/lectures`)); }
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل المحاضرات.'); }
