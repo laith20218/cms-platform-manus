@@ -54,6 +54,10 @@ try
     // === Infrastructure Services ===
     builder.Services.AddInfrastructureServices(builder.Configuration);
 
+    // === W14.2 D.3: exam timeout sweeper (server-driven timer, D7) ===
+    // Plain BackgroundService per the wave ruling — Hangfire stays unwired.
+    builder.Services.AddHostedService<CMS.Api.BackgroundServices.ExamTimeoutSweeper>();
+
     // === Authentication ===
     var jwtSecret = builder.Configuration["Jwt:Secret"];
     if (string.IsNullOrWhiteSpace(jwtSecret) || Encoding.UTF8.GetByteCount(jwtSecret) < 32)
@@ -149,6 +153,9 @@ try
         options.AddPolicy("password-reset", context => FixedWindow(context, 3, TimeSpan.FromMinutes(15)));
         options.AddPolicy("auth", context => FixedWindow(context, 8, TimeSpan.FromMinutes(5)));
         options.AddPolicy("questions", context => FixedWindow(context, 60, TimeSpan.FromMinutes(1)));
+        // W14.2 A.6 (R75 P2): exam-session lifecycle endpoints (start/answer/submit/cancel)
+        // get their own generous-but-bounded quota so bursts cannot hammer session state.
+        options.AddPolicy("exam-session", context => FixedWindow(context, 120, TimeSpan.FromMinutes(1)));
         options.AddPolicy("search", context => FixedWindow(context, 30, TimeSpan.FromMinutes(1)));
         options.AddPolicy("health", context => FixedWindow(context, 600, TimeSpan.FromMinutes(1)));
         options.AddPolicy("static", context => FixedWindow(context, 600, TimeSpan.FromMinutes(1)));

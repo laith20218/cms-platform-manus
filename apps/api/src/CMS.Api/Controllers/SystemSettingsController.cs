@@ -43,7 +43,7 @@ public class SystemSettingsController : ControllerBase
     public async Task<IActionResult> List([FromQuery] string? category, CancellationToken ct = default)
     {
         var adminId = GetAdminId();
-        if (!await _permissions.HasPermissionAsync(adminId, Resources.Settings, Actions.View, ct)) return Forbid();
+        if (!await _permissions.HasPermissionAsync(adminId, Resources.Settings, Actions.View, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var query = _db.SystemSettings.AsNoTracking();
         if (!string.IsNullOrEmpty(category))
@@ -60,7 +60,7 @@ public class SystemSettingsController : ControllerBase
     public async Task<IActionResult> Get(string key, CancellationToken ct = default)
     {
         var adminId = GetAdminId();
-        if (!await _permissions.HasPermissionAsync(adminId, Resources.Settings, Actions.View, ct)) return Forbid();
+        if (!await _permissions.HasPermissionAsync(adminId, Resources.Settings, Actions.View, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var setting = await _db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Key == key, ct);
         if (setting is null) return NotFound(new ProblemDetails
@@ -80,7 +80,7 @@ public class SystemSettingsController : ControllerBase
     public async Task<IActionResult> Update(string key, [FromBody] UpdateSettingRequest body, CancellationToken ct = default)
     {
         var adminId = GetAdminId();
-        if (!await _permissions.HasPermissionAsync(adminId, Resources.Settings, Actions.Edit, ct)) return Forbid();
+        if (!await _permissions.HasPermissionAsync(adminId, Resources.Settings, Actions.Edit, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var setting = await _db.SystemSettings.FirstOrDefaultAsync(s => s.Key == key, ct);
         if (setting is null) return NotFound(new ProblemDetails
@@ -96,7 +96,7 @@ public class SystemSettingsController : ControllerBase
             var scope = await _permissions.GetScopeAsync(adminId, ct);
             if (scope?.IsSuperAdmin != true)
             {
-                return Forbid();
+                return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
             }
         }
 
@@ -139,7 +139,7 @@ public class SystemSettingsController : ControllerBase
     public async Task<IActionResult> Reset(string key, [FromBody] ResetSettingRequest body, CancellationToken ct = default)
     {
         var adminId = GetAdminId();
-        if (!await _permissions.HasPermissionAsync(adminId, Resources.Settings, Actions.Edit, ct)) return Forbid();
+        if (!await _permissions.HasPermissionAsync(adminId, Resources.Settings, Actions.Edit, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var setting = await _db.SystemSettings.FirstOrDefaultAsync(s => s.Key == key, ct);
         if (setting is null) return NotFound();
@@ -147,7 +147,7 @@ public class SystemSettingsController : ControllerBase
         if (string.Equals(setting.Category, "security", StringComparison.OrdinalIgnoreCase))
         {
             var scope = await _permissions.GetScopeAsync(adminId, ct);
-            if (scope?.IsSuperAdmin != true) return Forbid();
+            if (scope?.IsSuperAdmin != true) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         }
 
         if (string.IsNullOrEmpty(body.DefaultValue))

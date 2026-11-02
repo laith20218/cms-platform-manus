@@ -66,7 +66,8 @@ public sealed class ExamQueryHandlers :
                 available && !hasReachedLimit,
                 blockedReason,
                 exam.MaxAttempts.HasValue ? Math.Max(0, exam.MaxAttempts.Value - countedAttempts) : null,
-                inProgress);
+                inProgress,
+                exam.ModelLetter?.ToString()); // W14.2 E.2 (D7)
         }).ToList();
     }
 
@@ -113,7 +114,8 @@ public sealed class ExamQueryHandlers :
         exam.TotalQuestions, exam.PassingScore, exam.AvailableFrom, exam.AvailableUntil,
         exam.MaxAttempts, exam.ShuffleQuestions, exam.ShuffleOptions,
         exam.ShowResultsImmediately, exam.AllowReview, exam.ShowCorrectAnswers,
-        exam.ShowExplanations, exam.Status.ToString());
+        exam.ShowExplanations, exam.Status.ToString(),
+        exam.ModelLetter?.ToString()); // W14.2 E.2 (D7)
 
     internal static ExamSessionDto BuildSessionDto(ExamSession session)
     {
@@ -157,7 +159,9 @@ public sealed class ExamQueryHandlers :
             session.ExpiresAt, session.CurrentQuestionOrder, questions);
     }
 
-    internal static async Task<bool> FinalizeTimedOutSessionIfNeededAsync(ExamSession session, CancellationToken ct)
+    /// <summary>W14.2 D.3: shared with the ExamTimeoutSweeper (CMS.Api BackgroundService) —
+    /// public so the sweeper reuses the single finalize path instead of duplicating it.</summary>
+    public static async Task<bool> FinalizeTimedOutSessionIfNeededAsync(ExamSession session, CancellationToken ct)
     {
         if (session.Status != ExamSessionStatus.InProgress || DateTime.UtcNow < session.ExpiresAt)
             return false;
@@ -199,7 +203,12 @@ public sealed class ExamSessionHandlers :
     IRequestHandler<ReplaceExamQuestionsCommand, AdminExamDetailsDto>,
     IRequestHandler<PublishExamCommand, Unit>,
     IRequestHandler<ArchiveExamCommand, Unit>,
-    IRequestHandler<DeleteExamCommand, Unit>
+    IRequestHandler<DeleteExamCommand, Unit>,
+    // W14.2 C.2 — editor completion endpoints
+    IRequestHandler<UnpublishExamCommand, Unit>,
+    IRequestHandler<ReorderExamQuestionsCommand, AdminExamDetailsDto>,
+    // W14.2 D.4 — server-driven timer heartbeat (D7)
+    IRequestHandler<HeartbeatExamSessionCommand, ExamHeartbeatDto>
 {
     private readonly IApplicationDbContext _db;
     private readonly IUnitOfWork _unitOfWork;
@@ -521,6 +530,71 @@ public sealed class ExamSessionHandlers :
         await _unitOfWork.SaveChangesAsync(ct);
         await AuditAsync(null, req.DeletedBy, $"Exam soft deleted: {exam.Id}", ct);
         return Unit.Value;
+    }
+
+    /// <summary>W14.2 C.2: reverts a published exam to Draft. Existing sessions keep their
+    /// snapshots (D2); only new starts are blocked by the published-status check.</summary>
+    public async Task<Unit> Handle(UnpublishExamCommand req, CancellationToken ct)
+    {
+        var exam = await _db.Exams.FirstOrDefaultAsync(item => item.Id == req.Id && item.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Exam", req.Id);
+        exam.Unpublish();
+        await _unitOfWork.SaveChangesAsync(ct);
+        await AuditAsync(null, req.UpdatedBy, $"Exam unpublished: {exam.Id}", ct);
+        return Unit.Value;
+    }
+
+    /// <summary>W14.2 C.2: replaces the exam's question order. The submitted list must cover
+    /// every composed question exactly once — partial orders are rejected.</summary>
+    public async Task<AdminExamDetailsDto> Handle(ReorderExamQuestionsCommand req, CancellationToken ct)
+    {
+        var exam = await _db.Exams
+            .Include(item => item.ExamQuestions)
+            .FirstOrDefaultAsync(item => item.Id == req.ExamId && item.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Exam", req.ExamId);
+        if (req.QuestionIds.Count == 0)
+            throw new DomainException("قائمة الترتيب لا يمكن أن تكون فارغة");
+        if (req.QuestionIds.Distinct().Count() != req.QuestionIds.Count)
+            throw new DomainException("لا يمكن تكرار السؤال نفسه في قائمة الترتيب");
+
+        var byQuestion = exam.ExamQuestions.ToDictionary(item => item.QuestionId);
+        var unknownId = req.QuestionIds.Except(byQuestion.Keys).FirstOrDefault();
+        if (unknownId != Guid.Empty)
+            throw new NotFoundException("ExamQuestion", unknownId);
+        if (req.QuestionIds.Count != exam.ExamQuestions.Count)
+            throw new DomainException("قائمة الترتيب يجب أن تحوي كل أسئلة الاختبار");
+
+        for (var index = 0; index < req.QuestionIds.Count; index++)
+            byQuestion[req.QuestionIds[index]].MoveTo(index);
+        await _unitOfWork.SaveChangesAsync(ct);
+        await AuditAsync(null, req.UpdatedBy, $"Exam question order replaced: {exam.Id}; count={req.QuestionIds.Count}", ct);
+
+        return await BuildAdminDetailAsync(exam.Id, ct);
+    }
+
+    /// <summary>
+    /// W14.2 D.4 (D7): server-driven timer keep-alive. Ownership is enforced, an expired
+    /// session is finalized on the spot (single finalize path), and the client receives
+    /// the authoritative remaining seconds. NOTE: ExamSession has no LastAccessedAt
+    /// column and W14.2 is migration-frozen (§3) — freshness is therefore NOT persisted
+    /// here; the sweeper's ExpiresAt scan is the expiry authority, not last-access.
+    /// </summary>
+    public async Task<ExamHeartbeatDto> Handle(HeartbeatExamSessionCommand req, CancellationToken ct)
+    {
+        var session = await LoadSessionWithSnapshotAsync(req.SessionId, req.StudentId, ct);
+        await EnsureSubjectEntitlementAsync(req.StudentId, session.Exam.SubjectId, ct);
+        if (await ExamQueryHandlers.FinalizeTimedOutSessionIfNeededAsync(session, ct))
+        {
+            await _unitOfWork.SaveChangesAsync(ct);
+            await AuditAsync(req.StudentId, null, $"Exam session timed out (heartbeat): {session.Id}", ct);
+        }
+
+        var inProgress = session.Status == ExamSessionStatus.InProgress;
+        return new ExamHeartbeatDto(
+            session.Id,
+            session.Status.ToString(),
+            inProgress ? Math.Max(0, (int)Math.Ceiling((session.ExpiresAt - DateTime.UtcNow).TotalSeconds)) : 0,
+            inProgress ? session.ExpiresAt : null);
     }
 
     internal static async Task FinalizeSessionAsync(ExamSession session, ExamSessionStatus terminalStatus, CancellationToken ct)
@@ -916,7 +990,8 @@ public sealed class AdminExamQueryHandlers :
                 exam.AvailableFrom, exam.AvailableUntil, exam.MaxAttempts, exam.Status.ToString(),
                 exam.Sessions.Count,
                 exam.Sessions.Count(session => session.Status == ExamSessionStatus.Completed || session.Status == ExamSessionStatus.TimedOut),
-                exam.Sessions.Where(session => (session.Status == ExamSessionStatus.Completed || session.Status == ExamSessionStatus.TimedOut) && session.Score.HasValue).Select(session => session.Score).Average()))
+                exam.Sessions.Where(session => (session.Status == ExamSessionStatus.Completed || session.Status == ExamSessionStatus.TimedOut) && session.Score.HasValue).Select(session => session.Score).Average(),
+                exam.ModelLetter.ToString())) // W14.2 E.2 (D7)
             .ToListAsync(ct);
         return new PagedExamResultDto<AdminExamListItemDto>(exams, NormalizePage(req.Page) + 1, NormalizePageSize(req.PageSize), total);
     }

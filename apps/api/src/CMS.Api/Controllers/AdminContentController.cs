@@ -44,7 +44,7 @@ public sealed class AdminContentController : ControllerBase
         [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
     {
         var scope = await GetAuthorizedScopeAsync(Resources.Questions, ct);
-        if (scope is null) return Forbid();
+        if (scope is null) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var query = ApplyQuestionScope(_db.Questions.AsNoTracking().Where(question => question.DeletedAt == null), scope);
         if (subjectId.HasValue) query = query.Where(question => question.SubjectId == subjectId.Value);
@@ -63,7 +63,7 @@ public sealed class AdminContentController : ControllerBase
         [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
     {
         var scope = await GetAuthorizedScopeAsync(Resources.Exams, ct);
-        if (scope is null) return Forbid();
+        if (scope is null) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var query = ApplyExamScope(_db.Exams.AsNoTracking().Where(exam => exam.DeletedAt == null), scope);
         if (subjectId.HasValue) query = query.Where(exam => exam.SubjectId == subjectId.Value);
@@ -82,7 +82,7 @@ public sealed class AdminContentController : ControllerBase
         [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
     {
         var scope = await GetAuthorizedScopeAsync(Resources.Library, ct);
-        if (scope is null) return Forbid();
+        if (scope is null) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var query = ApplyFileScope(_db.LibraryFiles.AsNoTracking().Where(file => file.DeletedAt == null), scope);
         if (subjectId.HasValue) query = query.Where(file => file.SubjectId == subjectId.Value);
@@ -120,7 +120,7 @@ public sealed class AdminContentController : ControllerBase
     public async Task<ActionResult<List<AdminLectureListItem>>> GetSubjectLectures(Guid subjectId, [FromQuery] bool includeArchived = false, CancellationToken ct = default)
     {
         var scope = await GetAuthorizedScopeAsync(Resources.Subjects, ct);
-        if (scope is null || !await _permissions.IsInScopeAsync(GetAdminId(), "subject", subjectId, ct)) return Forbid();
+        if (scope is null || !await _permissions.IsInScopeAsync(GetAdminId(), "subject", subjectId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
         var lectures = await _db.Lectures.AsNoTracking()
             .Where(lecture => lecture.SubjectId == subjectId && (includeArchived || lecture.DeletedAt == null))

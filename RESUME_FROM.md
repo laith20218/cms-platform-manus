@@ -1,28 +1,41 @@
 # RESUME_FROM — next session start point
 
-- **Branch**: `feat/14.1-data-foundations` (1 commit, LOCAL — do NOT push without supervisor approval, §2).
-- **Base**: main @ `65a2e50` (PR #69 merged; all prior waves closed/deployed).
-- **State**: Wave 14.1 (Data Model Foundations) implemented per PART I —
-  entities `ExamCourse` / `ExamCourseItem` / `PracticeSession` / `PracticeAnswer`
-  (D1/D6/D13), `Question.QuestionUsage` (D3), `Exam.ModelLetter` (D7),
-  `ErrorReport.ReportType` (D12), EF config + hand-authored migration
-  `20261116120000_AddWave14ExamsRework` + snapshot extended in the same commit,
-  TODO(W14.2) markers on the two legacy read-path filter sites, idempotent Neon
-  SQL mirror at `scripts/migrations/Wave14ExamsRework.sql`.
-- **Verification (in-sandbox, .NET 9.0.320)**: dotnet build 0 errors ·
-  dotnet test 619/619 passed (27 skipped Testcontainers, same as baseline) ·
-  `dotnet ef migrations has-pending-model-changes` → "No changes" (snapshot parity
-  tool-proven). Deviations from the PART I brief are ALL disclosed in
-  WIP_STATUS.md → "Deviations" (Exam file location, ErrorReport.QuestionId
-  pre-existing, index supersession, chosen FK behaviors, FreeOrPaid semantics,
-  Semester as int).
-- **Next round (W14.2)**: supervisor review of this branch → push approval →
-  PR + CI + merge + Render deploy (migration applies during deploy — verify
-  `exam_courses`, `exam_course_items`, `practice_sessions`, `practice_answers`
-  exist in Neon and `questions.question_usage`/`error_reports.report_type`
-  backfills landed). THEN Wave 14.2 = API logic (ExamCourse endpoints, D3
-  filtering, D5 admin editor backend, D12 report submission), removal of the two
-  TODO(W14.2) legacy read paths.
-- **Environment note**: this sandbox HAS the .NET 9 SDK at `/home/z/.dotnet`
-  (`export PATH=/home/z/.dotnet:$PATH`); dotnet-ef 9.0.22 restores from
-  `.config/dotnet-tools.json`. No Docker → 27 Testcontainers tests skip (expected).
+- **Branch**: `feat/14.2-backend-api` (6 commits, LOCAL — do NOT push without
+  supervisor approval, §2). Base: main @ `87d93d5` (PR #70, W14.1 merged).
+- **State**: Wave 14.2 (Backend API Completeness) implemented per PART I —
+  Phase A R75 P0/P1/P2 (offline sync ownership + snapshot grading + tamper
+  replacement, 403→ProblemDetails wave-wide, legacy `Question.ExamId` reads
+  retired via ExamQuestion join, AdminExams double auth, TryParse guards,
+  "exam-session" rate limiter) · Phase B domain APIs (ExamCourse admin+student,
+  Practice D13, Reports D12) · Phase C missing admin endpoints (questions
+  duplicate/unpublish/preview/bulk, exams unpublish/reorder/preview) · Phase D
+  (per-exam + per-question stats, ExamTimeoutSweeper BackgroundService, exam
+  heartbeat) · Phase E DTO alignment (QuestionUsage / ModelLetter / ReportType) ·
+  Phase F 18 new regression tests + this file + WIP_STATUS.
+- **Verification (in-sandbox, .NET 9.0.320 at /home/z/.dotnet — reinstall with
+  `bash /tmp/dotnet-install.sh`-style script if a fresh sandbox loses it;
+  `export PATH=/home/z/.dotnet:$PATH`; design-time EF needs
+  `ConnectionStrings__PostgreSQL` env var)**: dotnet build 0 errors ·
+  dotnet test **637/637 passed (27 skipped Testcontainers, same as baseline)** ·
+  `dotnet ef migrations has-pending-model-changes` → "No changes" after EVERY commit.
+- **Commit SHAs (local, oldest→newest)**: `0639228` → `af9dcb9` → `f74c102` →
+  `2875017` → `515cc4f` → `<HEAD>` (see WIP_STATUS for the map + endpoint list).
+- **Deviations (ALL disclosed, review before push)**: WIP_STATUS §10 items 1–8 —
+  headline: heartbeat does NOT persist LastAccessedAt (no column, §3 freeze);
+  A.2 was extended to all 90 bare-Forbid sites per the "every 403" constraint;
+  exam reorder = question-order replace; sweeper drops the Exam include
+  (orphan-proof, found via tests); practice auto-completes on full grading.
+- **Next round (STOP GATE → supervisor)**:
+  1. Supervisor reviews this branch (esp. the 90-site 403 sweep + deviations).
+  2. Push approval → `git push -u origin feat/14.2-backend-api` (PAT inline, §5,
+     triple-scrub) → PR → CI green → merge → Render deploy (NO migration runs
+     this wave — verify `exam_courses` etc. UNCHANGED in Neon after deploy).
+  3. Rotate the chat-pasted credentials (Vercel ×2, GitHub PAT, Neon key,
+     Upstash blob token, Render key, both account passwords) — outstanding
+     since W14.1.
+  4. THEN Wave 14.3 candidates (not committed): ExamSession.LastAccessedAt
+     column (heartbeat durability), Question.TextHtml domain setter, D5/D7/D8
+     frontend waves, Question.ExamId column drop (A.3 follow-up).
+- **Environment note**: this sandbox has NO Docker (27 Testcontainers tests skip,
+  expected) and NO dotnet on PATH by default — the SDK was installed to
+  /home/z/.dotnet during this wave.

@@ -14,7 +14,9 @@ public record GetQuestionsQuery(
     int Page = 1,
     int PageSize = 20,
     string Sort = "createdAt",
-    string Order = "desc"
+    string Order = "desc",
+    // W14.2 E.1 (D3): optional usage filter (practice|exam|both).
+    string? Usage = null
 ) : IRequest<PagedResult<QuestionListItemDto>>;
 
 public record GetQuestionByIdQuery(Guid Id, Guid? StudentId) : IRequest<QuestionDto>;
@@ -54,7 +56,9 @@ public record AnswerQuestionCommand(
 // ===== Report =====
 public record ReportQuestionCommand(
     Guid QuestionId, Guid StudentId,
-    string ReasonType, string Description, string? ScreenshotUrl
+    string ReasonType, string Description, string? ScreenshotUrl,
+    // W14.2 B.4 (D12): optional triage classification, default Other.
+    string? ReportType = null
 ) : IRequest<Unit>;
 
 // ===== Import =====
@@ -66,3 +70,6 @@ public record ImportQuestionsCommand(
 
 // ===== Paged Result =====
 public record PagedResult<T>(List<T> Items, int Total, int Page, int PageSize, int TotalPages);
+
+// ===== W14.2 C.1 — editor completion endpoints =====
+public record BulkQuestionActionDto(List<Guid> Ids);

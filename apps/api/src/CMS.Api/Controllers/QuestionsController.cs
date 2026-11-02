@@ -29,7 +29,13 @@ public class QuestionsController : ControllerBase
     }
 
     private Guid? GetStudentId() => Guid.TryParse(User.FindFirst("sub")?.Value, out var id) ? id : null;
-    private Guid GetAdminId() => Guid.Parse(User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
+
+    /// <summary>W14.2 A.5 (R75 P2): Guid.Parse replaced with TryParse — a malformed admin
+    /// subject claim now yields 401 via the UnauthorizedAccessException mapping instead of
+    /// an unhandled FormatException (500).</summary>
+    private Guid GetAdminId() => Guid.TryParse(User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var adminId)
+        ? adminId
+        : throw new UnauthorizedAccessException("معرّف المدير في الرمز غير صالح");
 
     /// <summary>Push 2 / Track 2: acting session id from the access token — powers per-session counters.</summary>
     private Guid? GetSessionId() => Guid.TryParse(User.FindFirst("sid")?.Value, out var id) ? id : null;
@@ -42,7 +48,7 @@ public class QuestionsController : ControllerBase
     [EnableRateLimiting("questions")]
     public async Task<IActionResult> GetQuestions(
         [FromQuery] Guid? subjectId, [FromQuery] Guid? lectureId, [FromQuery] Guid? examId,
-        [FromQuery] string? difficulty, [FromQuery] string? search,
+        [FromQuery] string? difficulty, [FromQuery] string? search, [FromQuery] string? usage,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
         [FromQuery] string sort = "createdAt", [FromQuery] string order = "desc",
         CancellationToken ct = default)
@@ -73,7 +79,7 @@ public class QuestionsController : ControllerBase
         var rejection = await EntitlementRejectionAsync(studentId.Value, resolvedSubjectId, ct);
         if (rejection is not null) return rejection;
 
-        var result = await _mediator.Send(new GetQuestionsQuery(resolvedSubjectId, lectureId, examId, studentId, difficulty, search, page, pageSize, sort, order), ct);
+        var result = await _mediator.Send(new GetQuestionsQuery(resolvedSubjectId, lectureId, examId, studentId, difficulty, search, page, pageSize, sort, order, usage), ct);
         return Ok(result);
     }
 
@@ -126,7 +132,7 @@ public class QuestionsController : ControllerBase
         var subjectId = await SubjectIdForQuestionAsync(id, ct);
         var rejection = await EntitlementRejectionAsync(studentId, subjectId, ct);
         if (rejection is not null) return rejection;
-        await _mediator.Send(new ReportQuestionCommand(id, studentId, dto.ReasonType, dto.Description, dto.ScreenshotUrl), ct);
+        await _mediator.Send(new ReportQuestionCommand(id, studentId, dto.ReasonType, dto.Description, dto.ScreenshotUrl, dto.ReportType), ct);
         return NoContent();
     }
 
@@ -166,7 +172,11 @@ public class QuestionsController : ControllerBase
         if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(installationId)) return Unauthorized();
 
         var validation = await _signedEntitlements.ValidateAsync(token, studentId, installationId, subjectId, ct);
-        return validation.IsValid ? null : Forbid();
+        // W14.2 A.2 (R75 G-2 P1): ProblemDetails-with-detail 403 instead of a bare Forbid().
+        return validation.IsValid
+            ? null
+            : Problem(statusCode: StatusCodes.Status403Forbidden,
+                detail: validation.FailureReason ?? "الاشتراك لا يغطي محتوى هذه المادة");
     }
 
     private async Task<bool> CanManageAsync(string action, string entityType, Guid entityId, CancellationToken ct) =>
@@ -183,7 +193,7 @@ public class QuestionsController : ControllerBase
     public async Task<ActionResult<QuestionDto>> CreateQuestion(
         [FromBody] CreateQuestionDto dto, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Create, "subject", dto.SubjectId, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Create, "subject", dto.SubjectId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var result = await _mediator.Send(new CreateQuestionCommand(
             dto.Text, dto.Type, dto.SubjectId, dto.LectureId,
             dto.Difficulty, dto.Tags, dto.Options, dto.CorrectOptionId, dto.CorrectAnswer,
@@ -201,7 +211,7 @@ public class QuestionsController : ControllerBase
     public async Task<ActionResult<QuestionDto>> UpdateQuestion(
         Guid id, [FromBody] UpdateQuestionDto dto, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var result = await _mediator.Send(new UpdateQuestionCommand(
             id, dto.Text, dto.Difficulty, dto.Tags, dto.Explanation, dto.Reference, dto.Options, dto.CorrectAnswer,
             dto.Year, dto.ParagraphTag
@@ -216,7 +226,7 @@ public class QuestionsController : ControllerBase
     [Authorize(Roles = "admin,super_admin")]
     public async Task<IActionResult> DeleteQuestion(Guid id, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Delete, "question", id, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Delete, "question", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _mediator.Send(new DeleteQuestionCommand(id, GetAdminId()), ct);
         return NoContent();
     }
@@ -228,7 +238,7 @@ public class QuestionsController : ControllerBase
     [Authorize(Roles = "admin,super_admin")]
     public async Task<IActionResult> PublishQuestion(Guid id, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _mediator.Send(new PublishQuestionCommand(id), ct);
         return NoContent();
     }
@@ -240,7 +250,7 @@ public class QuestionsController : ControllerBase
     [Authorize(Roles = "admin,super_admin")]
     public async Task<IActionResult> ArchiveQuestion(Guid id, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         await _mediator.Send(new ArchiveQuestionCommand(id), ct);
         return NoContent();
     }
@@ -253,7 +263,7 @@ public class QuestionsController : ControllerBase
     public async Task<ActionResult<ImportResultDto>> ImportQuestions(
         [FromBody] ImportQuestionsDto dto, CancellationToken ct)
     {
-        if (!await CanManageAsync(Actions.Import, "subject", dto.SubjectId, ct)) return Forbid();
+        if (!await CanManageAsync(Actions.Import, "subject", dto.SubjectId, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var result = await _mediator.Send(new ImportQuestionsCommand(
             dto.SubjectId, dto.LectureId, dto.Questions, GetAdminId()
         ), ct);

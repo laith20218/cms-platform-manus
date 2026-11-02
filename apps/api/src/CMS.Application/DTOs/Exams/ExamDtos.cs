@@ -23,7 +23,9 @@ public record ExamDto(
     bool AllowReview,
     bool ShowCorrectAnswers,
     bool ShowExplanations,
-    string Status
+    string Status,
+    // W14.2 E.2 (D7): model-paper letter for نموذجي exams — null for normal exams.
+    string? ModelLetter = null
 );
 
 public record ExamListItemDto(
@@ -40,7 +42,9 @@ public record ExamListItemDto(
     bool CanStart,
     string? StartBlockedReason,
     int? RemainingAttempts,
-    bool HasInProgressSession
+    bool HasInProgressSession,
+    // W14.2 E.2 (D7): model-paper letter — null for normal exams.
+    string? ModelLetter = null
 );
 
 // ===== Student session =====
@@ -139,7 +143,9 @@ public record AdminExamListItemDto(
     string Status,
     int AttemptsCount,
     int CompletedCount,
-    double? AverageScore
+    double? AverageScore,
+    // W14.2 E.2 (D7): model-paper letter — null for normal exams.
+    string? ModelLetter = null
 );
 
 public record AdminExamDetailsDto(ExamDto Exam, List<AdminExamQuestionDto> Questions);
@@ -161,3 +167,58 @@ public record AdminExamResultDto(
 );
 
 public record PagedExamResultDto<T>(List<T> Items, int Page, int PageSize, int TotalCount);
+
+// ===== W14.2 C.2 — reorder + preview =====
+public record ReorderExamQuestionsDto(List<Guid> QuestionIds);
+
+/// <summary>Student-view rendering of an exam — correctness flags intentionally absent.</summary>
+public record AdminExamPreviewDto(
+    Guid Id,
+    string TitleAr,
+    int DurationMinutes,
+    int TotalQuestions,
+    string Status,
+    List<ExamPreviewQuestionDto> Questions);
+
+public record ExamPreviewQuestionDto(
+    Guid QuestionId,
+    int SortOrder,
+    string Text,
+    string Type,
+    string Difficulty,
+    List<ExamPreviewOptionDto> Options,
+    List<ExamPreviewImageDto> Images);
+
+public record ExamPreviewOptionDto(Guid Id, string Letter, string Text, string? ImageUrl);
+public record ExamPreviewImageDto(string ImageUrl, string? AltText, int SortOrder);
+
+// ===== W14.2 D.1/D.2/D.4 — exam analytics + heartbeat =====
+public record ExamStatsDto(
+    Guid ExamId,
+    int Started,
+    int Attempts,
+    int Completed,
+    int Timeouts,
+    int InProgress,
+    int Cancelled,
+    int Pass,
+    int Fail,
+    double? MeanScore,
+    double? MedianScore,
+    double AvgDurationSeconds,
+    List<ScoreBucketDto> Distribution);
+
+/// <summary>One decile bucket of the score histogram (label like "70-79"; last bucket "90-100").</summary>
+public record ScoreBucketDto(string Label, int Count);
+
+public record ExamQuestionStatsDto(
+    Guid QuestionId,
+    string Text,
+    int SortOrder,
+    int Attempts,
+    double CorrectPercent,
+    string? MostCommonWrongChoice,
+    double? AvgDurationSeconds,
+    bool Problematic);
+
+public record ExamHeartbeatDto(Guid SessionId, string Status, int RemainingSeconds, DateTime? ExpiresAt);

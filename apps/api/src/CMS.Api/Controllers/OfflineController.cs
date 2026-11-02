@@ -60,7 +60,11 @@ public class OfflineController : ControllerBase
             ?? Request.Headers["X-Device-Fingerprint"].FirstOrDefault();
         if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(installationId)) return Unauthorized();
         var validation = await _signedEntitlements.ValidateAsync(token, studentId, installationId, subjectId, ct);
-        return validation.IsValid ? null : Forbid();
+        // W14.2 A.2 (R75 G-2 P1): ProblemDetails-with-detail 403 instead of a bare Forbid().
+        return validation.IsValid
+            ? null
+            : Problem(statusCode: StatusCodes.Status403Forbidden,
+                detail: validation.FailureReason ?? "الاشتراك لا يغطي محتوى هذه المادة");
     }
 
     /// <summary>

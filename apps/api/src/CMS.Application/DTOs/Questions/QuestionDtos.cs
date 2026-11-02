@@ -28,7 +28,9 @@ public record QuestionListItemDto(
     string? LectureTitle,
     int? Year,
     QuestionUserAnswerDto? UserAnswer,
-    bool IsFavorite
+    bool IsFavorite,
+    // W14.2 E.1 (D3): where the question may be used — Practice/Exam/Both.
+    string QuestionUsage = "Both"
 );
 
 public record QuestionOptionDto(
@@ -137,7 +139,10 @@ public record UpdatedStatsDto(
 public record ReportQuestionDto(
     string ReasonType,
     string Description,
-    string? ScreenshotUrl
+    string? ScreenshotUrl,
+    // W14.2 B.4 (D12): optional classification — Typo/WrongAnswer/BadImage/Other.
+    // NULL keeps the server default (Other) so old clients stay contract-stable.
+    string? ReportType = null
 );
 
 // ===== Import =====
@@ -228,3 +233,36 @@ public record AdminQuestionDetailDto(
     DateTime? UpdatedAt,
     string? ParagraphTag = null
 );
+
+// ===== W14.2 B.4 (D12) — admin triage of question reports =====
+public record AdminErrorReportListItemDto(
+    Guid Id,
+    Guid QuestionId,
+    string QuestionText,
+    Guid StudentId,
+    string ReasonType,
+    string ReportType,
+    string? Description,
+    string? ScreenshotUrl,
+    string Status,
+    DateTime CreatedAt,
+    DateTime? ResolvedAt,
+    string? ResolutionNotes);
+
+public record ResolveErrorReportDto(string? Notes = null);
+
+// ===== W14.2 C.1 — bulk + preview =====
+public record BulkQuestionResultDto(int Requested, int Succeeded, int Skipped, List<Guid> NotFoundIds);
+
+/// <summary>Student-view rendering of a question — correctness flags intentionally absent.</summary>
+public record QuestionPreviewDto(
+    Guid Id,
+    string Text,
+    string Type,
+    string Difficulty,
+    List<string> Tags,
+    List<PreviewOptionDto> Options,
+    List<PreviewImageDto> Images);
+
+public record PreviewOptionDto(Guid Id, string Letter, string Text, string? ImageUrl);
+public record PreviewImageDto(string ImageUrl, string? AltText, int SortOrder);

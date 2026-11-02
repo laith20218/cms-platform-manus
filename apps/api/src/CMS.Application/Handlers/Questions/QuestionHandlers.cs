@@ -40,11 +40,14 @@ public class QuestionQueryHandlers :
 
         if (req.SubjectId.HasValue) query = query.Where(q => q.SubjectId == req.SubjectId);
         if (req.LectureId.HasValue) query = query.Where(q => q.LectureId == req.LectureId);
-        // TODO(W14.2): legacy read path — filters by Question.ExamId, which the D3/D6
-        // rework replaces with bank picking via ExamQuestion + QuestionUsage. This
-        // branch (and its offline twin in OfflineHandlers.cs) is scheduled for
-        // removal in Wave 14.2 — do not extend it.
-        if (req.ExamId.HasValue) query = query.Where(q => q.ExamId == req.ExamId);
+        // W14.2 A.3 (R75 P1): legacy Question.ExamId read retired — exams are composed via
+        // the ExamQuestion join (D6 bank picking). Question.ExamId stays only as a dormant
+        // column for future removal.
+        if (req.ExamId.HasValue)
+            query = query.Where(q => _db.ExamQuestions.Any(eq => eq.ExamId == req.ExamId && eq.QuestionId == q.Id));
+        // W14.2 E.1 (D3): usage filter — "practice" also admits Both, "exam" also admits Both.
+        if (!string.IsNullOrWhiteSpace(req.Usage) && Enum.TryParse<QuestionUsage>(req.Usage, true, out var usage))
+            query = query.Where(q => q.QuestionUsage == usage || q.QuestionUsage == QuestionUsage.Both);
         if (!string.IsNullOrEmpty(req.Difficulty) && Enum.TryParse<Difficulty>(req.Difficulty, true, out var diff))
             query = query.Where(q => q.Difficulty == diff);
         if (!string.IsNullOrEmpty(req.Search))
@@ -184,7 +187,8 @@ public class QuestionQueryHandlers :
     private static QuestionListItemDto MapToListItem(Question q, bool isFavorite) => new(
         q.Id, q.Text.Length > 150 ? q.Text[..150] + "..." : q.Text,
         q.Type.ToString(), q.Difficulty.ToString(),
-        q.Tags, q.Lecture?.NameAr, q.Year, null, isFavorite
+        q.Tags, q.Lecture?.NameAr, q.Year, null, isFavorite,
+        q.QuestionUsage.ToString() // W14.2 E.1 (D3)
     );
 
     private static QuestionDto MapToDto(Question q, bool isFavorite) => new(
@@ -468,11 +472,20 @@ public class QuestionCommandHandlers :
         if (!Enum.TryParse<ErrorReportReason>(req.ReasonType, true, out var reasonType))
             throw new DomainException("سبب التقرير غير صالح", "INVALID_REPORT_REASON");
 
+        // W14.2 B.4 (D12): optional triage classification; unknown values → Other
+        // (never a 400 — the legacy free-form contract keeps working unchanged).
+        var reportType = string.IsNullOrWhiteSpace(req.ReportType)
+            ? ReportType.Other
+            : Enum.TryParse<ReportType>(req.ReportType, true, out var parsedReportType)
+                ? parsedReportType
+                : ReportType.Other;
+
         var report = new ErrorReport
         {
             StudentId = req.StudentId,
             QuestionId = req.QuestionId,
             ReasonType = reasonType,
+            ReportType = reportType,
             Description = req.Description,
             ScreenshotUrl = req.ScreenshotUrl,
             Status = ErrorReportStatus.Pending
