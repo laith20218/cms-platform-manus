@@ -54,7 +54,9 @@ public record AnswerQuestionCommand(
 // ===== Report =====
 public record ReportQuestionCommand(
     Guid QuestionId, Guid StudentId,
-    string ReasonType, string Description, string? ScreenshotUrl
+    string ReasonType, string Description, string? ScreenshotUrl,
+    // W14.2 B.4 (D12): optional triage classification, default Other.
+    string? ReportType = null
 ) : IRequest<Unit>;
 
 // ===== Import =====

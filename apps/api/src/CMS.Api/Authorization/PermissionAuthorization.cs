@@ -109,6 +109,13 @@ public static class Policies
     public const string ExamReadResults = "ExamReadResults";
     public const string ExamExportResults = "ExamExportResults";
 
+    // W14.2 B.1: exam-course bundles (D1) reuse the exam-management resource so
+    // deployed role grants remain valid — no new permission rows required.
+    public const string ExamCourseView = "ExamCourseView";
+    public const string ExamCourseCreate = "ExamCourseCreate";
+    public const string ExamCourseEdit = "ExamCourseEdit";
+    public const string ExamCourseDelete = "ExamCourseDelete";
+
     // Student Management
     public const string StudentView = "StudentView";
     public const string StudentEdit = "StudentEdit";
@@ -170,6 +177,12 @@ public static class Policies
         options.AddPolicy(ExamReadAttempts, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.View)));
         options.AddPolicy(ExamReadResults, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.View)));
         options.AddPolicy(ExamExportResults, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.Export)));
+
+        // Exam courses (W14.2 B.1) — same resource, same verbs.
+        options.AddPolicy(ExamCourseView, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.View)));
+        options.AddPolicy(ExamCourseCreate, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.Create)));
+        options.AddPolicy(ExamCourseEdit, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.Edit)));
+        options.AddPolicy(ExamCourseDelete, p => p.Requirements.Add(new PermissionRequirement(Resources.Exams, Actions.Delete)));
 
         // Students
         options.AddPolicy(StudentView, p => p.Requirements.Add(new PermissionRequirement(Resources.Students, Actions.View)));

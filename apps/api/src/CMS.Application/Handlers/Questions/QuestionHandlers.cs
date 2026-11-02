@@ -468,11 +468,20 @@ public class QuestionCommandHandlers :
         if (!Enum.TryParse<ErrorReportReason>(req.ReasonType, true, out var reasonType))
             throw new DomainException("سبب التقرير غير صالح", "INVALID_REPORT_REASON");
 
+        // W14.2 B.4 (D12): optional triage classification; unknown values → Other
+        // (never a 400 — the legacy free-form contract keeps working unchanged).
+        var reportType = string.IsNullOrWhiteSpace(req.ReportType)
+            ? ReportType.Other
+            : Enum.TryParse<ReportType>(req.ReportType, true, out var parsedReportType)
+                ? parsedReportType
+                : ReportType.Other;
+
         var report = new ErrorReport
         {
             StudentId = req.StudentId,
             QuestionId = req.QuestionId,
             ReasonType = reasonType,
+            ReportType = reportType,
             Description = req.Description,
             ScreenshotUrl = req.ScreenshotUrl,
             Status = ErrorReportStatus.Pending

@@ -137,7 +137,10 @@ public record UpdatedStatsDto(
 public record ReportQuestionDto(
     string ReasonType,
     string Description,
-    string? ScreenshotUrl
+    string? ScreenshotUrl,
+    // W14.2 B.4 (D12): optional classification — Typo/WrongAnswer/BadImage/Other.
+    // NULL keeps the server default (Other) so old clients stay contract-stable.
+    string? ReportType = null
 );
 
 // ===== Import =====
@@ -228,3 +231,20 @@ public record AdminQuestionDetailDto(
     DateTime? UpdatedAt,
     string? ParagraphTag = null
 );
+
+// ===== W14.2 B.4 (D12) — admin triage of question reports =====
+public record AdminErrorReportListItemDto(
+    Guid Id,
+    Guid QuestionId,
+    string QuestionText,
+    Guid StudentId,
+    string ReasonType,
+    string ReportType,
+    string? Description,
+    string? ScreenshotUrl,
+    string Status,
+    DateTime CreatedAt,
+    DateTime? ResolvedAt,
+    string? ResolutionNotes);
+
+public record ResolveErrorReportDto(string? Notes = null);
