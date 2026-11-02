@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
 
@@ -6,6 +7,22 @@ import { entitlementRequestConfig } from '@/features/entitlements/services/entit
  * Mirrors the library contract: every course request carries the signed
  * entitlement token (X-Entitlement) validated against the course's subject.
  */
+
+/** R62 §2.B — typed marker: every entitled subject was denied (HTTP 403) even after
+ * one forced entitlement re-issue + retry, i.e. a genuine session/device denial. */
+export class EntitlementDeniedError extends Error {
+  constructor() {
+    super('entitlement-denied');
+    this.name = 'EntitlementDeniedError';
+  }
+}
+
+/** R62 §2.B — true when the failure is an HTTP 403 from the API (works on plain
+ * axios errors; callers use it to detect entitlement denials without coupling to
+ * interceptor internals). */
+export function isEntitlementDenied(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 403;
+}
 
 export interface CourseListItem {
   id: string;
