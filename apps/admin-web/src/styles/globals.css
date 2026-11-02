@@ -293,7 +293,8 @@ button:disabled { opacity: var(--cms-disabled-opacity); cursor: var(--cms-disabl
 .sidebar .operator > div:first-child { width: 34px; height: 34px; border-radius: var(--cms-radius-sm); background: var(--cms-grad-primary); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: var(--cms-text-sm); flex-shrink: 0; }
 .sidebar .operator span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .sidebar .operator strong { color: #fff; font-size: var(--cms-text-sm); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sidebar .operator small { color: rgba(255,255,255,0.35); font-size: var(--cms-text-2xs); text-transform: uppercase; letter-spacing: 0.04em; }
+/* W14.3 §13: 0.35 → 0.72 — role text failed contrast (3.13:1) on ink-900. */
+.sidebar .operator small { color: rgba(255,255,255,0.72); font-size: var(--cms-text-2xs); text-transform: uppercase; letter-spacing: 0.04em; }
 .sidebar .side-action {
   display: flex; align-items: center; gap: var(--cms-space-2);
   width: 100%; padding: var(--cms-space-3) var(--cms-space-4);
@@ -306,7 +307,12 @@ button:disabled { opacity: var(--cms-disabled-opacity); cursor: var(--cms-disabl
 .sidebar .side-action.danger:hover { background: rgba(182, 71, 61, 0.12); color: #e88a82; }
 
 /* ===== Shell: Workspace ===== */
-.workspace { flex: 1; margin-inline-start: var(--cms-sidebar-w); display: flex; flex-direction: column; min-height: 100vh; }
+/* W14.3 §13: min-width 0 — the flex default (min-width:auto) let wide table
+   min-content push the whole shell horizontally at 375/414; with 0, the
+   overflow-x-auto wrappers clip internally as designed. */
+.workspace { flex: 1; margin-inline-start: var(--cms-sidebar-w); display: flex; flex-direction: column; min-height: 100vh; min-width: 0; }
+/* W14.3 §13: min-width 0 + overflow clip — sticky flex item must shrink on
+   narrow RTL viewports instead of pushing the document scroll area wide. */
 .topbar {
   height: var(--cms-topbar-h);
   display: flex; align-items: center; gap: var(--cms-space-4);
@@ -315,11 +321,13 @@ button:disabled { opacity: var(--cms-disabled-opacity); cursor: var(--cms-disabl
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--cms-line);
   position: sticky; top: 0; z-index: var(--cms-z-sticky);
+  min-width: 0; overflow-x: clip;
 }
 .topbar .menu-toggle { display: none; background: none; border: none; color: var(--cms-text-soft); padding: var(--cms-space-2); border-radius: var(--cms-radius-sm); }
 .topbar .menu-toggle:hover { background: var(--cms-ivory-200); }
 .topbar .breadcrumb { display: flex; align-items: center; gap: var(--cms-space-2); flex: 1; min-width: 0; }
-.topbar .breadcrumb .crumb { font-size: var(--cms-text-sm); color: var(--cms-text-muted); white-space: nowrap; }
+/* W14.3 §13: muted → soft — crumbs failed contrast (3.39:1) on the glass surface. */
+.topbar .breadcrumb .crumb { font-size: var(--cms-text-sm); color: var(--cms-text-soft); white-space: nowrap; }
 .topbar .breadcrumb .crumb:last-child { color: var(--cms-text); font-weight: 600; }
 .topbar .breadcrumb .sep { color: var(--cms-line-strong); font-size: var(--cms-text-xs); }
 .topbar .top-actions { display: flex; align-items: center; gap: var(--cms-space-2); }
@@ -360,7 +368,8 @@ button:disabled { opacity: var(--cms-disabled-opacity); cursor: var(--cms-disabl
 .topbar .status-indicator.unknown .dot { background: var(--cms-text-muted); animation: none; }
 
 /* ===== Content Area ===== */
-.content { flex: 1; padding: var(--cms-space-6); max-width: var(--cms-content-max); margin: 0 auto; width: 100%; }
+/* W14.3 §13: min-width 0 — same flex-chain shrink rule as .workspace/.topbar. */
+.content { flex: 1; padding: var(--cms-space-6); max-width: var(--cms-content-max); margin: 0 auto; width: 100%; min-width: 0; }
 
 /* ===== Toast + Notice ===== */
 .notice {

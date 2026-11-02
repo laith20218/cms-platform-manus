@@ -17,6 +17,7 @@ import {
   ClipboardCheck,
   CircleAlert,
   FileText,
+  GraduationCap,
   KeyRound,
   Languages,
   LayoutDashboard,
@@ -48,6 +49,10 @@ import { RolesCenter } from './components/RolesCenter';
 import { StudentsCenter } from './components/StudentsCenter';
 import { QuestionsCenter } from './components/QuestionsCenter';
 import { ExamsCenter } from './components/ExamsCenter';
+// W14.3 Phase C (D1): exam-course bundles screen. Cosmetically gated by the EXAM
+// management keys — the backend reuses exam verbs for ExamCourse policies, so the
+// UI-permission registry stays at v2 with zero drift (see ExamCoursesCenter header).
+import { ExamCoursesCenter } from './components/ExamCoursesCenter';
 import { LibraryCenter } from './components/LibraryCenter';
 import { SettingsCenter } from './components/SettingsCenter';
 import { NotificationCompose } from './components/NotificationCompose';
@@ -58,7 +63,7 @@ const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 
 type Locale = 'ar' | 'en';
 type Theme = 'light' | 'dark';
-type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'library' | 'reports' | 'settings';
+type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'exam-courses' | 'library' | 'reports' | 'settings';
 type Dialog =
   | { kind: 'create-admin' }
   | { kind: 'edit-admin'; admin: AdminRecord }
@@ -490,7 +495,9 @@ function App() {
     );
   }
 
-  type NavItem = { key: View; label: string; icon: typeof LayoutDashboard; superOnly?: boolean };
+  // gateKey: registry key consulted instead of `view:{key}` — used by views that
+  // share another domain's registry entry (exam-courses rides view:exams, W14.3).
+  type NavItem = { key: View; label: string; icon: typeof LayoutDashboard; superOnly?: boolean; gateKey?: string };
   const navGroups: Array<{ label: string; items: NavItem[] }> = [
     {
       label: isArabic ? 'التشغيل اليومي' : 'Daily Operations',
@@ -504,6 +511,7 @@ function App() {
         { key: 'academic', label: isArabic ? 'البنية الأكاديمية' : 'Academic Structure', icon: Building2 },
         { key: 'questions', label: isArabic ? 'بنك الأسئلة' : 'Question Bank', icon: BookOpenCheck },
         { key: 'exams', label: isArabic ? 'الاختبارات' : 'Exams', icon: ClipboardCheck },
+        { key: 'exam-courses', label: isArabic ? 'الدورات الامتحانية' : 'Exam Courses', icon: GraduationCap, gateKey: 'view:exams' },
         { key: 'library', label: isArabic ? 'المكتبة والملفات' : 'Library & Files', icon: FileText },
       ],
     },
@@ -535,6 +543,7 @@ function App() {
     : view === 'academic' ? (isArabic ? 'البنية الأكاديمية' : 'Academic Structure')
     : view === 'questions' ? (isArabic ? 'بنك الأسئلة' : 'Question Bank')
     : view === 'exams' ? (isArabic ? 'الاختبارات' : 'Exams')
+    : view === 'exam-courses' ? (isArabic ? 'الدورات الامتحانية' : 'Exam Courses')
     : view === 'library' ? (isArabic ? 'المكتبة والملفات' : 'Library & Files')
     : view === 'codes' ? (isArabic ? 'رموز الوصول' : 'Access Codes')
     : copy.overview;
@@ -558,7 +567,7 @@ function App() {
           {navGroups.map((group) => {
             // Push 3: view keys AND with superOnly — custom roles never see super-only
             // views regardless of keys; everyone else needs their view key.
-            const visible = group.items.filter((item) => (!item.superOnly || isSuperAdmin) && can(`view:${item.key}`));
+            const visible = group.items.filter((item) => (!item.superOnly || isSuperAdmin) && can(item.gateKey ?? `view:${item.key}`));
             if (visible.length === 0) return null;
             return (
               <div key={group.label} className="nav-group">
@@ -625,7 +634,8 @@ function App() {
           <div className="top-actions">
             <button className="lang-btn" onClick={() => setCommandPaletteOpen(true)} aria-label={isArabic ? 'بحث سريع' : 'Command palette'} title="Ctrl+K">
               <Search size={15} />
-              <span style={{ fontSize: '11px', opacity: 0.6 }}>⌘K</span>
+              {/* W14.3 §13: opacity 0.6 → soft token — the hint failed contrast (2.68:1). */}
+              <span style={{ fontSize: '11px', color: 'var(--cms-text-soft)' }}>⌘K</span>
             </button>
             <div className={`status-indicator ${apiStatus === 'healthy' ? '' : apiStatus === 'degraded' ? 'degraded' : 'unknown'}`} title={statusLabel}>
               <span className="dot" />
@@ -668,7 +678,10 @@ function App() {
                 ? <QuestionsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
               {view === 'exams' && (can('view:exams')
-                ? <ExamsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                ? <ExamsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} onNavigateToQuestions={() => setView('questions')} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {view === 'exam-courses' && (can('view:exams')
+                ? <ExamCoursesCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
               {view === 'library' && (can('view:library')
                 ? <LibraryCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
@@ -779,7 +792,7 @@ function App() {
             <kbd style={{ fontSize: '10px', color: 'var(--cms-text-muted)', border: '1px solid var(--cms-line)', borderRadius: '4px', padding: '2px 6px' }}>ESC</kbd>
           </div>
           <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '4px' }}>
-            {navGroups.flatMap((group) => group.items.filter((item) => (!item.superOnly || isSuperAdmin) && can(`view:${item.key}`)))
+            {navGroups.flatMap((group) => group.items.filter((item) => (!item.superOnly || isSuperAdmin) && can(item.gateKey ?? `view:${item.key}`)))
               .filter((item) => {
                 if (!commandQuery) return true;
                 const q = commandQuery.toLowerCase();

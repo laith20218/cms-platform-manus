@@ -1,160 +1,165 @@
-# WIP_STATUS — feat/14.2-backend-api (Wave 14.2: Backend API Completeness)
+# WIP_STATUS — feat/14.3-admin-ui (Wave 14.3: Admin UI Completeness)
 
 ## ─── STATE ───────────────────────────────────────────────
-Wave 14.1 is MERGED (main @ 87d93d5, PR #70). This branch implements Wave 14.2
-(R75 P0/P1/P2 backend fixes + W14.1 entity APIs + missing admin endpoints) —
-**6 commits, LOCAL ONLY — push requires supervisor approval (§2)**.
+Wave 14.2 is MERGED (main @ `8d12a6d`, PR #71). This branch implements Wave 14.3
+(the admin UI consuming the W14.2 APIs) — **apps/admin-web + ONE supervisor-
+approved backend exception (R78)**; NO migrations, NO schema changes (§3 honored).
+**5 of 5 commits DONE (LOCAL ONLY — push requires supervisor approval, §2).**
 
-Verification ladder (this wave, in-sandbox, .NET 9 SDK 9.0.320):
-**dotnet build 0 errors** (warnings all pre-existing, all in CMS.Tests) ·
-**dotnet test 637/637 passed, 0 failed, 27 skipped (Testcontainers — no Docker;
-same 27 as the 12.5/14.1 baseline)** — 619 baseline + 18 new W14.2 tests ·
-**`dotnet ef migrations has-pending-model-changes` → "No changes"** (run after
-every commit; zero schema changes this wave — §3 honored).
+Verification ladder (final tree, in-sandbox, pnpm 9.15.9 / node 24 / .NET 9.0.320):
+**tsc -b 0 errors · eslint 0 errors + 31 warnings IDENTICAL to the origin/main
+baseline (touched files 0/0) · vitest 58/58 · vite build PASS · dotnet build
+0 errors (20 pre-existing warnings, all CMS.Tests) · dotnet test 637/637 passed,
+0 failed, 27 skipped (Testcontainers — no Docker; same 27 as the W14.2 baseline) ·
+`dotnet ef migrations has-pending-model-changes` → "No changes" · §13 e2e
+26/26 checks (7 axe scans 0 critical/serious, peak Chromium RSS 953 MB < 1.6 GB)**.
 
 ## ─── COMMITS (this branch, oldest → newest) ───────────────
 
-1. `0639228` fix(api): wave 14.2 security & consistency (P0/P1/P2)
-2. `af9dcb9` feat(api): wave 14.2 domain APIs (ExamCourse, Practice, Reports)
-3. `f74c102` feat(api): wave 14.2 missing admin endpoints
-4. `2875017` feat(api): wave 14.2 stats + sweeper + heartbeat
-5. `515cc4f` feat(api): wave 14.2 DTO alignment
-6. `<HEAD>`  test(api): wave 14.2 regression suite + WIP_STATUS
+1. `7dfd7e5` feat(admin): shared URL-persisted academic context (D4)
+2. `b9811db` feat(admin): tabbed question editor + image upload + missing actions (D5)
+3. `6c9bdc8` feat(api): admin exam-courses list endpoint (W14.3 exception) — R78 commit 3a
+4. `9f43d79` feat(admin): ExamCourses management screen (D1) — R78 commit 3b
+5. `a0b1436` feat(admin): exam stats dashboard + question reports UI (D10, D12)
+6. `<HEAD>`  test(admin): §13 evidence + WIP_STATUS (W14.3)
 
 ## ─── WHAT WAS IMPLEMENTED ────────────────────────────────
 
-### Phase A — Security & Consistency (commit 1)
-- **A.1 Offline sync P0** (`OfflineHandlers.cs`): sync bound to an exam session now
-  verifies ownership (JWT-derived StudentId vs `ExamSession.StudentId` → 403 + audit),
-  grades against the immutable `ExamSessionQuestion` snapshot (option identity +
-  IsCorrect flags, `AttemptLog.ExamSessionQuestionId` now linked), and the former
-  EMPTY tamper-check block is replaced by timestamp sanity (future-dated/stale
-  answers rejected + security audit) plus a client-mismatch audit event. Non-session
-  syncs grade against the server-side cache captured at package issue time, falling
-  back to the live bank only when the cache entry is absent.
-- **A.2 403 → ProblemDetails** (`ExceptionHandlingMiddleware` already produced detail
-  for ForbiddenException; the bare `Forbid()` sites did not): the 4 R75 sites
-  (ExamsController, QuestionsController, AcademicController, OfflineController
-  entitlement rejections) now return `Problem(403, detail: FailureReason ?? …)`.
-  In commit 3 the wave constraint "EVERY 403 = ProblemDetails with detail" was
-  applied to ALL remaining bare `Forbid()` sites: **90 sites across 13 controllers**
-  mechanically converted (behavior-preserving: 403→403 with body). `rg "return Forbid\(\);"`
-  over CMS.Api/Controllers → 0 hits.
-- **A.3 Legacy Question.ExamId reads retired** (`QuestionHandlers.cs:46-47`,
-  `OfflineHandlers.cs:88`): both TODO(W14.2) markers removed; exam membership now
-  resolved via the `ExamQuestion` join. Column KEPT (dormant) per brief — no migration.
-- **A.4 AdminExamsController double auth**: class-level `[Authorize(Roles="admin,super_admin")]`
-  added (was bare `[Authorize]`); per-endpoint policies unchanged.
-- **A.5 Guid.Parse → TryParse** (`QuestionsController.GetAdminId`,
-  `AcademicController.GetAdminId`): malformed admin subject claim now → 401
-  (UnauthorizedAccessException mapping) instead of FormatException → 500.
-- **A.6 Rate limiter "exam-session"** (Program.cs, 120 req/min) applied to
-  start / answer / submit / cancel in ExamsController.
+### Commit 1 — D4: shared URL-persisted academic context
+- **`src/lib/academicContext.ts`** (new): `useAcademicContext()` hook over
+  react-router `useSearchParams` (router 7.18.2). Params `univ/college/year/
+  semester/subject`; downstream-reset semantics preserved (chooseUniversity
+  clears the rest, …); empty params are deleted from the URL; writes use
+  history `replace`; `hydrate()` (bulk, no clearing) + `clear()`.
+- **`src/main.tsx`**: wraps `<App/>` in `<BrowserRouter>` (provider for the hook).
+- **QuestionsCenter / ExamsCenter / AcademicCenter**: the five per-center
+  `useState` ids replaced by the hook; cascade list-fetching stays per-center;
+  all three hydrate the cascade from the URL on mount (new for Exams/Academic);
+  QuestionsCenter's legacy localStorage sticky migrates into the URL once and
+  now keeps only editor defaults ("Save & Add Another" behavior unchanged);
+  AcademicCenter `resetBelow` is list-clearing only (ids live in the URL);
+  subject switch clears the bulk selection.
+- **`src/test/academicContext.test.tsx`** (new): 8 tests — URL read, defaults,
+  cascade writes, hydrate-merge, clear (foreign params preserved), and the
+  A.3 cross-consumer guarantee (a second consumer of the same router sees the
+  selection the first wrote = center-switch preservation).
 
-### Phase B — Domain APIs (commit 2)
-- **B.1 ExamCourse admin** (D1/D5/D6): `ExamCourseHandlers` (Create/Update/Publish/
-  Archive/SoftDelete/AddExam/RemoveExam/Reorder) + `AdminExamCoursesController`
-  (double-layer auth: class roles + per-endpoint policies `ExamCourse*` mapped to
-  the `exams` resource — no new permission rows; per-mutation subject scope check).
-  Publish requires ≥1 exam (D6 spirit). AddExam is bank-only + same-subject-only +
-  unique (course,exam).
-- **B.2 ExamCourse student** (D4): `StudentExamCourseHandlers` (published-only list
-  with subject/year/semester URL filters; detail with per-student attempt state)
-  + `ExamCoursesController` (entitlement gate via signed entitlement, fail-closed
-  re-check inside handlers).
-- **B.3 Practice (D13)**: `PracticeHandlers` (idempotent get-or-create start;
-  answer upsert graded vs bank — MCQ/TF single, MultipleSelect set-equality, Essay
-  NULL=ungraded; auto-complete when every composed question is graded → Score frozen;
-  reset-question unfreezes; reset-session wipes; progress counts). `PracticeController`
-  with ownership + entitlement gates.
-- **B.4 Reports (D12)**: `ReportQuestionDto/Command` extended with optional
-  `ReportType` (unknown → Other; legacy clients unaffected). Admin triage:
-  `GET /admin/questions/reports?status=&type=` (scope-narrowed) and
-  `PUT /admin/questions/reports/{id}/resolve|reject` (resolver identity persisted).
+### Commit 2 — D5 + R75 C2 + B.3 + B.4 (QuestionsCenter)
+- **B.1 (D5) Tabbed editor**: 4 tabs (المحتوى / الشرح والمراجع / التصنيف والوسوم /
+  الإعدادات) with `role=tablist/tab` + `aria-selected`; one Save persists all
+  tabs. Hidden-tab fields can't be HTML5-validated → `doSubmit` validates
+  manually and jumps to the offending tab. Difficulty moved to التصنيف per the
+  brief; usage snapshot (attempts / correct-rate) on التصنيف for edits;
+  publish-status badge on الإعدادات.
+- **B.2 (R75 C2) Option images**: per-option attach — upload through the
+  EXISTING library presign flow (`POST /api/v1/library/upload-url` type Image →
+  browser PUT → `POST /api/v1/library/complete-upload`) or paste a public URL;
+  `imageUrl` now rides create/update option payloads (was hardcoded `null`).
+  ⚠️ `VITE_R2_PUBLIC_BASE` env: when unset, upload completes but the attachment
+  fails VISIBLY with guidance — students render `<img src>` with no auth
+  header, so the stored value must be publicly fetchable (deployment decision).
+- **B.3 Missing actions** (all W14.2 endpoints): معاينة (GET /admin/questions/{id}/preview
+  → modal, student view: no correctness flags, question + option images),
+  تكرار (POST duplicate → reload), إلغاء النشر (POST unpublish; confirm dialog
+  variant + editor action-bar shortcut), إجراءات جماعية (select-all/row
+  checkboxes → toolbar → POST bulk-publish / bulk-archive body `{ids}`, notice
+  "succeeded of requested"; selection cleared on subject switch).
+- **B.4 "0%" bug**: `attemptsCount === 0` → «لا توجد محاولات بعد» replaces the
+  misleading red 0% (also in the editor usage card).
 
-### Phase C — Missing admin endpoints (commit 3)
-- Questions: `duplicate` (options+images+metadata as fresh Draft), `unpublish`
-  (Published→Draft only), `preview` (student view — no correctness/explanation),
-  `bulk-publish` / `bulk-archive` (≤100 ids, per-question scope check, skips
-  reported not fatal, Deleted rows never resurrected).
-- Exams: `unpublish` (D2: existing sessions keep snapshots), `reorder`
-  (full-order replace of `ExamQuestion.SortOrder`), `preview` (student view).
-- Domain additions (pure code, zero schema impact): `Question.Unpublish()`,
-  `Question.SetYear()`, `Exam.Unpublish()`.
+### Commit 3a — R78 backend exception (supervisor-approved)
+- **`AdminExamCoursesController.cs:44-64`**: `GET /api/v1/admin/exam-courses?subjectId=`
+  — `[HttpGet]` + `[Authorize(Policy = Policies.ExamCourseView)]`; subject-scope
+  check (`CanManageSubjectAsync(Actions.View, …)`) applied ONLY when the optional
+  filter is provided (same pattern as DashboardHandlers.cs:303); ordered
+  `Year desc, Semester desc, SortOrder asc`. ~15 lines, read-only, zero schema change.
+- **`ExamCourseDtos.cs:38`**: `ExamCourseListItemDto` record (application layer
+  only) — the pre-existing `StudentExamCourseListItemDto` lacks `Status`, which
+  the management list requires (ACCEPTED deviation, see §R78).
+- Backend gates: dotnet build 0 errors · dotnet test 637/0/27 · ef
+  has-pending-model-changes → "No changes".
 
-### Phase D — Stats + Sweeper + Heartbeat (commit 4)
-- **D.1** `GET /admin/exams/{id}/stats` — started/attempts (scored = Completed+
-  TimedOut)/completed/timeouts/inProgress/cancelled/pass/fail/mean/median/
-  avgDurationSeconds/decile distribution. Scope-checked (`exam` entity).
-- **D.2** `GET /admin/exams/{id}/question-stats` — per composed question:
-  attempts, correct%, mostCommonWrongChoice (option-letter rendered when
-  resolvable), avgDurationSeconds, problematicFlag (attempts≥10 && correct<40%).
-- **D.3** `CMS.Api/BackgroundServices/ExamTimeoutSweeper` — plain BackgroundService
-  (Hangfire stays UNWIRED per ruling), 30s loop + 45s initial delay, batches of 50,
-  reuses the single finalize path (`ExamQueryHandlers.FinalizeTimedOutSessionIfNeededAsync`
-  made public for exactly this). Registered as HostedService in Program.cs.
-  The Exam include was deliberately dropped from its query (scoring needs only
-  SessionQuestions + AttemptLogs) so an orphaned session finalizes instead of
-  silently vanishing (found via the new sweeper tests — see deviations).
-- **D.4** `POST /api/v1/exams/sessions/{id}/heartbeat` — ownership + entitlement,
-  lazy-finalizes an expired session, returns authoritative remainingSeconds.
+### Commit 3b — D1: ExamCoursesCenter (الدورات الامتحانية)
+- **`ExamCoursesCenter.tsx`** (new, ~1300 lines): list via the R78 endpoint;
+  create/edit form (ar/en names, description, year, semester, type
+  First/Second/Supplementary/Model/Practice, free/paid, sortOrder); cover image
+  via the library presign flow or pasted URL (same VITE_R2_PUBLIC_BASE behavior
+  as B.2); in-bundle exam management (add from subject bank, remove, reorder
+  via PUT {examIds} full-list replace); student-storefront preview modal;
+  publish/archive/delete with confirm dialogs.
+- **App.tsx**: nav item «الدورات الامتحانية» rides `view:exams` via the new
+  `NavItem.gateKey` (backend reuses exam verbs — registry stays v2, zero drift);
+  academic cascade hydrates from the shared URL context (D4).
 
-### Phase E — DTO alignment (commit 5)
-- `QuestionListItemDto` + `QuestionUsage` (string); `GET /questions?usage=practice|exam`
-  filter (admits Both — D3).
-- `ExamDto` / `ExamListItemDto` / `AdminExamListItemDto` + `ModelLetter` (A/B/C, D7).
-- Admin reports list payload + `reportType` (D12).
+### Commit 4 — D10 + D12 (ExamsCenter)
+- **Stats dashboard (D10)**: per-exam analytics (TrendingUp row action, replaces
+  the list while open) — GET /admin/exams/{id}/stats summary cards
+  (started/attempts/completed/in-progress/timed-out/cancelled), pass-vs-fail
+  bar, mean/median scores, avg duration, decile score-distribution bars; the
+  per-question stats table (GET /admin/exams/{id}/question-stats: attempts,
+  color-coded %correct, most common wrong choice, avg time, problematic flag)
+  with expandable question text and an Open-question-bank shortcut (D4 carries
+  the subject across centers). Fresh exams show «لا توجد محاولات بعد» instead
+  of misleading zeros (B.4 lesson); per-question %correct shows an em dash at
+  0 attempts.
+- **Question reports triage (D12)**: GET /admin/questions/reports with
+  status/type filters (Pending/Reviewing/Resolved/Rejected/Closed ×
+  Typo/WrongAnswer/BadImage/Other), expandable question text, description,
+  screenshot link, Resolve/Reject with optional notes (PUT
+  reports/{id}/resolve|reject) gated by `btn:questions.edit` to match the
+  backend QuestionEdit policy.
 
-### Phase F — Regression tests (commit 6, 18 new)
-- `ExamCourseHandlersTests` (6): create validation, publish gating, bank-only/
-  same-subject/unique add, reorder, remove+soft-delete, student fail-closed gate.
-- `PracticeHandlersTests` (4): idempotent start, grading+auto-complete+unfreeze,
-  reset-all + progress accounting, foreign session/question rejection.
-- `QuestionReportW14Tests` (4): ReportType persisted / default Other, resolve &
-  reject persist resolver identity (controller-level with mocked permissions),
-  bulk publish/archive + unknown-id reporting.
-- `OfflineSyncOwnershipTests` (2): sync with a session owned by ANOTHER student →
-  403 + audit + zero attempts recorded; future-dated answers rejected.
-- `ExamTimeoutSweeperTests` (2): finalizes ONLY expired InProgress sessions
-  (Completed/TimedOut/Cancelled untouched); idempotent second run.
+### Commit 5 — §13 evidence + docs (this commit)
+- **`e2e/w14.3-admin-ui.e2e.mjs`** + **`e2e/w143-mock-world.mjs`** (new): the
+  §13 harness — real vite dev server + mocked API (`context.route`
+  interception + seeded super_admin session), ONE Chromium, RSS ceiling 1.6 GB.
+  26 checks: 3×5-width screenshot matrices (375/414/768/1024/1440), 7 axe-core
+  scans (wcag2a/aa + wcag21/22aa), strict h-scroll gate (scrollableDelta=0)
+  at every width, editor/picker/preview/notes-dialog flows. Full results:
+  `worklog/wave14.3-evidence.md`.
+- **§13 shell fixes** (disclosed in the worklog §2/§5): 8 pre-existing contrast
+  failures on the evidenced pages fixed with one-token color swaps (sidebar
+  role text 0.35→0.72 alpha, ⌘K hint, breadcrumb crumbs, exams-table thead +
+  4 cell tones, stats-card labels) + flex-chain shrink rules (`.workspace`,
+  `.topbar`, `.content` get `min-width:0`; topbar `overflow-x:clip`) +
+  `[contain:paint]` on the 4 table wrappers (Chromium RTL scrollable-overflow
+  quirk). Zero layout/design change.
+- **Screenshots committed** (Wave 13.1a2 precedent, 1.8 MB): examcourses ×8
+  (5 widths + editor/picker/preview @1440), examstats ×5, reports ×5,
+  report-notes ×1.
 
-## ─── §10 DEVIATIONS / DISCLOSURES ────────────────────────
+## ─── §R78 — backend exception EXECUTED (was: §BLOCKER) ────
+Phase C originally blocked: no admin list endpoint for exam-courses, and the
+student list route 401s for admins (missing entitlement headers, unconditional).
+R78 approved the minimal exception (~15 lines) and it landed as commit 3a
+(`6c9bdc8`) exactly as specced: ExamCourseView policy, subject-scope check on
+the optional filter, Year/Semester/SortOrder ordering, no migrations.
+R78 also ACCEPTED the three deviations: per-question show-explanation omitted
+(exam-level setting), VITE_R2_PUBLIC_BASE dependency, and the list-DTO shape
+(new `ExamCourseListItemDto` — the existing student DTO lacks `Status`).
 
-1. **D.4 LastAccessedAt NOT persisted** — `ExamSession` has no such column and W14.2
-   is migration-frozen (§3). Heartbeat therefore validates ownership + lazily
-   finalizes + returns remaining seconds; expiry authority is `ExpiresAt` (sweeper),
-   not last-access. Adding the column is a candidate for W14.3.
-2. **A.2 extended wave-wide (90 sites, 13 controllers)** — the brief listed 4 sites;
-   the hard constraint said EVERY 403. All bare `Forbid()` now carry ProblemDetails
-   detail (single generic Arabic reason per controller family; per-site reasons
-   remain a future polish).
-3. **C.2 `PUT /admin/exams/{id}/reorder` = question-order replace** — the brief did
-   not specify the reorder target; exam SortOrder is already editable via
-   UpdateExamCommand, so the endpoint reorders the exam's `ExamQuestion` rows
-   (full-list replace, partial orders rejected).
-4. **Sweeper skips the Exam include** (see D.3) — surfaced by the new tests: with
-   EF InMemory, `Include(Exam)` over a missing principal silently drops the row.
-   Production data always has the principal; the sweeper is now orphan-proof.
-5. **Practice auto-complete** — the brief defines no "complete practice" endpoint;
-   the session auto-completes (Score frozen, D13) when every composed question
-   carries a graded answer; reset paths unfreeze it.
-6. **B.4 list scope model** — super admin sees all reports; a scoped admin is
-   narrowed by SubjectId; a scoped admin with NO academic scope gets a
-   ProblemDetails 403 (fail-closed, mirrors ApplyScopeAsync).
-7. **ExamCourse soft-delete = Status=Deleted** — `ExamCourse : BaseEntity` has no
-   DeletedAt column (W14.1 shape), so soft delete is status-based. No migration.
-8. **Duplicate question copies text/options/images/metadata but not `TextHtml`** —
-   no domain setter exists for `Question.TextHtml` today (write-legacy field);
-   flagged for W14.3 if the HTML editor needs it.
+## ─── DISCLOSED DEVIATIONS (ALL supervisor-ACCEPTED via R78) ─
+1. **D5 'show-explanation' per-question toggle NOT implemented** — no such
+   per-question field exists; `ShowExplanations` is an EXAM-level column
+   (`QuestionEntities.cs:294`, set via `ExamHandlers.cs`). The الإعدادات tab
+   shows an honest pointer to the exam-level setting instead of a dead control.
+2. **B.2 public-image-URL dependency** — `VITE_R2_PUBLIC_BASE` must be set in
+   the admin-web deployment for uploaded option/cover images to resolve;
+   upload-side works regardless (fails visibly without it).
+3. **List-DTO shape** — R78 said "reuse the existing ExamCourseListItemDto";
+   the existing list DTO is the STUDENT one and lacks `Status`, so a
+   dedicated `ExamCourseListItemDto` record was added (application layer only).
+4. **BrowserRouter added in main.tsx** — required by D4 (`useSearchParams`);
+   app-boot tests untouched (login shell renders no centers) and stay green.
 
-## ─── Out of scope / untouched (§12) ──────────────────────
-- No frontend changes (admin-web / student-web untouched). No lockfile changes.
-- ZERO migrations — snapshot untouched; EF parity tool-proven after every commit.
-- Hangfire remains package-only (unwired) per the BackgroundService ruling.
-- Vercel/Render/Neon/Upstash credentials shared in chat: NOT used, NOT stored.
-  **SUPERVISOR ACTION (still outstanding since W14.1): rotate all of them + the
-  two account passwords — they were pasted in plaintext.**
-
-## ─── git log (this branch) ───────────────────────────────
-6 commits on `feat/14.2-backend-api` (base `87d93d5`).
-STOP GATE: push requires supervisor approval (§2) + PAT.
+## ─── NEXT (post-push approval) ────────────────────────────
+1. Push approval → `git push -u origin feat/14.3-admin-ui` (PAT inline, §5,
+   triple-scrub) → PR → CI green → merge.
+2. Deploy note: set `VITE_R2_PUBLIC_BASE` on the admin-web deployment (Vercel)
+   or image attachments fail visibly.
+3. Rotate the chat-pasted credentials (Vercel ×2, GitHub PAT, Neon key,
+   Upstash blob token, Render key, both account passwords) — outstanding
+   since W14.1.
+- **Environment note**: sandbox has NO Docker (27 Testcontainers tests skip,
+  expected); dotnet SDK at /home/z/.dotnet (export PATH=/home/z/.dotnet:$PATH);
+  the Next.js scaffold at /home/z/my-project is UNRELATED to this repo.

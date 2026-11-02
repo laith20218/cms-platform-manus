@@ -36,13 +36,14 @@
  *   • Form: text, type, difficulty, lecture, tags, explanation, reference, year, options, correctAnswer
  *   • Confirm dialog for publish/archive
  */
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { Fragment, FormEvent, useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle, Archive, CheckCircle2, ChevronLeft, ChevronRight,
-  FileText, ListFilter, LoaderCircle, Pencil, Plus, PlusCircle,
-  Search, Send, Trash2, X,
+  AlertCircle, Archive, CheckCircle2, ChevronLeft, ChevronRight, Copy, Eye,
+  FileText, ImagePlus, ListFilter, LoaderCircle, Pencil, Plus, PlusCircle,
+  Search, Send, Trash2, Undo2, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
+import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
@@ -83,9 +84,25 @@ type FormState = {
 };
 
 type ConfirmDialog =
-  | { id: string; action: 'publish' | 'archive' }
+  | { id: string; action: 'publish' | 'archive' | 'unpublish' }
   | { id: string; action: 'delete'; text: string }
   | null;
+
+// W14.3 D5 — the editor is a 4-tab form; one Save persists every tab.
+type EditorTab = 'content' | 'explanation' | 'classification' | 'settings';
+const EDITOR_TABS: Array<{ key: EditorTab; labelAr: string; labelEn: string }> = [
+  { key: 'content', labelAr: 'المحتوى', labelEn: 'Content' },
+  { key: 'explanation', labelAr: 'الشرح والمراجع', labelEn: 'Explanation & reference' },
+  { key: 'classification', labelAr: 'التصنيف والوسوم', labelEn: 'Classification & tags' },
+  { key: 'settings', labelAr: 'الإعدادات', labelEn: 'Settings' },
+];
+
+// W14.3 B.3 — GET /admin/questions/{id}/preview (W14.2) — the student view.
+type QuestionPreview = {
+  id: string; text: string; type: string; difficulty: string; tags: string[];
+  options: { id: string; letter: string; text: string; imageUrl: string | null }[];
+  images: { imageUrl: string; altText: string | null; sortOrder: number }[];
+};
 
 const emptyForm = (): FormState => ({
   text: '', type: 'Mcq', difficulty: 'Medium', lectureId: '', tags: '',
@@ -219,11 +236,10 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
-  const [universityId, setUniversityId] = useState('');
-  const [collegeId, setCollegeId] = useState('');
-  const [yearId, setYearId] = useState('');
-  const [semesterId, setSemesterId] = useState('');
-  const [subjectId, setSubjectId] = useState('');
+  // W14.3 D4: the academic selection lives in the URL query string and is
+  // shared across centers (Questions / Exams / Academic / ExamCourses).
+  const academic = useAcademicContext();
+  const { universityId, collegeId, yearId, semesterId, subjectId } = academic;
 
   // === Questions state ===
   const [questions, setQuestions] = useState<QuestionSummary[]>([]);
@@ -238,6 +254,16 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   const [loading, setLoading] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmDialog>(null);
 
+  // === W14.3 Phase B state (D5 tabs + missing actions + image upload) ===
+  const [editorTab, setEditorTab] = useState<EditorTab>('content');
+  // Snapshot of the row being edited (status + usage) — the detail DTO carries status.
+  const [editingRow, setEditingRow] = useState<{ status: string; attemptsCount: number; correctRate: number } | null>(null);
+  const [preview, setPreview] = useState<QuestionPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [uploadingOption, setUploadingOption] = useState<number | null>(null);
+
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
   const requestHeaders = { 'Content-Type': 'application/json' };
 
@@ -245,24 +271,32 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     void request<PagedResult<University>>('/api/v1/universities?Page=1&PageSize=100')
       .then(data => setUniversities(data.items))
       .catch(error => onError(error instanceof Error ? error.message : 'تعذر تحميل الجامعات.'));
-    // Push 2 / Track 1: restore the sticky context (cascade + form context) after a reload.
+    // W14.3 D4: hydrate the cascade from the URL (`?univ=…&subject=…`). A legacy
+    // localStorage sticky (pre-D4) migrates into the URL once; afterwards the sticky
+    // keeps only editor defaults (lecture/type/difficulty/tags) for "Save & Add Another".
     void (async () => {
+      let ids = academicIdsOf(academic);
       const sticky = readSticky();
-      if (!sticky?.subjectId) return;
+      if (!ids.subjectId && sticky?.subjectId) {
+        ids = {
+          universityId: sticky.universityId, collegeId: sticky.collegeId,
+          yearId: sticky.yearId, semesterId: sticky.semesterId, subjectId: sticky.subjectId,
+        };
+        academic.hydrate(ids); // seed the URL from the legacy sticky
+      }
+      if (!ids.universityId && !ids.collegeId && !ids.yearId && !ids.semesterId && !ids.subjectId) return;
       try {
-        setUniversityId(sticky.universityId); setCollegeId(sticky.collegeId);
-        setYearId(sticky.yearId); setSemesterId(sticky.semesterId); setSubjectId(sticky.subjectId);
-        if (sticky.universityId) setColleges(await request<College[]>(`/api/v1/universities/${sticky.universityId}/colleges`));
-        if (sticky.collegeId) setYears(await request<AcademicYear[]>(`/api/v1/colleges/${sticky.collegeId}/years`));
-        if (sticky.yearId) setSemesters(await request<Semester[]>(`/api/v1/years/${sticky.yearId}/semesters`));
-        if (sticky.semesterId) setSubjects(await request<Subject[]>(`/api/v1/semesters/${sticky.semesterId}/subjects`));
-        if (sticky.subjectId) {
-          try { setLectures(await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${sticky.subjectId}/lectures`)); }
-          catch { /* lectures list is optional for the sticky restore */ }
+        if (ids.universityId) setColleges(await request<College[]>(`/api/v1/universities/${ids.universityId}/colleges`));
+        if (ids.collegeId) setYears(await request<AcademicYear[]>(`/api/v1/colleges/${ids.collegeId}/years`));
+        if (ids.yearId) setSemesters(await request<Semester[]>(`/api/v1/years/${ids.yearId}/semesters`));
+        if (ids.semesterId) setSubjects(await request<Subject[]>(`/api/v1/semesters/${ids.semesterId}/subjects`));
+        if (ids.subjectId) {
+          try { setLectures(await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${ids.subjectId}/lectures`)); }
+          catch { /* lectures list is optional for the context restore */ }
         }
-        setForm(formFromSticky(sticky));
+        if (sticky?.subjectId === ids.subjectId) setForm(formFromSticky(sticky));
       } catch {
-        writeSticky(null); // stale context (deleted academic entity?) — discard silently
+        academic.clear(); // stale context (deleted academic entity?) — drop the URL params
       }
     })();
     // Initial reference directory only.
@@ -297,7 +331,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   }
 
   async function chooseUniversity(id: string) {
-    setUniversityId(id); setCollegeId(''); setYearId(''); setSemesterId(''); setSubjectId('');
+    academic.chooseUniversity(id);
     setColleges([]); setYears([]); setSemesters([]); setSubjects([]); setLectures([]);
     setForm(emptyForm());
     if (!id) return;
@@ -305,7 +339,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل الكليات.'); }
   }
   async function chooseCollege(id: string) {
-    setCollegeId(id); setYearId(''); setSemesterId(''); setSubjectId('');
+    academic.chooseCollege(id);
     setYears([]); setSemesters([]); setSubjects([]); setLectures([]);
     setForm(emptyForm());
     if (!id) return;
@@ -313,7 +347,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل السنوات.'); }
   }
   async function chooseYear(id: string) {
-    setYearId(id); setSemesterId(''); setSubjectId('');
+    academic.chooseYear(id);
     setSemesters([]); setSubjects([]); setLectures([]);
     setForm(emptyForm());
     if (!id) return;
@@ -321,14 +355,16 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل الفصول.'); }
   }
   async function chooseSemester(id: string) {
-    setSemesterId(id); setSubjectId(''); setSubjects([]); setLectures([]);
+    academic.chooseSemester(id);
+    setSubjects([]); setLectures([]);
     setForm(emptyForm());
     if (!id) return;
     try { setSubjects(await request<Subject[]>(`/api/v1/semesters/${id}/subjects`)); }
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل المواد.'); }
   }
   async function chooseSubject(id: string) {
-    setSubjectId(id); setLectures([]); setForm(emptyForm()); setShowEditor(false);
+    academic.chooseSubject(id); setLectures([]); setForm(emptyForm()); setShowEditor(false);
+    setSelectedIds(new Set()); // selection belongs to the previous subject
     if (!id) return;
     try { setLectures(await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${id}/lectures`)); }
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل المحاضرات.'); }
@@ -373,6 +409,9 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     setBusy(true);
     try {
       const detail = await request<QuestionDetail>(`/api/v1/admin/questions/${id}`);
+      const row = questions.find(item => item.id === id) ?? null;
+      setEditingRow(row ? { status: row.status, attemptsCount: row.attemptsCount, correctRate: row.correctRate } : null);
+      setEditorTab('content'); // D5: every editor opens on المحتوى
       setForm({
         id: detail.id,
         text: detail.text,
@@ -414,13 +453,30 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   }
 
   async function doSubmit(addAnother: boolean) {
-    if (!subjectId || !form.text.trim() || !form.explanation.trim()) return;
+    if (!subjectId) {
+      onError(isArabic ? 'اختر المادة أولاً.' : 'Pick a subject first.');
+      return;
+    }
+    // W14.3 D5: tabs hide fields from the DOM, so HTML5 validation cannot see
+    // them — validate manually and jump to the offending tab, fail visibly.
+    if (!form.text.trim()) {
+      setEditorTab('content');
+      onError(isArabic ? 'اكتب نص السؤال.' : 'Write the question text.');
+      return;
+    }
     if (isEssay && !form.correctAnswer.trim()) {
+      setEditorTab('content');
       onError(isArabic ? 'اكتب الإجابة النموذجية للسؤال التحريري.' : 'Provide the model answer for the essay question.');
       return;
     }
     if (!isEssay && (form.options.length < 2 || form.options.some(option => !option.text.trim()) || !form.options.some(option => option.isCorrect))) {
+      setEditorTab('content');
       onError(isArabic ? 'أدخل خيارين على الأقل وحدد إجابة صحيحة.' : 'Provide at least two options and mark a correct answer.');
+      return;
+    }
+    if (!form.explanation.trim()) {
+      setEditorTab('explanation');
+      onError(isArabic ? 'اكتب شرح السؤال العلمي.' : 'Write the scientific explanation.');
       return;
     }
     setBusy(true);
@@ -436,7 +492,8 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
           id: option.id ?? null,
           text: option.text.trim(),
           isCorrect: option.isCorrect,
-          imageUrl: null,
+          // W14.3 B.2 (R75 C2): option images ride the create/update payloads.
+          imageUrl: option.imageUrl?.trim() ? option.imageUrl.trim() : null,
         })),
         correctOptionId: '',
         correctAnswer: isEssay ? form.correctAnswer.trim() : null,
@@ -470,13 +527,19 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     } finally { setBusy(false); }
   }
 
-  async function lifecycle(id: string, action: 'publish' | 'archive') {
+  async function lifecycle(id: string, action: 'publish' | 'archive' | 'unpublish') {
     setBusy(true);
     try {
-      await request(`/api/v1/questions/${id}/${action}`, { method: 'POST' });
-      onNotice(action === 'publish'
-        ? (isArabic ? 'تم نشر السؤال.' : 'Question published.')
-        : (isArabic ? 'تمت أرشفة السؤال.' : 'Question archived.'));
+      if (action === 'unpublish') {
+        // W14.3 B.3 — unpublish lives on the admin controller (W14.2).
+        await request(`/api/v1/admin/questions/${id}/unpublish`, { method: 'POST' });
+        onNotice(isArabic ? 'تم إلغاء نشر السؤال وعاد مسودة.' : 'Question unpublished and returned to draft.');
+      } else {
+        await request(`/api/v1/questions/${id}/${action}`, { method: 'POST' });
+        onNotice(action === 'publish'
+          ? (isArabic ? 'تم نشر السؤال.' : 'Question published.')
+          : (isArabic ? 'تمت أرشفة السؤال.' : 'Question archived.'));
+      }
       await loadQuestions();
     } catch (error) {
       onError(error instanceof Error ? error.message : 'تعذر تحديث حالة السؤال.');
@@ -497,6 +560,112 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   function closeEditor() {
     setShowEditor(false);
     setForm(emptyForm());
+    setEditingRow(null);
+    setEditorTab('content');
+  }
+
+  // ===== W14.3 B.3 — preview / duplicate / bulk actions =====
+
+  async function previewQuestion(id: string) {
+    setPreviewLoading(true);
+    try {
+      setPreview(await request<QuestionPreview>(`/api/v1/admin/questions/${id}/preview`));
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'تعذر فتح المعاينة.');
+    } finally { setPreviewLoading(false); }
+  }
+
+  async function duplicateQuestion(id: string) {
+    setBusy(true);
+    try {
+      await request(`/api/v1/admin/questions/${id}/duplicate`, { method: 'POST' });
+      onNotice(isArabic ? 'تم تكرار السؤال كمسودة جديدة.' : 'Question duplicated as a new draft.');
+      await loadQuestions();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'تعذر تكرار السؤال.');
+    } finally { setBusy(false); }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds(current => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function bulkAction(action: 'publish' | 'archive') {
+    if (selectedIds.size === 0) return;
+    setBulkBusy(true);
+    try {
+      const result = await request<{ requested: number; succeeded: number; skipped: number; notFoundIds: string[] }>(
+        `/api/v1/admin/questions/bulk-${action}`,
+        { method: 'POST', headers: requestHeaders, body: JSON.stringify({ ids: Array.from(selectedIds) }) },
+      );
+      onNotice(isArabic
+        ? `تم تنفيذ الإجراء على ${result.succeeded} من ${result.requested} سؤال.`
+        : `Applied to ${result.succeeded} of ${result.requested} questions.`);
+      setSelectedIds(new Set());
+      await loadQuestions();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'تعذر تنفيذ الإجراء الجماعي.');
+    } finally { setBulkBusy(false); }
+  }
+
+  // ===== W14.3 B.2 (R75 C2) — option image upload via the library presign flow =====
+
+  async function uploadOptionImage(optionIndex: number, file: File) {
+    if (!subjectId) {
+      onError(isArabic ? 'اختر المادة أولاً.' : 'Pick a subject first.');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      onError(isArabic ? 'الملف المرفق ليس صورة.' : 'The attached file is not an image.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      onError(isArabic ? 'حجم الصورة يتجاوز 5 ميغابايت.' : 'The image exceeds the 5 MB limit.');
+      return;
+    }
+    setUploadingOption(optionIndex);
+    try {
+      // Existing presign flow: upload-url → PUT to object storage → complete-upload.
+      const presign = await request<{ uploadUrl: string; fileKey: string; fileId: string }>('/api/v1/library/upload-url', {
+        method: 'POST',
+        headers: requestHeaders,
+        body: JSON.stringify({
+          fileName: file.name,
+          contentType: file.type,
+          fileSize: file.size,
+          subjectId,
+          lectureId: form.lectureId || null,
+          type: 'Image',
+          title: (form.text.trim() || (isArabic ? 'صورة خيار سؤال' : 'Question option image')).slice(0, 120),
+          description: null,
+        }),
+      });
+      const put = await fetch(presign.uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+      if (!put.ok) throw new Error(isArabic ? `فشل رفع الملف إلى التخزين (${put.status}).` : `Storage upload failed (${put.status}).`);
+      await request('/api/v1/library/complete-upload', {
+        method: 'POST',
+        headers: requestHeaders,
+        body: JSON.stringify({ fileId: presign.fileId, fileKey: presign.fileKey, actualFileSize: file.size }),
+      });
+      // Students render <img src={imageUrl}> with no auth header — the value must be
+      // a publicly fetchable URL, built from the deployment's public bucket base.
+      const publicBase = ((import.meta.env?.VITE_R2_PUBLIC_BASE as string | undefined) ?? '').replace(/\/$/, '');
+      if (!publicBase) {
+        onError(isArabic
+          ? 'تم رفع الصورة، لكن رابطها العام غير قابل للتوليد — اضبط VITE_R2_PUBLIC_BASE ثم أعد الإرفاق، أو الصق رابط الصورة يدوياً.'
+          : 'Image uploaded, but its public URL cannot be derived — set VITE_R2_PUBLIC_BASE and re-attach, or paste the image URL manually.');
+        return;
+      }
+      updateOption(optionIndex, { imageUrl: `${publicBase}/${presign.fileKey}` });
+      onNotice(isArabic ? 'تم إرفاق الصورة بالخيار.' : 'Image attached to the option.');
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'تعذر رفع الصورة.');
+    } finally { setUploadingOption(null); }
   }
 
   const dir = isArabic ? 'rtl' : 'ltr';
@@ -540,7 +709,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
         {subjectId && can('btn:questions.create') && (
           <button
             type="button"
-            onClick={() => { setForm(readSticky() ? formFromSticky(readSticky()!) : emptyForm()); setShowEditor(true); }}
+            onClick={() => { setForm(readSticky() ? formFromSticky(readSticky()!) : emptyForm()); setEditorTab('content'); setShowEditor(true); }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors"
             style={{ background: 'var(--cms-teal-700)' }}
             onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-600)'; }}
@@ -642,6 +811,53 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
             </select>
           </div>
 
+          {/* ===== W14.3 B.3: bulk actions bar ===== */}
+          {selectedIds.size > 0 && !loading && (
+            <div
+              className="flex items-center gap-2 flex-wrap rounded-xl border px-4 py-3"
+              style={{ borderColor: 'var(--cms-teal-100)', background: 'var(--cms-teal-50)' }}
+              role="toolbar"
+              aria-label={isArabic ? 'إجراءات جماعية' : 'Bulk actions'}
+            >
+              <span className="text-sm font-semibold" style={{ color: 'var(--cms-teal-700)' }}>
+                {isArabic ? `تم تحديد ${selectedIds.size} سؤال` : `${selectedIds.size} selected`}
+              </span>
+              {can('btn:questions.publish') && (
+                <button
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={() => void bulkAction('publish')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-xs font-semibold transition-colors disabled:opacity-50"
+                  style={{ background: 'var(--cms-success)' }}
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  {isArabic ? 'نشر المحدد' : 'Publish selected'}
+                </button>
+              )}
+              {can('btn:questions.archive') && (
+                <button
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={() => void bulkAction('archive')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-xs font-semibold transition-colors disabled:opacity-50"
+                  style={{ background: 'var(--cms-warning)' }}
+                >
+                  <Archive className="w-3.5 h-3.5" />
+                  {isArabic ? 'أرشفة المحدد' : 'Archive selected'}
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={bulkBusy}
+                onClick={() => setSelectedIds(new Set())}
+                className="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
+                style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+              >
+                {isArabic ? 'إلغاء التحديد' : 'Clear selection'}
+              </button>
+            </div>
+          )}
+
           {/* ===== Question list ===== */}
           {loading ? (
             <div className="rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
@@ -682,6 +898,15 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
               <table className="w-full text-sm">
                 <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
                   <tr>
+                    <th className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        aria-label={isArabic ? 'تحديد كل الأسئلة' : 'Select all questions'}
+                        checked={questions.length > 0 && selectedIds.size === questions.length}
+                        onChange={(event) => setSelectedIds(event.target.checked ? new Set(questions.map(item => item.id)) : new Set())}
+                        className="h-4 w-4 accent-teal-600"
+                      />
+                    </th>
                     <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'نص السؤال' : 'Question'}</th>
                     <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'النوع' : 'Type'}</th>
                     <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الصعوبة' : 'Difficulty'}</th>
@@ -696,6 +921,15 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                 <tbody className="divide-y" style={{ borderColor: 'var(--cms-line)' }}>
                   {questions.map(question => (
                     <tr key={question.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          aria-label={isArabic ? `تحديد السؤال: ${question.text.slice(0, 40)}` : `Select question: ${question.text.slice(0, 40)}`}
+                          checked={selectedIds.has(question.id)}
+                          onChange={() => toggleSelect(question.id)}
+                          className="h-4 w-4 accent-teal-600"
+                        />
+                      </td>
                       <td className="px-4 py-3 max-w-xs">
                         <div className="font-medium text-sm leading-snug line-clamp-2" style={{ color: 'var(--cms-text)' }}>
                           {question.text}
@@ -738,20 +972,27 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         <div className="font-semibold" style={{ color: 'var(--cms-text)' }}>{question.attemptsCount}</div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--cms-ivory-200)' }}>
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                width: `${Math.min(100, Math.max(0, question.correctRate))}%`,
-                                background: question.correctRate >= 70 ? 'var(--cms-success)' : question.correctRate >= 40 ? 'var(--cms-warning)' : 'var(--cms-danger)',
-                              }}
-                            />
-                          </div>
-                          <span className="text-xs font-semibold tabular-nums" style={{ color: 'var(--cms-text)' }}>
-                            {question.correctRate.toFixed(0)}%
+                        {/* W14.3 B.4: no attempts → say so; never show a misleading red 0%. */}
+                        {question.attemptsCount === 0 ? (
+                          <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                            {isArabic ? 'لا توجد محاولات بعد' : 'No attempts yet'}
                           </span>
-                        </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--cms-ivory-200)' }}>
+                              <div
+                                className="h-full rounded-full"
+                                style={{
+                                  width: `${Math.min(100, Math.max(0, question.correctRate))}%`,
+                                  background: question.correctRate >= 70 ? 'var(--cms-success)' : question.correctRate >= 40 ? 'var(--cms-warning)' : 'var(--cms-danger)',
+                                }}
+                              />
+                            </div>
+                            <span className="text-xs font-semibold tabular-nums" style={{ color: 'var(--cms-text)' }}>
+                              {question.correctRate.toFixed(0)}%
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
@@ -767,6 +1008,49 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
                             >
                               <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
+                          {/* W14.3 B.3: preview — the student view (no correctness flags). */}
+                          <button
+                            type="button"
+                            title={isArabic ? 'معاينة' : 'Preview'}
+                            disabled={busy || previewLoading}
+                            onClick={() => void previewQuestion(question.id)}
+                            className="p-1.5 rounded-md transition-colors"
+                            style={{ color: 'var(--cms-text-muted)' }}
+                            onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
+                            onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          {/* W14.3 B.3: duplicate as a new draft (admin controller, W14.2). */}
+                          {can('btn:questions.create') && (
+                            <button
+                              type="button"
+                              title={isArabic ? 'تكرار' : 'Duplicate'}
+                              disabled={busy}
+                              onClick={() => void duplicateQuestion(question.id)}
+                              className="p-1.5 rounded-md transition-colors"
+                              style={{ color: 'var(--cms-text-muted)' }}
+                              onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
+                              onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
+                            >
+                              <Copy className="w-4 h-4" />
+                            </button>
+                          )}
+                          {/* W14.3 B.3: unpublish a published question back to draft. */}
+                          {can('btn:questions.publish') && question.status === 'Published' && (
+                            <button
+                              type="button"
+                              title={isArabic ? 'إلغاء النشر' : 'Unpublish'}
+                              disabled={busy}
+                              onClick={() => setConfirm({ id: question.id, action: 'unpublish' })}
+                              className="p-1.5 rounded-md transition-colors"
+                              style={{ color: 'var(--cms-text-muted)' }}
+                              onMouseEnter={(event) => { event.currentTarget.style.background = '#fffbeb'; event.currentTarget.style.color = 'var(--cms-warning)'; }}
+                              onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
+                            >
+                              <Undo2 className="w-4 h-4" />
                             </button>
                           )}
                           {can('btn:questions.publish') && question.status !== 'Published' && question.status !== 'Archived' && (
@@ -852,15 +1136,34 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     </button>
                   </div>
 
-                  {/* Editor body */}
+                  {/* Editor body — W14.3 D5: 4-tab layout; one Save persists every tab */}
                   <div className="flex-1 px-5 py-4 space-y-5">
+                    <div role="tablist" aria-label={isArabic ? 'أقسام محرر السؤال' : 'Question editor sections'} className="flex gap-1 overflow-x-auto pb-1 border-b" style={{ borderColor: 'var(--cms-line)' }}>
+                      {EDITOR_TABS.map(tab => (
+                        <button
+                          key={tab.key}
+                          type="button"
+                          role="tab"
+                          aria-selected={editorTab === tab.key}
+                          onClick={() => setEditorTab(tab.key)}
+                          className="px-3 py-2 rounded-t-lg text-xs font-semibold whitespace-nowrap transition-colors"
+                          style={editorTab === tab.key
+                            ? { background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)', borderBottom: '2px solid var(--cms-teal-600)' }
+                            : { color: 'var(--cms-text-muted)' }}
+                        >
+                          {isArabic ? tab.labelAr : tab.labelEn}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Tab 1 — المحتوى: text, type, options, images */}
+                    <div hidden={editorTab !== 'content'} className="space-y-5">
                     {/* Question text */}
                     <label className="block">
                       <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
                         {isArabic ? 'نص السؤال' : 'Question text'}
                       </span>
                       <textarea
-                        required
                         rows={3}
                         value={form.text}
                         onChange={event => setForm(current => ({ ...current, text: event.target.value }))}
@@ -869,118 +1172,29 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                       />
                     </label>
 
-                    {/* Type + Difficulty (side by side) */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="block">
-                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic ? 'النوع' : 'Type'}
-                        </span>
-                        <select
-                          value={form.type}
-                          disabled={Boolean(form.id)}
-                          onChange={event => changeType(event.target.value as QuestionType)}
-                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-60"
-                          style={{ borderColor: 'var(--cms-line-strong)' }}
-                        >
-                          <option value="Mcq">{isArabic ? 'اختيار من متعدد' : 'MCQ'}</option>
-                          <option value="TrueFalse">{isArabic ? 'صح أو خطأ' : 'True / False'}</option>
-                          <option value="MultipleSelect">{isArabic ? 'اختيارات متعددة' : 'Multiple select'}</option>
-                          <option value="Essay">{isArabic ? 'تحريري' : 'Essay'}</option>
-                        </select>
-                        {form.id && (
-                          <small className="block mt-1 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
-                            {isArabic ? 'لا يمكن تغيير النوع بعد الإنشاء.' : 'Type cannot change after creation.'}
-                          </small>
-                        )}
-                      </label>
-                      <label className="block">
-                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic ? 'الصعوبة' : 'Difficulty'}
-                        </span>
-                        <select
-                          value={form.difficulty}
-                          onChange={event => setForm(current => ({ ...current, difficulty: event.target.value as Difficulty }))}
-                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                          style={{ borderColor: 'var(--cms-line-strong)' }}
-                        >
-                          <option value="Easy">{isArabic ? 'سهل' : 'Easy'}</option>
-                          <option value="Medium">{isArabic ? 'متوسط' : 'Medium'}</option>
-                          <option value="Hard">{isArabic ? 'صعب' : 'Hard'}</option>
-                        </select>
-                      </label>
-                    </div>
-
-                    {/* Lecture + Tags */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <label className="block">
-                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic ? 'المحاضرة (اختياري)' : 'Lecture (optional)'}
-                        </span>
-                        <select
-                          value={form.lectureId}
-                          onChange={event => setForm(current => ({ ...current, lectureId: event.target.value }))}
-                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                          style={{ borderColor: 'var(--cms-line-strong)' }}
-                        >
-                          <option value="">{isArabic ? 'سؤال عام للمادة' : 'Subject-level question'}</option>
-                          {lectures.map(item => <option key={item.id} value={item.id}>{label(isArabic, item)}</option>)}
-                        </select>
-                      </label>
-                      <label className="block">
-                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic ? 'الوسوم (مفصولة بفواصل)' : 'Tags (comma-separated)'}
-                        </span>
-                        <input
-                          value={form.tags}
-                          onChange={event => setForm(current => ({ ...current, tags: event.target.value }))}
-                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                          style={{ borderColor: 'var(--cms-line-strong)' }}
-                        />
-                      </label>
-                    </div>
-
-                    {/* Reference + Exam year + Paragraph tag (Push 2 / Track 1) */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <label className="block">
-                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic ? 'المرجع (اختياري)' : 'Reference (optional)'}
-                        </span>
-                        <input
-                          value={form.reference}
-                          onChange={event => setForm(current => ({ ...current, reference: event.target.value }))}
-                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                          style={{ borderColor: 'var(--cms-line-strong)' }}
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic ? 'سنة الامتحان (اختياري)' : 'Exam year (optional)'}
-                        </span>
-                        <input
-                          type="number"
-                          min={1900}
-                          max={2100}
-                          inputMode="numeric"
-                          value={form.year}
-                          onChange={event => setForm(current => ({ ...current, year: event.target.value }))}
-                          placeholder={isArabic ? 'مثال: 2024' : 'e.g. 2024'}
-                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                          style={{ borderColor: 'var(--cms-line-strong)' }}
-                        />
-                      </label>
-                      <label className="block sm:col-span-2">
-                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic ? 'وسم الفقرة (اختياري — موقع السؤال في المنهاج)' : 'Paragraph tag (optional — position in curriculum)'}
-                        </span>
-                        <input
-                          value={form.paragraphTag}
-                          onChange={event => setForm(current => ({ ...current, paragraphTag: event.target.value }))}
-                          placeholder={isArabic ? 'مثال: الفصل الأول' : 'e.g. Chapter 1'}
-                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                          style={{ borderColor: 'var(--cms-line-strong)' }}
-                        />
-                      </label>
-                    </div>
+                    {/* Type (difficulty lives in التصنيف والوسوم — D5) */}
+                    <label className="block">
+                      <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                        {isArabic ? 'النوع' : 'Type'}
+                      </span>
+                      <select
+                        value={form.type}
+                        disabled={Boolean(form.id)}
+                        onChange={event => changeType(event.target.value as QuestionType)}
+                        className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-60"
+                        style={{ borderColor: 'var(--cms-line-strong)' }}
+                      >
+                        <option value="Mcq">{isArabic ? 'اختيار من متعدد' : 'MCQ'}</option>
+                        <option value="TrueFalse">{isArabic ? 'صح أو خطأ' : 'True / False'}</option>
+                        <option value="MultipleSelect">{isArabic ? 'اختيارات متعددة' : 'Multiple select'}</option>
+                        <option value="Essay">{isArabic ? 'تحريري' : 'Essay'}</option>
+                      </select>
+                      {form.id && (
+                        <small className="block mt-1 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
+                          {isArabic ? 'لا يمكن تغيير النوع بعد الإنشاء.' : 'Type cannot change after creation.'}
+                        </small>
+                      )}
+                    </label>
 
                     {/* Options editor OR essay model answer */}
                     {isEssay ? (
@@ -995,7 +1209,6 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                           </strong>
                         </div>
                         <textarea
-                          required
                           rows={5}
                           value={form.correctAnswer}
                           onChange={event => setForm(current => ({ ...current, correctAnswer: event.target.value }))}
@@ -1027,8 +1240,8 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                           </div>
                         </div>
                         {form.options.map((option, index) => (
+                          <Fragment key={`${option.id ?? 'new'}-${index}`}>
                           <div
-                            key={`${option.id ?? 'new'}-${index}`}
                             className="flex items-center gap-2 bg-white rounded-lg border p-2"
                             style={{ borderColor: 'var(--cms-line)' }}
                           >
@@ -1051,7 +1264,6 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               {String.fromCharCode(65 + index)}
                             </span>
                             <input
-                              required
                               value={option.text}
                               disabled={isTrueFalse}
                               onChange={event => updateOption(index, { text: event.target.value })}
@@ -1092,6 +1304,64 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               </>
                             )}
                           </div>
+                          {/* W14.3 B.2 (R75 C2): attach an image to this option —
+                              upload via the library presign flow or paste a public URL. */}
+                          {!isTrueFalse && (
+                            <div className="px-2 pb-2 ms-9 space-y-1.5">
+                              {(option.imageUrl || uploadingOption === index) && (
+                                <div className="flex items-center gap-2">
+                                  {option.imageUrl && (
+                                    <img
+                                      src={option.imageUrl}
+                                      alt={isArabic ? 'صورة الخيار' : 'Option image'}
+                                      className="h-10 w-16 rounded border object-cover"
+                                      style={{ borderColor: 'var(--cms-line)' }}
+                                    />
+                                  )}
+                                  {uploadingOption === index && (
+                                    <LoaderCircle className="w-4 h-4 animate-spin" style={{ color: 'var(--cms-teal-600)' }} />
+                                  )}
+                                  {option.imageUrl && (
+                                    <button
+                                      type="button"
+                                      title={isArabic ? 'إزالة الصورة' : 'Remove image'}
+                                      onClick={() => updateOption(index, { imageUrl: null })}
+                                      className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: 'var(--cms-text-muted)' }}>
+                                  <ImagePlus className="w-3.5 h-3.5" />
+                                  {uploadingOption === index
+                                    ? (isArabic ? 'جارٍ الرفع…' : 'Uploading…')
+                                    : (isArabic ? 'رفع صورة' : 'Upload image')}
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="sr-only"
+                                    disabled={busy || uploadingOption !== null}
+                                    onChange={(event) => {
+                                      const file = event.target.files?.[0];
+                                      event.target.value = '';
+                                      if (file) void uploadOptionImage(index, file);
+                                    }}
+                                  />
+                                </label>
+                                <input
+                                  value={option.imageUrl ?? ''}
+                                  onChange={event => updateOption(index, { imageUrl: event.target.value || null })}
+                                  placeholder={isArabic ? 'أو الصق رابط الصورة العام' : 'or paste a public image URL'}
+                                  className="flex-1 min-w-[160px] px-2 py-1 rounded-md border text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                  style={{ borderColor: 'var(--cms-line)' }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                          </Fragment>
                         ))}
                         {!isTrueFalse && (
                           <button
@@ -1109,13 +1379,16 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                       </div>
                     )}
 
+                    </div>
+
+                    {/* Tab 2 — الشرح والمراجع: explanation + reference */}
+                    <div hidden={editorTab !== 'explanation'} className="space-y-5">
                     {/* Explanation */}
                     <label className="block">
                       <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
                         {isArabic ? 'الشرح' : 'Explanation'}
                       </span>
                       <textarea
-                        required
                         rows={4}
                         value={form.explanation}
                         onChange={event => setForm(current => ({ ...current, explanation: event.target.value }))}
@@ -1124,6 +1397,139 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         style={{ borderColor: 'var(--cms-line-strong)' }}
                       />
                     </label>
+                    <label className="block">
+                      <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                        {isArabic ? 'المرجع (اختياري)' : 'Reference (optional)'}
+                      </span>
+                      <input
+                        value={form.reference}
+                        onChange={event => setForm(current => ({ ...current, reference: event.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                        style={{ borderColor: 'var(--cms-line-strong)' }}
+                      />
+                    </label>
+                    </div>
+
+                    {/* Tab 3 — التصنيف والوسوم: academic context, difficulty, tags, usage */}
+                    <div hidden={editorTab !== 'classification'} className="space-y-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="block">
+                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                          {isArabic ? 'المحاضرة (اختياري)' : 'Lecture (optional)'}
+                        </span>
+                        <select
+                          value={form.lectureId}
+                          onChange={event => setForm(current => ({ ...current, lectureId: event.target.value }))}
+                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          style={{ borderColor: 'var(--cms-line-strong)' }}
+                        >
+                          <option value="">{isArabic ? 'سؤال عام للمادة' : 'Subject-level question'}</option>
+                          {lectures.map(item => <option key={item.id} value={item.id}>{label(isArabic, item)}</option>)}
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                          {isArabic ? 'الصعوبة' : 'Difficulty'}
+                        </span>
+                        <select
+                          value={form.difficulty}
+                          onChange={event => setForm(current => ({ ...current, difficulty: event.target.value as Difficulty }))}
+                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          style={{ borderColor: 'var(--cms-line-strong)' }}
+                        >
+                          <option value="Easy">{isArabic ? 'سهل' : 'Easy'}</option>
+                          <option value="Medium">{isArabic ? 'متوسط' : 'Medium'}</option>
+                          <option value="Hard">{isArabic ? 'صعب' : 'Hard'}</option>
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                          {isArabic ? 'الوسوم (مفصولة بفواصل)' : 'Tags (comma-separated)'}
+                        </span>
+                        <input
+                          value={form.tags}
+                          onChange={event => setForm(current => ({ ...current, tags: event.target.value }))}
+                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          style={{ borderColor: 'var(--cms-line-strong)' }}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                          {isArabic ? 'سنة الامتحان (اختياري)' : 'Exam year (optional)'}
+                        </span>
+                        <input
+                          type="number"
+                          min={1900}
+                          max={2100}
+                          inputMode="numeric"
+                          value={form.year}
+                          onChange={event => setForm(current => ({ ...current, year: event.target.value }))}
+                          placeholder={isArabic ? 'مثال: 2024' : 'e.g. 2024'}
+                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          style={{ borderColor: 'var(--cms-line-strong)' }}
+                        />
+                      </label>
+                      <label className="block sm:col-span-2">
+                        <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                          {isArabic ? 'وسم الفقرة (اختياري — موقع السؤال في المنهاج)' : 'Paragraph tag (optional — position in curriculum)'}
+                        </span>
+                        <input
+                          value={form.paragraphTag}
+                          onChange={event => setForm(current => ({ ...current, paragraphTag: event.target.value }))}
+                          placeholder={isArabic ? 'مثال: الفصل الأول' : 'e.g. Chapter 1'}
+                          className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          style={{ borderColor: 'var(--cms-line-strong)' }}
+                        />
+                      </label>
+                    </div>
+                    {/* W14.3 D5: usage snapshot for the question being edited. */}
+                    {form.id && editingRow && (
+                      <div className="rounded-lg border p-4" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
+                        <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--cms-text-muted)' }}>
+                          {isArabic ? 'الاستخدام' : 'Usage'}
+                        </p>
+                        <div className="flex items-center gap-6 text-sm">
+                          <span style={{ color: 'var(--cms-text-soft)' }}>
+                            {isArabic ? 'المحاولات' : 'Attempts'}:{' '}
+                            <strong style={{ color: 'var(--cms-text)' }}>{editingRow.attemptsCount}</strong>
+                          </span>
+                          <span style={{ color: 'var(--cms-text-soft)' }}>
+                            {isArabic ? 'نسبة الإصابة' : 'Correct rate'}:{' '}
+                            {editingRow.attemptsCount > 0
+                              ? <strong style={{ color: 'var(--cms-text)' }}>{editingRow.correctRate.toFixed(0)}%</strong>
+                              : <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لا توجد محاولات بعد' : 'No attempts yet'}</span>}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    </div>
+
+                    {/* Tab 4 — الإعدادات: publish status (+ honest scope note) */}
+                    <div hidden={editorTab !== 'settings'} className="space-y-4">
+                      <div className="rounded-lg border p-4 space-y-2" style={{ borderColor: 'var(--cms-line)' }}>
+                        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
+                          {isArabic ? 'حالة النشر' : 'Publish status'}
+                        </p>
+                        <div>
+                          {form.id && editingRow
+                            ? <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border ${statusBadgeClass(editingRow.status)}`}>
+                                <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
+                                {statusLabel(editingRow.status, isArabic)}
+                              </span>
+                            : <span className="text-sm" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'مسودة (سؤال جديد)' : 'Draft (new question)'}</span>}
+                        </div>
+                        <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                          {isArabic
+                            ? 'أزرار النشر/الأرشفة/إلغاء النشر في شريط الإجراءات أسفل المحرر.'
+                            : 'Publish / archive / unpublish buttons live in the action bar below.'}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border p-4 text-xs leading-relaxed" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)', color: 'var(--cms-text-soft)' }}>
+                        {isArabic
+                          ? 'ملاحظة: إظهار الشرح بعد التصحيح إعداد على مستوى الاختبار وليس لكل سؤال — يُضبط عند إنشاء الاختبار في مركز الاختبارات.'
+                          : 'Note: showing explanations after grading is an exam-level setting, not per-question — configure it when creating the exam in the Exams Center.'}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Action bar */}
@@ -1190,6 +1596,18 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         {isArabic ? 'نشر' : 'Publish'}
                       </button>
                     )}
+                    {form.id && editingRow?.status === 'Published' && can('btn:questions.publish') && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => { const id = form.id; if (id) { setShowEditor(false); setConfirm({ id, action: 'unpublish' }); } }}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
+                        style={{ borderColor: 'var(--cms-warning)', color: 'var(--cms-warning)' }}
+                      >
+                        <Undo2 className="w-4 h-4" />
+                        {isArabic ? 'إلغاء النشر' : 'Unpublish'}
+                      </button>
+                    )}
                     <button
                       type="submit"
                       disabled={busy}
@@ -1231,9 +1649,11 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                 style={{
                   background: confirm.action === 'archive' ? 'var(--cms-warning-50)'
                     : confirm.action === 'delete' ? 'var(--cms-danger-50)'
+                    : confirm.action === 'unpublish' ? 'var(--cms-warning-50)'
                     : 'var(--cms-teal-50)',
                   color: confirm.action === 'archive' ? 'var(--cms-warning)'
                     : confirm.action === 'delete' ? 'var(--cms-danger)'
+                    : confirm.action === 'unpublish' ? 'var(--cms-warning)'
                     : 'var(--cms-teal-700)',
                 }}
               >
@@ -1245,6 +1665,8 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     ? (isArabic ? 'نشر السؤال' : 'Publish question')
                     : confirm.action === 'archive'
                     ? (isArabic ? 'أرشفة السؤال' : 'Archive question')
+                    : confirm.action === 'unpublish'
+                    ? (isArabic ? 'إلغاء نشر السؤال' : 'Unpublish question')
                     : (isArabic ? 'حذف السؤال' : 'Delete question')}
                 </h3>
                 <p className="text-sm mt-1" style={{ color: 'var(--cms-text-soft)' }}>
@@ -1252,6 +1674,8 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     ? (isArabic ? 'سيُتاح السؤال للطلاب المخوّلين ضمن مادته.' : 'The question will become available to entitled students within its subject.')
                     : confirm.action === 'archive'
                     ? (isArabic ? 'سيُخفى السؤال من الطلاب لكنه يبقى في قاعدة البيانات.' : 'The question will be hidden from students but kept in the database.')
+                    : confirm.action === 'unpublish'
+                    ? (isArabic ? 'سيعود السؤال إلى مسودة ويُخفى عن الطلاب حتى إعادة نشره.' : 'The question returns to draft and stays hidden from students until republished.')
                     : (isArabic ? 'هذا الإجراء دائم. سيُحذف السؤال نهائياً من قاعدة البيانات.' : 'This action is permanent. The question will be removed permanently.')}
                 </p>
                 {confirm.action === 'delete' && (
@@ -1283,30 +1707,137 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                 style={{
                   background: confirm.action === 'archive' ? 'var(--cms-warning)'
                     : confirm.action === 'delete' ? 'var(--cms-danger)'
+                    : confirm.action === 'unpublish' ? 'var(--cms-warning)'
                     : 'var(--cms-teal-700)',
                 }}
                 onMouseEnter={(event) => {
                   if (confirm.action === 'archive') event.currentTarget.style.background = '#8a5a18';
                   else if (confirm.action === 'delete') event.currentTarget.style.background = '#9c3a31';
+                  else if (confirm.action === 'unpublish') event.currentTarget.style.background = '#8a5a18';
                   else event.currentTarget.style.background = 'var(--cms-teal-600)';
                 }}
                 onMouseLeave={(event) => {
                   if (confirm.action === 'archive') event.currentTarget.style.background = 'var(--cms-warning)';
                   else if (confirm.action === 'delete') event.currentTarget.style.background = 'var(--cms-danger)';
+                  else if (confirm.action === 'unpublish') event.currentTarget.style.background = 'var(--cms-warning)';
                   else event.currentTarget.style.background = 'var(--cms-teal-700)';
                 }}
               >
                 {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : (
                   confirm.action === 'archive' ? <Archive className="w-4 h-4" />
                   : confirm.action === 'delete' ? <Trash2 className="w-4 h-4" />
+                  : confirm.action === 'unpublish' ? <Undo2 className="w-4 h-4" />
                   : <Send className="w-4 h-4" />
                 )}
                 {confirm.action === 'publish'
                   ? (isArabic ? 'نشر' : 'Publish')
                   : confirm.action === 'archive'
                   ? (isArabic ? 'أرشفة' : 'Archive')
+                  : confirm.action === 'unpublish'
+                  ? (isArabic ? 'إلغاء النشر' : 'Unpublish')
                   : (isArabic ? 'حذف' : 'Delete')}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== W14.3 B.3: question preview (the student view — no correctness flags) ===== */}
+      {preview && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          role="presentation"
+          onMouseDown={() => setPreview(null)}
+        >
+          <div
+            className="bg-white rounded-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto"
+            role="dialog"
+            aria-modal="true"
+            aria-label={isArabic ? 'معاينة السؤال' : 'Question preview'}
+            style={{ boxShadow: 'var(--cms-shadow-xl)' }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 p-5 border-b sticky top-0 bg-white" style={{ borderColor: 'var(--cms-line)' }}>
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
+                  <Eye className="w-5 h-5" />
+                </div>
+                <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
+                  {isArabic ? 'معاينة السؤال' : 'Question preview'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                className="p-1.5 rounded-md transition-colors"
+                style={{ color: 'var(--cms-text-muted)' }}
+                onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-ivory-200)'; }}
+                onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; }}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${typeBadgeClass(preview.type)}`}>
+                  {typeLabel(preview.type, isArabic)}
+                </span>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${difficultyBadgeClass(preview.difficulty)}`}>
+                  {difficultyLabel(preview.difficulty, isArabic)}
+                </span>
+                {preview.tags.map(tag => (
+                  <span key={tag} className="inline-block px-1.5 py-0.5 rounded text-[10px]" style={{ background: 'var(--cms-ivory-200)', color: 'var(--cms-text-muted)' }}>
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+              <p className="text-base font-medium leading-relaxed" style={{ color: 'var(--cms-text)' }}>
+                {preview.text}
+              </p>
+              {preview.images.length > 0 && (
+                <div className="grid gap-3">
+                  {preview.images.map((image, index) => (
+                    <img
+                      key={`${image.sortOrder}-${index}`}
+                      src={image.imageUrl}
+                      alt={image.altText ?? (isArabic ? 'صورة مرفقة بالسؤال' : 'Question image')}
+                      className="rounded-lg max-h-72 object-contain border"
+                      style={{ borderColor: 'var(--cms-line)' }}
+                    />
+                  ))}
+                </div>
+              )}
+              <div className="space-y-2">
+                {preview.options.map(option => (
+                  <div
+                    key={option.id}
+                    className="flex items-start gap-3 rounded-lg border p-3"
+                    style={{ borderColor: 'var(--cms-line)' }}
+                  >
+                    <span
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0"
+                      style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}
+                      lang="en"
+                    >
+                      {option.letter}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <span className="text-sm" style={{ color: 'var(--cms-text)' }}>{option.text}</span>
+                      {option.imageUrl && (
+                        <img
+                          src={option.imageUrl}
+                          alt={isArabic ? 'صورة الخيار' : 'Option image'}
+                          className="mt-2 rounded max-h-40 object-contain border"
+                          style={{ borderColor: 'var(--cms-line)' }}
+                        />
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-center" style={{ color: 'var(--cms-text-muted)' }}>
+                {isArabic ? 'معاينة كما يراها الطالب — دون الإجابة الصحيحة أو الشرح.' : 'Previewed exactly as the student sees it — no correct answer or explanation.'}
+              </p>
             </div>
           </div>
         </div>

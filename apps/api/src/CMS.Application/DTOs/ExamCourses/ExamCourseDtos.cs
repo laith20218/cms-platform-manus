@@ -32,6 +32,23 @@ public record ExamCourseItemDto(
     string ExamStatus,
     int SortOrder);
 
+/// <summary>W14.3 — admin exam-course list row (R78 backend exception). Application-layer
+/// record only (zero schema change); adds the lifecycle Status that the student list item
+/// omits because students only ever see Published bundles.</summary>
+public record ExamCourseListItemDto(
+    Guid Id,
+    Guid SubjectId,
+    string NameAr,
+    string? NameEn,
+    string? CoverUrl,
+    int Year,
+    int Semester,
+    string CourseType,
+    bool FreeOrPaid,
+    string Status,
+    int ExamsCount,
+    int SortOrder);
+
 public record CreateExamCourseDto(
     Guid SubjectId,
     string NameAr,
