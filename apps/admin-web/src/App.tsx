@@ -677,7 +677,7 @@ function App() {
                 ? <QuestionsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
               {view === 'exams' && (can('view:exams')
-                ? <ExamsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                ? <ExamsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} onNavigateToQuestions={() => setView('questions')} />
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
               {view === 'exam-courses' && (can('view:exams')
                 ? <ExamCoursesCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />

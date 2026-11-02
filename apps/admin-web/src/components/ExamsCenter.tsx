@@ -37,9 +37,9 @@
  */
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
-  AlertCircle, Archive, ArrowDown, ArrowUp, BarChart3, CheckCircle2,
-  ClipboardCheck, Clock, FileText, GraduationCap, ListChecks, LoaderCircle,
-  Pencil, Plus, Search, Send, Trash2, X,
+  AlertCircle, AlertTriangle, Archive, ArrowDown, ArrowUp, BarChart3, CheckCircle2,
+  ClipboardCheck, Clock, Eye, FileText, Flag, GraduationCap, ListChecks, LoaderCircle,
+  Pencil, Plus, Search, Send, Timer, Trash2, TrendingUp, Users, X, XCircle,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
@@ -81,8 +81,28 @@ type Result = {
   answeredQuestions: number; correctAnswers: number;
   score?: number | null; passed?: boolean | null; isFirstAttempt: boolean;
 };
+// ===== W14.3 Phase D (D10) — exam analytics (W14.2 D.1/D.2 endpoints) =====
+type ExamStats = {
+  examId: string; started: number; attempts: number; completed: number; timeouts: number;
+  inProgress: number; cancelled: number; pass: number; fail: number;
+  meanScore?: number | null; medianScore?: number | null; avgDurationSeconds: number;
+  distribution: Array<{ label: string; count: number }>;
+};
+type QuestionStat = {
+  questionId: string; text: string; sortOrder: number; attempts: number;
+  correctPercent: number; mostCommonWrongChoice?: string | null;
+  avgDurationSeconds?: number | null; problematic: boolean;
+};
+// ===== W14.3 Phase D (D12) — question reports triage (W14.2 B.4 endpoint) =====
+type ErrorReport = {
+  id: string; questionId: string; questionText: string; studentId: string;
+  reasonType: string; reportType: string; description?: string | null;
+  screenshotUrl?: string | null; status: string; createdAt: string;
+  resolvedAt?: string | null; resolutionNotes?: string | null;
+};
+type ReportPage = { items: ErrorReport[]; total: number; page: number; pageSize: number; totalPages: number };
 type Page<T> = { items: T[]; page: number; pageSize: number; totalCount: number };
-type Props = { token: string; isArabic: boolean; onError: (message: string) => void; onNotice: (message: string) => void };
+type Props = { token: string; isArabic: boolean; onError: (message: string) => void; onNotice: (message: string) => void; /** W14.3 D10: jump to the Question Bank — the D4 URL context already carries the subject. */ onNavigateToQuestions?: () => void };
 type ConfirmDialog = { exam: ExamSummary; action: 'publish' | 'archive' | 'delete' } | null;
 
 const blankForm = (subjectId = ''): ExamConfiguration => ({
@@ -134,7 +154,45 @@ const statusLabel = (status: string, isArabic: boolean) => {
   return isArabic ? 'مسودة' : 'Draft';
 };
 
-export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
+// ===== W14.3 Phase D (D12) — report classification labels (ReportType enum) =====
+const reportTypeLabel = (type: string, isArabic: boolean) => {
+  switch (type) {
+    case 'Typo': return isArabic ? 'خطأ في الصياغة' : 'Typo';
+    case 'WrongAnswer': return isArabic ? 'الإجابة الصحيحة خاطئة' : 'Wrong answer';
+    case 'BadImage': return isArabic ? 'صورة غير سليمة' : 'Bad image';
+    default: return isArabic ? 'أخرى' : 'Other';
+  }
+};
+
+const reportTypeBadgeClass = (type: string) => {
+  switch (type) {
+    case 'WrongAnswer': return 'text-red-700 bg-red-50 border-red-200';
+    case 'Typo': return 'text-amber-700 bg-amber-50 border-amber-200';
+    case 'BadImage': return 'text-sky-700 bg-sky-50 border-sky-200';
+    default: return 'text-slate-600 bg-slate-50 border-slate-200';
+  }
+};
+
+const reportStatusLabel = (status: string, isArabic: boolean) => {
+  switch (status.toLowerCase()) {
+    case 'reviewing': return isArabic ? 'قيد المراجعة' : 'Reviewing';
+    case 'resolved': return isArabic ? 'تم الحل' : 'Resolved';
+    case 'rejected': return isArabic ? 'مرفوض' : 'Rejected';
+    case 'closed': return isArabic ? 'مغلق' : 'Closed';
+    default: return isArabic ? 'قيد الانتظار' : 'Pending';
+  }
+};
+
+const reportStatusBadgeClass = (status: string) => {
+  switch (status.toLowerCase()) {
+    case 'resolved': return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+    case 'rejected': return 'text-red-700 bg-red-50 border-red-200';
+    case 'reviewing': return 'text-amber-700 bg-amber-50 border-amber-200';
+    default: return 'text-slate-600 bg-slate-50 border-slate-200';
+  }
+};
+
+export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQuestions }: Props) {
   // Push 3: cosmetic gating — the API policies remain the real boundary.
   const { can } = useUiPermissions();
   // === Academic hierarchy state ===
@@ -169,6 +227,23 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
   const [resultsLoading, setResultsLoading] = useState(false);
 
   const [confirm, setConfirm] = useState<ConfirmDialog>(null);
+
+  // ===== W14.3 Phase D (D10): per-exam stats dashboard state =====
+  const [statsExam, setStatsExam] = useState<ExamSummary | null>(null);
+  const [stats, setStats] = useState<ExamStats | null>(null);
+  const [questionStats, setQuestionStats] = useState<QuestionStat[]>([]);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [expandedStat, setExpandedStat] = useState<string | null>(null);
+
+  // ===== W14.3 Phase D (D12): question reports triage state =====
+  const [showReports, setShowReports] = useState(false);
+  const [reports, setReports] = useState<ErrorReport[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportStatus, setReportStatus] = useState('');
+  const [reportType, setReportType] = useState('');
+  const [reportNotes, setReportNotes] = useState<{ report: ErrorReport; action: 'resolve' | 'reject'; notes: string } | null>(null);
+  const [reportsBusy, setReportsBusy] = useState(false);
+  const [expandedReport, setExpandedReport] = useState<string | null>(null);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
   const selectedIds = useMemo(() => new Set(selectedQuestions.map(question => question.questionId)), [selectedQuestions]);
@@ -213,6 +288,14 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
     // Candidate list follows form scope and server-side search.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showEditor, subjectId, form.lectureId, candidateQuery]);
+
+  // W14.3 D12: the reports list follows its filters (debounced, server-side).
+  useEffect(() => {
+    if (!showReports) return;
+    const timer = window.setTimeout(() => { void loadReports(); }, 250);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showReports, reportStatus, reportType]);
 
   async function chooseUniversity(id: string) {
     academic.chooseUniversity(id);
@@ -392,6 +475,54 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
     } finally { setResultsLoading(false); }
   }
 
+  // ===== W14.3 Phase D (D10): exam stats dashboard (W14.2 D.1/D.2 endpoints) =====
+  async function showStats(exam: ExamSummary) {
+    setStatsExam(exam); setStats(null); setQuestionStats([]); setExpandedStat(null); setStatsLoading(true);
+    try {
+      const [statsData, questionData] = await Promise.all([
+        request<ExamStats>(`/api/v1/admin/exams/${exam.id}/stats`),
+        request<QuestionStat[]>(`/api/v1/admin/exams/${exam.id}/question-stats`),
+      ]);
+      setStats(statsData);
+      setQuestionStats(questionData);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'تعذر تحميل إحصائيات الاختبار.');
+      setStatsExam(null);
+    } finally { setStatsLoading(false); }
+  }
+
+  // ===== W14.3 Phase D (D12): question reports triage (W14.2 B.4 endpoint) =====
+  async function loadReports() {
+    setReportsLoading(true);
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '50' });
+      if (reportStatus) params.set('status', reportStatus);
+      if (reportType) params.set('type', reportType);
+      const data = await request<ReportPage>(`/api/v1/admin/questions/reports?${params.toString()}`);
+      setReports(data.items);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'تعذر تحميل بلاغات الأسئلة.');
+    } finally { setReportsLoading(false); }
+  }
+
+  async function actOnReport() {
+    if (!reportNotes) return;
+    setReportsBusy(true);
+    try {
+      await request(`/api/v1/admin/questions/reports/${reportNotes.report.id}/${reportNotes.action}`, {
+        method: 'PUT',
+        body: JSON.stringify({ notes: reportNotes.notes.trim() || null }),
+      });
+      onNotice(reportNotes.action === 'resolve'
+        ? (isArabic ? 'تم حل البلاغ وتوثيق الملاحظات.' : 'Report resolved with notes recorded.')
+        : (isArabic ? 'تم رفض البلاغ وتوثيق الملاحظات.' : 'Report rejected with notes recorded.'));
+      setReportNotes(null);
+      await loadReports();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'تعذر تنفيذ إجراء البلاغ.');
+    } finally { setReportsBusy(false); }
+  }
+
   const dir = isArabic ? 'rtl' : 'ltr';
 
   return (
@@ -517,10 +648,262 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
               <option value="Published">{isArabic ? 'منشور' : 'Published'}</option>
               <option value="Archived">{isArabic ? 'مؤرشف' : 'Archived'}</option>
             </select>
+            {/* W14.3 D12: question reports triage toggle. */}
+            <button
+              type="button"
+              onClick={() => setShowReports(current => !current)}
+              aria-pressed={showReports}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
+              style={showReports
+                ? { background: 'var(--cms-teal-700)', borderColor: 'var(--cms-teal-700)', color: '#fff' }
+                : { borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+            >
+              <Flag className="w-4 h-4" />
+              {isArabic ? 'بلاغات الأسئلة' : 'Question reports'}
+            </button>
           </div>
 
-          {/* ===== Exam list ===== */}
-          {loading ? (
+          {/* ===== W14.3 D10: exam stats dashboard (replaces the list while open) ===== */}
+          {statsExam && (
+            <section className="rounded-xl border bg-white overflow-hidden" style={{ borderColor: 'var(--cms-line)' }}>
+              <div className="flex items-center justify-between gap-3 p-4 border-b flex-wrap" style={{ borderColor: 'var(--cms-line)' }}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="p-2 rounded-lg shrink-0" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
+                    <TrendingUp className="w-5 h-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-sm truncate" style={{ color: 'var(--cms-text)' }}>
+                      {isArabic ? `إحصائيات: ${statsExam.titleAr}` : `Stats: ${statsExam.titleAr}`}
+                    </h3>
+                    <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                      {isArabic ? 'مؤشرات المحاولات والدرجات وتحليل كل سؤال.' : 'Attempt metrics, score analytics, and per-question breakdown.'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {onNavigateToQuestions && (
+                    <button
+                      type="button"
+                      onClick={onNavigateToQuestions}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
+                      style={{ borderColor: 'var(--cms-teal-600)', color: 'var(--cms-teal-700)' }}
+                    >
+                      <ListChecks className="w-3.5 h-3.5" />
+                      {isArabic ? 'فتح بنك الأسئلة' : 'Open question bank'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => { setStatsExam(null); setStats(null); setQuestionStats([]); }}
+                    aria-label={isArabic ? 'إغلاق الإحصائيات' : 'Close stats'}
+                    className="p-2 rounded-lg transition-colors hover:bg-slate-100"
+                    style={{ color: 'var(--cms-text-soft)' }}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="p-5 space-y-6">
+                {statsLoading ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                      {[0, 1, 2, 3, 4, 5].map(row => <div key={row} className="h-16 rounded-lg bg-slate-100 animate-pulse" />)}
+                    </div>
+                    <div className="h-24 rounded-lg bg-slate-100 animate-pulse" />
+                  </div>
+                ) : stats ? (
+                  <>
+                    {stats.started === 0 && stats.attempts === 0 ? (
+                      /* B.4 honesty: a fresh exam shows an explicit empty state, never misleading zeros. */
+                      <div className="flex flex-col items-center justify-center text-center py-10" style={{ color: 'var(--cms-text-muted)' }}>
+                        <TrendingUp className="w-6 h-6 opacity-50" />
+                        <p className="mt-2 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
+                          {isArabic ? 'لا توجد محاولات بعد.' : 'No attempts yet.'}
+                        </p>
+                        <p className="mt-1 text-xs">
+                          {isArabic ? 'ستظهر المؤشرات هنا بعد أول محاولة طالب.' : 'Metrics appear here after the first student attempt.'}
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Summary cards */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                          {[
+                            { icon: Users, label: isArabic ? 'بدأت' : 'Started', value: stats.started },
+                            { icon: ClipboardCheck, label: isArabic ? 'محاولات' : 'Attempts', value: stats.attempts },
+                            { icon: CheckCircle2, label: isArabic ? 'أكملت' : 'Completed', value: stats.completed },
+                            { icon: Timer, label: isArabic ? 'قيد التنفيذ' : 'In progress', value: stats.inProgress },
+                            { icon: AlertCircle, label: isArabic ? 'انتهت مهلتها' : 'Timed out', value: stats.timeouts },
+                            { icon: XCircle, label: isArabic ? 'ملغاة' : 'Cancelled', value: stats.cancelled },
+                          ].map(card => (
+                            <div key={card.label} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)' }}>
+                              <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                                <card.icon className="w-3.5 h-3.5" />
+                                {card.label}
+                              </div>
+                              <div className="text-xl font-bold mt-1" style={{ color: 'var(--cms-text)' }}>{card.value}</div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Pass/fail + scores + duration */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="rounded-lg border p-4" style={{ borderColor: 'var(--cms-line)' }}>
+                            <p className="text-xs font-medium mb-2" style={{ color: 'var(--cms-text-muted)' }}>
+                              {isArabic ? 'النجاح مقابل الرسوب' : 'Pass vs fail'}
+                            </p>
+                            {stats.pass + stats.fail === 0 ? (
+                              <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لا توجد نتائج مصححة بعد.' : 'No graded results yet.'}</p>
+                            ) : (
+                              <div>
+                                <div className="flex items-center justify-between text-xs mb-1">
+                                  <span className="text-emerald-700 font-medium">{isArabic ? 'ناجح' : 'Pass'}: {stats.pass}</span>
+                                  <span className="text-red-700 font-medium">{isArabic ? 'راسب' : 'Fail'}: {stats.fail}</span>
+                                </div>
+                                <div className="h-2.5 rounded-full overflow-hidden flex bg-slate-100">
+                                  <div className="bg-emerald-500 h-full" style={{ width: `${(stats.pass / (stats.pass + stats.fail)) * 100}%` }} />
+                                  <div className="bg-red-500 h-full" style={{ width: `${(stats.fail / (stats.pass + stats.fail)) * 100}%` }} />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="rounded-lg border p-4" style={{ borderColor: 'var(--cms-line)' }}>
+                            <p className="text-xs font-medium mb-2" style={{ color: 'var(--cms-text-muted)' }}>
+                              {isArabic ? 'الدرجات (من المصححة آلياً)' : 'Scores (auto-graded)'}
+                            </p>
+                            <div className="flex items-center gap-4 text-sm">
+                              <div>
+                                <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'المعدل' : 'Mean'}</div>
+                                <div className="font-bold" style={{ color: 'var(--cms-text)' }}>{stats.meanScore == null ? '—' : `${stats.meanScore.toFixed(1)}%`}</div>
+                              </div>
+                              <div>
+                                <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'الوسيط' : 'Median'}</div>
+                                <div className="font-bold" style={{ color: 'var(--cms-text)' }}>{stats.medianScore == null ? '—' : `${stats.medianScore.toFixed(1)}%`}</div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="rounded-lg border p-4" style={{ borderColor: 'var(--cms-line)' }}>
+                            <p className="text-xs font-medium mb-2" style={{ color: 'var(--cms-text-muted)' }}>
+                              {isArabic ? 'متوسط زمن الحل' : 'Average duration'}
+                            </p>
+                            <div className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--cms-text)' }}>
+                              <Timer className="w-4 h-4" style={{ color: 'var(--cms-text-muted)' }} />
+                              {stats.avgDurationSeconds > 0
+                                ? `${Math.floor(stats.avgDurationSeconds / 60)} ${isArabic ? 'دقيقة' : 'min'} ${Math.round(stats.avgDurationSeconds % 60)} ${isArabic ? 'ثانية' : 'sec'}`
+                                : '—'}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Score distribution (decile buckets) */}
+                        <div>
+                          <h4 className="text-sm font-bold mb-2" style={{ color: 'var(--cms-text)' }}>
+                            {isArabic ? 'توزيع الدرجات' : 'Score distribution'}
+                          </h4>
+                          <div className="space-y-1.5">
+                            {stats.distribution.map(bucket => {
+                              const max = Math.max(...stats.distribution.map(item => item.count), 1);
+                              return (
+                                <div key={bucket.label} className="flex items-center gap-2">
+                                  <span className="w-14 text-[11px] font-mono shrink-0 text-start" style={{ color: 'var(--cms-text-muted)' }}>{bucket.label}</span>
+                                  <div className="flex-1 h-5 rounded bg-slate-100 overflow-hidden">
+                                    <div
+                                      className="h-full rounded transition-all"
+                                      style={{ width: `${(bucket.count / max) * 100}%`, background: 'var(--cms-teal-600)', minWidth: bucket.count > 0 ? '4px' : 0 }}
+                                    />
+                                  </div>
+                                  <span className="w-8 text-xs font-semibold text-end" style={{ color: 'var(--cms-text-soft)' }}>{bucket.count}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Per-question stats */}
+                    <div>
+                      <h4 className="text-sm font-bold mb-2" style={{ color: 'var(--cms-text)' }}>
+                        {isArabic ? `إحصائيات الأسئلة (${questionStats.length})` : `Question stats (${questionStats.length})`}
+                      </h4>
+                      {questionStats.length === 0 ? (
+                        <p className="text-sm py-4 text-center" style={{ color: 'var(--cms-text-muted)' }}>
+                          {isArabic ? 'لا توجد أسئلة في هذا الاختبار.' : 'This exam has no questions.'}
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--cms-line)' }}>
+                          <table className="w-full text-sm">
+                            <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
+                              <tr>
+                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">#</th>
+                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'السؤال' : 'Question'}</th>
+                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'المحاولات' : 'Attempts'}</th>
+                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'إجابات صحيحة' : '% correct'}</th>
+                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'أكثر خيار خاطئ' : 'Most common wrong'}</th>
+                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'متوسط الزمن' : 'Avg time'}</th>
+                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider"><span className="sr-only">{isArabic ? 'تنبيه' : 'Flag'}</span></th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y" style={{ borderColor: 'var(--cms-line)' }}>
+                              {questionStats.map(row => (
+                                <tr key={row.questionId} className={row.problematic ? 'bg-red-50/60' : 'hover:bg-slate-50/70'}>
+                                  <td className="px-3 py-2.5 text-xs font-semibold" style={{ color: 'var(--cms-text-muted)' }}>{row.sortOrder}</td>
+                                  <td className="px-3 py-2.5 max-w-sm">
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedStat(current => (current === row.questionId ? null : row.questionId))}
+                                      className="text-start text-sm leading-snug w-full"
+                                      style={{ color: 'var(--cms-text)' }}
+                                      aria-expanded={expandedStat === row.questionId}
+                                    >
+                                      {expandedStat === row.questionId ? row.text : (row.text.length > 90 ? `${row.text.slice(0, 90)}…` : row.text)}
+                                    </button>
+                                  </td>
+                                  <td className="px-3 py-2.5 font-semibold" style={{ color: 'var(--cms-text)' }}>{row.attempts}</td>
+                                  <td className="px-3 py-2.5">
+                                    {row.attempts === 0 ? (
+                                      <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>—</span>
+                                    ) : (
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border font-medium ${
+                                        row.correctPercent >= 70 ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                                        : row.correctPercent >= 40 ? 'text-amber-700 bg-amber-50 border-amber-200'
+                                        : 'text-red-700 bg-red-50 border-red-200'}`}
+                                      >
+                                        {row.correctPercent.toFixed(0)}%
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-xs max-w-[140px] truncate" style={{ color: 'var(--cms-text-soft)' }}>
+                                    {row.mostCommonWrongChoice ?? '—'}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                                    {row.avgDurationSeconds != null && row.avgDurationSeconds > 0
+                                      ? `${Math.round(row.avgDurationSeconds)} ${isArabic ? 'ث' : 's'}`
+                                      : '—'}
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    {row.problematic && (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border text-red-700 bg-red-50 border-red-200">
+                                        <AlertTriangle className="w-3 h-3" />
+                                        {isArabic ? 'يحتاج مراجعة' : 'Needs review'}
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </section>
+          )}
+
+          {/* ===== Exam list (hidden while the stats dashboard is open) ===== */}
+          {!statsExam && (loading ? (
             <div className="rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
               <div className="space-y-3 p-4">
                 {[0, 1, 2, 3, 4, 5].map((row) => (
@@ -630,6 +1013,19 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
+                            title={isArabic ? 'الإحصائيات' : 'Stats'}
+                            aria-label={isArabic ? 'الإحصائيات' : 'Stats'}
+                            onClick={() => void showStats(exam)}
+                            disabled={busy}
+                            className="p-1.5 rounded-md transition-colors"
+                            style={{ color: 'var(--cms-text-muted)' }}
+                            onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
+                            onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
+                          >
+                            <TrendingUp className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
                             title={isArabic ? 'النتائج' : 'Results'}
                             onClick={() => void showResults(exam)}
                             disabled={busy}
@@ -693,6 +1089,223 @@ export function ExamsCenter({ token, isArabic, onError, onNotice }: Props) {
                   ))}
                 </tbody>
               </table>
+            </div>
+          ))}
+
+          {/* ===== W14.3 D12: question reports triage section ===== */}
+          {showReports && (
+            <section className="rounded-xl border bg-white overflow-hidden" style={{ borderColor: 'var(--cms-line)' }}>
+              <div className="flex items-center justify-between gap-3 p-4 border-b flex-wrap" style={{ borderColor: 'var(--cms-line)' }}>
+                <div className="flex items-center gap-2">
+                  <span className="p-2 rounded-lg" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
+                    <Flag className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>
+                      {isArabic ? 'بلاغات الأسئلة' : 'Question reports'}
+                    </h3>
+                    <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                      {isArabic ? 'بلاغات الطلاب عن أخطاء الأسئلة — ضمن نطاقك الأكاديمي.' : 'Student reports about question errors — within your academic scope.'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select
+                    value={reportStatus}
+                    onChange={(event) => setReportStatus(event.target.value)}
+                    aria-label={isArabic ? 'تصفية الحالة' : 'Filter by status'}
+                    className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    style={{ borderColor: 'var(--cms-line-strong)' }}
+                  >
+                    <option value="">{isArabic ? 'كل الحالات' : 'All statuses'}</option>
+                    {['Pending', 'Reviewing', 'Resolved', 'Rejected', 'Closed'].map(status => (
+                      <option key={status} value={status}>{reportStatusLabel(status, isArabic)}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={reportType}
+                    onChange={(event) => setReportType(event.target.value)}
+                    aria-label={isArabic ? 'تصفية النوع' : 'Filter by type'}
+                    className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    style={{ borderColor: 'var(--cms-line-strong)' }}
+                  >
+                    <option value="">{isArabic ? 'كل الأنواع' : 'All types'}</option>
+                    {['Typo', 'WrongAnswer', 'BadImage', 'Other'].map(type => (
+                      <option key={type} value={type}>{reportTypeLabel(type, isArabic)}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowReports(false)}
+                    aria-label={isArabic ? 'إغلاق البلاغات' : 'Close reports'}
+                    className="p-2 rounded-lg transition-colors hover:bg-slate-100"
+                    style={{ color: 'var(--cms-text-soft)' }}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="p-4">
+                {reportsLoading ? (
+                  <div className="space-y-3">
+                    {[0, 1, 2].map(row => <div key={row} className="h-20 rounded-lg bg-slate-100 animate-pulse" />)}
+                  </div>
+                ) : reports.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center text-center py-10" style={{ color: 'var(--cms-text-muted)' }}>
+                    <Flag className="w-6 h-6 opacity-50" />
+                    <p className="mt-2 text-sm">
+                      {isArabic ? 'لا توجد بلاغات ضمن هذه التصفية.' : 'No reports match this filter.'}
+                    </p>
+                  </div>
+                ) : (
+                  <ul className="space-y-3">
+                    {reports.map(report => (
+                      <li key={report.id} className="rounded-lg border p-4" style={{ borderColor: 'var(--cms-line)' }}>
+                        <div className="flex items-center gap-2 flex-wrap mb-2">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${reportTypeBadgeClass(report.reportType)}`}>
+                            {reportTypeLabel(report.reportType, isArabic)}
+                          </span>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${reportStatusBadgeClass(report.status)}`}>
+                            {reportStatusLabel(report.status, isArabic)}
+                          </span>
+                          <span className="text-xs ms-auto" style={{ color: 'var(--cms-text-muted)' }}>
+                            {new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(report.createdAt))}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedReport(current => (current === report.id ? null : report.id))}
+                          className="text-start text-sm leading-snug w-full"
+                          style={{ color: 'var(--cms-text)' }}
+                          aria-expanded={expandedReport === report.id}
+                        >
+                          {expandedReport === report.id ? report.questionText : (report.questionText.length > 120 ? `${report.questionText.slice(0, 120)}…` : report.questionText)}
+                        </button>
+                        {report.description && (
+                          <p className="mt-2 text-xs rounded-lg p-2.5" style={{ color: 'var(--cms-text-soft)', background: 'var(--cms-ivory-100)' }}>
+                            {report.description}
+                          </p>
+                        )}
+                        {report.resolutionNotes && (
+                          <p className="mt-2 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                            {isArabic ? 'ملاحظات الحل:' : 'Resolution notes:'} {report.resolutionNotes}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-2 flex-wrap mt-3">
+                          {report.screenshotUrl && (
+                            <a
+                              href={report.screenshotUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
+                              style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              {isArabic ? 'لقطة الشاشة' : 'Screenshot'}
+                            </a>
+                          )}
+                          {(report.status === 'Pending' || report.status === 'Reviewing') && can('btn:questions.edit') && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setReportNotes({ report, action: 'resolve', notes: '' })}
+                                disabled={reportsBusy}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-xs font-medium disabled:opacity-50 transition-colors"
+                                style={{ background: 'var(--cms-teal-700)' }}
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                {isArabic ? 'حل البلاغ' : 'Resolve'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setReportNotes({ report, action: 'reject', notes: '' })}
+                                disabled={reportsBusy}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium disabled:opacity-50 transition-colors"
+                                style={{ borderColor: 'var(--cms-danger)', color: 'var(--cms-danger)' }}
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                                {isArabic ? 'رفض البلاغ' : 'Reject'}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* ===== Report notes dialog (resolve / reject) ===== */}
+          {reportNotes && (
+            <div
+              className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+              role="presentation"
+              onMouseDown={() => !reportsBusy && setReportNotes(null)}
+            >
+              <div
+                className="bg-white rounded-xl max-w-md w-full"
+                role="dialog"
+                aria-modal="true"
+                aria-label={reportNotes.action === 'resolve' ? (isArabic ? 'حل البلاغ' : 'Resolve report') : (isArabic ? 'رفض البلاغ' : 'Reject report')}
+                style={{ boxShadow: 'var(--cms-shadow-xl)' }}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <div className="flex items-start gap-3 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
+                  <div
+                    className="p-2 rounded-lg shrink-0"
+                    style={{ background: reportNotes.action === 'resolve' ? 'var(--cms-teal-50)' : 'var(--cms-danger-50)', color: reportNotes.action === 'resolve' ? 'var(--cms-teal-700)' : 'var(--cms-danger)' }}
+                  >
+                    {reportNotes.action === 'resolve' ? <CheckCircle2 className="w-6 h-6" /> : <XCircle className="w-6 h-6" />}
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
+                      {reportNotes.action === 'resolve'
+                        ? (isArabic ? 'حل البلاغ' : 'Resolve report')
+                        : (isArabic ? 'رفض البلاغ' : 'Reject report')}
+                    </h3>
+                    <p className="text-xs mt-1 line-clamp-2" style={{ color: 'var(--cms-text-soft)' }}>
+                      {reportNotes.report.questionText}
+                    </p>
+                  </div>
+                </div>
+                <div className="p-5">
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {isArabic ? 'ملاحظات الحل (اختياري)' : 'Resolution notes (optional)'}
+                    </span>
+                    <textarea
+                      value={reportNotes.notes}
+                      onChange={(event) => setReportNotes(current => current ? { ...current, notes: event.target.value } : current)}
+                      rows={3}
+                      className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      style={{ borderColor: 'var(--cms-line-strong)' }}
+                    />
+                  </label>
+                </div>
+                <div className="flex gap-3 justify-end p-5 pt-0">
+                  <button
+                    type="button"
+                    onClick={() => setReportNotes(null)}
+                    disabled={reportsBusy}
+                    className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
+                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+                  >
+                    {isArabic ? 'إلغاء' : 'Cancel'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void actOnReport()}
+                    disabled={reportsBusy}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors"
+                    style={{ background: reportNotes.action === 'resolve' ? 'var(--cms-teal-700)' : 'var(--cms-danger)' }}
+                  >
+                    {reportsBusy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : null}
+                    {reportNotes.action === 'resolve' ? (isArabic ? 'حل' : 'Resolve') : (isArabic ? 'رفض' : 'Reject')}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
