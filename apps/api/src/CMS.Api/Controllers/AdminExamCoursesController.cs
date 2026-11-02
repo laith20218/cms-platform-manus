@@ -41,6 +41,27 @@ public sealed class AdminExamCoursesController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>W14.3 R78 exception: admin list for the ExamCourses management screen (D1).
+    /// Scope is verified only when the optional subject filter is provided — the same
+    /// pattern as the dashboard subject filter (DashboardHandlers.cs:303); unfiltered
+    /// listings remain available to unrestricted admins.</summary>
+    [HttpGet]
+    [Authorize(Policy = Policies.ExamCourseView)]
+    public async Task<ActionResult<IEnumerable<ExamCourseListItemDto>>> List([FromQuery] Guid? subjectId, CancellationToken ct)
+    {
+        if (subjectId.HasValue && !await CanManageSubjectAsync(Actions.View, subjectId.Value, ct)) return Forbidden403();
+        var query = _db.ExamCourses.AsNoTracking();
+        if (subjectId.HasValue) query = query.Where(course => course.SubjectId == subjectId.Value);
+        var courses = await query
+            .OrderByDescending(course => course.Year).ThenByDescending(course => course.Semester).ThenBy(course => course.SortOrder)
+            .Select(course => new ExamCourseListItemDto(
+                course.Id, course.SubjectId, course.NameAr, course.NameEn, course.CoverUrl,
+                course.Year, course.Semester, course.CourseType.ToString(), course.FreeOrPaid,
+                course.Status.ToString(), course.Items.Count, course.SortOrder))
+            .ToListAsync(ct);
+        return Ok(courses);
+    }
+
     [HttpGet("{id:guid}")]
     [Authorize(Policy = Policies.ExamCourseView)]
     public async Task<ActionResult<ExamCourseDetailDto>> Get(Guid id, CancellationToken ct)
