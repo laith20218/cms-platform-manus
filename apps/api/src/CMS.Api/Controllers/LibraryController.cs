@@ -331,6 +331,53 @@ public class LibraryController : ControllerBase
         return Ok(await _mediator.Send(new SaveFileAnnotationsCommand(id, studentId.Value, dto), ct));
     }
 
+    // ===== Wave 12.5.B: PDF page bookmarks (migrated from client localStorage) =====
+
+    /// <summary>
+    /// Wave 12.5.B: list the calling student's own page bookmarks on one PDF file.
+    /// Rows are strictly owner-scoped, page-ascending — the exact shape the old
+    /// localStorage store (<c>cms:pdf:bookmarks:{fileId}</c>) served the player.
+    /// </summary>
+    [HttpGet("{id:guid}/bookmarks")]
+    [Authorize]
+    public async Task<IActionResult> GetBookmarks(Guid id, CancellationToken ct)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+        var rejection = await EntitlementRejectionAsync(studentId.Value, await SubjectIdForFileAsync(id, ct), ct);
+        if (rejection is not null) return rejection;
+
+        return Ok(await _mediator.Send(new GetFileBookmarksQuery(id, studentId.Value), ct));
+    }
+
+    /// <summary>
+    /// Wave 12.5.B: add (or refresh) the bookmark for one page — idempotent per page via
+    /// the unique (Student, File, Page) triple, so a retried POST can never duplicate.
+    /// </summary>
+    [HttpPost("{id:guid}/bookmarks")]
+    [Authorize]
+    public async Task<IActionResult> UpsertBookmark(Guid id, [FromBody] SaveFileBookmarkDto dto, CancellationToken ct)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+        var rejection = await EntitlementRejectionAsync(studentId.Value, await SubjectIdForFileAsync(id, ct), ct);
+        if (rejection is not null) return rejection;
+
+        return Ok(await _mediator.Send(new UpsertFileBookmarkCommand(id, studentId.Value, dto), ct));
+    }
+
+    /// <summary>Wave 12.5.B: delete one of the caller's bookmarks (owner only; foreign id → 403).</summary>
+    [HttpDelete("bookmarks/{bookmarkId:guid}")]
+    [Authorize]
+    public async Task<IActionResult> DeleteBookmark(Guid bookmarkId, CancellationToken ct)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+
+        await _mediator.Send(new DeleteFileBookmarkCommand(studentId.Value, bookmarkId), ct);
+        return NoContent();
+    }
+
     private async Task<Guid?> SubjectIdForFileAsync(Guid fileId, CancellationToken ct)
     {
         var db = HttpContext.RequestServices.GetRequiredService<CMS.Application.Interfaces.IApplicationDbContext>();

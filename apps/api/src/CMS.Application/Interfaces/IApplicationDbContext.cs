@@ -31,6 +31,8 @@ public interface IApplicationDbContext
     DbSet<LectureCompletion> LectureCompletions { get; }
     // Wave 11.8 / F2: student PDF annotations
     DbSet<FileAnnotation> FileAnnotations { get; }
+    // Wave 12.5.B: student PDF page bookmarks
+    DbSet<FileBookmark> FileBookmarks { get; }
 
     // Push 4 / Track 4: courses and episodes
     DbSet<Course> Courses { get; }

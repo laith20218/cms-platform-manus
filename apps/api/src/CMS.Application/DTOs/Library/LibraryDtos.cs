@@ -195,6 +195,23 @@ public record SaveFileAnnotationsResultDto(
     DateTime ServerTime
 );
 
+// ===== Wave 12.5.B: PDF page bookmarks =====
+// One row per bookmarked page (unique StudentId+FileId+PageNumber). Snippet is the
+// display-only text captured at add time; CreatedAt is the "addedAt" the old
+// localStorage payload carried.
+public record FileBookmarkDto(
+    Guid Id,
+    int PageNumber,
+    string? Snippet,
+    DateTime CreatedAt,
+    DateTime UpdatedAt
+);
+
+public record SaveFileBookmarkDto(
+    int PageNumber,
+    string? Snippet
+);
+
 // ===== Admin: Update/Delete =====
 public record UpdateLibraryFileDto(
     string Title,

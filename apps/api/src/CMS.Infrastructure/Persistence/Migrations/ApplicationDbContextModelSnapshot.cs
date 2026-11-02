@@ -1397,6 +1397,57 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CMS.Domain.Entities.FileBookmark", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("FileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("file_id");
+
+                    b.Property<int>("PageNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("page_number");
+
+                    b.Property<string>("Snippet")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("snippet");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("student_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_file_bookmarks");
+
+                    b.HasIndex("FileId")
+                        .HasDatabaseName("ix_file_bookmarks_file_id");
+
+                    b.HasIndex("StudentId", "CreatedAt")
+                        .HasDatabaseName("ix_file_bookmarks_student_id_created_at");
+
+                    b.HasIndex("StudentId", "FileId", "PageNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_file_bookmarks_student_id_file_id_page_number");
+
+                    b.ToTable("file_bookmarks", t =>
+                        {
+                            t.HasCheckConstraint("ck_file_bookmarks_page", "(page_number >= 1)");
+                        });
+                });
+
             modelBuilder.Entity("CMS.Domain.Entities.Lecture", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3462,6 +3513,27 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_file_annotations_students_student_id");
+
+                    b.Navigation("File");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.FileBookmark", b =>
+                {
+                    b.HasOne("CMS.Domain.Entities.LibraryFile", "File")
+                        .WithMany()
+                        .HasForeignKey("FileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_file_bookmarks_library_files_file_id");
+
+                    b.HasOne("CMS.Domain.Entities.Student", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_file_bookmarks_students_student_id");
 
                     b.Navigation("File");
 
