@@ -36,6 +36,7 @@ const SettingsPage = lazy(() => import('@/features/settings/SettingsPage'));
 // W14.4 — exam courses (student storefront) + categorized practice
 const ExamCoursesPage = lazy(() => import('@/features/exam-courses/pages/ExamCoursesPage'));
 const ExamCourseDetailPage = lazy(() => import('@/features/exam-courses/pages/ExamCourseDetailPage'));
+const PracticePage = lazy(() => import('@/features/practice/pages/PracticePage'));
 
 // P2-31: Hide OTP route when OtpEnabled=false
 const otpEnabled = import.meta.env.VITE_OTP_ENABLED === 'true';
@@ -87,6 +88,9 @@ export function AppRoutes() {
           {/* W14.4 — exam courses storefront (A.2/A.3) */}
           <Route path="/exam-courses" element={<ExamCoursesPage />} />
           <Route path="/exam-courses/:courseId" element={<ExamCourseDetailPage />} />
+          {/* W14.4 — practice player (B.1, D13): exam-model runs + categorized lens */}
+          <Route path="/practice/exam/:examModelId" element={<PracticePage />} />
+          <Route path="/practice/categorized/:subjectId" element={<PracticePage />} />
         </Route>
 
         {/* 404 page (replaces wildcard redirect) */}

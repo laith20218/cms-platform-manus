@@ -68,6 +68,8 @@ export interface StartExamModelResult {
   score?: number | null;
   totalQuestions: number;
   questions?: PracticeQuestion[] | null;
+  /** W14.4 (B.1) — persisted answer states so a resumed run restores progress. */
+  answers?: { questionId: string; sortOrder: number; selectedAnswer?: string | null; isCorrect?: boolean | null; answeredAt?: string | null }[] | null;
 }
 
 export interface StartCategorizedResult {
@@ -80,6 +82,8 @@ export interface StartCategorizedResult {
   score?: number | null;
   totalQuestions: number;
   questions: PracticeQuestion[];
+  /** W14.4 (B.1) — persisted answer states so a resumed run restores progress. */
+  answers: { questionId: string; sortOrder: number; selectedAnswer?: string | null; isCorrect?: boolean | null; answeredAt?: string | null }[];
 }
 
 export interface SubmitAnswerResult {

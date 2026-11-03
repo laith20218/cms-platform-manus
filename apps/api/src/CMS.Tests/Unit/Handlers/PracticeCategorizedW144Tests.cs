@@ -284,5 +284,38 @@ public class PracticeCategorizedW144Tests
         started.TotalQuestions.Should().Be(1);
         started.Questions.Should().ContainSingle().Which.Id.Should().Be(question.Question.Id);
         started.Questions![0].Options.Should().HaveCount(2); // correctness flags absent (QuestionOptionDto)
+        started.Answers.Should().BeEmpty(); // fresh session carries no answer states
+    }
+
+    [Fact]
+    public async Task ResumedStart_RestoresAnswerStates()
+    {
+        await using var db = TestDbHelper.CreateInMemoryContext();
+        var student = TestDbHelper.GetTestStudent(db);
+        var subject = db.Subjects.First();
+        await SeedGrantAsync(db, student.Id, subject.Id);
+
+        var lecture = db.Lectures.First();
+        var first = await SeedQuestionAsync(db, subject.Id, lecture.Id, null, "سؤال 1");
+        var second = await SeedQuestionAsync(db, subject.Id, lecture.Id, null, "سؤال 2");
+        var anchor = await SeedAnchorExamAsync(db, subject.Id, first.Question, second.Question);
+        var filter = new PracticeCategoryFilter(lecture.Id, false, null, false);
+        var handlers = Create(db);
+
+        var started = await handlers.Handle(new StartCategorizedPracticeCommand(
+            student.Id, subject.Id, lecture.Id, false, null, false), CancellationToken.None);
+        await handlers.Handle(new SubmitPracticeAnswerCommand(
+            student.Id, started.SessionId, first.Question.Id, first.CorrectOptionId.ToString(), 5, null, filter), CancellationToken.None);
+
+        // A resumed start returns the SAME session plus its persisted answer state.
+        var resumed = await handlers.Handle(new StartCategorizedPracticeCommand(
+            student.Id, subject.Id, lecture.Id, false, null, false), CancellationToken.None);
+
+        resumed.SessionId.Should().Be(started.SessionId);
+        resumed.Created.Should().BeFalse();
+        resumed.TotalQuestions.Should().Be(2);
+        resumed.Answers.Should().ContainSingle().Which.QuestionId.Should().Be(first.Question.Id);
+        resumed.Answers[0].IsCorrect.Should().BeTrue();
+        resumed.Answers[0].SelectedAnswer.Should().Be(first.CorrectOptionId.ToString());
     }
 }

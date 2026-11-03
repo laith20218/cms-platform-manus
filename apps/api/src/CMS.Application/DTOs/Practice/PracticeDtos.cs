@@ -83,7 +83,9 @@ public record StartPracticeSessionResultDto(
     // W14.4 (B.1) — the composition question set so the practice page can render
     // without a second round trip. Options/images carry NO correctness flags.
     int TotalQuestions = 0,
-    List<PracticeQuestionDto>? Questions = null);
+    List<PracticeQuestionDto>? Questions = null,
+    // W14.4 (B.1) — persisted answer states so a resumed run restores progress.
+    List<PracticeQuestionStateDto>? Answers = null);
 
 // ===== W14.4 (A.4/B.1) — categorized practice =====
 
@@ -138,4 +140,6 @@ public record StartCategorizedPracticeResultDto(
     DateTime LastAccessedAt,
     decimal? Score,
     int TotalQuestions,
-    List<PracticeQuestionDto> Questions);
+    List<PracticeQuestionDto> Questions,
+    // W14.4 (B.1) — persisted answer states so a resumed run restores progress.
+    List<PracticeQuestionStateDto> Answers);

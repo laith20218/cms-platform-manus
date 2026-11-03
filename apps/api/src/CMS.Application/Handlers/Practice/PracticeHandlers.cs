@@ -61,13 +61,14 @@ public sealed class PracticeHandlers :
         // start request for the same open session returns it instead of duplicating.
         var (session, created) = await GetOrCreateSessionAsync(req.StudentId, req.ExamModelId, ct);
 
-        // W14.4: the composition question set ships with the start response so the
-        // practice player renders without a second round trip.
+        // W14.4: the composition question set + persisted answer states ship with the
+        // start response so the practice player renders (and resumes) in one round trip.
         var questions = await LoadCompositionQuestionsAsync(req.ExamModelId, ct);
+        var answerStates = await LoadAnswerStatesAsync(session.Id, ct);
         return new StartPracticeSessionResultDto(
             session.Id, session.ExamModelId, created, session.Status.ToString(),
             session.StartedAt, session.LastAccessedAt, session.Score,
-            questions.Count, questions);
+            questions.Count, questions, answerStates);
     }
 
     public async Task<SubmitPracticeAnswerResultDto> Handle(SubmitPracticeAnswerCommand req, CancellationToken ct)
@@ -327,11 +328,12 @@ public sealed class PracticeHandlers :
 
         var (session, created) = await GetOrCreateSessionAsync(req.StudentId, anchor.Id, ct);
         var questions = await LoadFilteredQuestionsAsync(req.SubjectId, filter, ct);
+        var answerStates = await LoadAnswerStatesAsync(session.Id, ct);
 
         return new StartCategorizedPracticeResultDto(
             session.Id, anchor.Id, created, session.Status.ToString(),
             session.StartedAt, session.LastAccessedAt, session.Score,
-            questions.Count, questions);
+            questions.Count, questions, answerStates);
     }
 
     // ===== shared helpers =====
@@ -477,6 +479,14 @@ public sealed class PracticeHandlers :
 
     private static string? NormalizeTag(string? paragraphTag) =>
         string.IsNullOrWhiteSpace(paragraphTag) ? null : paragraphTag.Trim();
+
+    /// <summary>W14.4 (B.1): the session's persisted answers, so a resumed run restores progress.</summary>
+    private async Task<List<PracticeQuestionStateDto>> LoadAnswerStatesAsync(Guid sessionId, CancellationToken ct) =>
+        await _db.PracticeAnswers.AsNoTracking()
+            .Where(answer => answer.PracticeSessionId == sessionId)
+            .OrderBy(answer => answer.AnsweredAt)
+            .Select(answer => new PracticeQuestionStateDto(answer.QuestionId, 0, answer.SelectedAnswer, answer.IsCorrect, answer.AnsweredAt))
+            .ToListAsync(ct);
 
     private IQueryable<PracticeAnswer> SessionAnswers(Guid sessionId, List<Guid>? setIds) =>
         setIds is null
