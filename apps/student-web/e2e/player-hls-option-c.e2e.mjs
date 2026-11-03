@@ -115,6 +115,18 @@ const consoleErrors = [];
  *  are counted separately: the spec's "console errors: 0" criterion means ZERO
  *  UNEXPECTED errors. */
 const injectedFailureConsoleMessages = [];
+/** OPAQUE net::ERR_FAILED console lines — the same injected B2 403s whose
+ *  CORS-blocked load the browser failed to attribute a status to (the mock's
+ *  B2 403 answers carry NO CORS headers by design; Chromium sometimes logs
+ *  those loads opaquely, without a "status of 403" form and without a URL —
+ *  observed on GitHub runners, run 41681404517: unexpected=2, both
+ *  ERR_FAILED, all 12 functional checks green). */
+const opaqueNetworkErrorConsoleMessages = [];
+/** Network-level failures on any origin EXCEPT the (fully spec-mocked) B2 host
+ *  — a non-empty list ALWAYS means a real defect or mock escape (e.g. the
+ *  API catch-all abort). Attribution happens here because console text
+ *  carries no request URL. */
+const networkFailuresOutsideB2 = [];
 
 /* ===== RAM sampler (hard-rule ceiling 1.6GB) ===== */
 let peakChromeRssKb = 0;
@@ -195,6 +207,16 @@ async function newStudentContext(browser, viewport) {
 
   // Specific API mocks LAST (highest priority).
   await context.route('**/api/v1/auth/me', (route) => route.fulfill({ json: E2E_USER }));
+  // W14.4 (641ccee) wired the shared Sidebar to useMySubjects() — the
+  // /my-studies shell now fetches GET /subjects/my-subjects on every page
+  // under it, including this player route. Unmocked, the spec's own
+  // catch-all aborts the call and the console gate correctly flags the
+  // resulting net::ERR_FAILED — the supposed "CI network flake" of run
+  // 41681404517 (unexpected=2) was exactly this, both failures on
+  // /api/v1/subjects/my-subjects, NOT B2 noise. Empty items = a zero-grant
+  // student; the player page's own data is mocked independently below.
+  await context.route('**/api/v1/subjects/my-subjects', (route) =>
+    route.fulfill({ json: { items: [] } }));
   await context.route('**/api/v1/entitlements/issue', (route) =>
     route.fulfill({ json: { token: ENTITLEMENT_TOKEN } }));
 
@@ -347,7 +369,29 @@ try {
       injectedFailureConsoleMessages.push(text);
       return;
     }
+    if (/net::ERR_FAILED/.test(text)) {
+      // Opaque form of those same injected B2 failures (see the declaration
+      // of opaqueNetworkErrorConsoleMessages above). Console text carries no
+      // URL, so whether such a failure is excusable is decided EXACTLY at the
+      // network layer (requestfailed handler below), where every B2-origin
+      // failure is provably one of our injections — ALL B2 traffic in this
+      // spec is route-mocked by the spec itself — and every non-B2 network
+      // failure stays loud.
+      opaqueNetworkErrorConsoleMessages.push(text);
+      return;
+    }
     consoleErrors.push(text);
+  });
+
+  // Exact, URL-based attribution of network-level failures: only B2-origin
+  // failures are excusable (all of them are the spec's own 403 injections —
+  // the route fulfills or 403s every *.backblazeb2.com request). Any
+  // net::ERR_FAILED on another origin — the API catch-all abort, a dropped
+  // page chunk, anything — fails the suite.
+  page.on('requestfailed', (req) => {
+    if (req.failure()?.errorText !== 'net::ERR_FAILED') return;
+    if (/\.backblazeb2\.com\//.test(req.url())) return;
+    networkFailuresOutsideB2.push(`${req.failure().errorText} ${req.url().slice(0, 120)}`);
   });
 
   await openPlayer(page);
@@ -470,9 +514,9 @@ try {
     evidence.requestsWithoutAuthHeaders.slice(0, 3).join(' | ') || 'all headers present');
   check('progress tracking POSTs while playing (Option C mode)',
     evidence.progressPosts >= 1, `posts=${evidence.progressPosts}`);
-  check('ZERO unexpected console errors (the injected 403s are the spec\'s own failure simulation)',
-    consoleErrors.length === 0,
-    `unexpected=${consoleErrors.length} injected403=${injectedFailureConsoleMessages.length} (matches b2Failures=${evidence.b2SegmentFailures})`);
+  check('ZERO unexpected console errors (injected B2 403s are the spec\'s own failure simulation, in status or opaque form)',
+    consoleErrors.length === 0 && networkFailuresOutsideB2.length === 0,
+    `unexpected=${consoleErrors.length} nonB2NetworkFailures=${networkFailuresOutsideB2.length} injected403=${injectedFailureConsoleMessages.length} opaque=${opaqueNetworkErrorConsoleMessages.length} (b2Failures=${evidence.b2SegmentFailures})`);
 
   await page.mouse.move(640, 400);
   await page.waitForTimeout(300);
@@ -485,8 +529,9 @@ try {
   console.log(`\n${'-'.repeat(64)}`);
   console.log(`HLS OPTION-C PLAYER E2E: ${results.length - failed.length}/${results.length} passed`);
   console.log(`Peak Chromium RSS: ${(peakChromeRssKb / 1024).toFixed(0)} MB (${peakChromeRssKb} KB) — ceiling 1638 MB`);
-  console.log(`Console errors (unexpected): ${consoleErrors.length} | injected-403 messages: ${injectedFailureConsoleMessages.length} (deliberate expiry simulation)`);
+  console.log(`Console errors (unexpected): ${consoleErrors.length} | injected-403 messages: ${injectedFailureConsoleMessages.length} | opaque ERR_FAILED (injected B2 403s): ${opaqueNetworkErrorConsoleMessages.length} | non-B2 network failures: ${networkFailuresOutsideB2.length} (all deliberate expiry simulation unless non-zero)`);
   if (consoleErrors.length) consoleErrors.slice(0, 5).forEach((e) => console.log(`  ! ${e}`));
+  if (networkFailuresOutsideB2.length) networkFailuresOutsideB2.slice(0, 5).forEach((e) => console.log(`  ! netfail-outside-b2 ${e}`));
   if (failed.length) {
     failed.forEach((r) => console.log(`  FAIL: ${r.name} ${r.extra}`));
     process.exitCode = 1;
