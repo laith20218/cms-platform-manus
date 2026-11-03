@@ -4,6 +4,9 @@ import { AppShell } from '@/components/layouts/AppShell';
 import { LoadingScreen } from '@/components/ui/LoadingScreen';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
+// W14.4 (C.3) — content protection mounts: question/exam/review surfaces carry the
+// same watermark + anti-copy protection as the course player.
+import { SecurityWrapper } from '@/features/security/SecurityWrapper';
 
 // Lazy-loaded pages
 const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'));
@@ -62,8 +65,8 @@ export function AppRoutes() {
           <Route path="/subjects" element={<SubjectsPage />} />
           <Route path="/subjects/:subjectSlug" element={<SubjectDetailPage />} />
           <Route path="/subjects/:subjectSlug/lectures/:lectureId" element={<LecturePage />} />
-          <Route path="/subjects/:subjectSlug/lectures/:lectureId/questions" element={<QuestionPage />} />
-          <Route path="/subjects/:subjectSlug/questions/:questionId" element={<QuestionPage />} />
+          <Route path="/subjects/:subjectSlug/lectures/:lectureId/questions" element={<SecurityWrapper><QuestionPage /></SecurityWrapper>} />
+          <Route path="/subjects/:subjectSlug/questions/:questionId" element={<SecurityWrapper><QuestionPage /></SecurityWrapper>} />
           <Route path="/favorites" element={<FavoritesPage />} />
           {/* My Studies hub — courses / exams / library tabs (Push 4 Phase 5) */}
           <Route path="/my-studies" element={<MyStudiesPage />} />
@@ -73,8 +76,8 @@ export function AppRoutes() {
           {/* Backward compatibility: legacy entry points redirect into the hub.
               Deep links (/exams/:id, /subjects/:slug/library) keep working below. */}
           <Route path="/exams" element={<Navigate to="/my-studies?tab=exams" replace />} />
-          <Route path="/exams/:examId" element={<ExamPage />} />
-          <Route path="/exams/:sessionId/review" element={<ExamReviewPage />} />
+          <Route path="/exams/:examId" element={<SecurityWrapper><ExamPage /></SecurityWrapper>} />
+          <Route path="/exams/:sessionId/review" element={<SecurityWrapper><ExamReviewPage /></SecurityWrapper>} />
           <Route path="/library" element={<Navigate to="/my-studies?tab=library" replace />} />
           <Route path="/subjects/:subjectSlug/library" element={<LibraryPage />} />
           <Route path="/search" element={<SearchPage />} />

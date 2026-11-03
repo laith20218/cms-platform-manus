@@ -97,11 +97,30 @@ public record ExamResultDto(
     int DurationSeconds,
     bool CanReview,
     List<WeakTopicDto> WeakestTopics,
-    ExamComparisonDto? Comparison
-);
+    ExamComparisonDto? Comparison,
+    // W14.4 (C.1, D9) — server-computed wrong count (the client previously derived
+    // answered-correct, which read as all-wrong whenever results were hidden).
+    int WrongCount = 0,
+    // W14.4 (C.1, D9) — the complement of WeakestTopics (accuracy ≥ 60, best first).
+    List<WeakTopicDto>? StrongTopics = null,
+    // W14.4 (C.1, D9) — retake availability (null RemainingAttempts = unlimited).
+    int? MaxAttempts = null,
+    int? RemainingAttempts = null,
+    // W14.4 (C.1, D9) — this student's attempt history on the exam (visible-gated).
+    List<ExamAttemptHistoryDto>? Attempts = null);
 
 public record WeakTopicDto(string Tag, double Accuracy);
 public record ExamComparisonDto(double YourScore, double AverageScore, double TopScore);
+
+/// <summary>W14.4 (C.1, D9) — one prior attempt row on the results screen.</summary>
+public record ExamAttemptHistoryDto(
+    Guid SessionId,
+    string Status,
+    DateTime StartedAt,
+    DateTime? CompletedAt,
+    double? Score,
+    bool? Passed,
+    bool IsCurrent);
 
 // ===== Student review =====
 public record ExamReviewDto(

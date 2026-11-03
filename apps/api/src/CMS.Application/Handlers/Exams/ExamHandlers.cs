@@ -724,8 +724,11 @@ public sealed class ExamSessionHandlers :
     private async Task<ExamResultDto> BuildResultAsync(ExamSession session, CancellationToken ct)
     {
         var visible = session.ShowResultsImmediatelySnapshot;
-        var weakTopics = BuildWeakTopics(session);
+        var weakTopics = BuildTopics(session, strong: false);
+        var strongTopics = BuildTopics(session, strong: true);
         ExamComparisonDto? comparison = null;
+        List<ExamAttemptHistoryDto>? attempts = null;
+        int? remainingAttempts = null;
         if (visible)
         {
             var scores = await _db.ExamSessions.AsNoTracking()
@@ -734,7 +737,23 @@ public sealed class ExamSessionHandlers :
                 .Select(item => item.Score!.Value)
                 .ToListAsync(ct);
             comparison = new ExamComparisonDto(session.Score ?? 0, scores.Count == 0 ? 0 : scores.Average(), scores.Count == 0 ? 0 : scores.Max());
+
+            // W14.4 (C.1, D9) — attempt history (latest 10) + retake availability.
+            var history = await _db.ExamSessions.AsNoTracking()
+                .Where(item => item.ExamId == session.ExamId && item.StudentId == session.StudentId)
+                .OrderByDescending(item => item.StartedAt)
+                .Take(10)
+                .Select(item => new { item.Id, item.Status, item.StartedAt, item.CompletedAt, item.Score, item.Passed })
+                .ToListAsync(ct);
+            attempts = history.Select(item => new ExamAttemptHistoryDto(
+                item.Id, item.Status.ToString(), item.StartedAt, item.CompletedAt, item.Score, item.Passed, item.Id == session.Id)).ToList();
         }
+        var countedAttempts = await _db.ExamSessions.AsNoTracking()
+            .CountAsync(item => item.ExamId == session.ExamId && item.StudentId == session.StudentId &&
+                (item.Status == ExamSessionStatus.Completed || item.Status == ExamSessionStatus.TimedOut), ct);
+        var maxAttempts = session.Exam.MaxAttempts;
+        if (maxAttempts.HasValue)
+            remainingAttempts = Math.Max(0, maxAttempts.Value - countedAttempts);
 
         return new ExamResultDto(
             session.Id,
@@ -749,10 +768,18 @@ public sealed class ExamSessionHandlers :
             session.DurationSeconds ?? 0,
             session.AllowReviewSnapshot,
             visible ? weakTopics : new List<WeakTopicDto>(),
-            comparison);
+            comparison,
+            // W14.4 (C.1, D9): server-computed wrong count — never a client derivation.
+            visible ? Math.Max(0, session.AnsweredQuestions - session.CorrectAnswers) : 0,
+            visible ? strongTopics : new List<WeakTopicDto>(),
+            maxAttempts,
+            remainingAttempts,
+            attempts ?? new List<ExamAttemptHistoryDto>());
     }
 
-    private static List<WeakTopicDto> BuildWeakTopics(ExamSession session)
+    /// <summary>W14.4 (C.1): the tag-accuracy aggregation shared by weakest (&lt; 60, worst
+    /// first) and strongest (≥ 60, best first) topic lists — take 5 each.</summary>
+    private static List<WeakTopicDto> BuildTopics(ExamSession session, bool strong)
     {
         var answers = session.AttemptLogs
             .Where(answer => answer.ExamSessionQuestionId.HasValue)
@@ -767,12 +794,13 @@ public sealed class ExamSessionHandlers :
                 statistics[tag] = (value.Total + 1, value.Correct + (answer?.IsCorrect == true ? 1 : 0));
             }
         }
-        return statistics
+        var ranked = statistics
             .Select(item => new WeakTopicDto(item.Key, item.Value.Total == 0 ? 0 : (double)item.Value.Correct / item.Value.Total * 100))
-            .Where(item => item.Accuracy < 60)
-            .OrderBy(item => item.Accuracy)
-            .Take(5)
-            .ToList();
+            .Where(item => strong ? item.Accuracy >= 60 : item.Accuracy < 60);
+        // Weakest: worst first. Strongest: best first.
+        return strong
+            ? ranked.OrderByDescending(item => item.Accuracy).Take(5).ToList()
+            : ranked.OrderBy(item => item.Accuracy).Take(5).ToList();
     }
 
     private async Task<ExamSession> LoadSessionWithSnapshotAsync(Guid sessionId, Guid studentId, CancellationToken ct) =>

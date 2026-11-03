@@ -26,6 +26,15 @@ export interface ExamSession {
   currentQuestionOrder: number;
   questions: ExamQuestion[];
 }
+export interface ExamAttemptHistory {
+  sessionId: string;
+  status: string;
+  startedAt: string;
+  completedAt?: string | null;
+  score?: number | null;
+  passed?: boolean | null;
+  isCurrent: boolean;
+}
 export interface ExamResult {
   sessionId: string;
   status: string;
@@ -36,10 +45,18 @@ export interface ExamResult {
   answeredQuestions: number;
   correctAnswers: number;
   unansweredQuestions: number;
+  /** W14.4 (D9) — server-computed (never derived on the client). */
+  wrongCount: number;
   durationSeconds: number;
   canReview: boolean;
   weakestTopics: { tag: string; accuracy: number }[];
+  /** W14.4 (D9) — accuracy ≥ 60, best first. */
+  strongTopics?: { tag: string; accuracy: number }[] | null;
   comparison?: { yourScore: number; averageScore: number; topScore: number } | null;
+  /** W14.4 (D9) — retake availability (null remaining = unlimited). */
+  maxAttempts?: number | null;
+  remainingAttempts?: number | null;
+  attempts?: ExamAttemptHistory[] | null;
 }
 export interface ExamReviewOption { id: string; letter: string; text: string; isCorrect: boolean; isUserAnswer: boolean }
 export interface ExamReviewQuestion { id: string; sourceQuestionId: string; number: number; type: string; text: string; options: ExamReviewOption[]; userAnswer?: string | null; correctAnswer?: string | null; isCorrect?: boolean | null; explanation?: string | null }
