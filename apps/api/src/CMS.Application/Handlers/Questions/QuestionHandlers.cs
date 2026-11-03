@@ -19,10 +19,16 @@ public class QuestionQueryHandlers :
 {
     private readonly IApplicationDbContext _db;
     private readonly IEntitlementService _entitlements;
-    public QuestionQueryHandlers(IApplicationDbContext db, IEntitlementService entitlements)
+    // W14.5 (Phase A): resolves stored image references (object keys / b2:// URIs) into
+    // presigned B2 URLs during DTO mapping. Optional so existing unit-test construction
+    // sites stay valid; DI always injects the registered singleton in production.
+    private readonly IPresignedUrlService? _presigner;
+
+    public QuestionQueryHandlers(IApplicationDbContext db, IEntitlementService entitlements, IPresignedUrlService? presigner = null)
     {
         _db = db;
         _entitlements = entitlements;
+        _presigner = presigner;
     }
 
     public async Task<PagedResult<QuestionListItemDto>> Handle(GetQuestionsQuery req, CancellationToken ct)
@@ -41,8 +47,8 @@ public class QuestionQueryHandlers :
         if (req.SubjectId.HasValue) query = query.Where(q => q.SubjectId == req.SubjectId);
         if (req.LectureId.HasValue) query = query.Where(q => q.LectureId == req.LectureId);
         // W14.2 A.3 (R75 P1): legacy Question.ExamId read retired — exams are composed via
-        // the ExamQuestion join (D6 bank picking). Question.ExamId stays only as a dormant
-        // column for future removal.
+        // the ExamQuestion join (D6 bank picking). W14.5 (Phase B): the dormant column
+        // itself is now DROPPED (migration 20261117120000_DropQuestionExamId).
         if (req.ExamId.HasValue)
             query = query.Where(q => _db.ExamQuestions.Any(eq => eq.ExamId == req.ExamId && eq.QuestionId == q.Id));
         // W14.2 E.1 (D3): usage filter — "practice" also admits Both, "exam" also admits Both.
@@ -92,18 +98,22 @@ public class QuestionQueryHandlers :
                 .GroupBy(a => a.QuestionId)
                 .ToDictionary(g => g.Key, g => g.First());
 
-            foreach (var item in items)
+            // W14.5: patch by INDEX — the previous loop mutated `items` while
+            // foreach-enumerating it (items[items.IndexOf(item)] = updated), so any
+            // attempt on a NON-last page item threw InvalidOperationException
+            // ("Collection was modified") and failed the whole request with 500
+            // (preview incident: GET /api/v1/questions, Render TraceId
+            // 92e3f23da14549aeb6106ec394012661). In-place replacement semantics are
+            // preserved; the O(n^2) IndexOf scan is gone as a side effect.
+            for (var index = 0; index < items.Count; index++)
             {
-                if (userAnswers.TryGetValue(item.Id, out var answer))
+                if (!userAnswers.TryGetValue(items[index].Id, out var answer)) continue;
+                items[index] = items[index] with
                 {
-                    var updated = item with
-                    {
-                        UserAnswer = new QuestionUserAnswerDto(
-                            answer.SelectedAnswer, answer.IsCorrect, answer.IsFirstAttempt, answer.AnsweredAt
-                        )
-                    };
-                    items[items.IndexOf(item)] = updated;
-                }
+                    UserAnswer = new QuestionUserAnswerDto(
+                        answer.SelectedAnswer, answer.IsCorrect, answer.IsFirstAttempt, answer.AnsweredAt
+                    )
+                };
             }
         }
 
@@ -145,6 +155,10 @@ public class QuestionQueryHandlers :
                 };
             }
         }
+
+        // W14.5 (Phase A): apply AFTER every other shaping step so both the initial
+        // mapping and the already-answered re-mapping resolve image references.
+        dto = await WithPresignedImagesAsync(dto, ct);
 
         return dto;
     }
@@ -198,6 +212,29 @@ public class QuestionQueryHandlers :
         q.Images.Select(img => new QuestionImageDto(img.Id, img.ImageUrl, img.AltText, img.Caption)).ToList(),
         null, isFavorite, new QuestionStatsDto(q.AttemptsCount, q.GetCorrectRate())
     );
+
+    /// <summary>
+    /// W14.5 (Phase A) — resolves every question-image and option-image reference
+    /// through the B2 presigned URL service: absolute http(s) URLs pass through
+    /// unchanged (the existing public-URL production contract), bare object keys and
+    /// b2:// URIs are replaced with freshly generated presigned URLs. A null service
+    /// (direct construction in unit tests) skips resolution entirely; resolution
+    /// failures degrade to the stored value and never fail the read.
+    /// </summary>
+    private async Task<QuestionDto> WithPresignedImagesAsync(QuestionDto dto, CancellationToken ct)
+    {
+        if (_presigner is null) return dto;
+
+        var options = new List<QuestionOptionDto>(dto.Options.Count);
+        foreach (var option in dto.Options)
+            options.Add(option with { ImageUrl = await _presigner.ResolveImageUrlAsync(option.ImageUrl, ct) });
+
+        var images = new List<QuestionImageDto>(dto.Images.Count);
+        foreach (var image in dto.Images)
+            images.Add(image with { ImageUrl = await _presigner.ResolveImageUrlAsync(image.ImageUrl, ct) ?? image.ImageUrl });
+
+        return dto with { Options = options, Images = images };
+    }
 }
 
 /// <summary>

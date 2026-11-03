@@ -68,6 +68,12 @@ public static class DependencyInjection
         // them, and they fail-closed without Upstash:Blob:Token, which no longer
         // exists in any environment. Delete them wholesale in a later cleanup push.
         services.AddSingleton<IFileStorageService, S3StorageService>();
+        // W14.5 (Phase A) — B2 presigned URLs for question images: resolves stored object
+        // keys / b2:// URIs into temporary presigned GET URLs during question DTO mapping.
+        // Singleton (stateless; SigV4 presigning is computed locally, no network I/O).
+        // Degrades to passthrough with a log-once warning when Storage:S3 config is
+        // absent — the questions read path must never fail on storage configuration.
+        services.AddSingleton<IPresignedUrlService, B2PresignedUrlService>();
         services.AddSingleton<IFileScanner, TrustedFileScanner>();
         // Server-side HTML sanitization for uploaded library documents (Ganss.XSS).
         services.AddSingleton<IHtmlBlobSanitizer, HtmlSanitizerService>();

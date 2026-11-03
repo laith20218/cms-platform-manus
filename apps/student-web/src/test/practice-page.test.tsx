@@ -199,4 +199,30 @@ describe('W14.4 PracticePage (B.1, D13)', () => {
       expect(putMock).toHaveBeenCalledWith('/practice/ps9/answer', expect.objectContaining({ lectureId: null, untaggedLecture: false }), expect.anything());
     });
   });
+
+  // W14.5 (Phase A): the API now resolves stored image references (object keys /
+  // b2:// URIs) into freshly generated presigned B2 URLs. The <img> tags must render
+  // the URL VERBATIM — no client-side rewriting, no stripping of the SigV4 query
+  // parameters (X-Amz-*), which would invalidate the signature.
+  it('renders question images from presigned B2 URLs verbatim (W14.5 Phase A)', async () => {
+    const presignedUrl =
+      'https://s3.eu-central-003.backblazeb2.com/CMSmedia/library/seeded/question-image.png' +
+      '?X-Amz-Algorithm=AWS4-HMAC-SHA256' +
+      '&X-Amz-Credential=005e2f8e1b234d000000000005%2F20261103%2Feu-central-003%2Fs3%2Faws4_request' +
+      '&X-Amz-Date=20261103T183000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host' +
+      '&X-Amz-Signature=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+    stubApi({
+      startCategorized: {
+        ...START_CATEGORIZED,
+        questions: [
+          { ...QUESTIONS[0], images: [{ id: 'img1', imageUrl: presignedUrl, altText: 'مخطط القلب', caption: null }] },
+          QUESTIONS[1],
+        ],
+      },
+    });
+    renderPractice('/practice/categorized/s1?lectureId=lec1');
+
+    const img = await screen.findByAltText('مخطط القلب');
+    expect(img.getAttribute('src')).toBe(presignedUrl);
+  });
 });

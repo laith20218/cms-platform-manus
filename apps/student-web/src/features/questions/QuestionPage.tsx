@@ -163,6 +163,9 @@ export default function QuestionPage() {
       setShowReport(false);
       setReportDesc('');
     },
+    // W14.5 (Phase B): react-query v5 swallows mutation errors unless handled — a
+    // failed report submission used to produce ZERO user feedback (silent swallow).
+    onError: () => toast.error('تعذر إرسال البلاغ. حاول مرة أخرى.'),
   });
 
   // Push 11.3 — the favorite mutation, rebuilt as a proper optimistic citizen (the

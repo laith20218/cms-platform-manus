@@ -6,7 +6,7 @@ namespace CMS.Domain.Entities;
 
 /// <summary>
 /// The ordered, reusable composition of an exam. This is the authoritative relationship
-/// for current exam content; Question.ExamId remains only for legacy compatibility.
+/// for exam content (the legacy Question.ExamId column was dropped in W14.5 Phase B).
 /// </summary>
 public class ExamQuestion : BaseEntity
 {

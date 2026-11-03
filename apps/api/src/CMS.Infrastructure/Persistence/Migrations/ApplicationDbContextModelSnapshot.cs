@@ -2432,10 +2432,6 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("difficulty");
 
-                    b.Property<Guid?>("ExamId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("exam_id");
-
                     b.Property<string>("Explanation")
                         .IsRequired()
                         .HasColumnType("text")
@@ -2505,9 +2501,6 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_questions");
-
-                    b.HasIndex("ExamId")
-                        .HasDatabaseName("ix_questions_exam_id");
 
                     b.HasIndex("LectureId")
                         .HasDatabaseName("ix_questions_lecture_id");
@@ -4002,11 +3995,6 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("CMS.Domain.Entities.Question", b =>
                 {
-                    b.HasOne("CMS.Domain.Entities.Exam", "Exam")
-                        .WithMany("Questions")
-                        .HasForeignKey("ExamId")
-                        .HasConstraintName("fk_questions_exams_exam_id");
-
                     b.HasOne("CMS.Domain.Entities.Lecture", "Lecture")
                         .WithMany("Questions")
                         .HasForeignKey("LectureId")
@@ -4018,8 +4006,6 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_questions_subjects_subject_id");
-
-                    b.Navigation("Exam");
 
                     b.Navigation("Lecture");
 
@@ -4161,8 +4147,6 @@ namespace CMS.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("CMS.Domain.Entities.Exam", b =>
                 {
                     b.Navigation("ExamQuestions");
-
-                    b.Navigation("Questions");
 
                     b.Navigation("Sessions");
                 });
