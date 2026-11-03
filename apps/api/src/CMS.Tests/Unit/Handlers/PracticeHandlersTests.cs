@@ -25,8 +25,9 @@ public class PracticeHandlersTests
         var db = TestDbHelper.CreateInMemoryContext();
         var uow = new UnitOfWork(db);
         var entitlements = new Mock<IEntitlementService>();
-        entitlements.Setup(service => service.CanAccessSubjectContentAsync(It.IsAny<Guid>(), It.IsAny<Guid>(),
-            SubscriptionContentScope.QuestionsExams, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        // W14.4: the practice gates moved to the content-agnostic "read" action —
+        // any active grant passes (mirrors the R69 courses-catalog gate).
+        entitlements.Setup(service => service.CanAccessSubjectAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
         return (new PracticeHandlers(db, uow, entitlements.Object), db, uow);
     }
 

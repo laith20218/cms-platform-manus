@@ -33,6 +33,9 @@ const PrivacyPage = lazy(() => import('@/features/legal/PrivacyPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 const ActivateCodePage = lazy(() => import('@/features/subscriptions/ActivateCodePage'));
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage'));
+// W14.4 — exam courses (student storefront) + categorized practice
+const ExamCoursesPage = lazy(() => import('@/features/exam-courses/pages/ExamCoursesPage'));
+const ExamCourseDetailPage = lazy(() => import('@/features/exam-courses/pages/ExamCourseDetailPage'));
 
 // P2-31: Hide OTP route when OtpEnabled=false
 const otpEnabled = import.meta.env.VITE_OTP_ENABLED === 'true';
@@ -81,6 +84,9 @@ export function AppRoutes() {
           {/* 5C: Missing features */}
           <Route path="/activate-code" element={<ActivateCodePage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          {/* W14.4 — exam courses storefront (A.2/A.3) */}
+          <Route path="/exam-courses" element={<ExamCoursesPage />} />
+          <Route path="/exam-courses/:courseId" element={<ExamCourseDetailPage />} />
         </Route>
 
         {/* 404 page (replaces wildcard redirect) */}
