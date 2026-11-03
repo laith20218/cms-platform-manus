@@ -64,7 +64,9 @@ export function useWatermark(studentName: string, studentPhone: string, enabled:
     if (!enabled || !studentName) return;
     const watermark = document.createElement('div');
     watermark.id = 'cms-watermark';
-    watermark.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:9999;display:flex;flex-wrap:wrap;justify-content:space-around;align-items:center;opacity:.03;font-family:'Cairo',sans-serif;font-size:14px;font-weight:600;color:#1976D2;transform:rotate(-15deg);overflow:hidden;";
+    // W14.4 (C.3): token-system font + ink color (the hardcoded 'Cairo'/Material blue
+    // predated the --cms-* unification; the watermark must follow the design tokens).
+    watermark.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:9999;display:flex;flex-wrap:wrap;justify-content:space-around;align-items:center;opacity:.03;font-family:var(--cms-font-sans),sans-serif;font-size:14px;font-weight:600;color:var(--cms-teal-800);transform:rotate(-15deg);overflow:hidden;";
     const text = `${studentName} - ${studentPhone} - CMS - ${new Date().toLocaleString('ar')}`;
     for (let index = 0; index < 40; index++) { const span = document.createElement('span'); span.textContent = text; span.style.cssText = 'margin:30px;white-space:nowrap;'; watermark.appendChild(span); }
     document.body.appendChild(watermark);

@@ -45,6 +45,15 @@
   --cms-warning-50: #fffbeb;
   --cms-danger: #dc2626;
   --cms-danger-50: #fef2f2;
+  /* Wave 14.4 (§13 axe) — AA text steps for small text on the 50-tints:
+     measured #059669 on #ecfdf5 = 3.58:1, #d97706 on #fffbeb = 3.07:1,
+     #dc2626 on #fef2f2 = 4.42:1 — all fail the 4.5:1 normal-text bar. The
+     700 steps measure #047857 5.21:1, #92400e 6.84:1, #b91c1c 5.91:1 on
+     the same tints (and ≥ 5.2:1 on white). Same pattern as the W12.2.D
+     teal-800 step. */
+  --cms-success-700: #047857;
+  --cms-warning-700: #92400e;
+  --cms-danger-700: #b91c1c;
   --cms-info: #0891b2;
   --cms-info-50: #ecfeff;
 
@@ -357,6 +366,11 @@
   --cms-warning-50: #2a1c08;
   --cms-danger: #f87171;
   --cms-danger-50: #2a0e0e;
+  /* W14.4 AA steps — luminous aliases (the dark base tokens above are
+     already text-safe on #0f172a and the dark 50-tints). */
+  --cms-success-700: #34d399;
+  --cms-warning-700: #fbbf24;
+  --cms-danger-700: #f87171;
   --cms-info: #22d3ee;
   --cms-info-50: #082027;
 

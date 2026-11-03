@@ -4,6 +4,9 @@ import { AppShell } from '@/components/layouts/AppShell';
 import { LoadingScreen } from '@/components/ui/LoadingScreen';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
+// W14.4 (C.3) — content protection mounts: question/exam/review surfaces carry the
+// same watermark + anti-copy protection as the course player.
+import { SecurityWrapper } from '@/features/security/SecurityWrapper';
 
 // Lazy-loaded pages
 const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'));
@@ -33,6 +36,10 @@ const PrivacyPage = lazy(() => import('@/features/legal/PrivacyPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 const ActivateCodePage = lazy(() => import('@/features/subscriptions/ActivateCodePage'));
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage'));
+// W14.4 — exam courses (student storefront) + categorized practice
+const ExamCoursesPage = lazy(() => import('@/features/exam-courses/pages/ExamCoursesPage'));
+const ExamCourseDetailPage = lazy(() => import('@/features/exam-courses/pages/ExamCourseDetailPage'));
+const PracticePage = lazy(() => import('@/features/practice/pages/PracticePage'));
 
 // P2-31: Hide OTP route when OtpEnabled=false
 const otpEnabled = import.meta.env.VITE_OTP_ENABLED === 'true';
@@ -58,8 +65,8 @@ export function AppRoutes() {
           <Route path="/subjects" element={<SubjectsPage />} />
           <Route path="/subjects/:subjectSlug" element={<SubjectDetailPage />} />
           <Route path="/subjects/:subjectSlug/lectures/:lectureId" element={<LecturePage />} />
-          <Route path="/subjects/:subjectSlug/lectures/:lectureId/questions" element={<QuestionPage />} />
-          <Route path="/subjects/:subjectSlug/questions/:questionId" element={<QuestionPage />} />
+          <Route path="/subjects/:subjectSlug/lectures/:lectureId/questions" element={<SecurityWrapper><QuestionPage /></SecurityWrapper>} />
+          <Route path="/subjects/:subjectSlug/questions/:questionId" element={<SecurityWrapper><QuestionPage /></SecurityWrapper>} />
           <Route path="/favorites" element={<FavoritesPage />} />
           {/* My Studies hub — courses / exams / library tabs (Push 4 Phase 5) */}
           <Route path="/my-studies" element={<MyStudiesPage />} />
@@ -69,8 +76,8 @@ export function AppRoutes() {
           {/* Backward compatibility: legacy entry points redirect into the hub.
               Deep links (/exams/:id, /subjects/:slug/library) keep working below. */}
           <Route path="/exams" element={<Navigate to="/my-studies?tab=exams" replace />} />
-          <Route path="/exams/:examId" element={<ExamPage />} />
-          <Route path="/exams/:sessionId/review" element={<ExamReviewPage />} />
+          <Route path="/exams/:examId" element={<SecurityWrapper><ExamPage /></SecurityWrapper>} />
+          <Route path="/exams/:sessionId/review" element={<SecurityWrapper><ExamReviewPage /></SecurityWrapper>} />
           <Route path="/library" element={<Navigate to="/my-studies?tab=library" replace />} />
           <Route path="/subjects/:subjectSlug/library" element={<LibraryPage />} />
           <Route path="/search" element={<SearchPage />} />
@@ -81,6 +88,12 @@ export function AppRoutes() {
           {/* 5C: Missing features */}
           <Route path="/activate-code" element={<ActivateCodePage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          {/* W14.4 — exam courses storefront (A.2/A.3) */}
+          <Route path="/exam-courses" element={<ExamCoursesPage />} />
+          <Route path="/exam-courses/:courseId" element={<ExamCourseDetailPage />} />
+          {/* W14.4 — practice player (B.1, D13): exam-model runs + categorized lens */}
+          <Route path="/practice/exam/:examModelId" element={<PracticePage />} />
+          <Route path="/practice/categorized/:subjectId" element={<PracticePage />} />
         </Route>
 
         {/* 404 page (replaces wildcard redirect) */}

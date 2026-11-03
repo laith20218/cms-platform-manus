@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
-  ChevronLeft, Star, Flag, Share2, Check, X, Loader2,
+  ChevronLeft, Star, Flag, Check, X, Loader2,
   BookOpen, Clock, BarChart3, ArrowRight, ListChecks,
 } from 'lucide-react';
 import { questionApi } from './services/question-api';
@@ -354,7 +354,9 @@ export default function QuestionPage() {
         <div className="px-6 py-4 flex items-center justify-between border-b border-[var(--c-border)] bg-[var(--c-tint-primary)]">
           <div className="flex items-center gap-3">
             <div className={`w-9 h-9 rounded-[10px] flex items-center justify-center font-bold text-sm ${
-              isAnswered ? (isCorrect ? 'bg-[var(--c-success-50)] text-[var(--c-success-700)]' : 'bg-[var(--c-danger-50)] text-[var(--c-danger-700)]') : 'bg-[var(--c-primary-50)] text-[var(--c-primary-700)]'
+              // W14.4 §13: AA steps — teal-700/success/danger on the 50-tints
+              // measure 4.26:1/3.58:1/4.42:1 (fail); teal-800 + the 700s pass.
+              isAnswered ? (isCorrect ? 'bg-[var(--c-success-50)] text-[var(--cms-success-700)]' : 'bg-[var(--c-danger-50)] text-[var(--cms-danger-700)]') : 'bg-[var(--c-primary-50)] text-[var(--cms-teal-800)]'
             }`} lang="en">
               {currentIndex + 1}
             </div>
@@ -362,14 +364,14 @@ export default function QuestionPage() {
               <div className="text-sm font-semibold text-[var(--c-text-soft)]">{currentQuestion.lectureTitle || 'محاضرة'}</div>
               <div className="flex gap-1.5 mt-0.5 flex-wrap">
                 {tags.slice(0, 3).map((tag) => (
-                  <span key={tag} className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--c-primary-50)] text-[var(--c-primary-700)]">
+                  <span key={tag} className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--c-primary-50)] text-[var(--cms-teal-800)]">
                     #{tag}
                   </span>
                 ))}
                 <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
-                  difficulty === 'easy' ? 'bg-[var(--c-success-50)] text-[var(--c-success-700)]' :
-                  difficulty === 'hard' ? 'bg-[var(--c-danger-50)] text-[var(--c-danger-500)]' :
-                  'bg-[var(--c-warning-50)] text-[var(--c-warning-500)]'
+                  difficulty === 'easy' ? 'bg-[var(--c-success-50)] text-[var(--cms-success-700)]' :
+                  difficulty === 'hard' ? 'bg-[var(--c-danger-50)] text-[var(--cms-danger-700)]' :
+                  'bg-[var(--c-warning-50)] text-[var(--cms-warning-700)]'
                 }`}>
                   {difficultyLabel(difficulty)}
                 </span>
@@ -378,7 +380,7 @@ export default function QuestionPage() {
           </div>
           {isAnswered && (
             <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-bold ${
-              isCorrect ? 'bg-[var(--c-success-100)] text-[var(--c-success-700)]' : 'bg-[var(--c-danger-100)] text-[var(--c-danger-700)]'
+              isCorrect ? 'bg-[var(--c-success-100)] text-[var(--cms-success-700)]' : 'bg-[var(--c-danger-100)] text-[var(--cms-danger-700)]'
             }`}>
               {isCorrect ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
               {isCorrect ? 'صحيح!' : 'خاطئ'}
@@ -519,7 +521,8 @@ export default function QuestionPage() {
 
         {/* Card Footer - Actions */}
         <div className="px-6 py-4 border-t border-[var(--c-border)] bg-[var(--c-tint-primary)] flex items-center justify-between flex-wrap gap-3">
-          {/* Left: Favorite + Report + Share */}
+          {/* Left: Favorite + Report (W14.4 C.2: the Share action was removed — exam
+              and question content is protected and must not leave the platform). */}
           <div className="flex items-center gap-2">
             <button
               onClick={toggleFavorite}
@@ -542,19 +545,6 @@ export default function QuestionPage() {
             >
               <Flag className="w-3.5 h-3.5" />
               إبلاغ
-            </button>
-            <button
-              onClick={() => {
-                if (navigator.share) {
-                  navigator.share({ title: 'سؤال من منصة CMS', text: currentQuestion?.text ?? '', url: window.location.href }).catch(() => {});
-                } else {
-                  navigator.clipboard?.writeText(window.location.href).then(() => toast.success('تم نسخ الرابط'));
-                }
-              }}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-[8px] border border-[var(--c-border-strong)] text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] text-[13px] font-semibold transition-all"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-              مشاركة
             </button>
           </div>
 

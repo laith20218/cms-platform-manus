@@ -97,9 +97,16 @@ public sealed class ExamQueryHandlers :
             .FirstOrDefaultAsync(session => session.Id == sessionId && session.StudentId == studentId, ct)
         ?? throw new NotFoundException("ExamSession", sessionId);
 
+    /// <summary>
+    /// W14.4 (Phase 0) — any ACTIVE subject grant opens the exam surfaces. The old
+    /// QuestionsExams-only check blocked bundle-holding students whose grant carried a
+    /// different content scope (VideoAudio / LecturesText); "read" resolves to NO content
+    /// scope in EntitlementService.ResolveActionScope, so every active grant passes — the
+    /// same content-agnostic gate the courses catalog has used since R69.
+    /// </summary>
     private async Task EnsureSubjectEntitlementAsync(Guid studentId, Guid subjectId, CancellationToken ct)
     {
-        if (!await _entitlements.CanAccessSubjectContentAsync(studentId, subjectId, SubscriptionContentScope.QuestionsExams, ct))
+        if (!await _entitlements.CanAccessSubjectAsync(studentId, subjectId, "read", ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
     }
 
@@ -717,8 +724,11 @@ public sealed class ExamSessionHandlers :
     private async Task<ExamResultDto> BuildResultAsync(ExamSession session, CancellationToken ct)
     {
         var visible = session.ShowResultsImmediatelySnapshot;
-        var weakTopics = BuildWeakTopics(session);
+        var weakTopics = BuildTopics(session, strong: false);
+        var strongTopics = BuildTopics(session, strong: true);
         ExamComparisonDto? comparison = null;
+        List<ExamAttemptHistoryDto>? attempts = null;
+        int? remainingAttempts = null;
         if (visible)
         {
             var scores = await _db.ExamSessions.AsNoTracking()
@@ -727,7 +737,23 @@ public sealed class ExamSessionHandlers :
                 .Select(item => item.Score!.Value)
                 .ToListAsync(ct);
             comparison = new ExamComparisonDto(session.Score ?? 0, scores.Count == 0 ? 0 : scores.Average(), scores.Count == 0 ? 0 : scores.Max());
+
+            // W14.4 (C.1, D9) — attempt history (latest 10) + retake availability.
+            var history = await _db.ExamSessions.AsNoTracking()
+                .Where(item => item.ExamId == session.ExamId && item.StudentId == session.StudentId)
+                .OrderByDescending(item => item.StartedAt)
+                .Take(10)
+                .Select(item => new { item.Id, item.Status, item.StartedAt, item.CompletedAt, item.Score, item.Passed })
+                .ToListAsync(ct);
+            attempts = history.Select(item => new ExamAttemptHistoryDto(
+                item.Id, item.Status.ToString(), item.StartedAt, item.CompletedAt, item.Score, item.Passed, item.Id == session.Id)).ToList();
         }
+        var countedAttempts = await _db.ExamSessions.AsNoTracking()
+            .CountAsync(item => item.ExamId == session.ExamId && item.StudentId == session.StudentId &&
+                (item.Status == ExamSessionStatus.Completed || item.Status == ExamSessionStatus.TimedOut), ct);
+        var maxAttempts = session.Exam.MaxAttempts;
+        if (maxAttempts.HasValue)
+            remainingAttempts = Math.Max(0, maxAttempts.Value - countedAttempts);
 
         return new ExamResultDto(
             session.Id,
@@ -742,10 +768,18 @@ public sealed class ExamSessionHandlers :
             session.DurationSeconds ?? 0,
             session.AllowReviewSnapshot,
             visible ? weakTopics : new List<WeakTopicDto>(),
-            comparison);
+            comparison,
+            // W14.4 (C.1, D9): server-computed wrong count — never a client derivation.
+            visible ? Math.Max(0, session.AnsweredQuestions - session.CorrectAnswers) : 0,
+            visible ? strongTopics : new List<WeakTopicDto>(),
+            maxAttempts,
+            remainingAttempts,
+            attempts ?? new List<ExamAttemptHistoryDto>());
     }
 
-    private static List<WeakTopicDto> BuildWeakTopics(ExamSession session)
+    /// <summary>W14.4 (C.1): the tag-accuracy aggregation shared by weakest (&lt; 60, worst
+    /// first) and strongest (≥ 60, best first) topic lists — take 5 each.</summary>
+    private static List<WeakTopicDto> BuildTopics(ExamSession session, bool strong)
     {
         var answers = session.AttemptLogs
             .Where(answer => answer.ExamSessionQuestionId.HasValue)
@@ -760,12 +794,13 @@ public sealed class ExamSessionHandlers :
                 statistics[tag] = (value.Total + 1, value.Correct + (answer?.IsCorrect == true ? 1 : 0));
             }
         }
-        return statistics
+        var ranked = statistics
             .Select(item => new WeakTopicDto(item.Key, item.Value.Total == 0 ? 0 : (double)item.Value.Correct / item.Value.Total * 100))
-            .Where(item => item.Accuracy < 60)
-            .OrderBy(item => item.Accuracy)
-            .Take(5)
-            .ToList();
+            .Where(item => strong ? item.Accuracy >= 60 : item.Accuracy < 60);
+        // Weakest: worst first. Strongest: best first.
+        return strong
+            ? ranked.OrderByDescending(item => item.Accuracy).Take(5).ToList()
+            : ranked.OrderBy(item => item.Accuracy).Take(5).ToList();
     }
 
     private async Task<ExamSession> LoadSessionWithSnapshotAsync(Guid sessionId, Guid studentId, CancellationToken ct) =>
@@ -783,9 +818,13 @@ public sealed class ExamSessionHandlers :
             .Include(session => session.AttemptLogs)
             .FirstOrDefaultAsync(session => session.ExamId == examId && session.StudentId == studentId && session.Status == ExamSessionStatus.InProgress, ct);
 
+    /// <summary>
+    /// W14.4 (Phase 0) — same any-grant ruling as the query side above: start / save /
+    /// submit / results / review / heartbeat all accept ANY active subject grant.
+    /// </summary>
     private async Task EnsureSubjectEntitlementAsync(Guid studentId, Guid subjectId, CancellationToken ct)
     {
-        if (!await _entitlements.CanAccessSubjectContentAsync(studentId, subjectId, SubscriptionContentScope.QuestionsExams, ct))
+        if (!await _entitlements.CanAccessSubjectAsync(studentId, subjectId, "read", ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
     }
 

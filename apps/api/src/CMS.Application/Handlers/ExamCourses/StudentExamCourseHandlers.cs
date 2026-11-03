@@ -99,9 +99,15 @@ public sealed class StudentExamCourseHandlers :
             course.Year, course.Semester, course.CourseType.ToString(), course.FreeOrPaid, exams);
     }
 
+    /// <summary>
+    /// W14.4 (Phase 0 ruling, extended to the storefront): ANY active grant over the
+    /// subject opens the exam-course bundles — the content-agnostic "read" gate the
+    /// exams surfaces and the courses catalog (R69) already use. Bundle-holding
+    /// students whose grant carries a non-QuestionsExams scope are no longer blocked.
+    /// </summary>
     private async Task EnsureSubjectEntitlementAsync(Guid studentId, Guid subjectId, CancellationToken ct)
     {
-        if (!await _entitlements.CanAccessSubjectContentAsync(studentId, subjectId, SubscriptionContentScope.QuestionsExams, ct))
+        if (!await _entitlements.CanAccessSubjectAsync(studentId, subjectId, "read", ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
     }
 }

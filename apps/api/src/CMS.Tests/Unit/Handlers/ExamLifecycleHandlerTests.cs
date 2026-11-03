@@ -127,7 +127,9 @@ public class ExamLifecycleHandlerTests
     private static ExamSessionHandlers CreateHandler(ApplicationDbContext db, IUnitOfWork uow)
     {
         var entitlements = new Mock<IEntitlementService>();
-        entitlements.Setup(service => service.CanAccessSubjectContentAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), SubscriptionContentScope.QuestionsExams, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        // W14.4: the exam gates moved to the content-agnostic "read" action — any
+        // active grant passes (mirrors the R69 courses-catalog gate).
+        entitlements.Setup(service => service.CanAccessSubjectAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
         return new ExamSessionHandlers(db, uow, entitlements.Object);
     }
 
