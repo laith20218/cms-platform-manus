@@ -405,6 +405,51 @@ public class QuestionHandlerTests
         result.Items.Should().OnlyContain(item => item.UserAnswer != null);
     }
 
+    // ===== W14.5 (Phase A): B2 presigned URLs in the question DTO mapping =====
+
+    [Fact]
+    public async Task GetQuestionById_WithPresigner_ResolvesImageReferencesThroughPresignedUrls()
+    {
+        // Arrange
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var question = db.Questions.Include(q => q.Options).First();
+
+        // Stored shapes: a bare B2 object key, a b2:// URI, and an already-public https URL.
+        db.QuestionImages.Add(QuestionImage.Create(question.Id, "library/seeded/question-image.png", "alt"));
+        db.QuestionImages.Add(QuestionImage.Create(question.Id, "b2://CMSmedia/questions/opt.png"));
+        db.QuestionImages.Add(QuestionImage.Create(question.Id, "https://f000.backblazeb2.com/CMSmedia/public.png"));
+        // An option image stored as a bare key (EF writes the private-setter column directly).
+        var option = question.Options.First();
+        db.Entry(option).Property(nameof(QuestionOption.ImageUrl)).CurrentValue = "library/seeded/option.png";
+        await db.SaveChangesAsync();
+
+        var presigner = new Mock<IPresignedUrlService>();
+        presigner.Setup(p => p.ResolveImageUrlAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string? value, CancellationToken _) =>
+            {
+                if (value is null || value.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return value;
+                var key = value.StartsWith("b2://", StringComparison.OrdinalIgnoreCase)
+                    ? value["b2://".Length..].Split('/', 2)[1]
+                    : value;
+                return $"https://presigned.test/{key}";
+            });
+        var handler = new QuestionQueryHandlers(db, AllowAllEntitlements(), presigner.Object);
+
+        // Act
+        var result = await handler.Handle(new GetQuestionByIdQuery(question.Id, student.Id), CancellationToken.None);
+
+        // Assert — object keys / b2:// URIs become presigned URLs; the public https
+        // URL (existing production contract) passes through untouched.
+        result.Images.Select(image => image.ImageUrl).Should().BeEquivalentTo(new[]
+        {
+            "https://presigned.test/library/seeded/question-image.png",
+            "https://presigned.test/questions/opt.png",
+            "https://f000.backblazeb2.com/CMSmedia/public.png"
+        });
+        result.Options.Single(o => o.Id == option.Id).ImageUrl.Should().Be("https://presigned.test/library/seeded/option.png");
+    }
+
     [Fact]
     public async Task AnswerQuestionCommand_CorrectAnswer_ShouldReturnCorrectResult()
     {
