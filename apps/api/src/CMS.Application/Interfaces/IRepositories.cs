@@ -30,7 +30,8 @@ public interface IQuestionRepository
         string? search = null,
         CancellationToken ct = default);
     Task<List<Question>> GetByLectureAsync(Guid lectureId, CancellationToken ct = default);
-    Task<List<Question>> GetByExamAsync(Guid examId, CancellationToken ct = default);
+    // W14.5 (Phase B): GetByExamAsync removed with Question.ExamId — the last reader
+    // of the legacy column (zero callers; exam composition goes via ExamQuestion).
     Task AddAsync(Question question, CancellationToken ct = default);
     Task UpdateAsync(Question question, CancellationToken ct = default);
     Task SoftDeleteAsync(Guid questionId, Guid deletedBy, CancellationToken ct = default);

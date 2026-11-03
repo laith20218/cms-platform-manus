@@ -20,7 +20,9 @@ public class Question : AuditableEntity
     public QuestionUsage QuestionUsage { get; private set; } = QuestionUsage.Both;
     public Guid SubjectId { get; private set; }
     public Guid? LectureId { get; private set; }
-    public Guid? ExamId { get; private set; }
+    // W14.5 (Phase B): the legacy Question.ExamId column is DROPPED (migration
+    // 20261117120000_DropQuestionExamId). Exams have been composed exclusively via
+    // the ExamQuestion join since W14.2 (R75 P1) — the column sat dormant since then.
 
     // Content
     public string Text { get; private set; } = string.Empty;
@@ -52,8 +54,6 @@ public class Question : AuditableEntity
     // Navigation
     public Subject Subject { get; private set; } = null!;
     public Lecture? Lecture { get; private set; }
-    // Legacy one-to-many association retained while existing data is migrated to ExamQuestion.
-    public Exam? Exam { get; private set; }
     public ICollection<ExamQuestion> ExamQuestions { get; private set; } = new List<ExamQuestion>();
     public List<QuestionOption> Options { get; private set; } = new();
     public ICollection<QuestionImage> Images { get; private set; } = new List<QuestionImage>();
@@ -297,8 +297,8 @@ public class Exam : AuditableEntity
     // Navigation
     public Subject Subject { get; private set; } = null!;
     public Lecture? Lecture { get; private set; }
-    // Legacy relationship: retained only so deployed historical records remain readable.
-    public ICollection<Question> Questions { get; private set; } = new List<Question>();
+    // W14.5 (Phase B): the legacy one-to-many Questions collection was removed with
+    // Question.ExamId — ExamQuestion is the authoritative composition since W14.2.
     public ICollection<ExamQuestion> ExamQuestions { get; private set; } = new List<ExamQuestion>();
     public ICollection<ExamSession> Sessions { get; private set; } = new List<ExamSession>();
 

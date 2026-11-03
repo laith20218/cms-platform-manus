@@ -115,14 +115,9 @@ public class QuestionRepository : IQuestionRepository
             .ToListAsync(ct);
     }
 
-    public async Task<List<Question>> GetByExamAsync(Guid examId, CancellationToken ct = default)
-    {
-        return await _context.Questions
-            .Where(q => q.ExamId == examId && q.Status == Domain.Enums.ContentStatus.Published)
-            .OrderBy(q => q.CreatedAt)
-            .AsNoTracking()
-            .ToListAsync(ct);
-    }
+    // W14.5 (Phase B): GetByExamAsync removed with Question.ExamId — it was the last
+    // reader of the legacy column (zero callers since W14.2; exam composition goes
+    // through the ExamQuestion join, e.g. ExamHandlers/OfflineHandlers).
 
     public async Task AddAsync(Question question, CancellationToken ct = default)
     {

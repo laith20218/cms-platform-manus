@@ -47,8 +47,8 @@ public class QuestionQueryHandlers :
         if (req.SubjectId.HasValue) query = query.Where(q => q.SubjectId == req.SubjectId);
         if (req.LectureId.HasValue) query = query.Where(q => q.LectureId == req.LectureId);
         // W14.2 A.3 (R75 P1): legacy Question.ExamId read retired — exams are composed via
-        // the ExamQuestion join (D6 bank picking). Question.ExamId stays only as a dormant
-        // column for future removal.
+        // the ExamQuestion join (D6 bank picking). W14.5 (Phase B): the dormant column
+        // itself is now DROPPED (migration 20261117120000_DropQuestionExamId).
         if (req.ExamId.HasValue)
             query = query.Where(q => _db.ExamQuestions.Any(eq => eq.ExamId == req.ExamId && eq.QuestionId == q.Id));
         // W14.2 E.1 (D3): usage filter — "practice" also admits Both, "exam" also admits Both.
