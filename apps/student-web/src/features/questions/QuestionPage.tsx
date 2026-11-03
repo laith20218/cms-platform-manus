@@ -354,7 +354,9 @@ export default function QuestionPage() {
         <div className="px-6 py-4 flex items-center justify-between border-b border-[var(--c-border)] bg-[var(--c-tint-primary)]">
           <div className="flex items-center gap-3">
             <div className={`w-9 h-9 rounded-[10px] flex items-center justify-center font-bold text-sm ${
-              isAnswered ? (isCorrect ? 'bg-[var(--c-success-50)] text-[var(--c-success-700)]' : 'bg-[var(--c-danger-50)] text-[var(--c-danger-700)]') : 'bg-[var(--c-primary-50)] text-[var(--c-primary-700)]'
+              // W14.4 §13: AA steps — teal-700/success/danger on the 50-tints
+              // measure 4.26:1/3.58:1/4.42:1 (fail); teal-800 + the 700s pass.
+              isAnswered ? (isCorrect ? 'bg-[var(--c-success-50)] text-[var(--cms-success-700)]' : 'bg-[var(--c-danger-50)] text-[var(--cms-danger-700)]') : 'bg-[var(--c-primary-50)] text-[var(--cms-teal-800)]'
             }`} lang="en">
               {currentIndex + 1}
             </div>
@@ -362,14 +364,14 @@ export default function QuestionPage() {
               <div className="text-sm font-semibold text-[var(--c-text-soft)]">{currentQuestion.lectureTitle || 'محاضرة'}</div>
               <div className="flex gap-1.5 mt-0.5 flex-wrap">
                 {tags.slice(0, 3).map((tag) => (
-                  <span key={tag} className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--c-primary-50)] text-[var(--c-primary-700)]">
+                  <span key={tag} className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--c-primary-50)] text-[var(--cms-teal-800)]">
                     #{tag}
                   </span>
                 ))}
                 <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
-                  difficulty === 'easy' ? 'bg-[var(--c-success-50)] text-[var(--c-success-700)]' :
-                  difficulty === 'hard' ? 'bg-[var(--c-danger-50)] text-[var(--c-danger-500)]' :
-                  'bg-[var(--c-warning-50)] text-[var(--c-warning-500)]'
+                  difficulty === 'easy' ? 'bg-[var(--c-success-50)] text-[var(--cms-success-700)]' :
+                  difficulty === 'hard' ? 'bg-[var(--c-danger-50)] text-[var(--cms-danger-700)]' :
+                  'bg-[var(--c-warning-50)] text-[var(--cms-warning-700)]'
                 }`}>
                   {difficultyLabel(difficulty)}
                 </span>
@@ -378,7 +380,7 @@ export default function QuestionPage() {
           </div>
           {isAnswered && (
             <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-bold ${
-              isCorrect ? 'bg-[var(--c-success-100)] text-[var(--c-success-700)]' : 'bg-[var(--c-danger-100)] text-[var(--c-danger-700)]'
+              isCorrect ? 'bg-[var(--c-success-100)] text-[var(--cms-success-700)]' : 'bg-[var(--c-danger-100)] text-[var(--cms-danger-700)]'
             }`}>
               {isCorrect ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
               {isCorrect ? 'صحيح!' : 'خاطئ'}

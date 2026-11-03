@@ -169,8 +169,8 @@ export default function ExamCoursesPage() {
                     transition={{ type: 'spring', stiffness: 480, damping: 36 }}
                   />
                 )}
-                <Icon className={cn('relative z-[1] h-4 w-4', active && 'text-[var(--cms-teal-700)]')} aria-hidden="true" />
-                <span className={cn('relative z-[1]', active && 'text-[var(--cms-teal-700)]')}>{label}</span>
+                <Icon className={cn('relative z-[1] h-4 w-4', active && 'text-[var(--cms-teal-800)]')} aria-hidden="true" />
+                <span className={cn('relative z-[1]', active && 'text-[var(--cms-teal-800)]')}>{label}</span>
               </button>
             );
           })}
@@ -511,10 +511,12 @@ function Chip({ pressed, onClick, testId, children }: { pressed: boolean; onClic
 }
 
 function Badge({ children, tone }: { children: React.ReactNode; tone?: 'success' | 'warning' }) {
+  // W14.4 §13: 700 steps — #059669 on #ecfdf5 and #d97706 on #fffbeb measure
+  // 3.58:1 / 3.07:1 (fail AA); --cms-{success,warning}-700 pass (≥ 5.2:1).
   const className = tone === 'success'
-    ? 'bg-[var(--cms-success-50)] text-[var(--cms-success)]'
+    ? 'bg-[var(--cms-success-50)] text-[var(--cms-success-700)]'
     : tone === 'warning'
-      ? 'bg-[var(--cms-warning-50)] text-[var(--cms-warning)]'
+      ? 'bg-[var(--cms-warning-50)] text-[var(--cms-warning-700)]'
       : 'bg-[var(--cms-teal-50)] text-[var(--cms-teal-800)]';
   return <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 font-semibold', className)}>{children}</span>;
 }

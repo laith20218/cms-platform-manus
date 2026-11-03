@@ -87,7 +87,9 @@ export default function ExamCourseDetailPage() {
               <span className="inline-flex items-center rounded-full bg-[var(--cms-teal-50)] px-2.5 py-0.5 font-semibold text-[var(--cms-teal-800)]">
                 {COURSE_TYPE_LABELS[course.courseType] ?? course.courseType}
               </span>
-              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 font-semibold ${course.freeOrPaid ? 'bg-[var(--cms-warning-50)] text-[var(--cms-warning)]' : 'bg-[var(--cms-success-50)] text-[var(--cms-success)]'}`}>
+              {/* W14.4 §13: 700 text steps — #059669/#d97706 on the 50-tints
+                  measure 3.58:1/3.07:1 (fail AA); the 700 steps pass (≥ 5.2:1). */}
+              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 font-semibold ${course.freeOrPaid ? 'bg-[var(--cms-warning-50)] text-[var(--cms-warning-700)]' : 'bg-[var(--cms-success-50)] text-[var(--cms-success-700)]'}`}>
                 {course.freeOrPaid ? 'مدفوعة' : 'مجانية'}
               </span>
             </div>
@@ -129,8 +131,8 @@ export default function ExamCourseDetailPage() {
                       {exam.bestScore != null && <span className="inline-flex items-center gap-1 font-semibold text-[var(--cms-teal-700)]">أفضل نتيجة: <span lang="en">{Math.round(exam.bestScore)}%</span></span>}
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      {exam.inProgress && <span className="inline-flex items-center gap-1 rounded-full bg-[var(--cms-warning-50)] px-2.5 py-0.5 text-xs font-semibold text-[var(--cms-warning)]">محاولة جارية</span>}
-                      {exam.completed && <span className="inline-flex items-center gap-1 rounded-full bg-[var(--cms-success-50)] px-2.5 py-0.5 text-xs font-semibold text-[var(--cms-success)]"><CheckCircle2 className="w-3 h-3" aria-hidden="true" />مكتملة</span>}
+                      {exam.inProgress && <span className="inline-flex items-center gap-1 rounded-full bg-[var(--cms-warning-50)] px-2.5 py-0.5 text-xs font-semibold text-[var(--cms-warning-700)]">محاولة جارية</span>}
+                      {exam.completed && <span className="inline-flex items-center gap-1 rounded-full bg-[var(--cms-success-50)] px-2.5 py-0.5 text-xs font-semibold text-[var(--cms-success-700)]"><CheckCircle2 className="w-3 h-3" aria-hidden="true" />مكتملة</span>}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
