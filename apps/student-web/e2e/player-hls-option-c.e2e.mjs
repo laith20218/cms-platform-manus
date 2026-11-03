@@ -387,10 +387,13 @@ try {
   // failures are excusable (all of them are the spec's own 403 injections —
   // the route fulfills or 403s every *.backblazeb2.com request). Any
   // net::ERR_FAILED on another origin — the API catch-all abort, a dropped
-  // page chunk, anything — fails the suite.
+  // page chunk, anything — fails the suite. The host check is ANCHORED
+  // (CodeQL js/regex/missing-regexp-anchor, cf. the B2 route pattern above):
+  // ^https:// + a host ENDING in .backblazeb2.com before the first slash —
+  // https://evil.com/backblazeb2.com/ can never match.
   page.on('requestfailed', (req) => {
     if (req.failure()?.errorText !== 'net::ERR_FAILED') return;
-    if (/\.backblazeb2\.com\//.test(req.url())) return;
+    if (/^https:\/\/[^/]*\.backblazeb2\.com\//.test(req.url())) return;
     networkFailuresOutsideB2.push(`${req.failure().errorText} ${req.url().slice(0, 120)}`);
   });
 
