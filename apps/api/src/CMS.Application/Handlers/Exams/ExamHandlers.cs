@@ -97,9 +97,16 @@ public sealed class ExamQueryHandlers :
             .FirstOrDefaultAsync(session => session.Id == sessionId && session.StudentId == studentId, ct)
         ?? throw new NotFoundException("ExamSession", sessionId);
 
+    /// <summary>
+    /// W14.4 (Phase 0) — any ACTIVE subject grant opens the exam surfaces. The old
+    /// QuestionsExams-only check blocked bundle-holding students whose grant carried a
+    /// different content scope (VideoAudio / LecturesText); "read" resolves to NO content
+    /// scope in EntitlementService.ResolveActionScope, so every active grant passes — the
+    /// same content-agnostic gate the courses catalog has used since R69.
+    /// </summary>
     private async Task EnsureSubjectEntitlementAsync(Guid studentId, Guid subjectId, CancellationToken ct)
     {
-        if (!await _entitlements.CanAccessSubjectContentAsync(studentId, subjectId, SubscriptionContentScope.QuestionsExams, ct))
+        if (!await _entitlements.CanAccessSubjectAsync(studentId, subjectId, "read", ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
     }
 
@@ -783,9 +790,13 @@ public sealed class ExamSessionHandlers :
             .Include(session => session.AttemptLogs)
             .FirstOrDefaultAsync(session => session.ExamId == examId && session.StudentId == studentId && session.Status == ExamSessionStatus.InProgress, ct);
 
+    /// <summary>
+    /// W14.4 (Phase 0) — same any-grant ruling as the query side above: start / save /
+    /// submit / results / review / heartbeat all accept ANY active subject grant.
+    /// </summary>
     private async Task EnsureSubjectEntitlementAsync(Guid studentId, Guid subjectId, CancellationToken ct)
     {
-        if (!await _entitlements.CanAccessSubjectContentAsync(studentId, subjectId, SubscriptionContentScope.QuestionsExams, ct))
+        if (!await _entitlements.CanAccessSubjectAsync(studentId, subjectId, "read", ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
     }
 
