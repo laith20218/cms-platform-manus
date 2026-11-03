@@ -327,6 +327,84 @@ public class QuestionHandlerTests
         result.IsFavorite.Should().BeTrue("the star must remain filled after a page reload");
     }
 
+    // ===== W14.5: regression — the 500 on GET /api/v1/questions =====
+    // Before the fix, the attempt-patch loop mutated `items` while foreach-
+    // enumerating it, so ANY attempt on a NON-last page item threw
+    // InvalidOperationException("Collection was modified") and the request failed
+    // with 500 (preview incident, Render TraceId 92e3f23da14549aeb6106ec394012661).
+    // The W14.4 practice flow made this visible by recording AttemptLog rows for
+    // students; this test pins the exact failing shape: first page item attempted.
+
+    [Fact]
+    public async Task GetQuestionsQuery_WithAttemptOnNonLastQuestion_DoesNotThrowAndPatchesUserAnswer()
+    {
+        // Arrange
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var subject = db.Subjects.First();
+        var student = db.Students.First();
+        var questions = db.Questions.OrderBy(q => q.CreatedAt).ToList();
+        var attempted = questions[0];   // first page item (Order: asc) — the NON-last slot
+        var untouched = questions[1];
+        db.AttemptLogs.Add(new AttemptLog
+        {
+            StudentId = student.Id,
+            QuestionId = attempted.Id,
+            SelectedAnswer = "احتشاء عضلة القلب",
+            IsCorrect = true,
+            IsFirstAttempt = true,
+            AttemptNumber = 1
+        });
+        await db.SaveChangesAsync();
+
+        var handler = new QuestionQueryHandlers(db, AllowAllEntitlements());
+
+        // Act — must not throw InvalidOperationException
+        var result = await handler.Handle(
+            new GetQuestionsQuery(subject.Id, null, null, student.Id, null, null, Order: "asc"),
+            CancellationToken.None);
+
+        // Assert
+        result.Items.Should().HaveCount(2);
+        var patched = result.Items.Single(item => item.Id == attempted.Id);
+        patched.UserAnswer.Should().NotBeNull("a persisted attempt must hydrate UserAnswer");
+        patched.UserAnswer!.IsCorrect.Should().BeTrue();
+        patched.UserAnswer!.SelectedOptionId.Should().Be("احتشاء عضلة القلب");
+        result.Items.Single(item => item.Id == untouched.Id).UserAnswer.Should().BeNull(
+            "questions without attempts must stay unpatched");
+    }
+
+    [Fact]
+    public async Task GetQuestionsQuery_WithAttemptsOnAllQuestions_PatchesEveryItemWithoutThrowing()
+    {
+        // The last-item-only case never crashed (MoveNext is not called after the
+        // final mutation); this companion pins that the every-item case — the worst
+        // case for in-place patching — also survives the index loop.
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var subject = db.Subjects.First();
+        var student = db.Students.First();
+        foreach (var question in db.Questions.ToList())
+        {
+            db.AttemptLogs.Add(new AttemptLog
+            {
+                StudentId = student.Id,
+                QuestionId = question.Id,
+                SelectedAnswer = "a",
+                IsCorrect = false,
+                IsFirstAttempt = false,
+                AttemptNumber = 2
+            });
+        }
+        await db.SaveChangesAsync();
+
+        var handler = new QuestionQueryHandlers(db, AllowAllEntitlements());
+
+        var result = await handler.Handle(
+            new GetQuestionsQuery(subject.Id, null, null, student.Id, null, null, Order: "asc"),
+            CancellationToken.None);
+
+        result.Items.Should().OnlyContain(item => item.UserAnswer != null);
+    }
+
     [Fact]
     public async Task AnswerQuestionCommand_CorrectAnswer_ShouldReturnCorrectResult()
     {

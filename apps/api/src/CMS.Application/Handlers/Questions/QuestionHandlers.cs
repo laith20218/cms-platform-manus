@@ -92,18 +92,22 @@ public class QuestionQueryHandlers :
                 .GroupBy(a => a.QuestionId)
                 .ToDictionary(g => g.Key, g => g.First());
 
-            foreach (var item in items)
+            // W14.5: patch by INDEX — the previous loop mutated `items` while
+            // foreach-enumerating it (items[items.IndexOf(item)] = updated), so any
+            // attempt on a NON-last page item threw InvalidOperationException
+            // ("Collection was modified") and failed the whole request with 500
+            // (preview incident: GET /api/v1/questions, Render TraceId
+            // 92e3f23da14549aeb6106ec394012661). In-place replacement semantics are
+            // preserved; the O(n^2) IndexOf scan is gone as a side effect.
+            for (var index = 0; index < items.Count; index++)
             {
-                if (userAnswers.TryGetValue(item.Id, out var answer))
+                if (!userAnswers.TryGetValue(items[index].Id, out var answer)) continue;
+                items[index] = items[index] with
                 {
-                    var updated = item with
-                    {
-                        UserAnswer = new QuestionUserAnswerDto(
-                            answer.SelectedAnswer, answer.IsCorrect, answer.IsFirstAttempt, answer.AnsweredAt
-                        )
-                    };
-                    items[items.IndexOf(item)] = updated;
-                }
+                    UserAnswer = new QuestionUserAnswerDto(
+                        answer.SelectedAnswer, answer.IsCorrect, answer.IsFirstAttempt, answer.AnsweredAt
+                    )
+                };
             }
         }
 
