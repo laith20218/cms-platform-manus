@@ -1,147 +1,149 @@
-# WIP_STATUS — feat/14.4-student-ui (Wave 14.4: Student UI Completeness)
+# WIP_STATUS — feat/14.5-hardening (Wave 14.5: Final Hardening & Bug Fix)
 
 ## ─── STATE ───────────────────────────────────────────────
-Wave 14.3 is MERGED (main @ `8f562e18`, PR #72). This branch implements Wave 14.4
-(the student UI consuming the W14.2 APIs) — apps/student-web + focused API fixes;
-NO migrations, NO lockfile changes (§3 honored — verified
-`dotnet ef migrations has-pending-model-changes` → "No changes").
-**5 of 5 commits DONE (LOCAL ONLY — push requires supervisor approval, §2).**
+Wave 14.4 is MERGED (main @ `b072704`, PR #73). This branch closes W14.5 —
+the final hardening wave: the GET /questions 500 incident fix, B2 presigned
+URLs for question images, technical-debt cleanup (Question.ExamId drop +
+dead code + one silent error swallow), and project closure docs.
+**4 of 4 commits DONE (LOCAL ONLY — push requires supervisor approval, §2).**
 
-Session-recovery note: the previous session crashed on an environment timeout
-(600 s, background vite) DURING Commit 5. This continuation session verified
-Commits 1–4 intact (SHAs match the resume brief exactly), completed the §13
-evidence pass (fixing 9 axe color-contrast failures + 1 harness testid bug
-found by the crashed session's first 39/49 run), and landed Commit 5.
-
-Verification ladder (final tree, in-sandbox, pnpm 9.12.0 / node 24 / .NET 9.0.320):
-**tsc -b 0 errors · eslint (`eslint . --ext ts,tsx --max-warnings=0`) exit 0 ·
-vitest 379/379 (30 files) · vite build PASS · dotnet build 0 errors (20
-pre-existing warnings) · dotnet test 663/663 passed, 0 failed, 27 skipped
-(Testcontainers — no Docker; 637 at the W14.3 baseline + 26 new W14.4 API
-tests) · `dotnet ef migrations has-pending-model-changes` → "No changes" ·
-§13 e2e 49/49 checks (12 axe scans 0 critical/serious, 30 zero-h-scroll gates,
-peak Chromium RSS 917 MB < 1.6 GB, 0 console errors) · RTL diff-grep 0 new
-directional utilities.**
+Session-recovery note: sandbox was reset; repo re-cloned from origin per §9
+and HEAD verified to match `b07270457306ff57b528689ddc56de779795e3cd` before
+branching. Environment rebuilt: pnpm 9.12.0 (corepack) + .NET SDK 9.0.320 at
+`/home/z/.dotnet` + local dotnet-ef 9.0.22 (`dotnet tool restore`).
 
 ## ─── COMMITS (this branch, oldest → newest) ──────────────
-1. `db35599` fix(api): allow any subject grant to access exams
-2. `641ccee` feat(student): exam courses UI + categorized practice tree
-3. `06a6bf1` feat(student): practice flow with reset (D13)
-4. `54d9bcc` feat(student): results v2 + content protection (D9, security)
-5. `<HEAD>`  test(student): §13 evidence + WIP_STATUS (W14.4)
-   Base: main @ `8f562e18` (PR #72, W14.3 merged).
+1. `da76955` fix(api): resolve 500 error on GET /questions (W14.5)
+2. `0e00a63` feat(api): B2 presigned URLs for question images
+3. `ef40f04` chore(api,student-web): drop Question.ExamId + dead code
+4. `<HEAD>`  docs: final WIP_STATUS + project closure (W14.5)
+   Base: main @ `b072704` (PR #73, W14.4 merged).
+
+## ─── THE INCIDENT: 500 on GET /api/v1/questions ───────────
+Root cause (captured live from the Render preview log stream, TraceId
+`92e3f23da14549aeb6106ec394012661`):
+`System.InvalidOperationException: Collection was modified; enumeration
+operation may not execute.` at `QuestionQueryHandlers.Handle(GetQuestionsQuery)`
+— QuestionHandlers.cs:95. The attempt-patch loop mutated `items` while
+foreach-enumerating it (`items[items.IndexOf(item)] = updated`), so ANY
+AttemptLog on a NON-last page item failed the whole request with 500.
+Latent since the original scaffold (`d08b64a`); surfaced by W14.4 because
+the new practice flow records AttemptLog rows for students (attempts on
+non-last items became common). NOT the suspected QuestionUsage column —
+the preview DB has `question_usage integer NOT NULL DEFAULT 2` and full
+entity materialization works (verified live via the admin content list,
+HTTP 200).
+Fix: index-based in-place patch loop (same replacement semantics, O(n) vs
+O(n²) IndexOf scans). Regression tests pin the exact failing shape —
+verified RED on the pre-fix code (byte-for-byte the production exception)
+and GREEN after the fix.
 
 ## ─── WHAT WAS IMPLEMENTED ────────────────────────────────
 
-### Commit 1 — Phase 0: exams entitlement widened (db35599)
-- **`ExamHandlers.cs`** (+15/−3): the exam session endpoints (start/question/
-  submit/results) accepted ONLY `QuestionsExams` grants; now ANY valid subject
-  grant (`VideoAudio` / `LecturesText` / `QuestionsExams` / `FullSubject` /
-  `FullYear`) authorizes, matching the rest of the storefront. Entitlement
-  services (`SignedEntitlementService`/`EntitlementService`) unchanged in
-  contract — the grant-kind gate moved to the exam handlers.
-- **`ExamEntitlementAnyGrantW144Tests.cs`** (new, 145 lines): per-grant-kind
-  matrix + denied-without-grant + expired-token cases.
-- `ExamLifecycleHandlerTests.cs`: 4 lines adapted to the widened policy.
+### Commit 1 — Phase 0: the 500 fix (`da76955`)
+- `QuestionHandlers.cs`: attempt patch loop → index-based `for` loop.
+- `HandlerTests.cs`: +2 regression tests (attempt on first/non-last page
+  item; all-items-attempted worst case). Red→green proven via stash.
 
-### Commit 2 — Phase A: exam courses storefront + categorized tree (641ccee)
-- Backend: `GET /practice/categorized/{subjectId}` (PracticeController +47,
-  PracticeCommands +43, PracticeDtos +90, PracticeHandlers +372) — tree built
-  from `Question.LectureId` + `ParagraphTag`; double-null → «غير مصنف» bucket
-  (lecture `lectureId:null`, group `paragraphTag:null`), untagged lectures
-  sorted LAST; `POST /practice/categorized/{subjectId}/start` honors
-  lectureId/paragraphTag/untagged filters. `StudentExamCourseHandlers` (+8):
-  any-grant access (same policy as Commit 1). Tests:
-  `PracticeCategorizedW144Tests` (288), `ExamCourseStorefrontAnyGrantW144Tests`
-  (89).
-- Frontend: sidebar tab «الدورات الامتحانية» (entitled-only, +30);
-  **`ExamCoursesPage.tsx`** (new, 530) — year (defaults to the student's
-  latest round year)/semester/subject filters + dual tabs: «دورات سنوات»
-  (`GET /exam-courses/subject/{id}?year=&semester=` → cards) and «دورات مصنفة»
-  (lecture→paragraphTag accordions, «ابدأ التدريب» per group);
-  **`ExamCourseDetailPage.tsx`** (new, 167) — bundle exams with تدريب/اختبار
-  entries + attempt-state badges; `exam-courses-api.ts` (85), `practice-api.ts`
-  (206); `exam-courses.test.tsx` (189).
+### Commit 2 — Phase A: B2 presigned URLs (`0e00a63`)
+- New `IPresignedUrlService` (CMS.Application) + `B2PresignedUrlService`
+  (CMS.Infrastructure): presigned GET URLs for B2 object keys via the AWS
+  SDK (SigV4, computed locally — zero network I/O). Same `Storage:S3:*`
+  config + path-style addressing as S3StorageService, but GRACEFUL instead
+  of fail-closed: missing storage config degrades to passthrough with a
+  log-once warning (a read-path nicety must never 500 a question read).
+  Expiry: `Storage:S3:PresignExpiryMinutes` (default 60 min, clamped ≤7d).
+- Question DTO mapping (`GetQuestionById`): every question-image AND
+  option-image reference is resolved — absolute http(s) URLs pass through
+  unchanged (the existing public-URL production contract), bare object keys
+  presign against the configured bucket, `b2://bucket/key` URIs presign
+  against their explicit bucket. Applied after the already-answered
+  re-mapping so both branches resolve.
+- Frontend: existing `<img>` tags render imageUrl verbatim (Practice/Exam/
+  admin preview); new student-web test locks the contract — a presigned
+  URL with X-Amz-* SigV4 query params renders VERBATIM (rewriting would
+  invalidate the signature). CSP already allows `https://*.backblazeb2.com`.
 
-### Commit 3 — Phase B: practice flow with reset, D13 (06a6bf1)
-- **`PracticePage.tsx`** (new, 683): PracticeSession runner — option select →
-  POST answer → immediate correctness + explanation + reference; progress bar
-  «أجبت X من Y»; إعادة ضبط السؤال (single) + إعادة ضبط الكل (D13 resets,
-  both hitting the reset endpoints); untagged-lecture/untagged-tag URL params.
-- Backend: `PracticeDtos`/`PracticeHandlers` (+8/+18) expose answeredCount/
-  reset semantics; `practice-page.test.tsx` (202) + 35 more lines of
-  `PracticeCategorizedW144Tests`.
+### Commit 3 — Phase B: technical debt (`ef40f04`)
+- Hand-authored migration `20261117120000_DropQuestionExamId`: drops the
+  legacy `questions.exam_id` column + its FK (`fk_questions_exams_exam_id`)
+  + index (`ix_questions_exam_id`). Model side removed with it:
+  `Question.ExamId`, `Question.Exam`, `Exam.Questions`, dead
+  `QuestionRepository.GetByExamAsync` (last legacy-column reader, zero
+  callers). Idempotent Neon SQL mirror:
+  `scripts/migrations/W14_5DropQuestionExamId.sql`. **NOT applied to any
+  database on this branch — §2 deploy gate.**
+- Dead code removed: `apps/student-web/src/features/offline/` (3 files —
+  zero runtime imports, no route, no UI mount, flag undocumented) + its
+  only-importing test `offline-envelope.test.ts`. Android offline API
+  endpoints untouched (they serve the Android app).
+- Silent error swallowing fixed: `QuestionPage` `reportMutation` had no
+  `onError` (react-query v5 swallows mutation errors) — failed question
+  reports produced zero feedback. Now toasts «تعذر إرسال البلاغ». API-side
+  audit: the one empty catch (`SemaphoreFullException` in
+  `SecurityEventBatchService.ReleaseIfAvailable`) is an intentional correct
+  guard — left as is.
 
-### Commit 4 — Phase C: results v2 + content protection, D9 (54d9bcc)
-- **Results v2 (D9)**: `ExamDtos` (+23) v2 fields (strongTopics, attempts
-  history, comparison, remainingAttempts); `ExamHandlers` (+44) — wrong count
-  now comes from the BACKEND value (was client-miscounted), strong/weak topics
-  from ParagraphTag accuracy, attempt history. `ExamPage.tsx` (65): score ring
-  + metric grid + مقارنة + المواضيع الأقوى/الأضعف + سجل المحاولات + إعادة
-  المحاولة (remaining-attempts aware). `exam-results-v2.test.tsx` (173) +
-  `ExamResultsV2W144Tests` (132).
-- **Protection (security)**: QuestionPage share action REMOVED (C.2);
-  `SecurityWrapper` watermark mounted on QuestionPage/ExamPage/ExamReviewPage
-  (C.3); `useContentProtection` hardened (+4).
+### Commit 4 — Phase C: this closure document set.
 
-### Commit 5 — §13 evidence + docs (this commit)
-- **`e2e/w14.4-student-ui.e2e.mjs` + `e2e/w144-mock-world.mjs`** (new): the
-  §13 harness — real vite dev server + mocked API (context.route interception,
-  STUDENT seeding: cms-access-token + /auth/me + signed-shaped entitlement),
-  ONE Chromium (RSS sampled at 400 ms, ceiling 1.6 GB), fail-visible aborts on
-  unmocked /api/v1/**. 49 checks: 6 surfaces × 5 widths (375/414/768/1024/1440)
-  screenshot + strict h-scroll gates (scrollableDelta truth — W14.3 finding),
-  12 axe-core scans (wcag2a/aa + wcag21/22aa) 0 critical/serious, golden-path
-  exam run (start → answer → submit → results v2), practice immediate-feedback
-  + reset flows, share-removed + watermark-mounted assertions.
-- **§13 contrast fixes** (first run surfaced 9 axe color-contrast serious
-  failures across the W14.4 surfaces — same defect class as the W14.3 shell
-  fixes; all fixed with one-token swaps, zero layout change):
-  - `globals.css`: added the AA text steps `--cms-success-700` #047857,
-    `--cms-warning-700` #92400e, `--cms-danger-700` #b91c1c (light) + luminous
-    dark aliases — measured failures: #059669 on #ecfdf5 = 3.58:1, #d97706 on
-    #fffbeb = 3.07:1, #dc2626 on #fef2f2 = 4.42:1; the new steps measure
-    5.21:1 / 6.84:1 / 5.91:1. Same documented pattern as the W12.2.D teal-800
-    step (teal-700 on teal-50 = 4.26:1 — that finding reused directly).
-  - `ExamCoursesPage`: active-tab pill icon+label → teal-800; Badge
-    success/warning tones → 700 steps.
-  - `ExamCourseDetailPage`: مدفوعة/مجانية, محاولة جارية, مكتملة → 700 steps.
-  - `ExamPage` (results v2): score label, مقارنة «الأعلى», attempt score %,
-    «هذه المحاولة» (→ teal-800), «انتهى الوقت», «نجاح» → 700 steps.
-  - `QuestionPage`: header index box (3 states), tag badges (→ teal-800),
-    difficulty badge (3 states), «صحيح!/خاطئ» chips → 700 steps.
-- **Harness bug fixed** (disclosed): the crashed session's check expected
-  `lecture-accordion-untagged` / `start-practice-untagged-untagged`, but the
-  committed Commit-2 component contract is
-  `lecture-accordion-uncategorized` / `start-practice-uncategorized-untagged`,
-  and the accordion must be opened before counting group rows. The HARNESS was
-  fixed to match the component — Commits 1–4 untouched (frozen per the resume
-  brief).
-- **Screenshots committed** (admin-web/Wave-13.1a2 precedent; `.gitignore`
-  un-ignores `w14.4-*.png` only): 36 artifacts — examcourses-years ×5,
-  examcourses-categorized ×5, coursedetail ×5, practice ×5, practice-feedback
-  ×1 (@1440), exam-running ×5, exam-results ×5, question ×5.
+## ─── VERIFICATION LADDER (final tree) ────────────────────
+- student-web: `tsc -b` 0 errors · `eslint . --ext ts,tsx --max-warnings=0`
+  exit 0 · vitest **378/378** (30 files) · `vite build` PASS.
+- admin-web: tsc 0 errors · vitest **58/58** · `vite build` PASS ·
+  eslint ⚠️ FAILS with pre-existing warnings (`no-explicit-any`,
+  `exhaustive-deps`) — **pre-existing on main @ b072704; W14.5 did not
+  touch admin-web** (`git diff b072704..HEAD -- apps/admin-web` is empty).
+- API: `dotnet build` (full clean rebuild) 0 errors / 20 pre-existing
+  warnings (baseline) · `dotnet test` **679 passed / 0 failed / 27
+  skipped** (Testcontainers, no Docker; W14.4 baseline 663 → +2 incident
+  regression + 14 presigner tests + 1 presigned-DTO mapping test, −1 net
+  from the 2 dead offline-envelope tests) · `dotnet ef migrations
+  has-pending-model-changes` → **"No changes"** (validates the hand-edited
+  snapshot against the model with ExamId removed).
+- Live evidence: the preview incident was reproduced from the Render log
+  API (correct filter syntax: `?ownerId=…&resource=…&startTime=…&endTime=…`
+  with `limit` — bare `owner`/`service`/`start`/`end` params are rejected);
+  the fix's unit tests replay the exact stack signature.
 
-## ─── DISCLOSED DEVIATIONS ────────────────────────────────
-1. **Categorized fields**: built from the EXISTING `Question.LectureId` +
-   `ParagraphTag` fields; the multi-section `Sections` field stays deferred to
-   W14.5 (per the brief — no schema change, §3).
-2. **Commit 5 carries source fixes**: the axe gate surfaced contrast defects in
-   the Commit-2/3/4 surfaces; §8 (WCAG 2.2 AA) is binding, so the one-token
-   color swaps ride in Commit 5 rather than amending frozen commits (W14.3
-   precedent: evidence-commit shell fixes, disclosed in the worklog).
-3. **Test-count baselines** (both green, both explained): student-web vitest is
-   379/379 (the W14.3 "58/58" figure was the admin-web package — different
-   suites); dotnet moved 637 → 663 (26 new W14.4 API tests, all passing).
+## ─── DISCLOSED DEVIATIONS / OUT-OF-SCOPE FINDINGS ────────
+1. **Migration NOT applied** — `20261117120000_DropQuestionExamId` is
+   authored and model-verified but NOT applied to preview/prod (§2: no prod
+   DB touches, deploy gate is supervisor-authorized). The idempotent SQL
+   for the supervisor (also in scripts/migrations/W14_5DropQuestionExamId.sql):
+   ```sql
+   ALTER TABLE questions DROP COLUMN IF EXISTS exam_id;
+   ```
+2. **Student test login rejected** — the provided test phone number + password
+   returns AUTH_INVALID_CREDENTIALS on the preview API (1 failed attempt
+   logged; stopped immediately to avoid the 5-attempt lockout). The 500 was
+   reproduced and root-caused via the Render log stream + the admin content
+   endpoint instead; no admin/student credentials are quoted in this repo.
+3. **Option-image write path still drops ImageUrl server-side** —
+   admin-web sends `imageUrl` in create/update payloads but
+   `Question.AddOption` has no image parameter (pre-existing gap; only the
+   duplicate endpoint copies QuestionImage rows). Read-side presigning is
+   forward-compatible: once the write path persists keys/`b2://` URIs, they
+   resolve automatically.
+4. **Student QuestionPage renders no images at all** (pre-existing gap —
+   `images`/option `imageUrl` are dropped in the page's data shape even
+   though the API returns them). Practice/Exam/admin pages DO render them.
+5. **Practice/Exam snapshot DTOs** still return raw image references — can
+   adopt the same one-line `IPresignedUrlService` resolution later.
+6. **Credential rotation still outstanding** since W14.1 (GitHub PAT,
+   Vercel ×2, Neon key, Upstash blob token, Render key, both account
+   passwords) — chat-pasted credentials must be rotated.
 
-## ─── NEXT (post-push approval) ────────────────────
-1. Supervisor reviews the 5 local commits → push approval → `git push -u
-   origin feat/14.4-student-ui` (PAT inline, §5, triple-scrub) → PR → CI green
-   → merge.
-2. Rotate the chat-pasted credentials (GitHub PAT, Vercel ×2, Neon, Upstash
-   blob, Render, both account passwords) — outstanding since W14.1.
-- **Environment note**: sandbox has NO Docker (27 Testcontainers tests skip,
-  expected); dotnet SDK 9.0.320 at /home/z/.dotnet (export
-  PATH=/home/z/.dotnet:$PATH); fresh-sandbox clone at
-  /home/z/cms-platform-manus (old /home/z/cms-work is GONE); the Next.js
-  scaffold at /home/z/my-project is UNRELATED to this repo.
+## ─── NEXT (STOP GATE → supervisor) ────────────────────
+1. Supervisor reviews the 4 local commits + this evidence pack.
+2. Push approval → `git push -u origin feat/14.5-hardening` (PAT inline, §5,
+   triple-scrub) → PR → CI green → merge.
+3. Deploy gate → apply `scripts/migrations/W14_5DropQuestionExamId.sql` to
+   Neon (idempotent, verified snippet above) → deploy the API → re-run the
+   student golden path against the preview (login → lecture → questions
+   list with attempts → images).
+4. Rotate ALL chat-pasted credentials (item 6 above).
+- **Environment note**: sandbox has NO Docker (27 Testcontainers tests
+  skip, expected); dotnet SDK 9.0.320 at /home/z/.dotnet (export
+  PATH=/home/z/.dotnet:$PATH); pnpm 9.12.0 via corepack at
+  /home/z/.corepack-bin; clone at /home/z/cms-work/cms-platform-manus;
+  the Next.js scaffold at /home/z/my-project is UNRELATED to this repo.
