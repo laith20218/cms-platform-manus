@@ -195,15 +195,17 @@ try {
     extra: async (page, width) => {
       if (width === 1440) {
         // Answer → immediate feedback (correctness + explanation), then reset-question.
+        // W15.0 (P4-C2): the inline list renders every question at once — testids are
+        // namespaced per question (pq-1 is the mock world's first question).
         await page.locator('[data-testid="practice-option-pq1-a"]').click();
-        await page.locator('[data-testid="practice-confirm"]').click();
-        await page.locator('[data-testid="practice-feedback"]').waitFor({ timeout: 10000 });
+        await page.locator('[data-testid="practice-confirm-pq-1"]').click();
+        await page.locator('[data-testid="practice-feedback-pq-1"]').waitFor({ timeout: 10000 });
         await page.waitForTimeout(300);
         await page.screenshot({ path: `${SHOT_DIR}w14.4-practice-feedback-1440.png`, fullPage: true });
         check('practice: immediate feedback renders (correct + explanation)', true);
-        await page.locator('[data-testid="practice-reset-question"]').click();
+        await page.locator('[data-testid="practice-reset-question-pq-1"]').click();
         await page.waitForTimeout(400);
-        const confirmBack = await page.locator('[data-testid="practice-confirm"]').count();
+        const confirmBack = await page.locator('[data-testid="practice-confirm-pq-1"]').count();
         check('practice: إعادة ضبط السؤال returns the question to unanswered', confirmBack === 1);
       }
     },

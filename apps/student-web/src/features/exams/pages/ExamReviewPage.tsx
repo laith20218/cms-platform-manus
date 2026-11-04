@@ -1,9 +1,16 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { motion } from 'framer-motion';
-import { BookOpen, Check, ChevronLeft, EyeOff, Loader2, X } from 'lucide-react';
+import { ChevronLeft, EyeOff, Loader2 } from 'lucide-react';
 import { examApi } from '../services/exam-api';
+import { QuestionRow } from '@/components/QuestionRow';
 
+/**
+ * W15.0 (P4-C3) — the exam review now renders through the SAME shared <QuestionRow>
+ * as the practice/exam lists (read-only mode): non-interactive option rows with
+ * server-gated correctness (showCorrectAnswers), user-answer highlights, the
+ * correctness badge, and explanation blocks (showExplanations). The per-question
+ * card border color coding is replaced by the row's badge (the list look is uniform).
+ */
 export default function ExamReviewPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
@@ -15,10 +22,26 @@ export default function ExamReviewPage() {
   return <div className="space-y-4 max-w-[880px] mx-auto">
     <button onClick={() => navigate(-1)} className="flex items-center gap-1.5 text-sm text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]"><ChevronLeft className="w-4 h-4" /> العودة للنتائج</button>
     <header className="bg-[var(--c-surface)] border border-[var(--c-border)] rounded-2xl p-5"><h1 className="text-xl font-bold">مراجعة أسئلة الاختبار</h1><p className="text-sm text-[var(--c-text-muted)] mt-1">هذه المراجعة تستخدم لقطة الأسئلة التي حُلّت داخل محاولتك، لذلك لا تتغير عند تحديث بنك الأسئلة.</p><div className="flex flex-wrap gap-2 mt-3"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${review.showCorrectAnswers ? 'bg-[var(--c-success-100)] text-[var(--c-success-700)]' : 'bg-[var(--c-neutral-100)] text-[var(--c-text-muted)]'}`}>{review.showCorrectAnswers ? 'تظهر الإجابات الصحيحة' : 'الإجابات الصحيحة مخفية'}</span><span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${review.showExplanations ? 'bg-[var(--c-primary-50)] text-[var(--c-primary-700)]' : 'bg-[var(--c-neutral-100)] text-[var(--c-text-muted)]'}`}>{review.showExplanations ? 'تظهر الشروحات' : 'الشروحات مخفية'}</span></div></header>
-    {review.questions.map((question, index) => {
-      const knownCorrectness = question.isCorrect !== null && question.isCorrect !== undefined;
-      const border = !knownCorrectness ? 'border-[var(--c-border)]' : question.isCorrect ? 'border-[var(--c-success-500)]' : 'border-[var(--c-danger-500)]';
-      return <motion.article key={question.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.04, 0.4) }} className={`bg-[var(--c-surface)] border rounded-2xl p-5 ${border}`}><div className="flex items-center justify-between mb-3"><span className="text-sm font-bold text-[var(--c-text-soft)]" lang="en">سؤال {question.number}</span>{knownCorrectness ? <span className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold ${question.isCorrect ? 'bg-[var(--c-success-100)] text-[var(--c-success-700)]' : 'bg-[var(--c-danger-100)] text-[var(--c-danger-700)]'}`}>{question.isCorrect ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}{question.isCorrect ? 'إجابتك صحيحة' : 'إجابتك غير صحيحة'}</span> : <span className="px-2 py-1 rounded-lg text-xs font-semibold bg-[var(--c-neutral-100)] text-[var(--c-text-muted)]">تفاصيل التصحيح محجوبة</span>}</div><p className="text-[15px] font-semibold mb-3">{question.text}</p>{question.options.length > 0 ? <div className="space-y-2">{question.options.map(option => <div key={option.id} className={`flex items-center gap-3 p-2.5 rounded-lg border ${review.showCorrectAnswers && option.isCorrect ? 'border-[var(--c-success-500)] bg-[var(--c-success-50)]' : option.isUserAnswer && knownCorrectness && !option.isCorrect ? 'border-[var(--c-danger-500)] bg-[var(--c-danger-50)]' : 'border-[var(--c-border)]'}`}><span className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold" lang="en">{option.letter}</span><span className="flex-1 text-sm">{option.text}</span>{review.showCorrectAnswers && option.isCorrect && <Check className="w-4 h-4 text-[var(--c-success-500)]" />}{option.isUserAnswer && knownCorrectness && !option.isCorrect && <X className="w-4 h-4 text-[var(--c-danger-500)]" />}</div>)}</div> : <div className="rounded-lg border border-[var(--c-border)] p-3 text-sm"><strong>إجابتك:</strong> {question.userAnswer || 'لم تُسجل إجابة.'}{review.showCorrectAnswers && question.correctAnswer && <p className="mt-2"><strong>الإجابة النموذجية:</strong> {question.correctAnswer}</p>}</div>}{review.showCorrectAnswers && question.correctAnswer && question.options.length > 0 && <p className="text-xs text-[var(--c-text-muted)] mt-3"><strong>الإجابة الصحيحة:</strong> {question.correctAnswer}</p>}{review.showExplanations && question.explanation && <div className="mt-3 p-3 rounded-lg bg-[var(--c-primary-50)] border border-[rgba(25,118,210,0.15)]"><div className="flex items-center gap-1.5 text-xs font-bold text-[var(--c-primary-800)] mb-1"><BookOpen className="w-3.5 h-3.5" /> الشرح</div><p className="text-sm text-[var(--c-text-soft)] leading-relaxed">{question.explanation}</p></div>}</motion.article>;
-    })}
+    <div className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] px-4 py-1 sm:px-5" data-testid="review-list">
+      {review.questions.map((question, index) => (
+        <QuestionRow
+          key={question.id}
+          testIdPrefix="review"
+          question={question}
+          index={index}
+          readOnly
+          isAnswered={false}
+          selected={question.options.filter(option => option.isUserAnswer).map(option => option.id)}
+          reviewOptions={question.options.map(option => ({ isCorrect: option.isCorrect, isUserAnswer: option.isUserAnswer }))}
+          showCorrectAnswers={review.showCorrectAnswers}
+          userAnswerText={question.userAnswer ?? null}
+          feedback={{
+            isCorrect: question.isCorrect ?? null,
+            correctAnswerText: question.correctAnswer ?? null,
+            explanation: question.explanation ?? null,
+          }}
+        />
+      ))}
+    </div>
   </div>;
 }

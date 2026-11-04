@@ -4,13 +4,14 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // ---- shared mocks (hoisted) ----
-const { getMock, postMock, putMock } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn(), putMock: vi.fn() }));
+const { getMock, postMock, putMock, deleteMock } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn(), putMock: vi.fn(), deleteMock: vi.fn() }));
 
 vi.mock('@/services/api-client', () => ({
   apiClient: {
     get: (...args: unknown[]) => getMock(...args),
     post: (...args: unknown[]) => postMock(...args),
     put: (...args: unknown[]) => putMock(...args),
+    delete: (...args: unknown[]) => deleteMock(...args),
   },
 }));
 
@@ -115,6 +116,7 @@ function renderPractice(initialEntry: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   stubApi();
+  deleteMock.mockResolvedValue({ status: 204 });
 });
 
 describe('W14.4 PracticePage (B.1, D13)', () => {
@@ -126,16 +128,16 @@ describe('W14.4 PracticePage (B.1, D13)', () => {
     expect(screen.getByTestId('practice-progress').textContent).toContain('أجبت');
     expect(screen.getByTestId('practice-progress').textContent).toContain('0');
     expect(screen.getByText('ما هو العرض الكلاسيكي لاحتشاء العضلة القلبية؟')).toBeTruthy();
-    expect(screen.getByTestId('practice-confirm')).toBeTruthy();
+    expect(screen.getByTestId('practice-confirm-q1')).toBeTruthy();
 
     // Answer: select the correct option and confirm.
     fireEvent.click(screen.getByTestId('practice-option-o1'));
-    fireEvent.click(screen.getByTestId('practice-confirm'));
+    fireEvent.click(screen.getByTestId('practice-confirm-q1'));
 
     await waitFor(() => {
       expect(putMock).toHaveBeenCalledWith('/practice/ps1/answer', expect.objectContaining({ questionId: 'q1', lectureId: 'lec1' }), expect.anything());
     });
-    expect(await screen.findByTestId('practice-feedback')).toBeTruthy();
+    expect(await screen.findByTestId('practice-feedback-q1')).toBeTruthy();
     expect(screen.getByText('إجابة صحيحة')).toBeTruthy();
     expect(screen.getByText('الألم الضاغط عرض كلاسيكي.')).toBeTruthy();
   });
@@ -144,25 +146,25 @@ describe('W14.4 PracticePage (B.1, D13)', () => {
     renderPractice('/practice/categorized/s1?lectureId=lec1');
 
     fireEvent.click(await screen.findByTestId('practice-option-o1'));
-    fireEvent.click(screen.getByTestId('practice-confirm'));
-    expect(await screen.findByTestId('practice-feedback')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('practice-confirm-q1'));
+    expect(await screen.findByTestId('practice-feedback-q1')).toBeTruthy();
 
-    fireEvent.click(screen.getByTestId('practice-reset-question'));
+    fireEvent.click(screen.getByTestId('practice-reset-question-q1'));
     await waitFor(() => {
       expect(postMock).toHaveBeenCalledWith('/practice/ps1/reset-question/q1', undefined, expect.anything());
     });
     await waitFor(() => {
-      expect(screen.queryByTestId('practice-feedback')).toBeNull();
+      expect(screen.queryByTestId('practice-feedback-q1')).toBeNull();
     });
-    expect(screen.getByTestId('practice-confirm')).toBeTruthy(); // back to unanswered
+    expect(screen.getByTestId('practice-confirm-q1')).toBeTruthy(); // back to unanswered
   });
 
   it('wipes the whole session through the confirm dialog (إعادة ضبط الكل)', async () => {
     renderPractice('/practice/categorized/s1?paragraphTag=الفصل الأول');
 
     fireEvent.click(await screen.findByTestId('practice-option-o1'));
-    fireEvent.click(screen.getByTestId('practice-confirm'));
-    expect(await screen.findByTestId('practice-feedback')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('practice-confirm-q1'));
+    expect(await screen.findByTestId('practice-feedback-q1')).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('practice-reset-all'));
     expect(await screen.findByRole('dialog')).toBeTruthy();
@@ -172,7 +174,7 @@ describe('W14.4 PracticePage (B.1, D13)', () => {
       expect(postMock).toHaveBeenCalledWith('/practice/ps1/reset', undefined, expect.anything());
     });
     await waitFor(() => {
-      expect(screen.queryByTestId('practice-feedback')).toBeNull();
+      expect(screen.queryByTestId('practice-feedback-q1')).toBeNull();
     });
   });
 
@@ -194,7 +196,7 @@ describe('W14.4 PracticePage (B.1, D13)', () => {
     expect(screen.getByText('ما هو العرض الكلاسيكي لاحتشاء العضلة القلبية؟')).toBeTruthy();
     // No filter echo in exam-model mode.
     fireEvent.click(screen.getByTestId('practice-option-o1'));
-    fireEvent.click(screen.getByTestId('practice-confirm'));
+    fireEvent.click(screen.getByTestId('practice-confirm-q1'));
     await waitFor(() => {
       expect(putMock).toHaveBeenCalledWith('/practice/ps9/answer', expect.objectContaining({ lectureId: null, untaggedLecture: false }), expect.anything());
     });
@@ -224,5 +226,46 @@ describe('W14.4 PracticePage (B.1, D13)', () => {
 
     const img = await screen.findByAltText('مخطط القلب');
     expect(img.getAttribute('src')).toBe(presignedUrl);
+  });
+
+  // W15.0 (P4-C2): the inline list view — ALL questions render SIMULTANEOUSLY as
+  // shared QuestionRows (the old single-card pager showed exactly one at a time).
+  it('renders every question simultaneously as an inline list (W15.0 P4)', async () => {
+    renderPractice('/practice/categorized/s1?lectureId=lec1');
+
+    expect(await screen.findByTestId('practice-row-q1')).toBeTruthy();
+    expect(screen.getByTestId('practice-row-q2')).toBeTruthy();
+    expect(screen.getByText('ما هو العرض الكلاسيكي لاحتشاء العضلة القلبية؟')).toBeTruthy();
+    expect(screen.getByText('أي هرمون ينقص سكر الدم؟')).toBeTruthy();
+    // One inline confirm PER question (the confirm moved inside each row).
+    expect(screen.queryAllByTestId(/^practice-confirm-/)).toHaveLength(2);
+    // Scroll-anchor navigator chips render for both questions.
+    expect(screen.getByTestId('practice-chip-q1')).toBeTruthy();
+    expect(screen.getByTestId('practice-chip-q2')).toBeTruthy();
+  });
+
+  // W15.0 (P4-C4): per-row bookmark + report — ported from QuestionPage into the
+  // practice list (the flat favorite toggle + the shared report dialog).
+  it('toggles the flat favorite and submits a report from the practice rows (W15.0 P4-C4)', async () => {
+    renderPractice('/practice/categorized/s1?lectureId=lec1');
+
+    // Bookmark: star on q1 → POST /favorites (flat toggle semantics).
+    fireEvent.click(await screen.findByTestId('practice-favorite-q1'));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/favorites', { questionId: 'q1' }, expect.anything()));
+
+    // Toggle back → DELETE /favorites/questions/q1.
+    fireEvent.click(screen.getByTestId('practice-favorite-q1'));
+    await waitFor(() =>
+      expect(deleteMock).toHaveBeenCalledWith('/favorites/questions/q1', expect.anything()));
+
+    // Report: the shared dialog opens, submits reason + description.
+    fireEvent.click(screen.getByTestId('practice-report-q1'));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: 'خطأ إملائي' }));
+    fireEvent.change(screen.getByLabelText('تفاصيل البلاغ'), { target: { value: 'وصف الخطأ' } });
+    fireEvent.click(screen.getByTestId('report-submit'));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/questions/q1/report', { reasonType: 'typo', description: 'وصف الخطأ' }, expect.anything()));
   });
 });
