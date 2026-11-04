@@ -62,6 +62,16 @@ const DETAIL_EC1 = {
   ],
 };
 
+// W15.0 — cascade fixtures (University → College → Year → Semester → Subject).
+const UNIVERSITIES = { items: [{ id: 'u1', nameAr: 'جامعة حمص', collegesCount: 1 }] };
+const COLLEGES_U1 = [{ id: 'c1', nameAr: 'الطب البشري', yearsCount: 1 }];
+const YEARS_C1 = [{ id: 'y1', nameAr: 'السنة الثالثة', semestersCount: 1 }];
+const SEMESTERS_Y1 = [{ id: 'sem1', nameAr: 'الفصل الأول', subjectsCount: 2 }];
+const SUBJECTS_SEM1 = [
+  { id: 's1', slug: 'باطنة', nameAr: 'الباطنة', totalQuestions: 10, totalLectures: 2, totalFiles: 0 },
+  { id: 's9', slug: 'جراحة', nameAr: 'الجراحة', totalQuestions: 5, totalLectures: 1, totalFiles: 0 }, // NOT entitled
+];
+
 function stubGet(opts?: { mySubjects?: unknown[] }) {
   const mySubjects = opts?.mySubjects ?? ENTITLED_SUBJECTS;
   getMock.mockImplementation(async (url: string) => {
@@ -69,6 +79,11 @@ function stubGet(opts?: { mySubjects?: unknown[] }) {
     if (url.includes('/practice/categorized/s1')) return { data: TREE_S1 };
     if (url.includes('/exam-courses/subject/s1')) return { data: COURSES_S1 };
     if (url.includes('/exam-courses/ec1')) return { data: DETAIL_EC1 };
+    if (url === '/universities') return { data: UNIVERSITIES };
+    if (url === '/universities/u1/colleges') return { data: COLLEGES_U1 };
+    if (url === '/colleges/c1/years') return { data: YEARS_C1 };
+    if (url === '/years/y1/semesters') return { data: SEMESTERS_Y1 };
+    if (url === '/semesters/sem1/subjects') return { data: SUBJECTS_SEM1 };
     return { data: [] };
   });
 }
@@ -160,6 +175,81 @@ describe('W14.4 ExamCoursesPage — دورات مصنفة', () => {
       expect(probe.getAttribute('data-path')).toBe('/practice/categorized/s1');
       expect(probe.getAttribute('data-search')).toContain('paragraphTag=');
     });
+  });
+});
+
+describe('W15.0 ExamCoursesPage — cascading filters', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('deep-link: renders the cascade from URL params and fetches each child level', async () => {
+    renderApp('/exam-courses?universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1&subjectId=s1');
+
+    // The university select displays the deep-linked university name.
+    expect(await screen.findByTestId('cascade-select-university')).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByTestId('cascade-select-university').textContent).toContain('جامعة حمص');
+    });
+
+    // Child-level queries fired with the deep-linked ids.
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith('/universities/u1/colleges'));
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith('/colleges/c1/years'));
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith('/years/y1/semesters'));
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith('/semesters/sem1/subjects'));
+  });
+
+  it('persists the last filter to localStorage and restores it on a fresh mount', async () => {
+    // First visit: deep link carries the cascade; the page persists it.
+    const first = renderApp('/exam-courses?universityId=u1&subjectId=s1');
+    await screen.findByTestId('cascade-select-university');
+    await waitFor(() => {
+      expect(window.localStorage.getItem('cms-exam-courses-filters-v1')).toContain('"universityId":"u1"');
+      expect(window.localStorage.getItem('cms-exam-courses-filters-v1')).toContain('"subjectId":"s1"');
+    });
+    first.unmount();
+
+    // Fresh mount WITHOUT URL params: the persisted state seeds the URL (replace),
+    // and the child-level query fires again.
+    renderApp('/exam-courses');
+    await waitFor(() => {
+      const probe = screen.getByTestId('location-probe');
+      expect(probe.getAttribute('data-search')).toContain('universityId=u1');
+      expect(probe.getAttribute('data-search')).toContain('subjectId=s1');
+    });
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith('/universities/u1/colleges'));
+  });
+
+  it('locks non-entitled subjects in the cascade subject level (A.1 ruling)', async () => {
+    renderApp('/exam-courses?universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1&subjectId=s1');
+
+    // Subject select enabled (semester chosen) and shows the selected entitled subject.
+    const subjectSelect = await screen.findByTestId('cascade-select-subject');
+    await waitFor(() => expect(subjectSelect.textContent).toContain('الباطنة'));
+    expect(subjectSelect.hasAttribute('disabled')).toBe(false);
+
+    // Opening the subject list: s9 (الجراحة — not entitled) renders disabled + locked.
+    fireEvent.click(subjectSelect);
+    const locked = await screen.findByTestId('cascade-select-subject-s9');
+    expect(locked.getAttribute('aria-disabled')).toBe('true');
+    expect(locked.querySelector('svg')).toBeTruthy(); // Lock icon
+  });
+
+  it('changing the university level via the select writes the deep-linkable URL', async () => {
+    renderApp('/exam-courses');
+
+    const trigger = await screen.findByTestId('cascade-select-university');
+    fireEvent.click(trigger);
+    const option = await screen.findByTestId('cascade-select-university-u1');
+    // Radix Select items activate on pointerup; click is the cross-version fallback.
+    fireEvent.pointerUp(option);
+    fireEvent.click(option);
+
+    await waitFor(() => {
+      const probe = screen.getByTestId('location-probe');
+      expect(probe.getAttribute('data-search')).toContain('universityId=u1');
+    });
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith('/universities/u1/colleges'));
   });
 });
 

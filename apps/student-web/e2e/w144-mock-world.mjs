@@ -24,6 +24,17 @@ export const MY_SUBJECTS = [
   { id: 's-1', slug: 'physiology', nameAr: 'علم وظائف الأعضاء', color: null, contentScopes: ['QuestionsExams', 'LecturesText', 'VideoAudio'] },
 ];
 
+// W15.0 — cascade fixtures (University → College → Year → Semester → Subject).
+// s-9 (التشريح) is NOT in MY_SUBJECTS: the subject level must render it LOCKED.
+export const UNIVERSITIES = { items: [{ id: 'u-1', nameAr: 'جامعة الاختبار', collegesCount: 1 }] };
+export const COLLEGES = [{ id: 'c-1', nameAr: 'كلية الطب', yearsCount: 1 }];
+export const YEARS = [{ id: 'y-1', nameAr: 'السنة الثالثة', semestersCount: 1 }];
+export const SEMESTERS = [{ id: 'sem-1', nameAr: 'الفصل الأول', subjectsCount: 2 }];
+export const SEMESTER_SUBJECTS = [
+  { id: 's-1', slug: 'physiology', nameAr: 'علم وظائف الأعضاء', totalQuestions: 9, totalLectures: 3, totalFiles: 1 },
+  { id: 's-9', slug: 'anatomy', nameAr: 'التشريح', totalQuestions: 4, totalLectures: 1, totalFiles: 0 },
+];
+
 export const EXAM_COURSES = [
   { id: 'ec-1', nameAr: 'دورة 2025 الأولى', nameEn: null, description: 'باقة اختبارات نصف السنة.', coverUrl: null, year: 2025, semester: 1, courseType: 'First', freeOrPaid: false, examsCount: 2, sortOrder: 0 },
   { id: 'ec-2', nameAr: 'دورة 2026 الأولى', nameEn: null, description: null, coverUrl: null, year: 2026, semester: 1, courseType: 'First', freeOrPaid: true, examsCount: 3, sortOrder: 1 },
@@ -152,6 +163,15 @@ export async function mockWorld(context) {
 
   // Entitled subjects (A.1 visibility signal).
   await context.route('**/api/v1/subjects/my-subjects*', (route) => route.fulfill({ json: { items: MY_SUBJECTS } }));
+
+  // W15.0 — cascade levels. Children register BEFORE the universities LIST route:
+  // Playwright gives precedence to the most recently registered handler, and the
+  // list call always carries ?page&pageSize (matched by regex, never by the children).
+  await context.route('**/api/v1/universities/u-1/colleges', (route) => route.fulfill({ json: COLLEGES }));
+  await context.route('**/api/v1/colleges/c-1/years', (route) => route.fulfill({ json: YEARS }));
+  await context.route('**/api/v1/years/y-1/semesters', (route) => route.fulfill({ json: SEMESTERS }));
+  await context.route('**/api/v1/semesters/sem-1/subjects', (route) => route.fulfill({ json: SEMESTER_SUBJECTS }));
+  await context.route(/\/api\/v1\/universities\?/, (route) => route.fulfill({ json: UNIVERSITIES }));
 
   // Exam-course storefront (A.2/A.3).
   await context.route('**/api/v1/exam-courses/subject/s-1*', (route) => route.fulfill({ json: EXAM_COURSES }));
