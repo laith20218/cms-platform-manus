@@ -1,59 +1,46 @@
 # RESUME_FROM — next session start point
 
-- **State: PROJECT CLOSED (pending supervisor STOP-GATE steps below).**
-  Wave 14.5 (Final Hardening & Bug Fix) is COMPLETE — 4 of 4 planned commits
-  on `feat/14.5-hardening`, all verified. Waves W14.1–W14.5 are done; no
-  further implementation waves are planned.
-- **Branch**: `feat/14.5-hardening` (4 commits, LOCAL — do NOT push without
-  supervisor approval, §2). Base: main @ `b072704` (PR #73, W14.4 merged).
-  Sandbox clone: `/home/z/cms-work/cms-platform-manus` (fresh re-clone after
-  the sandbox reset; HEAD verified == `b07270457306ff57b528689ddc56de779795e3cd`
-  before branching, §9).
-- **Commit SHAs (oldest→newest)**: `da76955` (500 fix: index-based attempt
-  patch — "Collection was modified" during enumerate+mutate, Render TraceId
-  92e3f23da14549aeb6106ec394012661, red→green regression tests) → `0e00a63`
-  (B2 presigned URLs: IPresignedUrlService + B2PresignedUrlService +
-  question/option image resolution in the GetQuestionById DTO mapping +
-  student-web verbatim-render contract test) → `ef40f04` (DropQuestionExamId
-  migration + model cleanup + dead features/offline removal + reportMutation
-  onError) → `<HEAD>` (final WIP_STATUS + project closure).
-- **Verification (final tree, all green)**: student-web tsc 0 errors ·
-  eslint --max-warnings=0 exit 0 · vitest 378/378 · vite build PASS ·
-  admin-web tsc 0 errors · vitest 58/58 · vite build PASS (eslint fails on
-  PRE-EXISTING main@b072704 warnings — W14.5 did not touch admin-web) ·
-  dotnet build (clean) 0 errors / 20 pre-existing warnings · dotnet test
-  679/0/27 skipped (Testcontainers, no Docker) · `dotnet ef migrations
-  has-pending-model-changes` → "No changes".
+- **State: W15.0 Phase 1 (backend custom lists + preferences) COMPLETE.**
+  3 of 3 commits on `feature/w15.0-backend-custom-lists`, all verified,
+  LOCAL ONLY (do NOT push without supervisor approval, §2).
+- **W15.0 phase map (PART I workorder)** — each phase lives on its OWN branch
+  off main @ `800789f` per the workorder; this file tracks Phase 1 only. The
+  AUTHORITATIVE session-wide resume file (all four phases' SHAs + stop-gate
+  order) is on the final branch, `feature/w15.0-frontend-question-list`:
+  - Phase 1 — backend custom lists + preferences: **DONE, this branch**
+    (`feature/w15.0-backend-custom-lists`).
+  - Phase 2 — favorites custom-lists UI + list picker:
+    `feature/w15.0-frontend-favorites` (same session).
+  - Phase 3 — courses cascade + accordion tree:
+    `feature/w15.0-frontend-courses-cascade` (same session).
+  - Phase 4 — shared QuestionRow + inline list view:
+    `feature/w15.0-frontend-question-list` (same session).
+  Consult each branch's own WIP_STATUS.md / RESUME_FROM.md for its state.
+- **Commit SHAs (Phase 1, oldest→newest)**: `de2452a` (entities + migration
+  20261118120000_AddCustomFavoriteLists + SQL mirror) → `1bc2364`
+  (FavoriteListsHandlers/Commands/DTOs + FavoriteListsController @
+  /api/v1/favorites/lists + 21 unit tests) → `528a91a`
+  (StudentPreferencesController @ /api/v1/student/preferences + handlers +
+  10 unit tests).
+- **Verification (Phase 1 final tree)**: dotnet build 0 errors / 20 pre-existing
+  warnings · dotnet test **710 passed / 0 failed / 27 skipped** (baseline 679,
+  +31 new, 0 regressions) · `dotnet ef migrations has-pending-model-changes`
+  → "No changes" · SQL mirror scripts/migrations/W15_0AddCustomFavoriteLists.sql.
 - **Pending supervisor STOP-GATE steps (in order)**:
-  1. Review the 4 local commits + `WIP_STATUS.md` evidence pack.
-  2. Push approval → `git push -u origin feat/14.5-hardening` (PAT inline,
-     §5, triple-scrub) → PR → CI green → merge.
-  3. Deploy gate → apply the idempotent migration SQL to Neon:
-     `ALTER TABLE questions DROP COLUMN IF EXISTS exam_id;` (full mirror:
-     `scripts/migrations/W14_5DropQuestionExamId.sql`) → deploy the API →
-     re-run the student golden path (login → lecture → questions with
-     attempts → images) against the preview.
-  4. Rotate ALL chat-pasted credentials (GitHub PAT, Vercel ×2, Neon key,
-     Upstash blob token, Render key, both account passwords) — outstanding
-     since W14.1.
-- **Open (disclosed, non-blocking) items for any future hardening push**:
-  the admin option-image write path still drops `imageUrl` server-side
-  (`Question.AddOption` has no image parameter); the student QuestionPage
-  renders no question/option images (data shape drops them); practice/exam
-  snapshot DTOs can adopt the one-line presign resolution; admin-web lint
-  warnings are pre-existing on main.
-- **Verification commands** (repro): `pnpm --filter @cms/student-web exec
-  tsc -b` · `pnpm --filter @cms/student-web lint` · `pnpm --filter
-  @cms/student-web exec vitest run` · `pnpm --filter @cms/student-web
-  build` · `export PATH=/home/z/.dotnet:$PATH && cd apps/api && dotnet
-  build CMS.sln && dotnet test CMS.sln --no-build` · `CMS_EF_CONNECTION=
-  "Host=localhost;Database=d;Username=ef;Password=ef" dotnet ef migrations
-  has-pending-model-changes --project src/CMS.Infrastructure
-  --startup-project src/CMS.Api` (needs `dotnet tool restore` once for the
-  local dotnet-ef 9.0.22).
-- **Environment note**: sandbox has NO Docker (27 Testcontainers tests
-  skip, expected); dotnet SDK 9.0.320 at /home/z/.dotnet; pnpm 9.12.0 via
-  corepack (`export PATH=/home/z/.corepack-bin:$PATH`); background
-  processes are killed between shell calls (run long installs in the
-  foreground); the Next.js scaffold at /home/z/my-project is UNRELATED to
-  this repo.
+  1. Review the 3 Phase-1 commits + WIP_STATUS.md evidence pack (deviations
+     listed there — migration timestamp rename, RemoveQuestion unpublished
+     tolerance, 409 name conflicts, etc.).
+  2. Push approval → `git push -u origin feature/w15.0-backend-custom-lists`
+     (PAT inline, §5, triple-scrub) → PR → CI green → merge.
+  3. Deploy gate → apply scripts/migrations/W15_0AddCustomFavoriteLists.sql
+     to Neon (idempotent, transaction-wrapped) → deploy the API.
+  4. Then review/push Phases 2–4 branches (frontend; they assume the Phase-1
+     API contract; see each branch's WIP_STATUS.md).
+- **Environment**: dotnet SDK 9.0.320 at /home/z/.dotnet; pnpm 9.12.0 via
+  corepack at /home/z/.corepack-bin; export PATH=/home/z/.corepack-bin:/home/z/.dotnet:$PATH;
+  CMS_EF_CONNECTION=<any dummy Npgsql string> needed for `dotnet ef` design-time
+  commands (factory never connects for add/script/has-pending-model-changes).
+  No Docker (27 Testcontainers skips expected). Clone:
+  /home/z/my-project/cms-platform-manus. Sandbox clock reads Nov 2026 — BEFORE
+  the repo's future-dated migrations (20261116/20261117): any NEW migration must
+  be hand-renamed to sort after 20261117120000.

@@ -50,6 +50,9 @@ public interface IApplicationDbContext
     DbSet<AdminPermission> AdminPermissions { get; }
     DbSet<DeviceBinding> DeviceBindings { get; }
     DbSet<Favorite> Favorites { get; }
+    // W15.0: student-owned custom favorites lists (named question collections)
+    DbSet<FavoriteList> FavoriteLists { get; }
+    DbSet<FavoriteListItem> FavoriteListItems { get; }
 
     // Push 10.0: media bookmarks + playback progress
     DbSet<MediaBookmark> MediaBookmarks { get; }

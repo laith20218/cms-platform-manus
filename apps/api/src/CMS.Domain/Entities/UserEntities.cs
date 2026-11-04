@@ -51,6 +51,18 @@ public class Student : BaseEntity
     // Preferences (JSON)
     public string Preferences { get; private set; } = """{"theme":"light","notifications":true,"sounds":true,"vibration":true}""";
 
+    /// <summary>
+    /// W15.0 — replaces the raw preferences JSON. Callers must validate upstream that the
+    /// payload is a bounded JSON object (the handler enforces object-kind + an 8 KB cap).
+    /// </summary>
+    public void UpdatePreferences(string preferencesJson)
+    {
+        if (string.IsNullOrWhiteSpace(preferencesJson))
+            throw new DomainException("Preferences JSON is required", "PREFERENCES_EMPTY");
+        Preferences = preferencesJson;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public DateTime? DeletedAt { get; set; }
 
     // Navigation
@@ -61,6 +73,8 @@ public class Student : BaseEntity
     public ICollection<DeviceBinding> DeviceBindings { get; private set; } = new List<DeviceBinding>();
     public ICollection<AttemptLog> AttemptLogs { get; private set; } = new List<AttemptLog>();
     public ICollection<Favorite> Favorites { get; private set; } = new List<Favorite>();
+    // W15.0: student-owned custom favorites lists (named question collections)
+    public ICollection<FavoriteList> FavoriteLists { get; private set; } = new List<FavoriteList>();
 
     public static Student Create(string phone, string passwordHash, string fullName)
     {
