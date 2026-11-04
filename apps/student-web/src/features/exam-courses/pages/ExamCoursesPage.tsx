@@ -3,17 +3,18 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
-  BookMarked, CalendarDays, ChevronDown, ClipboardList, GraduationCap,
+  BookMarked, CalendarDays, ClipboardList, GraduationCap,
   Layers, LibraryBig, Loader2, PlayCircle, Tag,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
 import { examCoursesApi, COURSE_TYPE_LABELS, SEMESTER_LABELS, type ExamCourseListItem } from '../services/exam-courses-api';
-import { practiceApi, type CategorizedLecture, type CategorizedTree } from '@/features/practice/services/practice-api';
+import { practiceApi, type CategorizedTree } from '@/features/practice/services/practice-api';
 import { isEntitlementDenied, variantForReason } from '@/features/my-studies/services/courses-api';
 import { CatalogEntitlementErrorCard, CatalogErrorCard } from '@/features/my-studies/components/CatalogErrorCards';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { CascadeFilters, type CascadeValue } from '../components/CascadeFilters';
+import { Accordion, type AccordionItemData } from '@cms/ui';
 
 /**
  * W14.4 (A.2) — "الدورات الامتحانية" student storefront.
@@ -478,7 +479,59 @@ function CategorizedTab({
     );
   }
 
-  const toggle = (key: string) => setOpenLectures((previous) => ({ ...previous, [key]: !previous[key] }));
+  // W15.0 (P3-C3): the shared @cms/ui Accordion replaces the page-local
+  // LectureAccordion — controlled open-state (reset on subject change, first lecture
+  // open by default), --cms-* chrome overrides for visual parity.
+  const items: AccordionItemData[] = tree.lectures.map((lecture) => ({
+    id: lecture.lectureId ?? 'uncategorized',
+    headerIcon: (
+      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
+        <BookMarked className="w-5 h-5" aria-hidden="true" />
+      </div>
+    ),
+    header: (
+      <>
+        <h3 className="font-bold text-[var(--cms-text)] truncate">{lecture.lectureTitle}</h3>
+        <p className="text-xs text-[var(--cms-text-muted)] mt-0.5">
+          {lecture.lectureNumber != null && <><span lang="en">{lecture.lectureNumber}</span> • </>}
+          <span lang="en">{lecture.questionsCount}</span> سؤالاً • <span lang="en">{lecture.groups.length}</span> تصنيفات
+        </p>
+      </>
+    ),
+    content: (
+      <ul className="divide-y divide-[var(--cms-line)]">
+        {lecture.groups.map((group) => {
+          const groupLabel = group.paragraphTag ?? 'غير مصنف';
+          return (
+            <li key={group.paragraphTag ?? '__untagged__'} className="flex items-center justify-between gap-3 p-3.5">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Tag className="w-4 h-4 text-[var(--cms-text-muted)] shrink-0" aria-hidden="true" />
+                <span className="text-sm font-semibold text-[var(--cms-text)] truncate">{groupLabel}</span>
+                <span className="text-xs text-[var(--cms-text-muted)] shrink-0" lang="en">({group.questionsCount})</span>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  onStartPractice(lecture.lectureId ?? null, lecture.lectureId == null, group.paragraphTag ?? null, group.paragraphTag == null)
+                }
+                data-testid={`start-practice-${lecture.lectureId ?? 'uncategorized'}-${group.paragraphTag ?? 'untagged'}`}
+                className="press inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-4 text-sm font-bold text-white shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cms-teal-700)]"
+                style={{ background: 'var(--cms-teal-700)' }}
+                aria-label={`بدء تدريب ${groupLabel} — ${lecture.lectureTitle}`}
+              >
+                <PlayCircle className="w-4 h-4" aria-hidden="true" />
+                ابدأ التدريب
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    ),
+  }));
+
+  const openIds = tree.lectures
+    .map((lecture) => lecture.lectureId ?? 'uncategorized')
+    .filter((key, index) => (openLectures[key] ?? index === 0));
 
   return (
     <div className="space-y-3" data-testid="categorized-tree">
@@ -492,83 +545,17 @@ function CategorizedTab({
         <span className="text-xs text-[var(--cms-text-muted)]">المحاضرة ← وسم الفقرة</span>
       </div>
 
-      {tree.lectures.map((lecture, index) => {
-        const key = lecture.lectureId ?? 'uncategorized';
-        const open = openLectures[key] ?? index === 0;
-        return (
-          <LectureAccordion
-            key={key}
-            lecture={lecture}
-            open={open}
-            onToggle={() => toggle(key)}
-            onStartPractice={onStartPractice}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-function LectureAccordion({
-  lecture, open, onToggle, onStartPractice,
-}: {
-  lecture: CategorizedLecture;
-  open: boolean;
-  onToggle: () => void;
-  onStartPractice: (lectureId: string | null, untaggedLecture: boolean, paragraphTag: string | null, untaggedTag: boolean) => void;
-}) {
-  const panelId = `lecture-panel-${lecture.lectureId ?? 'uncategorized'}`;
-  return (
-    <div className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] overflow-hidden">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        aria-controls={panelId}
-        data-testid={`lecture-accordion-${lecture.lectureId ?? 'uncategorized'}`}
-        className="press w-full min-h-14 flex items-center gap-3 p-4 text-start hover:bg-[var(--cms-teal-50)] transition-colors"
-      >
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
-          <BookMarked className="w-5 h-5" aria-hidden="true" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="font-bold text-[var(--cms-text)] truncate">{lecture.lectureTitle}</h3>
-          <p className="text-xs text-[var(--cms-text-muted)] mt-0.5">
-            {lecture.lectureNumber != null && <><span lang="en">{lecture.lectureNumber}</span> • </>}
-            <span lang="en">{lecture.questionsCount}</span> سؤالاً • <span lang="en">{lecture.groups.length}</span> تصنيفات
-          </p>
-        </div>
-        <ChevronDown className={cn('w-5 h-5 text-[var(--cms-text-muted)] shrink-0 transition-transform', open && 'rotate-180')} aria-hidden="true" />
-      </button>
-      {open && (
-        <ul id={panelId} className="border-t border-[var(--cms-line)] divide-y divide-[var(--cms-line)]">
-          {lecture.groups.map((group) => {
-            const groupLabel = group.paragraphTag ?? 'غير مصنف';
-            return (
-              <li key={group.paragraphTag ?? '__untagged__'} className="flex items-center justify-between gap-3 p-3.5">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <Tag className="w-4 h-4 text-[var(--cms-text-muted)] shrink-0" aria-hidden="true" />
-                  <span className="text-sm font-semibold text-[var(--cms-text)] truncate">{groupLabel}</span>
-                  <span className="text-xs text-[var(--cms-text-muted)] shrink-0" lang="en">({group.questionsCount})</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    onStartPractice(lecture.lectureId ?? null, lecture.lectureId == null, group.paragraphTag ?? null, group.paragraphTag == null)
-                  }
-                  data-testid={`start-practice-${lecture.lectureId ?? 'uncategorized'}-${group.paragraphTag ?? 'untagged'}`}
-                  className="press inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-4 text-sm font-bold text-white shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cms-teal-700)]"
-                  style={{ background: 'var(--cms-teal-700)' }}
-                  aria-label={`بدء تدريب ${groupLabel} — ${lecture.lectureTitle}`}
-                >
-                  <PlayCircle className="w-4 h-4" aria-hidden="true" />
-                  ابدأ التدريب
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <Accordion
+        label="محاضرات المادة"
+        testId="categorized-accordion"
+        items={items}
+        openIds={openIds}
+        onToggle={(id, open) => setOpenLectures((previous) => ({ ...previous, [id]: open }))}
+        className="border-[var(--cms-line)] bg-[var(--cms-surface)]"
+        headerClassName="hover:bg-[var(--cms-teal-50)]"
+        panelClassName="border-[var(--cms-line)]"
+        chevronClassName="text-[var(--cms-text-muted)]"
+      />
     </div>
   );
 }

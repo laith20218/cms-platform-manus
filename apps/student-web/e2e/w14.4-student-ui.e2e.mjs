@@ -167,11 +167,13 @@ try {
         // Uncategorized bucket renders LAST (lectureId=null → 'uncategorized' testid,
         // per the committed CategorizedTab contract); its group rows only render
         // while the accordion is OPEN, so open it before counting.
-        const lastLecture = page.locator('[data-testid^="lecture-accordion-"]').last();
+        // W15.0: the shared @cms/ui Accordion renamed the header testid
+        // lecture-accordion-* → accordion-header-*.
+        const lastLecture = page.locator('[data-testid^="accordion-header-"]').last();
         const lastId = await lastLecture.getAttribute('data-testid');
-        if (lastId === 'lecture-accordion-uncategorized') await lastLecture.click();
+        if (lastId === 'accordion-header-uncategorized') await lastLecture.click();
         const untaggedButton = await page.locator('[data-testid="start-practice-uncategorized-untagged"]').count();
-        check('categorized tab: غير مصنف bucket + start buttons render', lastId === 'lecture-accordion-uncategorized' && untaggedButton >= 1);
+        check('categorized tab: غير مصنف bucket + start buttons render', lastId === 'accordion-header-uncategorized' && untaggedButton >= 1);
       }
     },
   });

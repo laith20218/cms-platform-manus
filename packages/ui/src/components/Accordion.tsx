@@ -43,6 +43,8 @@ export interface AccordionProps {
   className?: string;
   /** Header-row hover override. */
   headerClassName?: string;
+  /** Panel chrome override (e.g. border color for the --cms-* token family). */
+  panelClassName?: string;
   /** Chevron color override. */
   chevronClassName?: string;
   /** Accessible name for the whole group. */
@@ -57,6 +59,7 @@ export function Accordion({
   onToggle,
   className,
   headerClassName,
+  panelClassName,
   chevronClassName,
   label,
   testId,
@@ -125,7 +128,7 @@ export function Accordion({
                 role="region"
                 aria-labelledby={headerId}
                 data-testid={`accordion-panel-${item.id}`}
-                className="border-t border-[var(--c-border)]"
+                className={cn('border-t border-[var(--c-border)]', panelClassName)}
               >
                 {item.content}
               </div>
