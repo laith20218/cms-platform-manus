@@ -1,115 +1,88 @@
-# WIP_STATUS — feature/w15.0-backend-custom-lists (W15.0 Phase 1: Backend Custom Lists)
+# WIP_STATUS — feature/w15.0-frontend-favorites (W15.0 Phase 2: Favorites Custom Lists UI)
 
 ## ─── STATE ───────────────────────────────────────────────
-W15.0 Phase 1 (PART I workorder) COMPLETE — 3 of 3 commits DONE on
-`feature/w15.0-backend-custom-lists` (LOCAL ONLY — push requires supervisor
+W15.0 Phase 2 (PART I workorder) COMPLETE — 3 of 3 commits DONE on
+`feature/w15.0-frontend-favorites` (LOCAL ONLY — push requires supervisor
 approval, §2). Base: main @ `800789fad8ed1c5df805464c1768deb420eb437d`
-(verified before branching, §9). Phases 2–4 (frontend) live on SEPARATE
-branches off the same main, per the workorder — see RESUME_FROM.md.
+(verified before branching, §9). Depends on the Phase-1 API contract
+(/favorites/lists + /student/preferences) — that branch must merge first.
 
 ## ─── COMMITS (this branch, oldest → newest) ──────────────
-1. `de2452a` feat(api): custom favorite lists entities + migration (W15.0 P1-C1)
-2. `1bc2364` feat(api): custom favorite lists API — CQRS + controller (W15.0 P1-C2)
-3. `528a91a` feat(api): student preferences GET/PUT endpoint (W15.0 P1-C3)
+1. `34bf13f` feat(student-web): custom lists types, API wrappers, and hooks (W15.0 P2-C1)
+2. `69a45fb` feat(student-web): favorites list chips + list-scoped browse (W15.0 P2-C2)
+3. `c43dcf4` feat(student-web): question-page list picker popover (W15.0 P2-C3)
 
 ## ─── WHAT WAS IMPLEMENTED ────────────────────────────────
 
-### Commit 1 — entities + migration (`de2452a`)
-- `FavoriteList` : AuditableEntity (soft-delete capable; CreatedBy = student id):
-  StudentId, Name(≤100), Description(≤500), Color(≤20) — CMS.Domain/Entities/
-  OperationalEntities.cs:227-285. `FavoriteListItem` : BaseEntity (FavoriteListId,
-  QuestionId) — OperationalEntities.cs:294-311.
-- Nav props: `Student.FavoriteLists` (UserEntities.cs:65),
-  `Question.FavoriteListItems` (QuestionEntities.cs:61).
-- DbContext config (ApplicationDbContext.cs:406-441): unique ix
-  (favorite_list_id, question_id); reverse-lookup ix on question_id (the picker);
-  Student→Cascade, List→Cascade, Question→Cascade (ExamCourseItem precedent —
-  "a membership row is meaningless without either side").
-- Migration `20261118120000_AddCustomFavoriteLists` (RENAME DISCLOSURE: generated as
-  20261104… by the sandbox clock, which predates the repo's future-dated sequence —
-  hand-renamed .cs/.Designer.cs + [Migration] id so it sorts AFTER
-  20261117120000_DropQuestionExamId; `has-pending-model-changes` → "No changes").
-- Idempotent SQL mirror: scripts/migrations/W15_0AddCustomFavoriteLists.sql.
-  **NOT applied to any database (§2/§3 — Supervisor executes on Neon).**
+### Commit 1 — types/api/hooks (`34bf13f`)
+- types.ts: FavoriteListSummary (containsQuestion mirrors the backend's
+  picker contract), Create/Update payloads, list-questions params.
+- api.ts: `favoriteListsApi` — list CRUD (no entitlement: student metadata),
+  membership add/remove + list-scoped paged questions (entitlement config,
+  same auth surface as the flat family).
+- hooks.ts: useFavoriteLists(questionId?), useQuestionsInFavoriteList,
+  useCreate/Update/DeleteFavoriteList, useToggleQuestionInFavoriteList
+  (optimistic containsQuestion + questionsCount patch across ALL
+  ['favorites','lists',*] caches, keyed-questionId-aware, rollback + toast),
+  useRemoveQuestionFromFavoriteList (optimistic grid removal).
 
-### Commit 2 — CQRS + controller (`1bc2364`)
-- DTOs: FavoriteListDto (+QuestionsCount, +ContainsQuestion for the picker),
-  FavoriteListMutationDto, AddQuestionToFavoriteListResult (FavoriteListDtos.cs).
-- Commands/Queries (FavoriteListsCommands.cs): Create/Update/Delete list,
-  Add/Remove question membership, GetFavoriteLists(?questionId → membership flags),
-  GetQuestionsInFavoriteList (paged, ?search=, FavoriteItemDto card shape —
-  reuses the SAME question-card contract as flat favorites).
-- Handlers (FavoriteListsHandlers.cs): ownership-by-lookup (foreign id → 404),
-  same-name conflict → 409, Published-question gate + QuestionsExams entitlement
-  on add (mirrors CreateQuestionOrFileFavoriteCommand), idempotent add/remove,
-  batched entitlement map on the list-questions read.
-- Controller: FavoriteListsController @ /api/v1/favorites/lists (rate-limit
-  "favorites", student role). Route-precedence note: the literal "lists" segment
-  beats FavoritesController's {targetType}/{targetId} template — unambiguous.
-- 21 unit tests (FavoriteListsHandlersTests.cs).
+### Commit 2 — FavoritesPage chips (`69a45fb`)
+- FavoriteListChips.tsx: «الكل» + per-list chips (color dot, name, count) +
+  «قائمة جديدة» dialog (name ≤100 + 6 preset color swatches as a
+  radiogroup, CenteredDialog). Tablist ARIA, 44px targets, horizontal
+  scroll + fade edges at 375px.
+- FavoritesPage: ?listId= → list-scoped browse (list's questions, newest
+  membership first; type tabs + sort hidden — a list holds questions only);
+  stale/foreign listId silently falls back to «الكل»; canonical-URL effect
+  keeps listId ONLY after the lists query resolves (never strips a valid
+  deep link mid-load — race found by test, fixed); card delete in list mode
+  removes the MEMBERSHIP (optimistic) instead of the flat favorite.
 
-### Commit 3 — preferences endpoint (`528a91a`)
-- StudentPreferencesController @ /api/v1/student/preferences (GET + PUT, student role).
-- GetStudentPreferencesQuery / UpdateStudentPreferencesCommand + handlers
-  (Commands/Profile/, Handlers/Profile/): pass-through over the previously-UNWIRED
-  Student.Preferences JSON column (UserEntities.cs:52). Shape-only validation:
-  must be a JSON OBJECT (arrays/scalars/null → 400 PREFERENCES_INVALID_JSON),
-  ≤ 8 KB (PREFERENCES_TOO_LARGE); stores the canonical serialization; corrupt
-  stored value degrades to the entity default on read (never a 500).
-- `Student.UpdatePreferences` domain method (UserEntities.cs:58-64).
-- 10 unit tests (StudentPreferencesHandlersTests.cs).
-
-## ─── ENDPOINTS ADDED (this branch) ───────────────────────
-| Verb   | Route                                              | Purpose                          |
-|--------|----------------------------------------------------|----------------------------------|
-| GET    | /api/v1/favorites/lists?questionId=                | Lists + counts (+ membership)    |
-| POST   | /api/v1/favorites/lists                            | Create list (409 on same name)   |
-| PUT    | /api/v1/favorites/lists/{listId}                   | Partial update (rename/color)    |
-| DELETE | /api/v1/favorites/lists/{listId}                   | Delete list (cascade items)      |
-| POST   | /api/v1/favorites/lists/{listId}/questions/{qid}   | Add membership (idempotent 201/200) |
-| DELETE | /api/v1/favorites/lists/{listId}/questions/{qid}   | Remove membership (idempotent 204) |
-| GET    | /api/v1/favorites/lists/{listId}/questions         | Paged questions in list          |
-| GET    | /api/v1/student/preferences                        | Read preferences JSON            |
-| PUT    | /api/v1/student/preferences                        | Replace preferences JSON         |
+### Commit 3 — QuestionPage picker (`c43dcf4`)
+- FavoriteListPicker.tsx: the star button is now a Radix Popover trigger
+  (data-testid="question-favorite-button" PRESERVED — vitest + e2e
+  contracts intact). Content: «المفضلة العامة» checkbox (flat favorite,
+  unchanged semantics via the existing QuestionPage mutation callback) +
+  per-list checkboxes (server membership flags, optimistic toggles) +
+  inline create-and-add («قائمة جديدة…» → create → add current question).
+- A11y: aria-haspopup="dialog" trigger, dialog-labelled content, NATIVE
+  checkboxes with visible labels, 44px rows, ESC/focus by Radix, w-80
+  clamped via collisionPadding for 375px, trigger fills when flat-favorited
+  OR in ≥1 list.
 
 ## ─── VERIFICATION LADDER (final tree) ────────────────────
-- `dotnet build CMS.sln`: 0 errors / 20 pre-existing warnings (W14.5 baseline).
-- `dotnet test CMS.sln`: **710 passed / 0 failed / 27 skipped** (Testcontainers,
-  no Docker). Baseline 679 → +31 (21 FavoriteLists + 10 Preferences), 0 regressions.
-- `dotnet ef migrations has-pending-model-changes` → "No changes".
-- Migration SQL: see scripts/migrations/W15_0AddCustomFavoriteLists.sql (idempotent,
-  transaction-wrapped, __EFMigrationsHistory-guarded).
+- `tsc -b`: 0 errors.
+- `eslint . --ext ts,tsx --max-warnings=0`: exit 0
+  (NOTE: requires ESLINT_USE_FLAT_CONFIG=false in THIS sandbox — the clone
+  lives inside /home/z/my-project, whose Next.js scaffold ships an
+  eslint.config that eslint 8.57 auto-detects up-tree; CI on GitHub is
+  unaffected. Env quirk, not a repo defect.)
+- `vitest run`: **385/385 (30 files)** — baseline 378/29 files; +7 tests
+  (2 FavoritesPage list-mode incl. stale-listId fallback, 5 picker).
+- `vite build`: PASS (PWA precache 76 entries).
 
 ## ─── DISCLOSED DEVIATIONS / DECISIONS ────────────────────
-1. **Migration timestamp hand-renamed** (20261104… → 20261118120000): sandbox clock
-   predates the repo's future-dated sequence; unrenamed, the migration would sort
-   BEFORE DropQuestionExamId and script generation returns empty output.
-2. **RemoveQuestion tolerates unpublished/soft-deleted questions** (skips the
-   Published filter; hard-deleted → idempotent 204): removing one's OWN row must
-   stay possible — deviation from DeleteFavoriteCommand (which 404s), tested.
-3. **Same-name conflict check (409)**: not in the workorder; added to keep chips +
-   picker unambiguous. Exact-match (trimmed), case-sensitive.
-4. **List count cap NOT enforced** (no max-lists-per-student): product decision —
-   open question flagged to Supervisor.
-5. **Color is any string ≤ 20** (no hex-format enforcement): presentation metadata.
-6. **List delete is HARD delete** (cascade of membership rows; questions and flat
-   favorites untouched). AuditableEntity base leaves soft-delete available if the
-   product later wants a trash/undo flow.
-7. **GetQuestionsInFavoriteList Total is pre-entitlement** (pagination stability),
-   page hides inaccessible questions — identical trade-off to the flat favorites list.
-8. **GetFavoriteLists requires no entitlement headers** (student metadata only,
-   JWT identity suffices); question-content endpoints carry the full
-   X-Entitlement + X-Installation-Id contract.
+1. **Rename/delete list UI NOT built** — the workorder scoped Commit 2 to
+   chips + Add List only. The backend endpoints (PUT/DELETE) and hooks
+   (useUpdateFavoriteList/useDeleteFavoriteList) exist and are tested at the
+   API layer; the chips row has no overflow menu yet. Follow-up candidate.
+2. **Sort is hidden in list mode** — the Phase-1 list-questions endpoint
+   orders by newest membership only (no sort param); the workorder did not
+   ask for list sorting.
+3. **Flat-favorite trigger semantics**: the star button no longer toggles
+   flat-favorite on CLICK — it opens the picker (workorder-mandated). The
+   flat toggle is the first checkbox inside. Testids/labels preserved.
+4. **Picker queries only while open** — useFavoriteLists(questionId) is
+   gated on popover open state (no idle background refetch per question).
+5. **Color swatches**: 6 presets (rose/amber/emerald/teal/violet/slate);
+   the backend accepts any string ≤20 (documented in Phase 1).
 
 ## ─── NEXT (STOP GATE → supervisor) ───────────────────────
-1. Review the 3 local commits + this evidence pack.
-2. Push approval → `git push -u origin feature/w15.0-backend-custom-lists`
-   (PAT inline, §5, triple-scrub) → PR → CI green → merge.
-3. Deploy gate → apply scripts/migrations/W15_0AddCustomFavoriteLists.sql to Neon
-   (idempotent) → deploy API.
-4. Phases 2–4 (frontend branches) merge against main AFTER this branch merges —
-   their API contracts assume these endpoints.
-- **Environment note**: dotnet SDK 9.0.320 at /home/z/.dotnet; pnpm 9.12.0 via
-  corepack at /home/z/.corepack-bin (export PATH=/home/z/.corepack-bin:/home/z/.dotnet:$PATH);
-  no Docker (27 Testcontainers skips expected); repo clone at
-  /home/z/my-project/cms-platform-manus.
+1. Review the 3 commits + this evidence pack.
+2. Push approval → `git push -u origin feature/w15.0-frontend-favorites`
+   → PR → CI green → merge (AFTER the Phase-1 backend branch merges —
+   this UI assumes its endpoints; until then the chips row/picker will
+   get 404s from /favorites/lists).
+- **Environment note**: pnpm 9.12.0 via corepack at /home/z/.corepack-bin;
+  ESLINT_USE_FLAT_CONFIG=false for local lint (see verification note);
+  clone at /home/z/my-project/cms-platform-manus.
