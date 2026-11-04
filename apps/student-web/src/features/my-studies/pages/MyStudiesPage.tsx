@@ -1,18 +1,23 @@
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { BookOpen, BookOpenCheck, ClipboardCheck, Filter, GraduationCap, ListChecks, X } from 'lucide-react';
+import { BookOpen, BookOpenCheck, ClipboardCheck, Filter, GraduationCap, Layers, ListChecks, X } from 'lucide-react';
 import { cn } from '@/utils';
 import { useMySubjects } from '../hooks/useMySubjects';
 import { ExamsCatalogPage } from '@/features/exams/pages/ExamsCatalogPage';
+import { ExamCoursesCatalog } from '@/features/exam-courses/components/ExamCoursesCatalog';
 import { CoursesCatalog } from '../components/CoursesCatalog';
 import { LibraryHub } from '../components/LibraryHub';
 import { PracticeCatalog } from '../components/PracticeCatalog';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 
 /**
- * "My Studies" hub — one protected entry point that groups the four study
- * surfaces behind query-param tabs (?tab=practice|exams|library|courses).
- * Legacy /exams and /library routes redirect here (see router.tsx).
+ * "My Studies" hub — one protected entry point that groups the five study
+ * surfaces behind query-param tabs (?tab=practice|exam-courses|exams|library|courses).
+ * Legacy /exams, /library AND /exam-courses routes redirect here (see router.tsx).
+ *
+ * W15.1 (A.1): the practice tab is renamed 'التدريب' (it was misleadingly labeled
+ * 'الدورات' — colliding with the exam-courses storefront) and the exam-courses
+ * storefront joins the hub as its own tab, removing the sidebar-only entry.
  *
  * Push 8: the tab strip is horizontally scrollable on mobile (gesture swipe,
  * hidden scrollbar, soft edge fades) with a spring-animated active indicator
@@ -22,7 +27,8 @@ import { ErrorBoundary } from '@/components/common/ErrorBoundary';
  * context chip.
  */
 const TABS = [
-  { key: 'practice', label: 'الدورات', icon: ListChecks },
+  { key: 'practice', label: 'التدريب', icon: ListChecks },
+  { key: 'exam-courses', label: 'الدورات الامتحانية', icon: Layers },
   { key: 'exams', label: 'الاختبارات', icon: ClipboardCheck },
   { key: 'library', label: 'المكتبة', icon: BookOpen },
   { key: 'courses', label: 'الكورسات', icon: GraduationCap },
@@ -31,7 +37,7 @@ const TABS = [
 type TabKey = (typeof TABS)[number]['key'];
 
 function isTabKey(value: string | null): value is TabKey {
-  return value === 'practice' || value === 'exams' || value === 'library' || value === 'courses';
+  return value === 'practice' || value === 'exam-courses' || value === 'exams' || value === 'library' || value === 'courses';
 }
 
 export default function MyStudiesPage() {
@@ -44,13 +50,20 @@ export default function MyStudiesPage() {
   const mySubjects = useMySubjects();
   const filteredSubject = (mySubjects.data ?? []).find((s) => s.id === subjectId) ?? null;
 
+  // W15.1 (A): tab switches now PRESERVE the full param set (exam-courses cascade
+  // levels, its internal ?examTab= lens, the shared subjectId…) instead of rebuilding
+  // the URL from just {tab, subjectId} — filters survive hopping between surfaces.
   const switchTab = (key: TabKey) => {
-    const next: Record<string, string> = { tab: key };
-    if (subjectId) next.subjectId = subjectId;
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', key);
     setSearchParams(next, { replace: true });
   };
 
-  const clearSubjectFilter = () => setSearchParams({ tab }, { replace: true });
+  const clearSubjectFilter = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('subjectId');
+    setSearchParams(next, { replace: true });
+  };
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -61,7 +74,7 @@ export default function MyStudiesPage() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-[var(--c-text)]">دراستي</h1>
-          <p className="text-sm text-[var(--c-text-muted)]">الدورات والاختبارات والمكتبة والكورسات في مكان واحد</p>
+          <p className="text-sm text-[var(--c-text-muted)]">التدريب والدورات الامتحانية والاختبارات والمكتبة والكورسات في مكان واحد</p>
         </div>
       </div>
 
@@ -143,6 +156,11 @@ export default function MyStudiesPage() {
         {tab === 'practice' && (
           <ErrorBoundary title="تعذّر تحميل الدورات">
             <PracticeCatalog subjectId={subjectId} />
+          </ErrorBoundary>
+        )}
+        {tab === 'exam-courses' && (
+          <ErrorBoundary title="تعذّر تحميل الدورات الامتحانية">
+            <ExamCoursesCatalog />
           </ErrorBoundary>
         )}
         {tab === 'exams' && (

@@ -93,7 +93,7 @@ export default function ActivateCodePage() {
         <button
           type="submit"
           disabled={code.length < 16 || redeemMutation.isPending}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-white transition-colors disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-[var(--cms-text-inverse)] transition-colors disabled:opacity-50"
           style={{ background: 'var(--cms-teal-700)' }}
         >
           {redeemMutation.isPending ? (

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
-import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // ---- shared mocks (hoisted) ----
@@ -105,10 +105,14 @@ const access = (url: string) => ({
   watermark: { studentName: 'طالب تجريبي', studentPhone: '0999000111', timestamp: '2026-10-24', siteName: 'CMS' },
 });
 
-/** GET router: my-subjects / per-subject courses / course detail. */
+/** GET router: my-subjects / per-subject courses / course detail. The
+ *  /exam-courses/ branch MUST come first — '/exam-courses/subject/s1' contains
+ *  '/courses/', so the hub's exam-courses tab would otherwise receive a
+ *  CourseDetail object where it expects an array. */
 function stubGet(detail: CourseDetail = courseDetail()) {
   getMock.mockImplementation(async (url: string) => {
     if (url.includes('/subjects/my-subjects')) return { data: SUBJECTS };
+    if (url.includes('/exam-courses/')) return { data: [] };
     if (url.includes('/courses/subject/')) return { data: COURSE_LIST };
     if (url.includes('/courses/')) return { data: detail };
     return { data: [] };
@@ -135,17 +139,29 @@ beforeEach(() => {
 // ================= MyStudiesPage: tabs =================
 
 describe('MyStudiesPage — tabs', () => {
-  it('renders the three study tabs (courses / exams / library)', () => {
+  it('renders the five study tabs (practice / exam-courses / exams / library / courses)', () => {
     renderWithProviders(['/my-studies'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
-    expect(screen.getByRole('tab', { name: /الكورسات/ })).toBeInTheDocument();
+    // W15.1 (A.1): 'التدريب' (renamed from 'الدورات') + the new exam-courses tab.
+    expect(screen.getByRole('tab', { name: /التدريب/ })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /الدورات الامتحانية/ })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /الاختبارات/ })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /المكتبة/ })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /الكورسات/ })).toBeInTheDocument();
   });
 
   it('defaults to the courses tab', () => {
     renderWithProviders(['/my-studies'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
     expect(screen.getByTestId('tab-courses').getAttribute('aria-selected')).toBe('true');
     expect(screen.getByTestId('panel-courses')).toBeInTheDocument();
+  });
+
+  it('switches to the exam-courses tab on click — the storefront renders inside the hub', async () => {
+    renderWithProviders(['/my-studies'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+    fireEvent.click(screen.getByTestId('tab-exam-courses'));
+    expect(screen.getByTestId('panel-exam-courses')).toBeInTheDocument();
+    expect(screen.getByTestId('tab-exam-courses').getAttribute('aria-selected')).toBe('true');
+    // The storefront's own section header renders inside the hub panel.
+    expect(await screen.findByText('الدورات الامتحانية', { selector: 'h2' })).toBeInTheDocument();
   });
 
   it('switches to the exams tab on click', () => {
@@ -180,6 +196,76 @@ describe('Legacy redirects into the My Studies hub', () => {
     renderWithProviders(['/library'], <AppRoutes />);
     expect(await screen.findByTestId('panel-library')).toBeInTheDocument();
     expect(screen.getByTestId('tab-library').getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('redirects /exam-courses to /my-studies?tab=exam-courses, preserving every deep-link param', async () => {
+    const LocationProbe = () => {
+      const location = useLocation();
+      return <div data-testid="location-probe" data-path={location.pathname} data-search={location.search} />;
+    };
+    renderWithProviders(
+      ['/exam-courses?tab=categorized&universityId=u1&subjectId=s1'],
+      <>
+        <AppRoutes />
+        <LocationProbe />
+      </>
+    );
+
+    await waitFor(() => {
+      const probe = screen.getByTestId('location-probe');
+      expect(probe.getAttribute('data-path')).toBe('/my-studies');
+      const search = probe.getAttribute('data-search') ?? '';
+      expect(search).toContain('tab=exam-courses');
+      // The legacy internal lens ?tab=categorized maps to the namespaced ?examTab=.
+      expect(search).toContain('examTab=categorized');
+      // Cascade + subject params pass through untouched.
+      expect(search).toContain('universityId=u1');
+      expect(search).toContain('subjectId=s1');
+    });
+    // The hub renders the storefront tab with the deep-linked params applied.
+    expect(await screen.findByTestId('panel-exam-courses')).toBeInTheDocument();
+  });
+});
+
+// ================= W15.1 C: Exams catalog polish =================
+
+describe('ExamsCatalog — W15.1 C: zero-exam filtering, auto-expand, empty CTA', () => {
+  const EXAM_SUBJECTS = [
+    { id: 's1', slug: 'تشريح-مرضي', nameAr: 'تشريح مرضي', contentScopes: ['VideoAudio'] },
+    { id: 's2', slug: 'باطنة', nameAr: 'الباطنة', contentScopes: ['VideoAudio'] },
+  ];
+
+  const PUBLISHED_EXAM = {
+    id: 'e1', titleAr: 'اختبار القلب', examType: 'final', totalQuestions: 30,
+    durationMinutes: 45, status: 'Published', attemptsCount: 0, completedCount: 0, averageScore: null,
+  };
+
+  it('auto-expands the first subject that has exams and hides zero-exam subjects', async () => {
+    getMock.mockImplementation(async (url: string) => {
+      if (url.includes('/subjects/my-subjects')) return { data: EXAM_SUBJECTS };
+      if (url.includes('/exams/by-subject/s1')) return { data: [PUBLISHED_EXAM] };
+      if (url.includes('/exams/by-subject/s2')) return { data: [] };
+      return { data: [] };
+    });
+    renderWithProviders(['/my-studies?tab=exams'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+
+    // C.1: s1 (has exams) starts EXPANDED — its exam row is visible without any click.
+    expect(await screen.findByText('اختبار القلب')).toBeInTheDocument();
+    // C.1: s2 (zero published exams) is hidden entirely — no collapsed «0 اختبار» row.
+    expect(screen.queryByText('الباطنة')).toBeNull();
+  });
+
+  it('renders the upgraded empty state with a CTA into the exam-courses tab when nothing is published', async () => {
+    getMock.mockImplementation(async (url: string) => {
+      if (url.includes('/subjects/my-subjects')) return { data: EXAM_SUBJECTS };
+      return { data: [] };
+    });
+    renderWithProviders(['/my-studies?tab=exams'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+
+    expect(await screen.findByTestId('exams-empty')).toBeInTheDocument();
+    const cta = screen.getByTestId('exams-empty-cta');
+    expect(cta.getAttribute('href')).toBe('/my-studies?tab=exam-courses');
+    expect(cta.textContent).toContain('الدورات الامتحانية');
   });
 });
 

@@ -1,22 +1,18 @@
 // CMS student sidebar (Push 8): icon-rail on tablet (md), full labels on desktop (lg).
 // "دراستي" is the hero destination — it renders as a filled gradient pill at the top.
+// W15.1 (A.4): the "الدورات الامتحانية" entry was REMOVED — the storefront now
+// lives inside the My Studies hub (?tab=exam-courses), reachable from every device
+// (the old sidebar link was desktop-only and added a redundant navigation path).
 import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  Bell, BarChart3, BookOpenCheck, GraduationCap, LayoutGrid, LibraryBig, Search, Settings,
+  Bell, BarChart3, BookOpenCheck, GraduationCap, LayoutGrid, Search, Settings,
   Star, Ticket, Trophy, UserRound,
 } from 'lucide-react';
 import { cn } from '@/utils';
-import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
 
 /** Hero item — rendered separately above the groups with a distinct filled style. */
 const heroItem = { to: '/my-studies', icon: BookOpenCheck, label: 'دراستي' };
-
-/** W14.4 (A.1) — "الدورات الامتحانية": shown only for students holding at least one
- *  active subject grant (any content scope — the entitled-subjects list is the
- *  visibility signal). Kept mounted while the list loads to avoid layout flicker,
- *  then removed once it resolves empty. */
-const examCoursesItem = { to: '/exam-courses', icon: LibraryBig, label: 'الدورات الامتحانية' };
 
 const navGroups = [
   {
@@ -47,10 +43,6 @@ const navGroups = [
 ];
 
 export function Sidebar() {
-  const mySubjects = useMySubjects();
-  const hasSubjects = (mySubjects.data ?? []).length > 0;
-  // A.1 ruling: visible while loading (no flicker), hidden once resolved empty.
-  const showExamCourses = !mySubjects.isSuccess || hasSubjects;
   return (
     <aside
       aria-label="التنقل الجانبي"
@@ -64,9 +56,11 @@ export function Sidebar() {
         className={({ isActive }) =>
           cn(
             'press group relative mb-4 flex min-h-12 items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-bold',
+            // W15.1 (D.1): --cms-text-inverse keeps the hero fill AA in both
+            // themes (white on the deep fill in light; ink on the bright dark fill).
             isActive
-              ? 'text-white shadow-md'
-              : 'text-white hover:shadow-md'
+              ? 'text-[var(--cms-text-inverse)] shadow-md'
+              : 'text-[var(--cms-text-inverse)] hover:shadow-md'
           )
         }
         style={{ background: 'var(--cms-teal-700)' }}
@@ -94,23 +88,6 @@ export function Sidebar() {
             <span className="lg:hidden" aria-hidden="true">•</span>
           </div>
           <nav className="space-y-1">
-            {group.label === 'الأدوات' && showExamCourses && (
-              <NavLink
-                to={examCoursesItem.to}
-                title={examCoursesItem.label}
-                className={({ isActive }) =>
-                  cn(
-                    'press flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm border-s-2 border-transparent',
-                    isActive
-                      ? 'bg-[var(--cms-teal-50)] text-[var(--cms-teal-800)] font-semibold border-s-[var(--cms-teal-600)]'
-                      : 'font-medium text-[var(--cms-text-soft)] hover:bg-[var(--cms-teal-50)] hover:text-[var(--cms-teal-800)]'
-                  )
-                }
-              >
-                <examCoursesItem.icon className="h-5 w-5 shrink-0" />
-                <span className="hidden lg:inline">{examCoursesItem.label}</span>
-              </NavLink>
-            )}
             {group.items.map((item) => (
               <NavLink
                 key={item.to}

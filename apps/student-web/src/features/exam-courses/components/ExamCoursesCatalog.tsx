@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
-  BookMarked, CalendarDays, ClipboardList, GraduationCap,
+  BookMarked, CalendarDays, ClipboardList,
   Layers, LibraryBig, Loader2, PlayCircle, Tag,
 } from 'lucide-react';
 import { cn } from '@/utils';
@@ -13,11 +13,14 @@ import { practiceApi, type CategorizedTree } from '@/features/practice/services/
 import { isEntitlementDenied, variantForReason } from '@/features/my-studies/services/courses-api';
 import { CatalogEntitlementErrorCard, CatalogErrorCard } from '@/features/my-studies/components/CatalogErrorCards';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
-import { CascadeFilters, type CascadeValue } from '../components/CascadeFilters';
+import { CascadeFilters, type CascadeValue } from './CascadeFilters';
 import { Accordion, type AccordionItemData } from '@cms/ui';
 
 /**
- * W14.4 (A.2) — "الدورات الامتحانية" student storefront.
+ * W15.1 (A.2) — "الدورات الامتحانية" catalog, extracted 1:1 from the former
+ * standalone /exam-courses page so the My Studies hub can render it as a tab
+ * (the route now redirects there — see router.tsx). No logic was duplicated or
+ * changed beyond the hub embedding:
  *
  * Two lenses over one subject:
  *  • دورات سنوات — published bundles (GET /exam-courses/subject/{id}), filtered by
@@ -28,8 +31,13 @@ import { Accordion, type AccordionItemData } from '@cms/ui';
  *    ParagraphTag with "غير مصنف" buckets; a group click starts a filtered
  *    PracticeSession (A.4).
  *
- * A.1: the sidebar entry is rendered only for students holding at least one active
- * subject grant (Sidebar.tsx); a grant-less deep link still renders the locked card.
+ * W15.1 (A.2/URL): the internal lens moved from `?tab=` to `?examTab=` so it can
+ * never clobber the hub's own `?tab=` param; the URL writer now EDITS the current
+ * params instead of rebuilding them from scratch, preserving hub context while
+ * still deleting cleared cascade levels (canonical deep links, no stale params).
+ *
+ * A.1: the hub entry renders for every signed-in student; a grant-less student
+ * sees the truthful locked card below.
  */
 type TabKey = 'years' | 'categorized';
 
@@ -44,7 +52,7 @@ const TABS: { key: TabKey; label: string; icon: typeof CalendarDays }[] = [
  *  builds on main, which does not carry that API). */
 const CASCADE_STORAGE_KEY = 'cms-exam-courses-filters-v1';
 
-export default function ExamCoursesPage() {
+export function ExamCoursesCatalog() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const mySubjects = useMySubjects();
@@ -54,7 +62,7 @@ export default function ExamCoursesPage() {
   const subjectId = routeSubjectId && subjects.some((s) => s.id === routeSubjectId)
     ? routeSubjectId
     : subjects[0]?.id ?? null;
-  const tab: TabKey = searchParams.get('tab') === 'categorized' ? 'categorized' : 'years';
+  const tab: TabKey = searchParams.get('examTab') === 'categorized' ? 'categorized' : 'years';
 
   // W15.0 — the cascade lives in the URL (deep-linkable); every level is optional.
   const cascade: CascadeValue = {
@@ -144,23 +152,26 @@ export default function ExamCoursesPage() {
     updateParams({ tab: key });
   };
 
-  const chooseSubject = (id: string) => {
-    updateParams({ subjectId: id });
-  };
-
-  /** Unified URL writer — always carries tab + subjectId + the non-null cascade
-   *  levels, so deep links stay canonical and filters survive tab/subject switches. */
+  /** Unified URL writer — W15.1: EDITS the current params (preserving the hub's
+   *  `?tab=` and any other hub-level state) instead of rebuilding them, while still
+   *  atomically setting the internal lens (?examTab=), the subject, and the non-null
+   *  cascade levels — cleared levels are DELETED so deep links stay canonical. */
   const updateParams = (patch: { tab?: TabKey; subjectId?: string | null; cascade?: CascadeValue }) => {
     const nextTab = patch.tab ?? tab;
     const nextSubjectId = patch.subjectId !== undefined ? patch.subjectId : subjectId;
     const nextCascade = patch.cascade ?? cascade;
-    const next = new URLSearchParams();
-    next.set('tab', nextTab);
+    const next = new URLSearchParams(searchParams);
+    next.set('examTab', nextTab);
     if (nextSubjectId) next.set('subjectId', nextSubjectId);
+    else next.delete('subjectId');
     if (nextCascade.universityId) next.set('universityId', nextCascade.universityId);
+    else next.delete('universityId');
     if (nextCascade.collegeId) next.set('collegeId', nextCascade.collegeId);
+    else next.delete('collegeId');
     if (nextCascade.yearId) next.set('yearId', nextCascade.yearId);
+    else next.delete('yearId');
     if (nextCascade.semesterId) next.set('semesterId', nextCascade.semesterId);
+    else next.delete('semesterId');
     setSearchParams(next, { replace: true });
   };
 
@@ -178,8 +189,8 @@ export default function ExamCoursesPage() {
 
   if (subjects.length === 0) {
     return (
-      <div className="max-w-4xl mx-auto">
-        <PageHeader />
+      <div>
+        <CatalogHeader subjectName={subject?.nameAr ?? null} />
         <CatalogEntitlementErrorCard
           variant="no-grants"
           onRetry={() => void mySubjects.refetch()}
@@ -190,41 +201,23 @@ export default function ExamCoursesPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <PageHeader subjectName={subject?.nameAr ?? null} />
+    <div>
+      <CatalogHeader subjectName={subject?.nameAr ?? null} />
 
       {/* W15.0 — University → College → Year → Semester → Subject cascade (URL-
           persisted, localStorage-restored, deep-linkable). Entitled subjects only at
-          the subject level (A.1 ruling). */}
+          the subject level (A.1 ruling).
+          W15.1 (B.1): the standalone subject-chips row is REMOVED — the cascade's
+          5th select is the single subject control (the mobile sticky-bar summary
+          shows the active subject even when the semester list can't resolve it). */}
       <CascadeFilters
         value={cascade}
         onChange={(next) => updateParams({ cascade: next })}
         subjectId={subjectId}
         onSelectSubject={(id) => updateParams({ subjectId: id })}
         entitledSubjectIds={entitledSubjectIds}
+        subjectLabel={subject?.nameAr ?? null}
       />
-
-      {/* Subject chips — entitled subjects only (A.1 visibility ruling). */}
-      <FilterRow label="المادة" testId="subject-filter-row">
-        {subjects.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            aria-pressed={item.id === subjectId}
-            data-testid={`subject-chip-${item.id}`}
-            onClick={() => chooseSubject(item.id)}
-            className={cn(
-              'press inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3.5 text-sm font-semibold transition-colors',
-              item.id === subjectId
-                ? 'border-[var(--cms-teal-600)] bg-[var(--cms-teal-50)] text-[var(--cms-teal-800)]'
-                : 'border-[var(--cms-line)] bg-[var(--cms-surface)] text-[var(--cms-text-soft)] hover:border-[var(--cms-teal-500)]'
-            )}
-          >
-            <GraduationCap className="w-4 h-4" aria-hidden="true" />
-            {item.nameAr}
-          </button>
-        ))}
-      </FilterRow>
 
       {/* Tabs */}
       <div className="fade-edges -mx-4 px-4 sm:mx-0 sm:px-0 mb-4" role="tablist" aria-label="أقسام الدورات الامتحانية">
@@ -296,15 +289,17 @@ export default function ExamCoursesPage() {
   );
 }
 
-function PageHeader({ subjectName }: { subjectName?: string | null }) {
+/** Section header for the hub panel — the hub owns the page h1 (دراستي), so this is
+ *  an h2-level heading (W15.1 A.2). The subtitle carries the live subject context. */
+function CatalogHeader({ subjectName }: { subjectName?: string | null }) {
   return (
     <header className="flex items-center gap-3 mb-6">
-      <div className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
+      <div className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm shrink-0" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
         <LibraryBig className="w-6 h-6" aria-hidden="true" />
       </div>
-      <div>
-        <h1 className="text-2xl font-bold text-[var(--cms-text)]">الدورات الامتحانية</h1>
-        <p className="text-sm text-[var(--cms-text-muted)]">
+      <div className="min-w-0">
+        <h2 className="text-xl font-bold text-[var(--cms-text)]">الدورات الامتحانية</h2>
+        <p className="text-sm text-[var(--cms-text-muted)] truncate">
           {subjectName ? `دورات وتصنيفات مادة ${subjectName}` : 'دورات سنوات وتصنيفات التدريب لكل مادة'}
         </p>
       </div>
@@ -515,8 +510,9 @@ function CategorizedTab({
                   onStartPractice(lecture.lectureId ?? null, lecture.lectureId == null, group.paragraphTag ?? null, group.paragraphTag == null)
                 }
                 data-testid={`start-practice-${lecture.lectureId ?? 'uncategorized'}-${group.paragraphTag ?? 'untagged'}`}
-                className="press inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-4 text-sm font-bold text-white shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cms-teal-700)]"
-                style={{ background: 'var(--cms-teal-700)' }}
+                // W15.1 (D.2): the unified primary-action recipe (radius/padding/
+                // shadow/focus + AA-safe text in both themes).
+                className="btn-primary press shrink-0"
                 aria-label={`بدء تدريب ${groupLabel} — ${lecture.lectureTitle}`}
               >
                 <PlayCircle className="w-4 h-4" aria-hidden="true" />

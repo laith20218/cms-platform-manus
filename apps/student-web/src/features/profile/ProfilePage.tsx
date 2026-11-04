@@ -92,7 +92,7 @@ export default function ProfilePage() {
         <h1 className="text-lg font-bold text-[var(--cms-text)]">تعذر تحميل الملف الشخصي</h1>
         <button
           onClick={() => profile.refetch()}
-          className="mt-4 rounded-lg bg-[var(--cms-teal-600)] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[var(--cms-teal-700)]"
+          className="mt-4 rounded-lg bg-[var(--cms-teal-600)] px-4 py-2 text-sm font-semibold text-[var(--cms-text-inverse)] transition-colors hover:bg-[var(--cms-teal-700)]"
         >
           إعادة المحاولة
         </button>
@@ -191,7 +191,7 @@ export default function ProfilePage() {
               disabled={avatarBusy}
               title="تغيير الصورة الشخصية"
               aria-label="تغيير الصورة الشخصية"
-              className="press absolute -bottom-1 -left-1 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-[var(--cms-teal-600)] text-white shadow-md transition-colors hover:bg-[var(--cms-teal-700)] disabled:opacity-50"
+              className="press absolute -bottom-1 -left-1 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-[var(--cms-teal-600)] text-[var(--cms-text-inverse)] shadow-md transition-colors hover:bg-[var(--cms-teal-700)] disabled:opacity-50"
             >
               {avatarBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
             </button>
@@ -264,7 +264,7 @@ export default function ProfilePage() {
                     type="button"
                     onClick={handleEmailSave}
                     disabled={emailBusy}
-                    className="inline-flex h-9 items-center gap-1 rounded-lg bg-[var(--cms-teal-600)] px-3 text-xs font-bold text-white transition-colors hover:bg-[var(--cms-teal-700)] disabled:opacity-50"
+                    className="inline-flex h-9 items-center gap-1 rounded-lg bg-[var(--cms-teal-600)] px-3 text-xs font-bold text-[var(--cms-text-inverse)] transition-colors hover:bg-[var(--cms-teal-700)] disabled:opacity-50"
                   >
                     {emailBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                     حفظ
@@ -436,7 +436,7 @@ export default function ProfilePage() {
               <button
                 type="submit"
                 disabled={passwordBusy}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[var(--cms-teal-600)] px-5 text-sm font-bold text-white transition-colors hover:bg-[var(--cms-teal-700)] disabled:opacity-60"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[var(--cms-teal-600)] px-5 text-sm font-bold text-[var(--cms-text-inverse)] transition-colors hover:bg-[var(--cms-teal-700)] disabled:opacity-60"
               >
                 {passwordBusy && <Loader2 className="h-4 w-4 animate-spin" />}
                 حفظ كلمة المرور

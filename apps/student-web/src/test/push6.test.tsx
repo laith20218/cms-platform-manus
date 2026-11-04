@@ -188,7 +188,11 @@ describe('My Studies — subjectId query-param filtering', () => {
     fireEvent.click(screen.getByTestId('tab-practice'));
 
     expect(await screen.findByTestId('practice-grid')).toBeInTheDocument();
-    expect(screen.getByTestId('location-probe').getAttribute('data-search')).toBe('?tab=practice&subjectId=s1');
+    // W15.1 (A): switchTab now EDITS the current params, so serialization order
+    // follows the existing URL — assert both params are present, not their order.
+    const search = screen.getByTestId('location-probe').getAttribute('data-search') ?? '';
+    expect(search).toContain('tab=practice');
+    expect(search).toContain('subjectId=s1');
     // Practice is narrowed to s1 only (محاضرة القلب belongs to s2).
     expect(screen.getByText('محاضرة الالتهابات')).toBeInTheDocument();
     expect(screen.queryByText('محاضرة القلب')).not.toBeInTheDocument();

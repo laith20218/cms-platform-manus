@@ -12,7 +12,7 @@ export default function NotFoundPage() {
       <p className="text-sm text-[var(--cms-text-muted)] mb-8 max-w-sm">
         الصفحة التي تبحث عنها قد تكون محذوفة أو غير متوفرة.
       </p>
-      <Link to="/dashboard" className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white transition-colors" style={{ background: 'var(--cms-teal-700)' }}>
+      <Link to="/dashboard" className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-[var(--cms-text-inverse)] transition-colors" style={{ background: 'var(--cms-teal-700)' }}>
         <Home className="w-5 h-5" /> العودة للوحة التحكم
       </Link>
     </div>

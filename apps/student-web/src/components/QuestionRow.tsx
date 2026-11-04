@@ -309,7 +309,7 @@ export function QuestionRow({
                     state === 'correct'
                       ? 'bg-[var(--cms-success)] text-white'
                       : state === 'selected' || state === 'wrong'
-                        ? 'bg-[var(--cms-teal-700)] text-white'
+                        ? 'bg-[var(--cms-teal-700)] text-[var(--cms-text-inverse)]'
                         : 'bg-[var(--cms-ivory-100)] text-[var(--cms-text-soft)]',
                   )}
                   lang="en"
@@ -412,7 +412,7 @@ export function QuestionRow({
             onClick={onConfirm}
             disabled={pending || (isEssay ? !essayDraft?.trim() : selected.length === 0)}
             data-testid={`${prefix}-confirm-${question.id}`}
-            className="press inline-flex min-h-11 items-center gap-2 rounded-xl px-5 text-sm font-bold text-white shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cms-teal-700)] disabled:opacity-50"
+            className="press inline-flex min-h-11 items-center gap-2 rounded-xl px-5 text-sm font-bold text-[var(--cms-text-inverse)] shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cms-teal-700)] disabled:opacity-50"
             style={{ background: 'var(--cms-teal-700)' }}
           >
             {pending ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : <Check className="w-4 h-4" aria-hidden="true" />}

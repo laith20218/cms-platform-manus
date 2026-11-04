@@ -228,7 +228,7 @@ export function ProfileEditModal({
             onClick={() => save.mutate()}
             disabled={!canSubmit}
             data-testid="edit-save"
-            className="press inline-flex min-h-11 items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-bold text-white shadow-md transition-all disabled:opacity-50"
+            className="press inline-flex min-h-11 items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-bold text-[var(--cms-text-inverse)] shadow-md transition-all disabled:opacity-50"
             style={{ background: 'var(--cms-teal-700)' }}
           >
             {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
