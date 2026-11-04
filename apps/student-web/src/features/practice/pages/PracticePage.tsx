@@ -346,7 +346,7 @@ function PracticePageInner() {
         <Dumbbell className="w-9 h-9 mx-auto mb-3 text-[var(--cms-text-muted)]" aria-hidden="true" />
         <h2 className="font-bold text-lg mb-2">لا توجد أسئلة في هذه الجلسة</h2>
         <p className="text-sm text-[var(--cms-text-muted)] mb-5">قد تكون الأسئلة غير منشورة بعد — جرّب تصنيفاً آخر.</p>
-        <button type="button" onClick={() => navigate('/exam-courses?tab=categorized')} className="press inline-flex min-h-11 items-center rounded-xl px-5 text-sm font-bold text-white" style={{ background: 'var(--cms-teal-700)' }}>
+        <button type="button" onClick={() => navigate('/my-studies?tab=exam-courses&examTab=categorized')} className="press inline-flex min-h-11 items-center rounded-xl px-5 text-sm font-bold text-white" style={{ background: 'var(--cms-teal-700)' }}>
           العودة إلى التصنيفات
         </button>
       </div>

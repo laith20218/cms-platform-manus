@@ -63,7 +63,7 @@ export default function ExamCourseDetailPage() {
     <div className="max-w-4xl mx-auto">
       <button
         type="button"
-        onClick={() => navigate('/exam-courses')}
+        onClick={() => navigate('/my-studies?tab=exam-courses')}
         className="press mb-4 inline-flex min-h-11 items-center gap-1.5 text-sm text-[var(--cms-text-muted)] hover:text-[var(--cms-teal-700)]"
       >
         <ChevronLeft className="w-4 h-4" aria-hidden="true" />

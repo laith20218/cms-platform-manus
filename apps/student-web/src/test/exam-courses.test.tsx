@@ -21,7 +21,11 @@ vi.mock('@/features/entitlements/services/entitlement-api', async () => {
   return { ...actual, entitlementRequestConfig: async () => ({}) };
 });
 
-import ExamCoursesPage from '@/features/exam-courses/pages/ExamCoursesPage';
+// W15.1 (A): the storefront catalog lives in the My Studies hub — tests render
+// ExamCoursesCatalog at /my-studies exactly like the hub panel does (the internal
+// lens is now ?examTab=; the /exam-courses route is a redirect, covered in
+// my-studies.test.tsx).
+import { ExamCoursesCatalog } from '@/features/exam-courses/components/ExamCoursesCatalog';
 import ExamCourseDetailPage from '@/features/exam-courses/pages/ExamCourseDetailPage';
 
 // ---- fixtures ----
@@ -98,7 +102,7 @@ function renderApp(initialEntry: string) {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
-          <Route path="/exam-courses" element={<><ExamCoursesPage /><LocationProbe /></>} />
+          <Route path="/my-studies" element={<><ExamCoursesCatalog /><LocationProbe /></>} />
           <Route path="/exam-courses/:courseId" element={<><ExamCourseDetailPage /><LocationProbe /></>} />
           <Route path="*" element={<LocationProbe />} />
         </Routes>
@@ -112,9 +116,9 @@ beforeEach(() => {
   stubGet();
 });
 
-describe('W14.4 ExamCoursesPage — دورات سنوات', () => {
+describe('W14.4 ExamCourses catalog — دورات سنوات', () => {
   it('defaults the year filter to the LATEST round year and narrows the list', async () => {
-    renderApp('/exam-courses');
+    renderApp('/my-studies');
 
     // Default subject = first entitled subject; year defaults to 2026 (latest present).
     expect(await screen.findByTestId('exam-course-card-ec2')).toBeTruthy();
@@ -127,7 +131,7 @@ describe('W14.4 ExamCoursesPage — دورات سنوات', () => {
   });
 
   it('opens the bundle detail when a course card is clicked', async () => {
-    renderApp('/exam-courses');
+    renderApp('/my-studies');
     fireEvent.click(await screen.findByTestId('exam-course-card-ec2'));
 
     await waitFor(() => {
@@ -137,16 +141,16 @@ describe('W14.4 ExamCoursesPage — دورات سنوات', () => {
 
   it('renders the locked card for grant-less students (A.1 deep-link guard)', async () => {
     stubGet({ mySubjects: [] });
-    renderApp('/exam-courses');
+    renderApp('/my-studies');
 
     expect(await screen.findByTestId('exam-courses-locked')).toBeTruthy();
     expect(screen.queryByTestId('subject-filter-row')).toBeNull();
   });
 });
 
-describe('W14.4 ExamCoursesPage — دورات مصنفة', () => {
+describe('W14.4 ExamCourses catalog — دورات مصنفة', () => {
   it('renders the Lecture → ParagraphTag tree and starts a filtered practice run', async () => {
-    renderApp('/exam-courses?tab=categorized');
+    renderApp('/my-studies?examTab=categorized');
 
     // First lecture accordion is open by default; its tag groups render.
     expect(await screen.findByText('الفصل الأول')).toBeTruthy();
@@ -166,7 +170,7 @@ describe('W14.4 ExamCoursesPage — دورات مصنفة', () => {
   });
 
   it('navigates with the exact paragraphTag when a tagged group is chosen', async () => {
-    renderApp('/exam-courses?tab=categorized');
+    renderApp('/my-studies?examTab=categorized');
 
     fireEvent.click(await screen.findByTestId('start-practice-lec1-الفصل الأول'));
 
@@ -178,13 +182,13 @@ describe('W14.4 ExamCoursesPage — دورات مصنفة', () => {
   });
 });
 
-describe('W15.0 ExamCoursesPage — cascading filters', () => {
+describe('W15.0 ExamCourses catalog — cascading filters', () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
 
   it('deep-link: renders the cascade from URL params and fetches each child level', async () => {
-    renderApp('/exam-courses?universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1&subjectId=s1');
+    renderApp('/my-studies?universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1&subjectId=s1');
 
     // The university select displays the deep-linked university name.
     expect(await screen.findByTestId('cascade-select-university')).toBeTruthy();
@@ -200,8 +204,8 @@ describe('W15.0 ExamCoursesPage — cascading filters', () => {
   });
 
   it('persists the last filter to localStorage and restores it on a fresh mount', async () => {
-    // First visit: deep link carries the cascade; the page persists it.
-    const first = renderApp('/exam-courses?universityId=u1&subjectId=s1');
+    // First visit: deep link carries the cascade; the catalog persists it.
+    const first = renderApp('/my-studies?universityId=u1&subjectId=s1');
     await screen.findByTestId('cascade-select-university');
     await waitFor(() => {
       expect(window.localStorage.getItem('cms-exam-courses-filters-v1')).toContain('"universityId":"u1"');
@@ -211,7 +215,7 @@ describe('W15.0 ExamCoursesPage — cascading filters', () => {
 
     // Fresh mount WITHOUT URL params: the persisted state seeds the URL (replace),
     // and the child-level query fires again.
-    renderApp('/exam-courses');
+    renderApp('/my-studies');
     await waitFor(() => {
       const probe = screen.getByTestId('location-probe');
       expect(probe.getAttribute('data-search')).toContain('universityId=u1');
@@ -221,7 +225,7 @@ describe('W15.0 ExamCoursesPage — cascading filters', () => {
   });
 
   it('locks non-entitled subjects in the cascade subject level (A.1 ruling)', async () => {
-    renderApp('/exam-courses?universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1&subjectId=s1');
+    renderApp('/my-studies?universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1&subjectId=s1');
 
     // Subject select enabled (semester chosen) and shows the selected entitled subject.
     const subjectSelect = await screen.findByTestId('cascade-select-subject');
@@ -236,7 +240,7 @@ describe('W15.0 ExamCoursesPage — cascading filters', () => {
   });
 
   it('changing the university level via the select writes the deep-linkable URL', async () => {
-    renderApp('/exam-courses');
+    renderApp('/my-studies');
 
     const trigger = await screen.findByTestId('cascade-select-university');
     fireEvent.click(trigger);
