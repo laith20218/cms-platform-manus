@@ -227,6 +227,48 @@ describe('Legacy redirects into the My Studies hub', () => {
   });
 });
 
+// ================= W15.1 C: Exams catalog polish =================
+
+describe('ExamsCatalog — W15.1 C: zero-exam filtering, auto-expand, empty CTA', () => {
+  const EXAM_SUBJECTS = [
+    { id: 's1', slug: 'تشريح-مرضي', nameAr: 'تشريح مرضي', contentScopes: ['VideoAudio'] },
+    { id: 's2', slug: 'باطنة', nameAr: 'الباطنة', contentScopes: ['VideoAudio'] },
+  ];
+
+  const PUBLISHED_EXAM = {
+    id: 'e1', titleAr: 'اختبار القلب', examType: 'final', totalQuestions: 30,
+    durationMinutes: 45, status: 'Published', attemptsCount: 0, completedCount: 0, averageScore: null,
+  };
+
+  it('auto-expands the first subject that has exams and hides zero-exam subjects', async () => {
+    getMock.mockImplementation(async (url: string) => {
+      if (url.includes('/subjects/my-subjects')) return { data: EXAM_SUBJECTS };
+      if (url.includes('/exams/by-subject/s1')) return { data: [PUBLISHED_EXAM] };
+      if (url.includes('/exams/by-subject/s2')) return { data: [] };
+      return { data: [] };
+    });
+    renderWithProviders(['/my-studies?tab=exams'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+
+    // C.1: s1 (has exams) starts EXPANDED — its exam row is visible without any click.
+    expect(await screen.findByText('اختبار القلب')).toBeInTheDocument();
+    // C.1: s2 (zero published exams) is hidden entirely — no collapsed «0 اختبار» row.
+    expect(screen.queryByText('الباطنة')).toBeNull();
+  });
+
+  it('renders the upgraded empty state with a CTA into the exam-courses tab when nothing is published', async () => {
+    getMock.mockImplementation(async (url: string) => {
+      if (url.includes('/subjects/my-subjects')) return { data: EXAM_SUBJECTS };
+      return { data: [] };
+    });
+    renderWithProviders(['/my-studies?tab=exams'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+
+    expect(await screen.findByTestId('exams-empty')).toBeInTheDocument();
+    const cta = screen.getByTestId('exams-empty-cta');
+    expect(cta.getAttribute('href')).toBe('/my-studies?tab=exam-courses');
+    expect(cta.textContent).toContain('الدورات الامتحانية');
+  });
+});
+
 // ================= Courses catalog =================
 
 describe('CoursesCatalog', () => {

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { ClipboardCheck, Clock, ChevronLeft, LoaderCircle, Target } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { ClipboardCheck, Clock, ChevronLeft, LibraryBig, LoaderCircle, Target } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
 import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
@@ -77,9 +78,28 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
     if (subjectsWithExams !== undefined) setEntitlementDenied(null);
   }, [subjectsWithExams]);
 
+  // W15.1 (C.1): zero-exam subjects are hidden entirely — a wall of collapsed
+  // «0 اختبار» rows read as a broken catalog. Only subjects with published exams
+  // reach the accordion. Declared BEFORE the early returns (hooks order).
+  const visibleSubjects = useMemo(
+    () => (subjectsWithExams ?? []).filter((subject) => subject.exams.length > 0),
+    [subjectsWithExams]
+  );
+
+  // W15.1 (C.1): auto-expand the FIRST subject carrying exams — once — so the tab
+  // never opens on a fully-collapsed list. The user stays in control afterwards
+  // (toggling any header, including collapsing the auto-opened one).
+  const autoExpandedRef = useRef(false);
+  useEffect(() => {
+    if (autoExpandedRef.current || visibleSubjects.length === 0) return;
+    autoExpandedRef.current = true;
+    setExpandedSubject((current) => current ?? visibleSubjects[0].subjectId);
+  }, [visibleSubjects]);
+
   const queryDenied = isError && error instanceof EntitlementDeniedError
     ? variantForReason(error.reason)
     : null;
+
   if (entitlementDenied || queryDenied) {
     return (
       <CatalogEntitlementErrorCard
@@ -151,15 +171,42 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
         <div className="flex items-center justify-center py-16">
           <LoaderCircle className="w-8 h-8 animate-spin text-[var(--c-text-muted)]" />
         </div>
-      ) : !subjectsWithExams || subjectsWithExams.length === 0 ? (
-        <div className="text-center py-14 rounded-2xl border border-dashed border-[var(--c-border)]" data-testid="exams-empty">
-          <ClipboardCheck className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" />
-          <p className="text-[var(--c-text-muted)]">لا توجد اختبارات منشورة لموادك بعد</p>
-          <p className="text-xs text-[var(--c-text-faint)] mt-1">الاختبارات الجديدة تظهر هنا بمجرد نشرها</p>
-        </div>
+      ) : visibleSubjects.length === 0 ? (
+        // W15.1 (C.2): the empty state matches the LockedEmptyState anatomy —
+        // decorative gradient blob, tinted icon tile, title + hint, and an actionable
+        // CTA into the exam-courses tab (practice material) instead of a dead end.
+        // Every color rides the --c-* tokens, so dark mode adapts automatically.
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative overflow-hidden rounded-2xl border border-dashed border-[var(--c-border-strong)] bg-[var(--c-surface)] px-6 py-12 text-center"
+          data-testid="exams-empty"
+        >
+          <div
+            className="absolute -top-10 -end-10 h-36 w-36 rounded-full opacity-[0.06] pointer-events-none"
+            style={{ background: 'var(--grad-primary)' }}
+            aria-hidden="true"
+          />
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: 'var(--c-primary-50)', color: 'var(--c-primary-700)' }}>
+            <ClipboardCheck className="w-7 h-7" aria-hidden="true" />
+          </div>
+          <h3 className="mb-1.5 text-base font-bold text-[var(--c-text)]">لا توجد اختبارات منشورة لموادك بعد</h3>
+          <p className="mx-auto mb-5 max-w-sm text-sm leading-relaxed text-[var(--c-text-muted)]">
+            الاختبارات الجديدة تظهر هنا بمجرد نشرها — في هذه الأثناء يمكنك التدرّب على نماذج الاختبارات من الدورات الامتحانية.
+          </p>
+          <Link
+            to="/my-studies?tab=exam-courses"
+            data-testid="exams-empty-cta"
+            className="press inline-flex min-h-11 items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold text-white shadow-md transition-transform hover:scale-[1.03] active:scale-95"
+            style={{ background: 'var(--grad-primary)' }}
+          >
+            <LibraryBig className="h-4 w-4" aria-hidden="true" />
+            انتقل إلى الدورات الامتحانية
+          </Link>
+        </motion.div>
       ) : (
         <div className="space-y-3">
-          {subjectsWithExams.map((subject: SubjectWithExams) => (
+          {visibleSubjects.map((subject: SubjectWithExams) => (
             <div key={subject.subjectId} className="rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] overflow-hidden">
               {/* Subject header */}
               <button
