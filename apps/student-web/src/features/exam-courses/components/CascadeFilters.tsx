@@ -230,7 +230,9 @@ function CascadeSelect({
         )}
       >
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="shrink-0 text-[var(--cms-text-muted)]">{label}:</span>
+          {/* Level prefix: darkens with the selected teal background (axe 2.2 AA —
+              --cms-text-muted on --cms-teal-50 measures below 4.5:1). */}
+          <span className={cn('shrink-0', value ? 'text-[var(--cms-teal-800)]' : 'text-[var(--cms-text-muted)]')}>{label}:</span>
           <span className="truncate">
             {loading ? '…' : selectedLabel ?? selected?.label ?? placeholder}
           </span>
