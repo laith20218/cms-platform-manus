@@ -14,3 +14,5 @@ export { Card } from './components/Card';
 export { Badge } from './components/Badge';
 export { Spinner } from './components/Spinner';
 export { Skeleton } from './components/Skeleton';
+// W15.0 — reusable accessible accordion (lecture/paragraph trees)
+export { Accordion, type AccordionItemData, type AccordionProps } from './components/Accordion';
