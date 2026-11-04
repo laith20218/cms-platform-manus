@@ -44,3 +44,39 @@ export interface FavoriteListParams {
   page: number;
   pageSize: number;
 }
+
+// ===== W15.0 — custom favorites lists (named question collections) =====
+// Mirrors CMS.Application/DTOs/Favorites/FavoriteListDtos.cs exactly.
+
+export interface FavoriteListSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  color: string | null;
+  questionsCount: number;
+  /** Only set when the query carried a questionId (the QuestionPage picker) —
+   *  resolved server-side in the same round-trip, no N+1 per-list fetches. */
+  containsQuestion: boolean | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateFavoriteListPayload {
+  name: string;
+  description?: string | null;
+  color?: string | null;
+}
+
+/** Partial update — null/omitted fields stay unchanged server-side. */
+export interface UpdateFavoriteListPayload {
+  name?: string | null;
+  description?: string | null;
+  color?: string | null;
+}
+
+export interface FavoriteListQuestionsParams {
+  listId: string;
+  search?: string;
+  page: number;
+  pageSize: number;
+}
