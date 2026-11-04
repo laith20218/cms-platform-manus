@@ -61,6 +61,8 @@ public class Student : BaseEntity
     public ICollection<DeviceBinding> DeviceBindings { get; private set; } = new List<DeviceBinding>();
     public ICollection<AttemptLog> AttemptLogs { get; private set; } = new List<AttemptLog>();
     public ICollection<Favorite> Favorites { get; private set; } = new List<Favorite>();
+    // W15.0: student-owned custom favorites lists (named question collections)
+    public ICollection<FavoriteList> FavoriteLists { get; private set; } = new List<FavoriteList>();
 
     public static Student Create(string phone, string passwordHash, string fullName)
     {

@@ -1,6 +1,7 @@
 using System.Net;
 using CMS.Domain.Common;
 using CMS.Domain.Enums;
+using CMS.Domain.Exceptions;
 
 namespace CMS.Domain.Entities;
 
@@ -221,6 +222,92 @@ public class Favorite : BaseEntity
     public Question? Question { get; set; }
     public LibraryFile? LibraryFile { get; set; }
     public CourseEpisode? CourseEpisode { get; set; }
+}
+
+/// <summary>
+/// W15.0 — a student-owned NAMED list of questions ("custom favorites list", e.g.
+/// «Anatomy - Hard"). Deliberately SEPARATE from the flat polymorphic Favorite bucket:
+/// the favorites table's filtered unique indexes forbid the same question appearing
+/// twice for one student, while list membership is (list, question)-scoped. The header
+/// follows the AuditableEntity pattern (soft-delete capable); CreatedBy carries the
+/// owning student's id.
+/// </summary>
+public class FavoriteList : AuditableEntity
+{
+    public Guid StudentId { get; private set; }
+
+    /// <summary>Display name — required, clamped to 100 characters by the handler.</summary>
+    public string Name { get; private set; } = string.Empty;
+
+    public string? Description { get; private set; }
+
+    /// <summary>Optional color chip (e.g. "#e11d48"). Pure presentation metadata.</summary>
+    public string? Color { get; private set; }
+
+    public Student Student { get; private set; } = null!;
+    public ICollection<FavoriteListItem> Items { get; private set; } = new List<FavoriteListItem>();
+
+    public static FavoriteList Create(Guid studentId, string name, string? description, string? color)
+    {
+        if (studentId == Guid.Empty)
+            throw new DomainException("StudentId is required");
+        if (string.IsNullOrWhiteSpace(name))
+            throw new DomainException("اسم القائمة مطلوب", "FAVORITE_LIST_NAME_REQUIRED");
+
+        return new FavoriteList
+        {
+            StudentId = studentId,
+            Name = name.Trim(),
+            Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim(),
+            Color = string.IsNullOrWhiteSpace(color) ? null : color.Trim(),
+            CreatedBy = studentId
+        };
+    }
+
+    /// <summary>
+    /// Partial update (rename / re-color): null fields stay unchanged; a name must stay
+    /// non-empty. Empty strings clear Description/Color back to null.
+    /// </summary>
+    public void Update(string? name, string? description, string? color)
+    {
+        if (name is not null)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new DomainException("اسم القائمة مطلوب", "FAVORITE_LIST_NAME_REQUIRED");
+            Name = name.Trim();
+        }
+        if (description is not null)
+            Description = description.Trim();
+        if (color is not null)
+            Color = color.Trim();
+        UpdatedAt = DateTime.UtcNow;
+    }
+}
+
+/// <summary>
+/// W15.0 — one question's membership in a student's FavoriteList. Join-row semantics
+/// follow the ExamCourseItem precedent: both FKs CASCADE (a membership row is
+/// meaningless without its list OR its question), and (FavoriteListId, QuestionId) is
+/// unique. CreatedAt (from BaseEntity) doubles as the "added at" timestamp for
+/// recently-added-first ordering inside a list.
+/// </summary>
+public class FavoriteListItem : BaseEntity
+{
+    public Guid FavoriteListId { get; private set; }
+    public Guid QuestionId { get; private set; }
+
+    public FavoriteList List { get; private set; } = null!;
+    public Question Question { get; private set; } = null!;
+
+    public static FavoriteListItem Create(Guid favoriteListId, Guid questionId)
+    {
+        if (favoriteListId == Guid.Empty)
+            throw new DomainException("FavoriteListId is required");
+        if (questionId == Guid.Empty)
+            throw new DomainException("QuestionId is required");
+
+        return new FavoriteListItem { FavoriteListId = favoriteListId, QuestionId = questionId };
+    }
 }
 
 /// <summary>

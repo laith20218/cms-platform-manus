@@ -57,6 +57,8 @@ public class Question : AuditableEntity
     public ICollection<ExamQuestion> ExamQuestions { get; private set; } = new List<ExamQuestion>();
     public List<QuestionOption> Options { get; private set; } = new();
     public ICollection<QuestionImage> Images { get; private set; } = new List<QuestionImage>();
+    // W15.0: memberships in student-owned custom favorites lists
+    public ICollection<FavoriteListItem> FavoriteListItems { get; private set; } = new List<FavoriteListItem>();
 
     // Factory method
     public static Question Create(

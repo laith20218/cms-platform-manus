@@ -869,9 +869,6 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.HasIndex("AssignedTo")
                         .HasDatabaseName("ix_error_reports_assigned_to");
 
-                    b.HasIndex("QuestionId", "Status")
-                        .HasDatabaseName("ix_error_reports_question_id_status");
-
                     b.HasIndex("ResolverId")
                         .HasDatabaseName("ix_error_reports_resolver_id");
 
@@ -880,6 +877,9 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("StudentId")
                         .HasDatabaseName("ix_error_reports_student_id");
+
+                    b.HasIndex("QuestionId", "Status")
+                        .HasDatabaseName("ix_error_reports_question_id_status");
 
                     b.HasIndex("Status", "AssignedTo")
                         .HasDatabaseName("ix_error_reports_status_assigned_to");
@@ -1122,12 +1122,12 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_exam_course_items");
 
+                    b.HasIndex("ExamId")
+                        .HasDatabaseName("ix_exam_course_items_exam_id");
+
                     b.HasIndex("ExamCourseId", "ExamId")
                         .IsUnique()
                         .HasDatabaseName("ix_exam_course_items_exam_course_id_exam_id");
-
-                    b.HasIndex("ExamId")
-                        .HasDatabaseName("ix_exam_course_items_exam_id");
 
                     b.ToTable("exam_course_items");
                 });
@@ -1464,6 +1464,98 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_favorites_exactly_one_target", "(question_id IS NOT NULL AND library_file_id IS NULL AND course_episode_id IS NULL) OR (question_id IS NULL AND library_file_id IS NOT NULL AND course_episode_id IS NULL) OR (question_id IS NULL AND library_file_id IS NULL AND course_episode_id IS NOT NULL)");
                         });
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.FavoriteList", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("color");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("student_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_favorite_lists");
+
+                    b.HasIndex("StudentId")
+                        .HasDatabaseName("ix_favorite_lists_student_id");
+
+                    b.ToTable("favorite_lists");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.FavoriteListItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("FavoriteListId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("favorite_list_id");
+
+                    b.Property<Guid>("QuestionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("question_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_favorite_list_items");
+
+                    b.HasIndex("QuestionId")
+                        .HasDatabaseName("ix_favorite_list_items_question_id");
+
+                    b.HasIndex("FavoriteListId", "QuestionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_favorite_list_items_favorite_list_id_question_id");
+
+                    b.ToTable("favorite_list_items");
                 });
 
             modelBuilder.Entity("CMS.Domain.Entities.FileAnnotation", b =>
@@ -2332,11 +2424,11 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_practice_answers");
 
-                    b.HasIndex("PracticeSessionId", "QuestionId")
-                        .HasDatabaseName("ix_practice_answers_practice_session_id_question_id");
-
                     b.HasIndex("QuestionId")
                         .HasDatabaseName("ix_practice_answers_question_id");
+
+                    b.HasIndex("PracticeSessionId", "QuestionId")
+                        .HasDatabaseName("ix_practice_answers_practice_session_id_question_id");
 
                     b.ToTable("practice_answers");
                 });
@@ -3746,6 +3838,39 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Navigation("Student");
                 });
 
+            modelBuilder.Entity("CMS.Domain.Entities.FavoriteList", b =>
+                {
+                    b.HasOne("CMS.Domain.Entities.Student", "Student")
+                        .WithMany("FavoriteLists")
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_favorite_lists_students_student_id");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.FavoriteListItem", b =>
+                {
+                    b.HasOne("CMS.Domain.Entities.FavoriteList", "List")
+                        .WithMany("Items")
+                        .HasForeignKey("FavoriteListId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_favorite_list_items_favorite_lists_favorite_list_id");
+
+                    b.HasOne("CMS.Domain.Entities.Question", "Question")
+                        .WithMany("FavoriteListItems")
+                        .HasForeignKey("QuestionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_favorite_list_items_questions_question_id");
+
+                    b.Navigation("List");
+
+                    b.Navigation("Question");
+                });
+
             modelBuilder.Entity("CMS.Domain.Entities.FileAnnotation", b =>
                 {
                     b.HasOne("CMS.Domain.Entities.LibraryFile", "File")
@@ -4151,11 +4276,21 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Navigation("Sessions");
                 });
 
+            modelBuilder.Entity("CMS.Domain.Entities.ExamCourse", b =>
+                {
+                    b.Navigation("Items");
+                });
+
             modelBuilder.Entity("CMS.Domain.Entities.ExamSession", b =>
                 {
                     b.Navigation("AttemptLogs");
 
                     b.Navigation("SessionQuestions");
+                });
+
+            modelBuilder.Entity("CMS.Domain.Entities.FavoriteList", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("CMS.Domain.Entities.Lecture", b =>
@@ -4175,9 +4310,16 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Navigation("Deliveries");
                 });
 
+            modelBuilder.Entity("CMS.Domain.Entities.PracticeSession", b =>
+                {
+                    b.Navigation("Answers");
+                });
+
             modelBuilder.Entity("CMS.Domain.Entities.Question", b =>
                 {
                     b.Navigation("ExamQuestions");
+
+                    b.Navigation("FavoriteListItems");
 
                     b.Navigation("Images");
 
@@ -4194,6 +4336,8 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Navigation("AttemptLogs");
 
                     b.Navigation("DeviceBindings");
+
+                    b.Navigation("FavoriteLists");
 
                     b.Navigation("Favorites");
 

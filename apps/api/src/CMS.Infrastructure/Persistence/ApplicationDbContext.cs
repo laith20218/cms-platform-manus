@@ -59,6 +59,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<AdminPermission> AdminPermissions => Set<AdminPermission>();
     public DbSet<DeviceBinding> DeviceBindings => Set<DeviceBinding>();
     public DbSet<Favorite> Favorites => Set<Favorite>();
+    // W15.0: student-owned custom favorites lists (named question collections)
+    public DbSet<FavoriteList> FavoriteLists => Set<FavoriteList>();
+    public DbSet<FavoriteListItem> FavoriteListItems => Set<FavoriteListItem>();
 
     // Push 10.0: media bookmarks + playback progress
     public DbSet<MediaBookmark> MediaBookmarks => Set<MediaBookmark>();
@@ -398,6 +401,43 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
                 .WithMany()
                 .HasForeignKey(x => x.CourseEpisodeId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // W15.0 — custom favorites lists: header + join rows. Kept separate from the flat
+        // polymorphic favorites bucket (see the FavoriteList entity docblock): membership
+        // is (list, question)-scoped, so the same question MAY appear in several lists.
+        modelBuilder.Entity<FavoriteList>(entity =>
+        {
+            entity.Property(x => x.Name).HasMaxLength(100);
+            entity.Property(x => x.Description).HasMaxLength(500);
+            entity.Property(x => x.Color).HasMaxLength(20);
+            entity.HasIndex(x => x.StudentId)
+                .HasDatabaseName("ix_favorite_lists_student_id");
+            // Student-owned data: cascade with the student, exactly like Favorite.StudentId.
+            entity.HasOne(x => x.Student)
+                .WithMany(x => x.FavoriteLists)
+                .HasForeignKey(x => x.StudentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<FavoriteListItem>(entity =>
+        {
+            // One membership row per (list, question) — multi-list membership is the point.
+            entity.HasIndex(x => new { x.FavoriteListId, x.QuestionId })
+                .HasDatabaseName("ix_favorite_list_items_favorite_list_id_question_id")
+                .IsUnique();
+            // Reverse lookup: "which of MY lists contain this question" (the picker).
+            entity.HasIndex(x => x.QuestionId)
+                .HasDatabaseName("ix_favorite_list_items_question_id");
+            // Both FKs cascade (ExamCourseItem precedent): a membership row is meaningless
+            // without its list OR its question.
+            entity.HasOne(x => x.List)
+                .WithMany(x => x.Items)
+                .HasForeignKey(x => x.FavoriteListId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Question)
+                .WithMany(x => x.FavoriteListItems)
+                .HasForeignKey(x => x.QuestionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<MediaBookmark>(entity =>
