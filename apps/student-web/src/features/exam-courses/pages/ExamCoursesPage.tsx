@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
@@ -13,6 +13,7 @@ import { practiceApi, type CategorizedLecture, type CategorizedTree } from '@/fe
 import { isEntitlementDenied, variantForReason } from '@/features/my-studies/services/courses-api';
 import { CatalogEntitlementErrorCard, CatalogErrorCard } from '@/features/my-studies/components/CatalogErrorCards';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
+import { CascadeFilters, type CascadeValue } from '../components/CascadeFilters';
 
 /**
  * W14.4 (A.2) — "الدورات الامتحانية" student storefront.
@@ -36,17 +37,73 @@ const TABS: { key: TabKey; label: string; icon: typeof CalendarDays }[] = [
   { key: 'categorized', label: 'دورات مصنفة', icon: Layers },
 ];
 
+/** W15.0 — persisted last-filter state (URL params remain the in-session source of
+ *  truth; localStorage survives reloads and new sessions). Server-side persistence via
+ *  the Phase-1 /student/preferences endpoint is a post-merge follow-up (this branch
+ *  builds on main, which does not carry that API). */
+const CASCADE_STORAGE_KEY = 'cms-exam-courses-filters-v1';
+
 export default function ExamCoursesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const mySubjects = useMySubjects();
 
-  const subjects = mySubjects.data ?? [];
+  const subjects = useMemo(() => mySubjects.data ?? [], [mySubjects.data]);
   const routeSubjectId = searchParams.get('subjectId');
   const subjectId = routeSubjectId && subjects.some((s) => s.id === routeSubjectId)
     ? routeSubjectId
     : subjects[0]?.id ?? null;
   const tab: TabKey = searchParams.get('tab') === 'categorized' ? 'categorized' : 'years';
+
+  // W15.0 — the cascade lives in the URL (deep-linkable); every level is optional.
+  const cascade: CascadeValue = {
+    universityId: searchParams.get('universityId'),
+    collegeId: searchParams.get('collegeId'),
+    yearId: searchParams.get('yearId'),
+    semesterId: searchParams.get('semesterId'),
+  };
+  const entitledSubjectIds = useMemo(() => new Set(subjects.map((s) => s.id)), [subjects]);
+
+  // Bootstrap: when the URL carries NO cascade, restore the persisted last-filter
+  // state once (validated: the stored subject must still be entitled; ancestors are
+  // trusted — a deleted ancestor simply yields empty child lists, resettable).
+  const bootstrappedRef = useRef(false);
+  useEffect(() => {
+    if (bootstrappedRef.current || mySubjects.isLoading) return;
+    bootstrappedRef.current = true;
+    if (cascade.universityId || cascade.collegeId || cascade.yearId || cascade.semesterId) return; // URL wins
+    let stored: Partial<CascadeValue & { subjectId?: string | null }> = {};
+    try {
+      stored = JSON.parse(window.localStorage.getItem(CASCADE_STORAGE_KEY) ?? '{}') as typeof stored;
+    } catch {
+      return; // corrupt storage — ignore silently
+    }
+    const next = new URLSearchParams(searchParams);
+    let touched = false;
+    if (stored.universityId) { next.set('universityId', stored.universityId); touched = true; }
+    if (stored.collegeId) { next.set('collegeId', stored.collegeId); touched = true; }
+    if (stored.yearId) { next.set('yearId', stored.yearId); touched = true; }
+    if (stored.semesterId) { next.set('semesterId', stored.semesterId); touched = true; }
+    if (!routeSubjectId && stored.subjectId && subjects.some((s) => s.id === stored.subjectId)) {
+      next.set('subjectId', stored.subjectId);
+      touched = true;
+    }
+    if (touched) setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot bootstrap by design
+  }, [mySubjects.isLoading, subjects]);
+
+  // Persist the last-filter state on every change (cascade + subject). Gated on the
+  // bootstrap pass — otherwise the very first (empty) render would clobber the stored
+  // state before it can be restored.
+  useEffect(() => {
+    if (!bootstrappedRef.current) return;
+    try {
+      window.localStorage.setItem(CASCADE_STORAGE_KEY, JSON.stringify({ ...cascade, subjectId }));
+    } catch {
+      /* storage unavailable (private mode/quota) — non-fatal, URL params still work */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate field-level deps: `cascade` is a fresh object every render; depending on it wholesale would write storage each render
+  }, [cascade.universityId, cascade.collegeId, cascade.yearId, cascade.semesterId, subjectId]);
 
   // Year/Semester are display-level filters (one unfiltered fetch per subject,
   // client-side narrowing — the list is small and this avoids refetch churn).
@@ -83,13 +140,27 @@ export default function ExamCoursesPage() {
   );
 
   const switchTab = (key: TabKey) => {
-    const next: Record<string, string> = { tab: key };
-    if (subjectId) next.subjectId = subjectId;
-    setSearchParams(next, { replace: true });
+    updateParams({ tab: key });
   };
 
   const chooseSubject = (id: string) => {
-    setSearchParams({ tab, subjectId: id }, { replace: true });
+    updateParams({ subjectId: id });
+  };
+
+  /** Unified URL writer — always carries tab + subjectId + the non-null cascade
+   *  levels, so deep links stay canonical and filters survive tab/subject switches. */
+  const updateParams = (patch: { tab?: TabKey; subjectId?: string | null; cascade?: CascadeValue }) => {
+    const nextTab = patch.tab ?? tab;
+    const nextSubjectId = patch.subjectId !== undefined ? patch.subjectId : subjectId;
+    const nextCascade = patch.cascade ?? cascade;
+    const next = new URLSearchParams();
+    next.set('tab', nextTab);
+    if (nextSubjectId) next.set('subjectId', nextSubjectId);
+    if (nextCascade.universityId) next.set('universityId', nextCascade.universityId);
+    if (nextCascade.collegeId) next.set('collegeId', nextCascade.collegeId);
+    if (nextCascade.yearId) next.set('yearId', nextCascade.yearId);
+    if (nextCascade.semesterId) next.set('semesterId', nextCascade.semesterId);
+    setSearchParams(next, { replace: true });
   };
 
   const subject = subjects.find((s) => s.id === subjectId) ?? null;
@@ -120,6 +191,17 @@ export default function ExamCoursesPage() {
   return (
     <div className="max-w-4xl mx-auto">
       <PageHeader subjectName={subject?.nameAr ?? null} />
+
+      {/* W15.0 — University → College → Year → Semester → Subject cascade (URL-
+          persisted, localStorage-restored, deep-linkable). Entitled subjects only at
+          the subject level (A.1 ruling). */}
+      <CascadeFilters
+        value={cascade}
+        onChange={(next) => updateParams({ cascade: next })}
+        subjectId={subjectId}
+        onSelectSubject={(id) => updateParams({ subjectId: id })}
+        entitledSubjectIds={entitledSubjectIds}
+      />
 
       {/* Subject chips — entitled subjects only (A.1 visibility ruling). */}
       <FilterRow label="المادة" testId="subject-filter-row">

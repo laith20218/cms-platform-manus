@@ -17,3 +17,9 @@ if (typeof globalThis.DOMMatrixReadOnly === 'undefined') {
     constructor() { /* no-op */ }
   };
 }
+
+// jsdom lacks scrollIntoView — Radix Select scrolls the highlighted/selected item
+// into view whenever the open list mounts or the value changes.
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+  (Element.prototype as unknown as { scrollIntoView: () => void }).scrollIntoView = () => { /* no-op */ };
+}
