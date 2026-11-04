@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Clock, Flag, Loader2, Target, TrendingUp, XCircle } from 'lucide-react';
+import { AlertTriangle, Clock, Flag, Loader2, Target, TrendingUp, XCircle } from 'lucide-react';
 import { examApi, type ExamQuestion, type ExamResult, type ExamSession } from '../services/exam-api';
+import { QuestionRow } from '@/components/QuestionRow';
 
 type Phase = 'loading' | 'exam' | 'submitting' | 'results' | 'error';
 
@@ -23,7 +24,6 @@ export default function ExamPage() {
   const navigate = useNavigate();
   const [phase, setPhase] = useState<Phase>('loading');
   const [session, setSession] = useState<ExamSession | null>(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [timeLeft, setTimeLeft] = useState(0);
   const [result, setResult] = useState<ExamResult | null>(null);
@@ -33,8 +33,7 @@ export default function ExamPage() {
 
   const hydrateSession = useCallback((data: ExamSession) => {
     const restoredAnswers = Object.fromEntries(data.questions.map(question => [question.id, parseSavedAnswer(question.savedAnswer)]).filter(([, answer]) => answer.length > 0));
-    const safeIndex = Math.min(Math.max(data.currentQuestionOrder ?? 0, 0), Math.max(0, data.questions.length - 1));
-    setSession(data); setAnswers(restoredAnswers); setCurrentIndex(safeIndex); setTimeLeft(remainingSeconds(data.expiresAt));
+    setSession(data); setAnswers(restoredAnswers); setTimeLeft(remainingSeconds(data.expiresAt));
   }, []);
 
   const loadResult = useCallback(async (sessionId: string) => {
@@ -73,7 +72,7 @@ export default function ExamPage() {
   const retakeAttempt = useCallback(async () => {
     if (!examId) return;
     sessionStorage.removeItem(sessionStorageKey(examId));
-    setSession(null); setResult(null); setAnswers({}); setCurrentIndex(0);
+    setSession(null); setResult(null); setAnswers({});
     await openAttempt();
   }, [examId, openAttempt]);
 
@@ -107,25 +106,17 @@ export default function ExamPage() {
     } finally { setSavingQuestionId(null); }
   }, [loadResult, session]);
 
-  const handleSelectOption = useCallback((question: ExamQuestion, optionId: string) => {
+  // W15.0 (P4-C3): the inline list has no "current" index — each selection saves with
+  // ITS OWN question index (the workorder's contract), so the resume order tracks the
+  // last question the student actually answered.
+  const handleSelectOption = useCallback((question: ExamQuestion, optionId: string, index: number) => {
     const current = answers[question.id] ?? [];
     const next = question.type === 'MultipleSelect'
       ? (current.includes(optionId) ? current.filter(id => id !== optionId) : [...current, optionId])
       : [optionId];
     setAnswers(previous => ({ ...previous, [question.id]: next }));
-    void saveSelection(question, next, currentIndex);
-  }, [answers, currentIndex, saveSelection]);
-
-  const goToQuestion = useCallback((index: number) => {
-    if (!session || index < 0 || index >= session.questions.length) return;
-    const current = session.questions[currentIndex];
-    setCurrentIndex(index);
-    if (current) {
-      void examApi.saveProgress(session.sessionId, current.id, index).catch(() => {
-        toast.error('تعذر حفظ موضع الاستئناف. ستبقى الإجابات المحفوظة آمنة.');
-      });
-    }
-  }, [currentIndex, session]);
+    void saveSelection(question, next, index);
+  }, [answers, saveSelection]);
 
   const submit = useCallback(async () => {
     if (!session) return;
@@ -154,21 +145,40 @@ export default function ExamPage() {
   if (phase === 'results' && result) return <ExamResults result={result} onBack={() => { if (examId) sessionStorage.removeItem(sessionStorageKey(examId)); navigate(-1); }} onReview={() => navigate(`/exams/${result.sessionId}/review`)} onRetake={() => void retakeAttempt()} />;
   if (!session || session.questions.length === 0) return null;
 
-  const currentQuestion = session.questions[currentIndex];
-  const selected = answers[currentQuestion.id] ?? [];
-  const isLastQuestion = currentIndex === session.questions.length - 1;
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
   const isTimeLow = timeLeft < 300;
 
   return <div className="space-y-4 max-w-[900px] mx-auto">
     <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border backdrop-blur-xl" style={{ background: 'var(--c-glass)', borderColor: 'var(--c-border-glass)' }}>
-      <div className="flex-1"><h2 className="text-sm font-bold text-[var(--c-text)] truncate">{session.examTitle}</h2><div className="text-xs text-[var(--c-text-muted)] mt-0.5">السؤال <span className="font-bold" lang="en">{currentIndex + 1}</span> من <span lang="en">{session.totalQuestions}</span>{' • '}مجاب: <span className="font-bold text-[var(--c-primary-700)]" lang="en">{answeredCount}</span></div></div>
+      <div className="flex-1"><h2 className="text-sm font-bold text-[var(--c-text)] truncate">{session.examTitle}</h2><div className="text-xs text-[var(--c-text-muted)] mt-0.5">مجاب: <span className="font-bold text-[var(--c-primary-700)]" lang="en">{answeredCount}</span> من <span lang="en">{session.totalQuestions}</span></div></div>
       <div className="flex items-center gap-2"><div className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm ${isTimeLow ? 'bg-[var(--c-danger-50)] text-[var(--c-danger-700)] animate-pulse' : 'bg-[var(--c-primary-50)] text-[var(--c-primary-700)]'}`}><Clock className="w-4 h-4" /><span lang="en">{String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}</span></div>{answeredCount === 0 && <button onClick={() => void cancelAttempt()} className="hidden sm:inline text-xs font-semibold text-[var(--c-danger-600)] hover:underline">إلغاء المحاولة</button>}</div>
     </div>
-    <div className="h-1.5 bg-[var(--c-neutral-200)] rounded-full overflow-hidden"><motion.div className="h-full rounded-full" style={{ background: 'var(--grad-primary)' }} animate={{ width: `${((currentIndex + 1) / session.totalQuestions) * 100}%` }} transition={{ duration: 0.3 }} /></div>
-    <motion.div key={currentQuestion.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="bg-[var(--c-surface)] border border-[var(--c-border)] rounded-2xl p-6 shadow-md"><p className="text-[17px] font-semibold text-[var(--c-text)] leading-relaxed mb-5">{currentQuestion.text}</p>{currentQuestion.images.length > 0 && <div className="grid gap-3 mb-5">{currentQuestion.images.map(image => <img key={image.id} src={image.imageUrl} alt={image.altText ?? 'صورة مرفقة بالسؤال'} className="rounded-xl max-h-80 object-contain border border-[var(--c-border)]" />)}</div>}<div className="space-y-2.5">{currentQuestion.options.map(option => { const isSelected = selected.includes(option.id); return <button key={option.id} disabled={savingQuestionId === currentQuestion.id} onClick={() => handleSelectOption(currentQuestion, option.id)} className={`w-full flex items-center gap-3.5 p-3.5 rounded-xl border-[1.5px] transition-all text-right disabled:opacity-70 ${isSelected ? 'border-[var(--c-primary-500)] bg-[var(--c-primary-50)] shadow-[var(--shadow-glow-primary)]' : 'border-[var(--c-border-strong)] bg-[var(--c-surface)] hover:border-[var(--c-primary-300)] hover:bg-[var(--c-primary-50)]'}`}><div className={`w-8 h-8 rounded-[8px] flex items-center justify-center font-bold text-[13px] shrink-0 ${isSelected ? 'bg-[var(--c-primary-700)] text-white' : 'bg-[var(--c-bg)] text-[var(--c-text-soft)]'}`} lang="en">{option.letter}</div><span className="flex-1 text-[15px] font-medium text-[var(--c-text)]">{option.text}</span>{isSelected && <Check className="w-5 h-5 text-[var(--c-primary-700)]" />}</button>; })}</div>{currentQuestion.type === 'MultipleSelect' && <p className="text-xs text-[var(--c-text-muted)] mt-4">يمكن اختيار أكثر من إجابة عند الحاجة، ويُحفظ التعديل فوراً.</p>}</motion.div>
-    <div className="flex items-center justify-between gap-3"><button onClick={() => goToQuestion(currentIndex - 1)} disabled={currentIndex === 0} className="flex items-center gap-1.5 px-4 py-2.5 rounded-[10px] border border-[var(--c-border-strong)] text-sm font-semibold text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] disabled:opacity-40 disabled:cursor-not-allowed transition-all"><ChevronRight className="w-4 h-4" />السابق</button><div className="hidden md:flex items-center gap-1.5 flex-wrap justify-center max-w-[400px]">{session.questions.map((question, index) => { const isAnswered = (answers[question.id] ?? []).length > 0; const isCurrent = index === currentIndex; return <button key={question.id} onClick={() => goToQuestion(index)} className={`w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${isCurrent ? 'bg-[var(--c-primary-700)] text-white' : isAnswered ? 'bg-[var(--c-success-100)] text-[var(--c-success-700)]' : 'bg-[var(--c-neutral-100)] text-[var(--c-text-muted)] hover:bg-[var(--c-primary-50)]'}`} lang="en">{index + 1}</button>; })}</div>{isLastQuestion ? <button onClick={() => setShowSubmitConfirm(true)} className="flex items-center gap-1.5 px-5 py-2.5 rounded-[10px] font-bold text-sm text-white transition-all" style={{ background: 'var(--grad-success)', boxShadow: '0 4px 12px rgba(0,200,83,0.25)' }}><Flag className="w-4 h-4" />تسليم الاختبار</button> : <button onClick={() => goToQuestion(currentIndex + 1)} className="flex items-center gap-1.5 px-4 py-2.5 rounded-[10px] font-bold text-sm text-white transition-all" style={{ background: 'var(--grad-primary)', boxShadow: '0 4px 12px rgba(25,118,210,0.25)' }}>التالي<ChevronLeft className="w-4 h-4" /></button>}</div>
+    <div className="h-1.5 bg-[var(--c-neutral-200)] rounded-full overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={session.totalQuestions} aria-valuenow={answeredCount} aria-label="تقدم الاختبار"><motion.div className="h-full rounded-full" style={{ background: 'var(--grad-primary)' }} animate={{ width: `${(answeredCount / Math.max(1, session.totalQuestions)) * 100}%` }} transition={{ duration: 0.3 }} /></div>
+    {/* W15.0 (P4-C3) — the question LIST: every exam question renders as a shared
+        <QuestionRow> (no pager). Selections still autosave immediately with the
+        question's OWN index; NO correctness is shown during the run (server-gated
+        to the post-submit review). */}
+    <div className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] px-4 py-1 shadow-md sm:px-6" data-testid="exam-list">
+      {session.questions.map((question, index) => (
+        <QuestionRow
+          key={question.id}
+          testIdPrefix="exam"
+          question={question}
+          index={index}
+          total={session.totalQuestions}
+          isAnswered={(answers[question.id] ?? []).length > 0}
+          selected={answers[question.id] ?? []}
+          pending={savingQuestionId === question.id}
+          onSelect={(optionId) => handleSelectOption(question, optionId, index)}
+        />
+      ))}
+    </div>
+
+    {/* Submit CTA — always visible under the list (was the last-question footer). */}
+    <div className="flex items-center justify-center">
+      <button onClick={() => setShowSubmitConfirm(true)} className="flex items-center gap-1.5 px-5 py-2.5 rounded-[10px] font-bold text-sm text-white transition-all" style={{ background: 'var(--grad-success)', boxShadow: '0 4px 12px rgba(0,200,83,0.25)' }}><Flag className="w-4 h-4" />تسليم الاختبار</button>
+    </div>
     <AnimatePresence>{showSubmitConfirm && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'var(--c-overlay)' }} onClick={() => setShowSubmitConfirm(false)}><motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-[var(--c-surface)] rounded-2xl p-6 max-w-md w-full" onClick={event => event.stopPropagation()}><div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 mx-auto" style={{ background: 'rgba(255,179,0,0.10)' }}><AlertTriangle className="w-6 h-6 text-[var(--c-warning-500)]" /></div><h3 className="text-lg font-bold text-center mb-2">تأكيد التسليم</h3><p className="text-sm text-[var(--c-text-muted)] text-center mb-1">أجبت على <strong className="text-[var(--c-text)]" lang="en">{answeredCount}</strong> من <strong className="text-[var(--c-text)]" lang="en">{session.totalQuestions}</strong> سؤال.</p>{answeredCount < session.totalQuestions && <p className="text-xs text-[var(--c-danger-500)] text-center mb-4">هناك {session.totalQuestions - answeredCount} سؤال غير مجاب.</p>}<div className="flex gap-2 justify-center mt-4"><button onClick={() => setShowSubmitConfirm(false)} className="px-5 py-2.5 rounded-[10px] text-sm font-semibold text-[var(--c-text-muted)] hover:bg-[var(--c-neutral-100)] transition-colors">متابعة الحل</button><button onClick={() => void submit()} className="px-5 py-2.5 rounded-[10px] text-sm font-bold text-white bg-[var(--c-success-500)] hover:bg-[var(--c-success-600)] transition-colors">تسليم نهائي</button></div></motion.div></motion.div>}</AnimatePresence>
   </div>;
 }
