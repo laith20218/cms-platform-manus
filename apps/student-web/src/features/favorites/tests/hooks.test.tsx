@@ -214,8 +214,18 @@ describe('FavoritesPage', () => {
     );
   }
 
+  /** W15.0: the page now issues TWO GETs (flat favorites + the custom-lists chips
+   *  row). Route the shared getMock by URL so /favorites/lists always answers an
+   *  array (empty by default) while /favorites keeps the fixture envelope. */
+  function mockGets(favoritesData: PagedFavorites, listsData: unknown[] = []) {
+    getMock.mockImplementation((url: string) =>
+      url === '/favorites/lists'
+        ? Promise.resolve({ data: listsData })
+        : Promise.resolve({ data: favoritesData }));
+  }
+
   it('normalizes out-of-domain URL params to canonical defaults', async () => {
-    getMock.mockResolvedValue({ data: page([]) });
+    mockGets(page([]));
     renderPage('/favorites?type=podcast&sort=random&page=-3');
 
     await waitFor(() => expect(getMock).toHaveBeenCalled());
@@ -225,7 +235,7 @@ describe('FavoritesPage', () => {
   });
 
   it('renders the per-tab empty state copy for episodes', async () => {
-    getMock.mockResolvedValue({ data: page([]) });
+    mockGets(page([]));
     renderPage('/favorites?type=episode');
 
     expect(await screen.findByTestId('favorites-empty')).toBeInTheDocument();
@@ -233,7 +243,7 @@ describe('FavoritesPage', () => {
   });
 
   it('renders enriched cards and hides متابعة on non-episode types', async () => {
-    getMock.mockResolvedValue({ data: page([EPISODE_ITEM, FILE_ITEM], 2) });
+    mockGets(page([EPISODE_ITEM, FILE_ITEM], 2));
     renderPage('/favorites');
 
     expect(await screen.findByTestId('favorite-card-episode')).toBeInTheDocument();
@@ -243,5 +253,46 @@ describe('FavoritesPage', () => {
     expect(screen.queryAllByTestId('favorite-continue')).toHaveLength(1);
     // Duration badge rendered from the enriched payload.
     expect(screen.getByText('40:00')).toBeInTheDocument();
+  });
+
+  it('W15.0: renders list chips and switches to list-scoped browse via ?listId=', async () => {
+    const listsFixture = [
+      { id: 'list-1', name: 'التشريح — صعبة', description: null, color: '#e11d48', questionsCount: 2, containsQuestion: null, createdAt: '2026-11-01T10:00:00Z', updatedAt: '2026-11-01T10:00:00Z' },
+      { id: 'list-2', name: 'مراجعة سريعة', description: null, color: null, questionsCount: 0, containsQuestion: null, createdAt: '2026-11-02T10:00:00Z', updatedAt: '2026-11-02T10:00:00Z' },
+    ];
+    const listQuestions = page([EPISODE_ITEM, FILE_ITEM], 2);
+    getMock.mockImplementation((url: string) =>
+      url === '/favorites/lists'
+        ? Promise.resolve({ data: listsFixture })
+        : url === '/favorites/lists/list-1/questions'
+          ? Promise.resolve({ data: listQuestions })
+          : Promise.resolve({ data: page([]) }));
+
+    renderPage('/favorites?listId=list-1');
+
+    // Chips row: «الكل» + both lists, the first selected.
+    expect(await screen.findByTestId('favorites-list-chip-all')).toBeInTheDocument();
+    expect(await screen.findByTestId('favorites-list-chip-list-1')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('favorites-list-chip-list-2')).toBeInTheDocument();
+
+    // List-scoped browse: the questions-in-list GET fired, its cards render, and the
+    // flat type tabs are hidden (a list holds questions only).
+    await waitFor(() =>
+      expect(getMock).toHaveBeenCalledWith('/favorites/lists/list-1/questions', expect.objectContaining({
+        params: { search: undefined, page: 1, pageSize: 20 },
+      })));
+    expect(await screen.findByTestId('favorite-card-episode')).toBeInTheDocument();
+    expect(screen.queryByTestId('favorites-tab-all')).not.toBeInTheDocument();
+    expect(screen.getByTestId('favorites-back-to-all')).toBeInTheDocument();
+  });
+
+  it('W15.0: a stale ?listId= falls back to «الكل» silently', async () => {
+    mockGets(page([]));
+    renderPage('/favorites?listId=does-not-exist');
+
+    expect(await screen.findByTestId('favorites-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('favorites-list-chip-all')).toHaveAttribute('aria-selected', 'true');
+    // The canonical URL effect strips the stale param (no listId in the active params).
+    expect(screen.queryByTestId('favorites-back-to-all')).not.toBeInTheDocument();
   });
 });

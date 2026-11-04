@@ -4,10 +4,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
-  ChevronLeft, Star, Flag, Check, X, Loader2,
+  ChevronLeft, Flag, Check, X, Loader2,
   BookOpen, Clock, BarChart3, ArrowRight, ListChecks,
 } from 'lucide-react';
 import { questionApi } from './services/question-api';
+import { FavoriteListPicker } from '@/features/favorites/components/FavoriteListPicker';
 
 interface QuestionOption {
   id: string;
@@ -524,24 +525,19 @@ export default function QuestionPage() {
 
         {/* Card Footer - Actions */}
         <div className="px-6 py-4 border-t border-[var(--c-border)] bg-[var(--c-tint-primary)] flex items-center justify-between flex-wrap gap-3">
-          {/* Left: Favorite + Report (W14.4 C.2: the Share action was removed — exam
-              and question content is protected and must not leave the platform). */}
+          {/* Left: Favorite (W15.0 — opens the list picker popover: flat favorite +
+              custom lists + create-and-add) + Report (W14.4 C.2: the Share action was
+              removed — exam and question content is protected and must not leave the
+              platform). */}
           <div className="flex items-center gap-2">
-            <button
-              onClick={toggleFavorite}
-              disabled={favoriteMutation.isPending}
-              aria-pressed={isFavorite}
-              aria-label={isFavorite ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة'}
-              data-testid="question-favorite-button"
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-[8px] border text-[13px] font-semibold transition-all disabled:opacity-60 ${
-                isFavorite
-                  ? 'bg-[var(--c-warning-500)] text-white border-[var(--c-warning-500)]'
-                  : 'border-[var(--c-border-strong)] text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)]'
-              }`}
-            >
-              <Star className="w-3.5 h-3.5" fill={isFavorite ? 'currentColor' : 'none'} />
-              {isFavorite ? 'في المفضلة' : 'مفضلة'}
-            </button>
+            {currentQuestion && (
+              <FavoriteListPicker
+                questionId={currentQuestion.id}
+                isFavorite={isFavorite}
+                onToggleFlatFavorite={toggleFavorite}
+                flatPending={favoriteMutation.isPending}
+              />
+            )}
             <button
               onClick={() => setShowReport(!showReport)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-[8px] border border-[var(--c-border-strong)] text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] text-[13px] font-semibold transition-all"
