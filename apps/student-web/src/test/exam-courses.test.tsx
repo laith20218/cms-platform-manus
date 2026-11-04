@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -143,8 +143,10 @@ describe('W14.4 ExamCourses catalog — دورات سنوات', () => {
     stubGet({ mySubjects: [] });
     renderApp('/my-studies');
 
+    // W15.1 (B.1): the subject chips row is gone — the cascade is the single
+    // subject control, and it is absent entirely for grant-less students.
     expect(await screen.findByTestId('exam-courses-locked')).toBeTruthy();
-    expect(screen.queryByTestId('subject-filter-row')).toBeNull();
+    expect(screen.queryByTestId('cascade-filters')).toBeNull();
   });
 });
 
@@ -254,6 +256,75 @@ describe('W15.0 ExamCourses catalog — cascading filters', () => {
       expect(probe.getAttribute('data-search')).toContain('universityId=u1');
     });
     await waitFor(() => expect(getMock).toHaveBeenCalledWith('/universities/u1/colleges'));
+  });
+});
+
+// W15.1 (B.2) — mobile (<sm): the inline five-select row is replaced by a sticky
+// "تصفية النتائج" bar (active-count + compact summary) that opens a bottom sheet
+// hosting the SAME selects. jsdom lacks matchMedia — stub it as never-matching so
+// the hook takes the mobile branch.
+describe('W15.1 B.2 — mobile cascade: sticky bar + bottom sheet', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('replaces the inline row with the sticky trigger and shows the compact summary', async () => {
+    renderApp('/my-studies?universityId=u1&subjectId=s1');
+
+    // Sticky bar instead of the inline selects; no duplicated DOM.
+    expect(await screen.findByTestId('cascade-sheet-trigger')).toBeTruthy();
+    expect(screen.queryByTestId('cascade-select-university')).toBeNull();
+
+    // Compact summary resolves the deep-linked labels (university + subject —
+    // the subject label comes from the subjectLabel fallback, no semester chosen).
+    await waitFor(() => {
+      expect(screen.getByTestId('cascade-summary').textContent).toContain('جامعة حمص');
+    });
+    expect(screen.getByTestId('cascade-summary').textContent).toContain('الباطنة');
+    // Active-count badge: universityId + subjectId.
+    expect(screen.getByTestId('cascade-active-count').textContent).toContain('2');
+  });
+
+  it('hosts the five selects inside the bottom sheet and closes on Done', async () => {
+    renderApp('/my-studies');
+
+    fireEvent.click(await screen.findByTestId('cascade-sheet-trigger'));
+    expect(await screen.findByTestId('cascade-sheet')).toBeTruthy();
+    // The SAME single-instance selects now live inside the sheet portal.
+    expect(await screen.findByTestId('cascade-select-university')).toBeTruthy();
+    expect(screen.getByTestId('cascade-select-subject')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('cascade-sheet-done'));
+    await waitFor(() => expect(screen.queryByTestId('cascade-sheet')).toBeNull());
+  });
+
+  it('a cascade change inside the sheet writes the deep-linkable URL', async () => {
+    renderApp('/my-studies');
+
+    fireEvent.click(await screen.findByTestId('cascade-sheet-trigger'));
+    const trigger = await screen.findByTestId('cascade-select-university');
+    fireEvent.click(trigger);
+    const option = await screen.findByTestId('cascade-select-university-u1');
+    fireEvent.pointerUp(option);
+    fireEvent.click(option);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-probe').getAttribute('data-search')).toContain('universityId=u1');
+    });
   });
 });
 

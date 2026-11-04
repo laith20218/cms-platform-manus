@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
-  BookMarked, CalendarDays, ClipboardList, GraduationCap,
+  BookMarked, CalendarDays, ClipboardList,
   Layers, LibraryBig, Loader2, PlayCircle, Tag,
 } from 'lucide-react';
 import { cn } from '@/utils';
@@ -152,10 +152,6 @@ export function ExamCoursesCatalog() {
     updateParams({ tab: key });
   };
 
-  const chooseSubject = (id: string) => {
-    updateParams({ subjectId: id });
-  };
-
   /** Unified URL writer — W15.1: EDITS the current params (preserving the hub's
    *  `?tab=` and any other hub-level state) instead of rebuilding them, while still
    *  atomically setting the internal lens (?examTab=), the subject, and the non-null
@@ -210,36 +206,18 @@ export function ExamCoursesCatalog() {
 
       {/* W15.0 — University → College → Year → Semester → Subject cascade (URL-
           persisted, localStorage-restored, deep-linkable). Entitled subjects only at
-          the subject level (A.1 ruling). */}
+          the subject level (A.1 ruling).
+          W15.1 (B.1): the standalone subject-chips row is REMOVED — the cascade's
+          5th select is the single subject control (the mobile sticky-bar summary
+          shows the active subject even when the semester list can't resolve it). */}
       <CascadeFilters
         value={cascade}
         onChange={(next) => updateParams({ cascade: next })}
         subjectId={subjectId}
         onSelectSubject={(id) => updateParams({ subjectId: id })}
         entitledSubjectIds={entitledSubjectIds}
+        subjectLabel={subject?.nameAr ?? null}
       />
-
-      {/* Subject chips — entitled subjects only (A.1 visibility ruling). */}
-      <FilterRow label="المادة" testId="subject-filter-row">
-        {subjects.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            aria-pressed={item.id === subjectId}
-            data-testid={`subject-chip-${item.id}`}
-            onClick={() => chooseSubject(item.id)}
-            className={cn(
-              'press inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3.5 text-sm font-semibold transition-colors',
-              item.id === subjectId
-                ? 'border-[var(--cms-teal-600)] bg-[var(--cms-teal-50)] text-[var(--cms-teal-800)]'
-                : 'border-[var(--cms-line)] bg-[var(--cms-surface)] text-[var(--cms-text-soft)] hover:border-[var(--cms-teal-500)]'
-            )}
-          >
-            <GraduationCap className="w-4 h-4" aria-hidden="true" />
-            {item.nameAr}
-          </button>
-        ))}
-      </FilterRow>
 
       {/* Tabs */}
       <div className="fade-edges -mx-4 px-4 sm:mx-0 sm:px-0 mb-4" role="tablist" aria-label="أقسام الدورات الامتحانية">

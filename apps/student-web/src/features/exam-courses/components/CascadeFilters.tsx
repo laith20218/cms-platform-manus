@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { useQuery } from '@tanstack/react-query';
-import { Check, ChevronDown, Lock, RotateCcw } from 'lucide-react';
+import { Check, ChevronDown, Lock, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/utils';
+import { BottomSheet } from '@/components/ui/Overlays';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import {
   academicApi,
   type AcademicYearSummary,
@@ -13,12 +16,20 @@ import {
 
 /**
  * W15.0 — the University → College → Year → Semester → Subject cascading filter bar
- * on /exam-courses. Each level rides the EXISTING per-level endpoints (academicApi —
- * DIAG-2: no aggregate tree endpoint exists; levels are cached independently by
- * React Query so revisits are instant). Choosing a level clears everything below it;
- * «الكل» resets that level and its descendants. The subject level lists the selected
- * semester's subjects with ENTITLED ones enabled and non-entitled ones locked —
- * the storefront only opens entitled content (A.1 ruling).
+ * on /exam-courses (now the My Studies → الدورات الامتحانية tab). Each level rides
+ * the EXISTING per-level endpoints (academicApi — DIAG-2: no aggregate tree endpoint
+ * exists; levels are cached independently by React Query so revisits are instant).
+ * Choosing a level clears everything below it; «الكل» resets that level and its
+ * descendants. The subject level lists the selected semester's subjects with
+ * ENTITLED ones enabled and non-entitled ones locked — the storefront only opens
+ * entitled content (A.1 ruling).
+ *
+ * W15.1 (B.2) — responsive dual layout, ONE set of selects (no duplicated DOM or
+ * testids): ≥sm keeps the desktop flex-wrap row; below sm the inline row is
+ * replaced by a STICKY "تصفية النتائج" bar under the navbar (active-filter count +
+ * compact summary, e.g. «الجامعة: X · الكلية: Y») that opens a Bottom Sheet with
+ * the same five selects + reset. Sheet dismissal (Done / ESC / overlay tap) applies
+ * nothing extra — every change already wrote to the URL the moment it was made.
  *
  * Accessibility: Radix Select per level (keyboard + focus), visible trigger labels,
  * 44px targets, flex-wrap for 375px. A failed level query degrades to an empty list
@@ -44,11 +55,15 @@ export interface CascadeFiltersProps {
   value: CascadeValue;
   /** Fires with children of the changed level already cleared. */
   onChange: (next: CascadeValue) => void;
-  /** Currently active subject id (chip- or cascade-chosen) for the 5th select's display. */
+  /** Currently active subject id (cascade-chosen or deep-linked) for the 5th select's display. */
   subjectId: string | null;
   onSelectSubject: (subjectId: string) => void;
   /** Entitled subject ids (useMySubjects) — non-entitled options render locked. */
   entitledSubjectIds: ReadonlySet<string>;
+  /** W15.1 (B.2): the active subject's display name when the semester's subject
+   *  list can't resolve it (e.g. subjectId deep-linked with no cascade) — feeds
+   *  the mobile sticky-bar summary. */
+  subjectLabel?: string | null;
 }
 
 interface Option {
@@ -58,7 +73,13 @@ interface Option {
   meta?: string;
 }
 
-export function CascadeFilters({ value, onChange, subjectId, onSelectSubject, entitledSubjectIds }: CascadeFiltersProps) {
+export function CascadeFilters({
+  value, onChange, subjectId, onSelectSubject, entitledSubjectIds, subjectLabel: subjectLabelFallback,
+}: CascadeFiltersProps) {
+  // <sm → sticky bar + bottom sheet; ≥sm → the classic inline row.
+  const isDesktop = useMediaQuery('(min-width: 640px)');
+  const [sheetOpen, setSheetOpen] = useState(false);
+
   const universitiesQuery = useQuery({
     queryKey: ['cascade', 'universities'],
     queryFn: () => academicApi.getUniversities(),
@@ -115,75 +136,172 @@ export function CascadeFilters({ value, onChange, subjectId, onSelectSubject, en
   const selectedSubjectLabel = subjects.find((item) => item.id === subjectId)?.nameAr;
   const hasAnySelection = value.universityId || value.collegeId || value.yearId || value.semesterId;
 
-  return (
-    <section className="mb-4" aria-label="تصفية هرمية" data-testid="cascade-filters">
-      <div className="flex flex-wrap items-center gap-2">
-        <CascadeSelect
-          testId="cascade-select-university"
-          label="الجامعة"
-          placeholder="كل الجامعات"
-          options={universityOptions}
-          value={value.universityId}
-          loading={universitiesQuery.isLoading}
-          onChange={setUniversity}
-        />
-        <CascadeSelect
-          testId="cascade-select-college"
-          label="الكلية"
-          placeholder="كل الكليات"
-          options={collegeOptions}
-          value={value.collegeId}
-          disabled={!value.universityId}
-          loading={!!value.universityId && collegesQuery.isLoading}
-          onChange={setCollege}
-        />
-        <CascadeSelect
-          testId="cascade-select-year"
-          label="السنة"
-          placeholder="كل السنوات"
-          options={yearOptions}
-          value={value.yearId}
-          disabled={!value.collegeId}
-          loading={!!value.collegeId && yearsQuery.isLoading}
-          onChange={setYear}
-        />
-        <CascadeSelect
-          testId="cascade-select-semester"
-          label="الفصل"
-          placeholder="كل الفصول"
-          options={semesterOptions}
-          value={value.semesterId}
-          disabled={!value.yearId}
-          loading={!!value.yearId && semestersQuery.isLoading}
-          onChange={setSemester}
-        />
-        <CascadeSelect
-          testId="cascade-select-subject"
-          label="المادة"
-          placeholder="اختر فصلاً أولاً"
-          options={subjectOptions}
-          value={subjectId && subjects.some((item) => item.id === subjectId) ? subjectId : null}
-          disabled={!value.semesterId || (!!value.semesterId && subjectsQuery.isLoading)}
-          loading={!!value.semesterId && subjectsQuery.isLoading}
-          onChange={(id) => id && onSelectSubject(id)}
-          selectedLabel={selectedSubjectLabel}
-          showLocks
-        />
+  /** The five selects — rendered in exactly ONE layout at a time (no duplicate
+   *  testids/DOM): the desktop inline row, or the mobile bottom sheet. */
+  const selects = (
+    <>
+      <CascadeSelect
+        testId="cascade-select-university"
+        label="الجامعة"
+        placeholder="كل الجامعات"
+        options={universityOptions}
+        value={value.universityId}
+        loading={universitiesQuery.isLoading}
+        onChange={setUniversity}
+      />
+      <CascadeSelect
+        testId="cascade-select-college"
+        label="الكلية"
+        placeholder="كل الكليات"
+        options={collegeOptions}
+        value={value.collegeId}
+        disabled={!value.universityId}
+        loading={!!value.universityId && collegesQuery.isLoading}
+        onChange={setCollege}
+      />
+      <CascadeSelect
+        testId="cascade-select-year"
+        label="السنة"
+        placeholder="كل السنوات"
+        options={yearOptions}
+        value={value.yearId}
+        disabled={!value.collegeId}
+        loading={!!value.collegeId && yearsQuery.isLoading}
+        onChange={setYear}
+      />
+      <CascadeSelect
+        testId="cascade-select-semester"
+        label="الفصل"
+        placeholder="كل الفصول"
+        options={semesterOptions}
+        value={value.semesterId}
+        disabled={!value.yearId}
+        loading={!!value.yearId && semestersQuery.isLoading}
+        onChange={setSemester}
+      />
+      <CascadeSelect
+        testId="cascade-select-subject"
+        label="المادة"
+        placeholder="اختر فصلاً أولاً"
+        options={subjectOptions}
+        value={subjectId && subjects.some((item) => item.id === subjectId) ? subjectId : null}
+        disabled={!value.semesterId || (!!value.semesterId && subjectsQuery.isLoading)}
+        loading={!!value.semesterId && subjectsQuery.isLoading}
+        onChange={(id) => id && onSelectSubject(id)}
+        selectedLabel={selectedSubjectLabel}
+        showLocks
+      />
+    </>
+  );
 
-        {hasAnySelection && (
+  const resetButton = hasAnySelection ? (
+    <button
+      type="button"
+      onClick={() => onChange(EMPTY_CASCADE)}
+      data-testid="cascade-reset"
+      aria-label="إعادة تعيين التصفية الهرمية"
+      className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--cms-line)] bg-[var(--cms-surface)] px-3.5 text-sm font-semibold text-[var(--cms-text-soft)] transition-colors hover:border-[var(--cms-teal-500)] hover:text-[var(--cms-teal-800)]"
+    >
+      <RotateCcw className="h-4 w-4" aria-hidden="true" />
+      إعادة تعيين
+    </button>
+  ) : null;
+
+  if (isDesktop) {
+    return (
+      <section className="mb-4" aria-label="تصفية هرمية" data-testid="cascade-filters">
+        <div className="flex flex-wrap items-center gap-2">
+          {selects}
+          {resetButton}
+        </div>
+      </section>
+    );
+  }
+
+  // ===== Mobile (<sm): sticky summary bar + bottom sheet =====
+
+  const universityLabel = universities.find((item) => item.id === value.universityId)?.nameAr;
+  const collegeLabel = colleges.find((item) => item.id === value.collegeId)?.nameAr;
+  const yearLabel = years.find((item) => item.id === value.yearId)?.nameAr;
+  const semesterLabel = semesters.find((item) => item.id === value.semesterId)?.nameAr;
+  const subjectSummaryLabel = selectedSubjectLabel ?? subjectLabelFallback ?? undefined;
+
+  const summaryParts: string[] = [];
+  if (universityLabel) summaryParts.push(`الجامعة: ${universityLabel}`);
+  if (collegeLabel) summaryParts.push(`الكلية: ${collegeLabel}`);
+  if (yearLabel) summaryParts.push(`السنة: ${yearLabel}`);
+  if (semesterLabel) summaryParts.push(`الفصل: ${semesterLabel}`);
+  if (subjectSummaryLabel) summaryParts.push(`المادة: ${subjectSummaryLabel}`);
+
+  const activeCount = [value.universityId, value.collegeId, value.yearId, value.semesterId, subjectId]
+    .filter(Boolean).length;
+
+  return (
+    <>
+      <section
+        aria-label="تصفية هرمية"
+        data-testid="cascade-filters"
+        className="sticky top-16 z-30 -mx-4 mb-3 border-b px-4 py-2.5 backdrop-blur-xl"
+        style={{ background: 'var(--c-glass)', borderColor: 'var(--c-border-glass)' }}
+      >
+        <button
+          type="button"
+          onClick={() => setSheetOpen(true)}
+          data-testid="cascade-sheet-trigger"
+          aria-haspopup="dialog"
+          aria-expanded={sheetOpen}
+          className={cn(
+            'press inline-flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border px-3.5 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cms-teal-700)]',
+            activeCount > 0
+              ? 'border-[var(--cms-teal-600)] bg-[var(--cms-teal-50)] text-[var(--cms-teal-800)]'
+              : 'border-[var(--cms-line)] bg-[var(--cms-surface)] text-[var(--cms-text-soft)] hover:border-[var(--cms-teal-500)]'
+          )}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="truncate">تصفية النتائج</span>
+            {activeCount > 0 && (
+              <span
+                className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-bold"
+                style={{ background: 'var(--cms-teal-700)', color: 'var(--cms-text-inverse)' }}
+                data-testid="cascade-active-count"
+                aria-label={`${activeCount} مرشحات مفعّلة`}
+              >
+                <span lang="en">{activeCount}</span>
+              </span>
+            )}
+          </span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-[var(--cms-text-muted)]" aria-hidden="true" />
+        </button>
+        {summaryParts.length > 0 && (
+          <p
+            className="mt-1.5 truncate text-xs text-[var(--cms-text-muted)]"
+            data-testid="cascade-summary"
+          >
+            {summaryParts.join(' · ')}
+          </p>
+        )}
+      </section>
+
+      <BottomSheet open={sheetOpen} onOpenChange={setSheetOpen} title="تصفية النتائج" testId="cascade-sheet">
+        {/* [&_button]:w-full — inside the sheet every control (select triggers,
+            reset, Done) is a full-width stacked row; the select DROPDOWN lists are
+            portalled to body, so they are untouched by this selector. */}
+        <div className="flex flex-col gap-2 [&_button]:w-full">
+          {selects}
+          {resetButton}
           <button
             type="button"
-            onClick={() => onChange(EMPTY_CASCADE)}
-            data-testid="cascade-reset"
-            aria-label="إعادة تعيين التصفية الهرمية"
-            className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--cms-line)] bg-[var(--cms-surface)] px-3.5 text-sm font-semibold text-[var(--cms-text-soft)] transition-colors hover:border-[var(--cms-teal-500)] hover:text-[var(--cms-teal-800)]"
+            onClick={() => setSheetOpen(false)}
+            data-testid="cascade-sheet-done"
+            className="press mt-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold shadow-sm"
+            style={{ background: 'var(--cms-teal-700)', color: 'var(--cms-text-inverse)' }}
           >
-            <RotateCcw className="h-4 w-4" aria-hidden="true" />
-            إعادة تعيين
+            تم
           </button>
-        )}
-      </div>
-    </section>
+        </div>
+      </BottomSheet>
+    </>
   );
 }
 
@@ -245,7 +363,9 @@ function CascadeSelect({
         <SelectPrimitive.Content
           position="popper"
           sideOffset={6}
-          className="z-50 max-h-72 min-w-[12rem] overflow-hidden rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] shadow-lg"
+          // W15.1 (B.2): above the bottom-sheet layers (overlay 60 / content 61) —
+          // the select dropdown must open ABOVE the sheet that hosts it.
+          className="z-[calc(var(--z-modal)+2)] max-h-72 min-w-[12rem] overflow-hidden rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] shadow-lg"
         >
           <SelectPrimitive.Viewport className="p-1.5">
             <SelectPrimitive.Item
