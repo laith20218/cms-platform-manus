@@ -56,9 +56,11 @@ export function Sidebar() {
         className={({ isActive }) =>
           cn(
             'press group relative mb-4 flex min-h-12 items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-bold',
+            // W15.1 (D.1): --cms-text-inverse keeps the hero fill AA in both
+            // themes (white on the deep fill in light; ink on the bright dark fill).
             isActive
-              ? 'text-white shadow-md'
-              : 'text-white hover:shadow-md'
+              ? 'text-[var(--cms-text-inverse)] shadow-md'
+              : 'text-[var(--cms-text-inverse)] hover:shadow-md'
           )
         }
         style={{ background: 'var(--cms-teal-700)' }}

@@ -510,8 +510,9 @@ function CategorizedTab({
                   onStartPractice(lecture.lectureId ?? null, lecture.lectureId == null, group.paragraphTag ?? null, group.paragraphTag == null)
                 }
                 data-testid={`start-practice-${lecture.lectureId ?? 'uncategorized'}-${group.paragraphTag ?? 'untagged'}`}
-                className="press inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-4 text-sm font-bold text-white shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cms-teal-700)]"
-                style={{ background: 'var(--cms-teal-700)' }}
+                // W15.1 (D.2): the unified primary-action recipe (radius/padding/
+                // shadow/focus + AA-safe text in both themes).
+                className="btn-primary press shrink-0"
                 aria-label={`بدء تدريب ${groupLabel} — ${lecture.lectureTitle}`}
               >
                 <PlayCircle className="w-4 h-4" aria-hidden="true" />

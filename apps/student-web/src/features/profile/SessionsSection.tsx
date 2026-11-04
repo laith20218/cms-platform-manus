@@ -158,7 +158,7 @@ export function SessionsSection() {
           <button
             type="button"
             onClick={() => sessions.refetch()}
-            className="press mt-4 inline-flex min-h-11 items-center rounded-2xl px-6 py-2 text-sm font-bold text-white shadow-md"
+            className="press mt-4 inline-flex min-h-11 items-center rounded-2xl px-6 py-2 text-sm font-bold text-[var(--cms-text-inverse)] shadow-md"
             style={{ background: 'var(--cms-teal-700)' }}
           >
             إعادة المحاولة

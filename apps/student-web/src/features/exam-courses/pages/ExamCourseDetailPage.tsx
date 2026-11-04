@@ -150,7 +150,7 @@ export default function ExamCourseDetailPage() {
                       type="button"
                       onClick={() => navigate(`/exams/${exam.examId}`)}
                       data-testid={`sit-exam-${exam.examId}`}
-                      className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl px-4 text-sm font-bold text-white shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cms-teal-700)]"
+                      className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl px-4 text-sm font-bold text-[var(--cms-text-inverse)] shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cms-teal-700)]"
                       style={{ background: 'var(--cms-teal-700)' }}
                       aria-label={`بدء اختبار ${exam.titleAr}`}
                     >

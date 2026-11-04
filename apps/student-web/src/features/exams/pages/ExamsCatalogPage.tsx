@@ -121,12 +121,18 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
     );
   }
 
+  // W15.1 (D.3): token-based exam-type badges. The raw Tailwind palette classes
+  // (bg-red-50/text-red-700/bg-teal-50/bg-sky-50…) bypassed BOTH token systems —
+  // they never adapted to dark mode and ignored the AA-certified 700 steps
+  // (globals.css W14.4 §13: #b91c1c on #fef2f2 = 5.91:1, #92400e on #fffbeb =
+  // 6.84:1, --cms-teal-800 on --cms-teal-50 ≥ 4.5:1; the dark variants ride the
+  // luminous --cms-*-700 aliases). The neutral fallback covers unknown types.
   const examTypeBadge = (type: string) => {
     const t = (type || '').toLowerCase();
-    if (t === 'final') return 'bg-red-50 text-red-700 border-red-200';
-    if (t === 'midterm') return 'bg-[var(--c-warning-50)] text-[var(--c-warning-500)] border-[var(--c-warning-50)]';
-    if (t === 'quiz') return 'bg-teal-50 text-teal-700 border-teal-200';
-    return 'bg-sky-50 text-sky-700 border-sky-200';
+    if (t === 'final') return 'bg-[var(--c-danger-50)] text-[var(--cms-danger-700)] border-[var(--c-danger-50)]';
+    if (t === 'midterm') return 'bg-[var(--c-warning-50)] text-[var(--cms-warning-700)] border-[var(--c-warning-50)]';
+    if (t === 'quiz') return 'bg-[var(--c-primary-50)] text-[var(--cms-teal-800)] border-[var(--c-primary-50)]';
+    return 'bg-[var(--c-bg-hover)] text-[var(--c-text-soft)] border-transparent';
   };
 
   if (mySubjects.isLoading) {

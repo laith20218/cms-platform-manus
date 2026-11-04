@@ -50,8 +50,7 @@ export function CatalogEntitlementErrorCard({ variant, onRetry, testId }: {
         {copy.showLogin && (
           <Link
             to="/login"
-            className="press inline-flex min-h-11 items-center gap-2 rounded-2xl px-6 py-2.5 text-sm font-bold text-white shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--c-primary-700)]"
-            style={{ background: 'var(--c-primary-700)' }}
+            className="btn-primary press"
             data-testid="entitlement-login-link"
           >
             <LogIn className="h-4 w-4" aria-hidden="true" /> تسجيل الدخول
@@ -60,8 +59,7 @@ export function CatalogEntitlementErrorCard({ variant, onRetry, testId }: {
         {variant === 'no-grants' && (
           <Link
             to="/activate-code"
-            className="press inline-flex min-h-11 items-center gap-2 rounded-2xl px-6 py-2.5 text-sm font-bold text-white shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--c-primary-700)]"
-            style={{ background: 'var(--c-primary-700)' }}
+            className="btn-primary press"
             data-testid="entitlement-activate-link"
           >
             <KeyRound className="h-4 w-4" aria-hidden="true" /> تفعيل كود
@@ -70,7 +68,7 @@ export function CatalogEntitlementErrorCard({ variant, onRetry, testId }: {
         <button
           type="button"
           onClick={onRetry}
-          className="press inline-flex min-h-11 items-center gap-2 rounded-2xl border border-[var(--c-border-strong)] px-6 py-2.5 text-sm font-bold text-[var(--c-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--c-primary-700)]"
+          className="btn-secondary press"
           data-testid="entitlement-retry-button"
         >
           <RotateCcw className="h-4 w-4" aria-hidden="true" /> إعادة المحاولة
@@ -102,8 +100,7 @@ export function CatalogErrorCard({ onRetry, testId, title, body }: {
       <button
         type="button"
         onClick={onRetry}
-        className="press inline-flex min-h-11 items-center gap-2 rounded-2xl px-6 py-2.5 text-sm font-bold text-white shadow-md"
-        style={{ background: 'var(--c-primary-700)' }}
+        className="btn-primary press"
       >
         <RotateCcw className="h-4 w-4" /> إعادة المحاولة
       </button>

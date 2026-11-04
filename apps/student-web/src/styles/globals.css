@@ -406,6 +406,20 @@
   --c-danger-500: var(--cms-danger);
   --c-warning-500: var(--cms-warning);
 
+  /* W15.1 (D.1) — dark remaps for the teal ramp's TEXT/ICON steps: --c-primary-700
+     already flips to the bright teal-400 for AA on dark surfaces, but the raw
+     --cms-teal-700/800 steps kept their LIGHT values, so every --cms-* consumer
+     (selected-filter text on the dark teal-50 tint, icons, loaders, chips) measured
+     ~2.2–3.3:1 in dark. Remap to the bright steps (teal-400 ≈ 6.2:1, teal-500 ≈ 4.7:1
+     on the dark teal-50 tint) so both vocabularies adapt identically. */
+  --cms-teal-700: var(--cms-teal-400);
+  --cms-teal-800: var(--cms-teal-500);
+  /* Gradient FILLS carry white text by design (LockedEmptyState CTA, the exams
+     empty-state CTA, the navbar logo): keep the DEEP blue in dark so
+     white-on-gradient stays AA — white on #1e6feb = 4.70:1, but on the remapped
+     teal-400 it would collapse to ~2.5:1. */
+  --grad-primary: #1e6feb;
+
   /* Selection + focus adapt */
   --cms-shadow-focus: 0 0 0 3px rgba(106, 165, 247, 0.30);
 }
@@ -497,6 +511,65 @@ body {
 }
 .press:active {
   transform: scale(0.96);
+}
+
+/* --- W15.1 (D.2) — unified action-button recipes -----------------------------
+   ONE radius / padding / height / shadow / focus ring for every primary and
+   secondary action in the student app (the hand-rolled variants had drifted into
+   three paddings and two radii). Text rides --cms-text-inverse so the FILLS stay
+   WCAG-AA in BOTH themes: light = white on teal-700 (4.70:1); dark = ink
+   (#0b1120) on the remapped bright teal-400 (≈6.6:1).
+   The @cms/ui <Button> was deliberately NOT reused: its md size is h-10 (40px —
+   below the §8 44px touch-target minimum) and it hardcodes text-white (which
+   fails AA on the dark bright fill). Elements pair this with `press` for the
+   active micro-interaction; hover deepens the shadow rather than swapping to a
+   lower-contrast fill step. */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;      /* 44px — §8 minimum touch target */
+  padding: 0.625rem 1.5rem; /* py-2.5 px-6 */
+  border-radius: 1rem;      /* rounded-2xl */
+  font-size: 0.875rem;      /* text-sm */
+  font-weight: 700;         /* font-bold */
+  background: var(--c-primary-700);
+  color: var(--cms-text-inverse);
+  box-shadow: var(--cms-shadow-md);
+}
+.btn-primary:hover {
+  box-shadow: var(--cms-shadow-lg);
+}
+.btn-primary:focus-visible {
+  outline: 2px solid var(--c-primary-700);
+  outline-offset: 2px;
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.625rem 1.5rem;
+  border-radius: 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  background: var(--c-surface);
+  color: var(--c-text);
+  border: 1px solid var(--c-border-strong);
+}
+.btn-secondary:hover {
+  border-color: var(--c-primary-400);
+  color: var(--c-primary-700);
+}
+.btn-secondary:focus-visible {
+  outline: 2px solid var(--c-primary-700);
+  outline-offset: 2px;
 }
 
 /* --- Hide scrollbars on horizontal chip/tab strips (scroll stays gesture-driven) --- */
