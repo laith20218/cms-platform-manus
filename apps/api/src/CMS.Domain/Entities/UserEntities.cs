@@ -51,6 +51,18 @@ public class Student : BaseEntity
     // Preferences (JSON)
     public string Preferences { get; private set; } = """{"theme":"light","notifications":true,"sounds":true,"vibration":true}""";
 
+    /// <summary>
+    /// W15.0 — replaces the raw preferences JSON. Callers must validate upstream that the
+    /// payload is a bounded JSON object (the handler enforces object-kind + an 8 KB cap).
+    /// </summary>
+    public void UpdatePreferences(string preferencesJson)
+    {
+        if (string.IsNullOrWhiteSpace(preferencesJson))
+            throw new DomainException("Preferences JSON is required", "PREFERENCES_EMPTY");
+        Preferences = preferencesJson;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public DateTime? DeletedAt { get; set; }
 
     // Navigation
