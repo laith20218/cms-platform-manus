@@ -169,6 +169,18 @@ async function newStudentContext(browser, viewport, { favoritesApi } = {}) {
     }
   });
 
+  // W15.0 — the custom-lists family (GET /api/v1/favorites/lists for the chips row and
+  // its /lists/{id}/... sub-resources) must be mocked SEPARATELY from the flat-favorites
+  // glob above: the glob would swallow GET /favorites/lists and answer with the flat
+  // PagedResult envelope (FavoriteListSummary[] expected, object received →
+  // lists.some is not a function → FavoritesPage render crash → blank page, so
+  // favorites-empty never appears). Registered LATER so it takes precedence (Playwright:
+  // most recently registered route wins — the same layering that lets auth/me override
+  // the api/v1 abort-catchall above). Empty chips row = every scenario keeps exercising
+  // flat mode, exactly as pre-W15.0.
+  await context.route('**/api/v1/favorites/lists**', (route) =>
+    route.fulfill({ json: [] }));
+
   // The course player target of the «متابعة» deep link.
   await context.route(`**/api/v1/courses/${COURSE_ID}`, (route) => route.fulfill({
     json: {
