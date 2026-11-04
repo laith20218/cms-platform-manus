@@ -4,13 +4,14 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // ---- shared mocks (hoisted) ----
-const { getMock, postMock, putMock } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn(), putMock: vi.fn() }));
+const { getMock, postMock, putMock, deleteMock } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn(), putMock: vi.fn(), deleteMock: vi.fn() }));
 
 vi.mock('@/services/api-client', () => ({
   apiClient: {
     get: (...args: unknown[]) => getMock(...args),
     post: (...args: unknown[]) => postMock(...args),
     put: (...args: unknown[]) => putMock(...args),
+    delete: (...args: unknown[]) => deleteMock(...args),
   },
 }));
 
@@ -115,6 +116,7 @@ function renderPractice(initialEntry: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   stubApi();
+  deleteMock.mockResolvedValue({ status: 204 });
 });
 
 describe('W14.4 PracticePage (B.1, D13)', () => {
@@ -240,5 +242,30 @@ describe('W14.4 PracticePage (B.1, D13)', () => {
     // Scroll-anchor navigator chips render for both questions.
     expect(screen.getByTestId('practice-chip-q1')).toBeTruthy();
     expect(screen.getByTestId('practice-chip-q2')).toBeTruthy();
+  });
+
+  // W15.0 (P4-C4): per-row bookmark + report — ported from QuestionPage into the
+  // practice list (the flat favorite toggle + the shared report dialog).
+  it('toggles the flat favorite and submits a report from the practice rows (W15.0 P4-C4)', async () => {
+    renderPractice('/practice/categorized/s1?lectureId=lec1');
+
+    // Bookmark: star on q1 → POST /favorites (flat toggle semantics).
+    fireEvent.click(await screen.findByTestId('practice-favorite-q1'));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/favorites', { questionId: 'q1' }, expect.anything()));
+
+    // Toggle back → DELETE /favorites/questions/q1.
+    fireEvent.click(screen.getByTestId('practice-favorite-q1'));
+    await waitFor(() =>
+      expect(deleteMock).toHaveBeenCalledWith('/favorites/questions/q1', expect.anything()));
+
+    // Report: the shared dialog opens, submits reason + description.
+    fireEvent.click(screen.getByTestId('practice-report-q1'));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: 'خطأ إملائي' }));
+    fireEvent.change(screen.getByLabelText('تفاصيل البلاغ'), { target: { value: 'وصف الخطأ' } });
+    fireEvent.click(screen.getByTestId('report-submit'));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/questions/q1/report', { reasonType: 'typo', description: 'وصف الخطأ' }, expect.anything()));
   });
 });

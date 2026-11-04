@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -10,7 +10,9 @@ import { cn } from '@/utils';
 import { SecurityWrapper } from '@/features/security/SecurityWrapper';
 import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
 import { examApi } from '@/features/exams/services/exam-api';
+import { questionApi } from '@/features/questions/services/question-api';
 import { QuestionRow } from '@/components/QuestionRow';
+import { ReportQuestionDialog } from '@/components/ReportQuestionDialog';
 import {
   practiceApi,
   type PracticeCategoryFilter,
@@ -71,6 +73,7 @@ function PracticePageInner() {
   const { examModelId, subjectId: routeSubjectId } = useParams<{ examModelId?: string; subjectId?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const mySubjects = useMySubjects();
 
   const filter: PracticeCategoryFilter | undefined = useMemo(() => {
@@ -93,6 +96,10 @@ function PracticePageInner() {
   const [pending, setPending] = useState<string | null>(null);
   const [resettingAll, setResettingAll] = useState(false);
   const [showResetAllConfirm, setShowResetAllConfirm] = useState(false);
+  // W15.0 (P4-C4): per-question bookmark + report — the PracticeQuestion DTO carries no
+  // isFavorite flag, so the toggle starts from false and lives optimistically.
+  const [favoriteOverrides, setFavoriteOverrides] = useState<Record<string, boolean>>({});
+  const [reportQuestionId, setReportQuestionId] = useState<string | null>(null);
 
   const isCategorized = Boolean(routeSubjectId);
 
@@ -261,6 +268,28 @@ function PracticePageInner() {
     });
   }, []);
 
+  // W15.0 (P4-C4): the flat-favorite toggle ported from QuestionPage (same endpoints,
+  // optimistic override + rollback + ['favorites'] invalidation).
+  const favoriteMutation = useMutation({
+    mutationFn: ({ questionId, isFav }: { questionId: string; isFav: boolean }) =>
+      questionApi.toggleFavorite(questionId, isFav),
+    onMutate: ({ questionId, isFav }) => {
+      setFavoriteOverrides((previous) => ({ ...previous, [questionId]: !isFav }));
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['favorites'] });
+      toast.success(variables.isFav ? 'أُزيل السؤال من المفضلة' : 'أُضيف السؤال إلى المفضلة');
+    },
+    onError: (_error, variables) => {
+      setFavoriteOverrides((previous) => {
+        const next = { ...previous };
+        delete next[variables.questionId];
+        return next;
+      });
+      toast.error('تعذّر تحديث المفضلة. تحقق من اتصالك واستحقاقك.');
+    },
+  });
+
   const resetAll = useCallback(async () => {
     if (!start) return;
     setShowResetAllConfirm(false);
@@ -403,6 +432,11 @@ function PracticePageInner() {
             resetPending={pending === `reset:${question.id}`}
             essayDraft={essayDrafts[question.id] ?? ''}
             onEssayChange={(value) => setEssayDrafts((previous) => ({ ...previous, [question.id]: value }))}
+            showBookmark
+            isFavorite={favoriteOverrides[question.id] ?? false}
+            onToggleFavorite={() => favoriteMutation.mutate({ questionId: question.id, isFav: favoriteOverrides[question.id] ?? false })}
+            favoritePending={favoriteMutation.isPending && favoriteMutation.variables?.questionId === question.id}
+            onReport={() => setReportQuestionId(question.id)}
           />
         ))}
       </div>
@@ -433,6 +467,13 @@ function PracticePageInner() {
           );
         })}
       </div>
+
+      {/* W15.0 (P4-C4): the shared report dialog (extracted from QuestionPage). */}
+      <ReportQuestionDialog
+        questionId={reportQuestionId}
+        open={reportQuestionId !== null}
+        onOpenChange={(open) => { if (!open) setReportQuestionId(null); }}
+      />
 
       {/* Reset-all confirm. */}
       <AnimatePresence>
