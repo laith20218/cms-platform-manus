@@ -251,11 +251,11 @@ export function PdfControlsBar({
                 className="cms-slider-slider relative flex h-6 w-24 touch-none select-none items-center"
               >
                 <SliderPrimitive.Track className="relative h-1.5 w-full grow rounded-full bg-white/15">
-                  <SliderPrimitive.Range className="absolute h-full rounded-full bg-teal-300" />
+                  <SliderPrimitive.Range className="absolute h-full rounded-full bg-primary-300" />
                 </SliderPrimitive.Track>
                 <SliderPrimitive.Thumb
                   aria-label="سماكة القلم"
-                  className="block h-5 w-5 rounded-full border-2 border-[#0b1120] bg-teal-300 shadow-lg outline-none transition-transform hover:scale-110"
+                  className="block h-5 w-5 rounded-full border-2 border-[#0b1120] bg-primary-300 shadow-lg outline-none transition-transform hover:scale-110"
                 />
               </SliderPrimitive.Root>
             </div>
@@ -277,7 +277,7 @@ export function PdfControlsBar({
                   className={cn(
                     'press inline-flex h-10 w-10 items-center justify-center rounded-xl transition-colors',
                     shapeKind === id
-                      ? 'bg-teal-400/20 text-teal-300'
+                      ? 'bg-primary-400/20 text-primary-300'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white',
                   )}
                 >
@@ -333,7 +333,7 @@ export function PdfControlsBar({
             onKeyDown={(event) => { if (event.key === 'Enter') { event.currentTarget.blur(); } }}
             aria-label="رقم الصفحة"
             data-testid="pdf-page-input"
-            className="h-8 w-10 rounded-lg bg-white/10 text-center text-sm font-bold tabular-nums text-white outline-none focus:ring-2 focus:ring-teal-400/40"
+            className="h-8 w-10 rounded-lg bg-white/10 text-center text-sm font-bold tabular-nums text-white outline-none focus:ring-2 focus:ring-primary-400/40"
           />
           <span lang="en" className="text-sm font-bold tabular-nums text-slate-400">/ {pageCount || '–'}</span>
         </div>
@@ -352,8 +352,8 @@ export function PdfControlsBar({
           top bar at EVERY width (locked A.1 wording). */}
       <div className="flex items-center gap-1">
         {saving && (
-          <span className="hidden items-center gap-1 text-[11px] text-teal-300/80 sm:inline-flex" data-testid="pdf-saving">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-teal-300" />
+          <span className="hidden items-center gap-1 text-[11px] text-primary-300/80 sm:inline-flex" data-testid="pdf-saving">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary-300" />
             يتم الحفظ تلقائياً
           </span>
         )}
@@ -393,9 +393,9 @@ export function PdfControlsBar({
             aria-label={focusMode ? 'إنهاء وضع التركيز' : 'وضع التركيز'}
             title="وضع التركيز (F)"
             data-testid="pdf-focus-toggle"
-            className={`press inline-flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8] ${
+            className={`press inline-flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)] ${
               focusMode
-                ? 'border-[#1685F8] bg-[#1685F8]/15 text-[#25C7E8] ring-2 ring-[#1685F8]'
+                ? 'border-[var(--color-primary-500)] bg-[var(--color-primary-500)]/15 text-[var(--color-primary-400)] ring-2 ring-[var(--color-primary-500)]'
                 : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white'
             }`}
           >
