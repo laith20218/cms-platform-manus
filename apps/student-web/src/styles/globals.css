@@ -7,6 +7,19 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
+@theme {
+  --color-primary-50:  #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-primary-800: #1e40af;
+  --color-primary-900: #1e3a8a;
+}
+
 /* Push 9: enable `dark:` utilities on the app's data-theme attribute
    (Tailwind v4 defaults to prefers-color-scheme — the app toggles data-theme). */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
@@ -26,17 +39,16 @@
   --cms-ivory-200: #eef4fc;
   --cms-ivory-300: #e1ecf7;
 
-  /* Blue (calm medical signal — actions, active states) */
-  --cms-teal-700: #1e6feb;
-  --cms-teal-600: #2d7ff0;
-  /* Wave 12.2.D (axe D.2) — AA-darker step: white on teal-600 measured
-     3.66:1 and teal-700 on teal-50 measured 4.26:1 (nav labels); teal-800
-     gives ≥ 4.5:1 in both pairings. */
-  --cms-teal-800: #1559c8;
-  --cms-teal-500: #4a90f5;
-  --cms-teal-400: #6ba5f7;
-  --cms-teal-100: #dbeafe;
-  --cms-teal-50: #eff6ff;
+  /* Primary palette (blue) — sourced from @theme --color-primary-*.
+     The "teal" name is retained for backward compatibility; a rename is
+     scheduled for Wave 14.5. */
+  --cms-teal-700: var(--color-primary-700);
+  --cms-teal-600: var(--color-primary-600);
+  --cms-teal-800: var(--color-primary-800);
+  --cms-teal-500: var(--color-primary-500);
+  --cms-teal-400: var(--color-primary-400);
+  --cms-teal-100: var(--color-primary-100);
+  --cms-teal-50: var(--color-primary-50);
 
   /* Status colors — vibrant accents */
   --cms-success: #059669;
@@ -105,7 +117,7 @@
   --cms-shadow-md: 0 4px 16px rgba(15, 23, 42, 0.08);
   --cms-shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.10);
   --cms-shadow-xl: 0 20px 56px rgba(15, 23, 42, 0.14);
-  --cms-shadow-focus: 0 0 0 3px rgba(45, 127, 240, 0.20);
+  --cms-shadow-focus: 0 0 0 3px rgba(37, 99, 235, 0.20);
 
   /* ===== 5. Z-index Scale ===== */
   --cms-z-base: 0;
@@ -353,7 +365,7 @@
   --cms-surface-glass: rgba(15, 23, 42, 0.92);
   --cms-surface-2: #131d33;
   --cms-surface-3: #1e293b;
-  --c-tint-primary: rgba(45, 127, 240, 0.10);
+  --c-tint-primary: rgba(37, 99, 235, 0.10);
 
   /* Primary — deepened fills, brightened text tones (AA on #0f172a) */
   --cms-teal-100: #1e3a5f;
@@ -421,7 +433,7 @@
   --grad-primary: #1e6feb;
 
   /* Selection + focus adapt */
-  --cms-shadow-focus: 0 0 0 3px rgba(106, 165, 247, 0.30);
+  --cms-shadow-focus: 0 0 0 3px rgba(96, 165, 250, 0.30);
 }
 
 /* ============================================
@@ -465,7 +477,7 @@ body {
 
 /* Selection */
 ::selection {
-  background: rgba(45, 127, 240, 0.20);
+  background: rgba(37, 99, 235, 0.20);
   color: var(--cms-text);
 }
 
@@ -706,18 +718,18 @@ body {
 
 /* --- Premium audio disc (Push 8 upgrade): concentric vinyl rings + soft pulse --- */
 @keyframes disc-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(45, 127, 240, 0.28), 0 12px 32px rgba(15, 23, 42, 0.22); }
-  50% { box-shadow: 0 0 0 14px rgba(45, 127, 240, 0), 0 12px 32px rgba(15, 23, 42, 0.22); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.28), 0 12px 32px rgba(15, 23, 42, 0.22); }
+  50% { box-shadow: 0 0 0 14px rgba(37, 99, 235, 0), 0 12px 32px rgba(15, 23, 42, 0.22); }
 }
 .audio-disc-pulse { animation: disc-pulse 2.4s var(--cms-ease) infinite; }
 .disc-ring {
   position: absolute;
   inset: -14px;
   border-radius: 9999px;
-  border: 1.5px solid rgba(45, 127, 240, 0.18);
+  border: 1.5px solid rgba(37, 99, 235, 0.18);
   pointer-events: none;
 }
-.disc-ring-2 { inset: -28px; border-color: rgba(45, 127, 240, 0.10); }
+.disc-ring-2 { inset: -28px; border-color: rgba(37, 99, 235, 0.10); }
 
 /* --- Audio equalizer bars (audio stage, refined) --- */
 @keyframes eq-bounce {
