@@ -10,15 +10,19 @@
  * browser context has empty localStorage, so getOrCreateInstallationId()
  * would generate a new random fingerprint → rejected.
  *
- * By pre-seeding a device_binding row in Neon with fingerprint
- * 'web-deadbeefcafe1234567890abcdef1234' and injecting that same value
- * into localStorage before the app loads, the login flow succeeds.
+ * By pre-seeding a device_binding row in Neon with the fingerprint from
+ * E2E_DEVICE_FINGERPRINT and injecting that same value into localStorage
+ * before the app loads, the login flow succeeds.
+ *
+ * When E2E_DEVICE_FINGERPRINT is unset or empty, nothing is injected and the
+ * app generates its own installation id (logins are then rejected by device
+ * binding).
  *
  * NOTE: Admin logins do NOT need device binding (RequiresStudentDeviceBinding
  * returns true only for role="student"). This helper is student-only.
  */
 
-export const E2E_DEVICE_FINGERPRINT = 'web-deadbeefcafe1234567890abcdef1234';
+export const E2E_DEVICE_FINGERPRINT = process.env.E2E_DEVICE_FINGERPRINT ?? '';
 
 /**
  * The localStorage key used by student-web's getOrCreateInstallationId().
@@ -36,6 +40,11 @@ const STORAGE_KEY = 'cms-device-fingerprint';
  *   });
  */
 export async function injectDeviceFingerprint(page: import('@playwright/test').Page): Promise<void> {
+  if (!E2E_DEVICE_FINGERPRINT) {
+    // No fingerprint configured — inject nothing and let the app generate
+    // its own installation id.
+    return;
+  }
   await page.addInitScript((args: { key: string; value: string }) => {
     window.localStorage.setItem(args.key, args.value);
   }, { key: STORAGE_KEY, value: E2E_DEVICE_FINGERPRINT });
