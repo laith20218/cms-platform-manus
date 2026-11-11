@@ -4,9 +4,8 @@
  * Target: https://cms-platform-manus-admin-web.vercel.app (production)
  * Backend: https://cms-api-preview.onrender.com (Render)
  *
- * Test account (test fixture, NOT a production secret):
- *   email: test-admin-01@cms-test.local
- *   password: TestAdmin123!
+ * Test account: loaded from environment variables
+ *   E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD (see .env.example)
  *   role: super_admin
  *
  * Note: Admin logins do NOT require device binding
@@ -24,8 +23,16 @@
 import { test, expect, type Page } from '@playwright/test';
 
 const ADMIN_URL = 'https://cms-platform-manus-admin-web.vercel.app';
-const ADMIN_EMAIL = 'test-admin-01@cms-test.local';
-const ADMIN_PASSWORD = 'TestAdmin123!';
+
+// Skip the whole suite when credentials are not configured (e.g. CI without
+// seeded test accounts) instead of failing every test.
+test.skip(
+  !process.env.E2E_ADMIN_EMAIL || !process.env.E2E_ADMIN_PASSWORD,
+  'E2E credentials not set'
+);
+
+const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? '';
+const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? '';
 
 // Override baseURL for all admin tests
 test.use({ baseURL: ADMIN_URL });

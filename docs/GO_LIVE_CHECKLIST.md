@@ -86,9 +86,9 @@
 
 | Check | Status | Detail |
 |---|---|---|
-| Student login | ✅ | Phone `0936185126` + password `TestStudent123!` |
-| Admin login | ✅ | Email `test-admin-01@cms-test.local` + password `TestAdmin123!` (super_admin) |
-| Device binding (student) | ✅ | Pre-seeded in Neon with `web-deadbeefcafe1234567890abcdef1234` |
+| Student login | ✅ | Phone `<set-in-environment>` + password `<set-in-environment>` |
+| Admin login | ✅ | Email `<set-in-environment>` + password `<set-in-environment>` (super_admin) |
+| Device binding (student) | ✅ | Pre-seeded in Neon with `<set-in-environment>` |
 | JWT token issuance | ✅ | Both return `accessToken` + `refreshToken` |
 | Token refresh flow | ✅ | Implemented in `api-client.ts` (single-flight refresh) |
 

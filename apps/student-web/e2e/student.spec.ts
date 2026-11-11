@@ -4,12 +4,11 @@
  * Target: https://cms-platform-manus-student-web.vercel.app (production)
  * Backend: https://cms-api-preview.onrender.com (Render)
  *
- * Test account (test fixture, NOT a production secret):
- *   phone: 0936185126
- *   password: TestStudent123!
+ * Test account: loaded from environment variables
+ *   E2E_STUDENT_PHONE / E2E_STUDENT_PASSWORD (see .env.example)
  *
- * Device binding: pre-seeded in Neon device_bindings with fingerprint
- *   'web-deadbeefcafe1234567890abcdef1234' (see e2e/helpers/device-binding.ts)
+ * Device binding: pre-seeded in Neon device_bindings; the fingerprint is
+ *   loaded from E2E_DEVICE_FINGERPRINT (see e2e/helpers/device-binding.ts)
  *
  * Flows:
  *   1. Login → dashboard
@@ -24,8 +23,15 @@
 import { test, expect, type Page } from '@playwright/test';
 import { injectDeviceFingerprint } from './helpers/device-binding';
 
-const STUDENT_PHONE = '0936185126';
-const STUDENT_PASSWORD = 'TestStudent123!';
+// Skip the whole suite when credentials are not configured (e.g. CI without
+// seeded test accounts) instead of failing every test.
+test.skip(
+  !process.env.E2E_STUDENT_PHONE || !process.env.E2E_STUDENT_PASSWORD,
+  'E2E credentials not set'
+);
+
+const STUDENT_PHONE = process.env.E2E_STUDENT_PHONE ?? '';
+const STUDENT_PASSWORD = process.env.E2E_STUDENT_PASSWORD ?? '';
 
 // Helper: perform login via the UI
 async function loginAsStudent(page: Page) {
