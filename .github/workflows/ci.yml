@@ -165,6 +165,24 @@ jobs:
 
       # ===== Push 11.5 / PART C: Playwright e2e (network-mocked specs; no backend needed) =====
 
+      # CI fix (2026-11-11, wave 14.2 unblocker): GHA's ubuntu-24.04 image points apt at
+      # the Azure region mirror via /etc/apt/apt-mirrors.txt (read as mirror+file:). When
+      # azure.archive.ubuntu.com fails DNS on a runner (seen twice on PR #82, run #349
+      # attempts 1 & 2 — exit 100 from `playwright install --with-deps`), every apt call
+      # in this job dies, including the ffmpeg install below (same VM, shared /etc/apt).
+      # Rewrite the mirrorlist and ALL source formats (one-line .list + DEB822 .sources;
+      # /etc/apt/sources.list may be absent on 24.04 — globs must not fail the step) to
+      # the canonical geo-DNS mirror archive.ubuntu.com. Idempotent; update errors are
+      # non-fatal — the install step itself surfaces any real package error.
+      - name: Redirect apt mirror away from azure.archive.ubuntu.com (GHA DNS failure)
+        run: |
+          sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' \
+            /etc/apt/apt-mirrors.txt \
+            /etc/apt/sources.list \
+            /etc/apt/sources.list.d/*.list \
+            /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get update -qq || true
+
       - name: Install Playwright Chromium
         run: pnpm --filter @cms/student-web exec playwright install --with-deps chromium
 
