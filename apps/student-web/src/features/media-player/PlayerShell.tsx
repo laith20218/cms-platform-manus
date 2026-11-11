@@ -246,7 +246,7 @@ export function PlayerShell({
                     <div className="flex min-w-0 items-center gap-3">
                       <span
                         aria-hidden="true"
-                        className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-teal-300 sm:flex"
+                        className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-primary-300 sm:flex"
                       >
                         <KindIcon className="h-5 w-5" strokeWidth={1.75} />
                       </span>
@@ -265,7 +265,7 @@ export function PlayerShell({
                           role="img"
                           title="الحماية من النسخ مفعّلة داخل المشغّل"
                           aria-label="الحماية من النسخ مفعّلة داخل المشغّل"
-                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-teal-400/20 bg-teal-400/10 text-teal-300"
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-primary-400/20 bg-primary-400/10 text-primary-300"
                         >
                           <ShieldCheck className="h-4 w-4" strokeWidth={1.75} />
                         </span>
