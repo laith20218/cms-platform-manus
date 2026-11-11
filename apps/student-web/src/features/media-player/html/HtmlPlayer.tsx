@@ -72,7 +72,7 @@ export function HtmlPlayer({ assetType, assetId, title, enableScripts, watermark
         data-testid={testId ? `${testId}-loading` : 'html-player-loading'}
       >
         <div className="flex flex-col items-center gap-4">
-          <LoaderCircle className="h-12 w-12 animate-spin text-teal-300/80" strokeWidth={1.5} />
+          <LoaderCircle className="h-12 w-12 animate-spin text-primary-300/80" strokeWidth={1.5} />
           <p className="text-sm font-medium text-slate-300">جارٍ تجهيز الدرس التفاعلي…</p>
         </div>
       </div>
