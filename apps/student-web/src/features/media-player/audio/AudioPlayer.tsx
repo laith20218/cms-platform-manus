@@ -57,11 +57,12 @@ const PROGRESS_SAVE_INTERVAL_MS = 10_000;
 const PLAYBACK_TICK_MS = 250;
 
 /** Colors resolve to the existing player-family Tailwind palette tokens
- *  (slate-400 / teal-400 / teal-300 — the same values ControlsBar and the
- *  shell accents already use). No new palette entries. */
+ *  (slate-400 / primary-400 / primary-300 — the same values ControlsBar and the
+ *  shell accents already use). Canvas contexts cannot resolve var(), so the
+ *  primary literals are inlined. */
 const WAVE_COLOR = 'rgba(148, 163, 184, 0.35)';
-const PROGRESS_COLOR = '#2dd4bf';
-const CURSOR_COLOR = '#5eead4';
+const PROGRESS_COLOR = '#60a5fa';
+const CURSOR_COLOR = '#93c5fd';
 
 /** A-B points carry sub-second precision (stored from the live element
  *  position), so the status line shows one decimal place (m:ss.s) —
@@ -627,7 +628,7 @@ export default function AudioPlayer({
       aria-label={title ? `مشغّل صوت: ${title}` : 'مشغّل صوت'}
       onKeyDown={handleKeyDown}
       className={cn(
-        'relative flex w-full max-w-3xl flex-col gap-4 rounded-3xl border border-white/10 bg-white/[0.03] p-4 select-none outline-none sm:p-6 focus-visible:ring-2 focus-visible:ring-teal-400/50',
+        'relative flex w-full max-w-3xl flex-col gap-4 rounded-3xl border border-white/10 bg-white/[0.03] p-4 select-none outline-none sm:p-6 focus-visible:ring-2 focus-visible:ring-primary-400/50',
         className,
       )}
     >
@@ -670,7 +671,7 @@ export default function AudioPlayer({
             title={`${bookmarkItem.label} · ${formatMediaDuration(bookmarkItem.startSeconds)}`}
             onClick={() => leaseSeek(bookmarkItem.startSeconds)}
             // Physical left % — the waveform canvas is LTR by convention.
-            className="absolute inset-y-0 z-10 w-1.5 -translate-x-1/2 rounded-full bg-amber-400/90 transition-colors hover:bg-amber-300 focus-visible:bg-amber-300 focus-visible:outline focus-visible:outline-teal-300"
+            className="absolute inset-y-0 z-10 w-1.5 -translate-x-1/2 rounded-full bg-amber-400/90 transition-colors hover:bg-amber-300 focus-visible:bg-amber-300 focus-visible:outline focus-visible:outline-primary-300"
             style={{ left: `${Math.min(100, Math.max(0, (bookmarkItem.startSeconds / duration) * 100))}%` }}
           />
         ))}
@@ -678,7 +679,7 @@ export default function AudioPlayer({
           <span
             aria-hidden="true"
             data-testid="audio-loop-marker-a"
-            className="pointer-events-none absolute inset-y-0 z-[5] w-0.5 bg-teal-300/80"
+            className="pointer-events-none absolute inset-y-0 z-[5] w-0.5 bg-primary-300/80"
             style={{ left: `${Math.min(100, (loopA / duration) * 100)}%` }}
           />
         )}
@@ -686,7 +687,7 @@ export default function AudioPlayer({
           <span
             aria-hidden="true"
             data-testid="audio-loop-marker-b"
-            className="pointer-events-none absolute inset-y-0 z-[5] w-0.5 bg-teal-300/80"
+            className="pointer-events-none absolute inset-y-0 z-[5] w-0.5 bg-primary-300/80"
             style={{ left: `${Math.min(100, (loopB / duration) * 100)}%` }}
           />
         )}
@@ -694,7 +695,7 @@ export default function AudioPlayer({
         {!ready && !showError && !fatalError && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-[#0b1120]/40" data-testid="audio-decoding">
             <div className="flex flex-col items-center gap-3">
-              <LoaderCircle className="h-10 w-10 animate-spin text-teal-300/90" strokeWidth={1.5} />
+              <LoaderCircle className="h-10 w-10 animate-spin text-primary-300/90" strokeWidth={1.5} />
               <p className="text-xs font-medium text-slate-300">
                 {showInitialSpinner ? 'جارٍ تجهيز الملف الصوتي…' : 'جارٍ رسم الموجة الصوتية…'}
               </p>
@@ -728,7 +729,7 @@ export default function AudioPlayer({
           aria-label={playing ? 'إيقاف مؤقت' : 'تشغيل'}
           data-testid="audio-play"
           disabled={!ready}
-          className="press flex h-12 w-12 items-center justify-center rounded-full bg-teal-500 text-[#0b1120] shadow-lg transition-all hover:bg-teal-400 hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 sm:h-14 sm:w-14"
+          className="press flex h-12 w-12 items-center justify-center rounded-full bg-primary-500 text-[#0b1120] shadow-lg transition-all hover:bg-primary-400 hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 sm:h-14 sm:w-14"
         >
           {playing ? <Pause className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={2} /> : <Play className="h-6 w-6 -translate-x-0.5 sm:h-7 sm:w-7" strokeWidth={2} />}
         </button>
@@ -770,7 +771,7 @@ export default function AudioPlayer({
               <div className="relative h-1.5 w-full rounded-full bg-white/25">
                 <div className="absolute inset-y-0 left-0 rounded-full bg-white" style={{ width: `${(muted ? 0 : volume) * 100}%` }} />
               </div>
-              <SliderPrimitive.Thumb className="block h-3.5 w-3.5 rounded-full bg-white shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300" />
+              <SliderPrimitive.Thumb className="block h-3.5 w-3.5 rounded-full bg-white shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300" />
             </SliderPrimitive.Root>
           </div>
         </div>
@@ -806,7 +807,7 @@ export default function AudioPlayer({
                   >
                     <SelectPrimitive.ItemText>{formatRate(option)}</SelectPrimitive.ItemText>
                     <SelectPrimitive.ItemIndicator>
-                      <Check className="h-3.5 w-3.5 text-teal-300" strokeWidth={2.5} />
+                      <Check className="h-3.5 w-3.5 text-primary-300" strokeWidth={2.5} />
                     </SelectPrimitive.ItemIndicator>
                   </SelectPrimitive.Item>
                 ))}
@@ -831,7 +832,7 @@ export default function AudioPlayer({
             disabled={!ready}
             className={cn(
               'press flex h-11 min-w-11 items-center justify-center rounded-full px-2 font-mono text-xs font-bold transition-colors disabled:opacity-40',
-              loopA != null ? 'bg-teal-400/20 text-teal-300' : 'text-slate-200 hover:bg-white/10 hover:text-white',
+              loopA != null ? 'bg-primary-400/20 text-primary-300' : 'text-slate-200 hover:bg-white/10 hover:text-white',
             )}
           >
             A
@@ -845,7 +846,7 @@ export default function AudioPlayer({
             disabled={!ready}
             className={cn(
               'press flex h-11 min-w-11 items-center justify-center rounded-full px-2 font-mono text-xs font-bold transition-colors disabled:opacity-40',
-              loopB != null ? 'bg-teal-400/20 text-teal-300' : 'text-slate-200 hover:bg-white/10 hover:text-white',
+              loopB != null ? 'bg-primary-400/20 text-primary-300' : 'text-slate-200 hover:bg-white/10 hover:text-white',
             )}
           >
             B
@@ -896,7 +897,7 @@ export default function AudioPlayer({
           className={cn(
             'flex flex-wrap items-center justify-center gap-2 rounded-2xl border px-3 py-2 text-xs font-medium',
             loopActive
-              ? 'border-teal-400/25 bg-teal-400/10 text-teal-200'
+              ? 'border-primary-400/25 bg-primary-400/10 text-primary-200'
               : 'border-white/10 bg-white/[0.04] text-slate-300',
           )}
         >
@@ -932,7 +933,7 @@ export default function AudioPlayer({
           <button
             type="button"
             onClick={() => refresh()}
-            className="press inline-flex min-h-11 items-center gap-2 rounded-2xl bg-teal-500 px-5 py-2 text-sm font-bold text-[#0b1120] transition-colors hover:bg-teal-400"
+            className="press inline-flex min-h-11 items-center gap-2 rounded-2xl bg-primary-500 px-5 py-2 text-sm font-bold text-[#0b1120] transition-colors hover:bg-primary-400"
           >
             <RotateCcw className="h-4 w-4" strokeWidth={2} /> إعادة المحاولة
           </button>
@@ -945,7 +946,7 @@ export default function AudioPlayer({
           <button
             type="button"
             onClick={() => { setFatalError(null); refresh('manual'); }}
-            className="press inline-flex min-h-11 items-center gap-2 rounded-2xl bg-teal-500 px-5 py-2 text-sm font-bold text-[#0b1120] transition-colors hover:bg-teal-400"
+            className="press inline-flex min-h-11 items-center gap-2 rounded-2xl bg-primary-500 px-5 py-2 text-sm font-bold text-[#0b1120] transition-colors hover:bg-primary-400"
           >
             <RotateCcw className="h-4 w-4" strokeWidth={2} /> إعادة المحاولة
           </button>
