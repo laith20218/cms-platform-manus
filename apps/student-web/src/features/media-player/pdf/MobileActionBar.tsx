@@ -21,7 +21,7 @@ import { ChevronLeft, ChevronRight, Images, MoveHorizontal, Wrench, ZoomIn, Zoom
  *
  * §13: every target ≥ 44px (h-12/h-13), aria-pressed + labels, logical
  * properties only, ramp tokens (#0b1120 surface / #1e293b border /
- * #25C7E8 focus ring), tabular numerals, Radix popovers portal+trap.
+ * var(--color-primary-400) focus ring), tabular numerals, Radix popovers portal+trap.
  */
 
 export interface MobileActionBarProps {
@@ -44,7 +44,7 @@ export interface MobileActionBarProps {
   onToolsToggle: () => void;
 }
 
-const TRIGGER_CLASS = 'press inline-flex h-12 min-w-14 items-center justify-center gap-1 rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]';
+const TRIGGER_CLASS = 'press inline-flex h-12 min-w-14 items-center justify-center gap-1 rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]';
 
 export function MobileActionBar({
   page, pageCount, onGoToPage, onPrevPage, onNextPage,
@@ -83,7 +83,7 @@ export function MobileActionBar({
         aria-label="مصغرات الصفحات"
         title="مصغرات الصفحات"
         data-testid="pdf-mobile-thumbs"
-        className={`${TRIGGER_CLASS} w-14 flex-col ${thumbsOpen ? 'border-[#1685F8] text-[#25C7E8] ring-2 ring-[#1685F8]' : ''}`}
+        className={`${TRIGGER_CLASS} w-14 flex-col ${thumbsOpen ? 'border-[var(--color-primary-500)] text-[var(--color-primary-400)] ring-2 ring-[var(--color-primary-500)]' : ''}`}
       >
         <Images className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
         <span className="text-[9px] font-bold leading-none">المصغرات</span>
@@ -130,13 +130,13 @@ export function MobileActionBar({
                 onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); commitPage(); } }}
                 aria-label="رقم الصفحة"
                 data-testid="pdf-mobile-page-input"
-                className="h-11 rounded-xl border border-white/10 bg-white/10 text-center text-sm font-bold tabular-nums text-white outline-none focus:ring-2 focus:ring-[#25C7E8]/40"
+                className="h-11 rounded-xl border border-white/10 bg-white/10 text-center text-sm font-bold tabular-nums text-white outline-none focus:ring-2 focus:ring-[var(--color-primary-400)]/40"
               />
               <button
                 type="button"
                 onClick={commitPage}
                 data-testid="pdf-mobile-page-go"
-                className="press inline-flex h-11 items-center justify-center rounded-xl bg-[#1685F8] text-sm font-bold text-white transition-colors duration-200 ease-out hover:bg-[#1685F8]/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+                className="press inline-flex h-11 items-center justify-center rounded-xl bg-[var(--color-primary-600)] text-sm font-bold text-white transition-colors duration-200 ease-out hover:bg-[var(--color-primary-600)]/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]"
               >
                 انتقال
               </button>
@@ -217,7 +217,7 @@ export function MobileActionBar({
         aria-label="أدوات الدراسة"
         title="أدوات الدراسة"
         data-testid="pdf-mobile-tools"
-        className={`${TRIGGER_CLASS} w-14 flex-col ${toolsOpen ? 'border-[#1685F8] text-[#25C7E8] ring-2 ring-[#1685F8]' : ''}`}
+        className={`${TRIGGER_CLASS} w-14 flex-col ${toolsOpen ? 'border-[var(--color-primary-500)] text-[var(--color-primary-400)] ring-2 ring-[var(--color-primary-500)]' : ''}`}
       >
         <Wrench className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
         <span className="text-[9px] font-bold leading-none">الأدوات</span>

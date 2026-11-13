@@ -992,7 +992,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
     return (
       <div className="flex h-full w-full items-center justify-center" data-testid="pdf-player-loading">
         <div className="flex flex-col items-center gap-4">
-          <LoaderCircle className="h-12 w-12 animate-spin text-teal-300/80" strokeWidth={1.5} />
+          <LoaderCircle className="h-12 w-12 animate-spin text-primary-300/80" strokeWidth={1.5} />
           <p className="text-sm font-medium text-slate-300">جارٍ تجهيز ملف PDF…</p>
         </div>
       </div>
@@ -1115,7 +1115,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           tabIndex={0}
           role="region"
           aria-label="تمرير صفحات المستند"
-          className="h-full min-w-0 flex-1 overflow-y-auto overflow-x-auto rounded-3xl bg-[#071426] px-3 py-4 outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8] sm:px-6"
+          className="h-full min-w-0 flex-1 overflow-y-auto overflow-x-auto rounded-3xl bg-[#071426] px-3 py-4 outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)] sm:px-6"
           style={{ touchAction: 'pan-x pan-y pinch-zoom' }}
         >
           {/* Wave 12.2.C.1 (E7) — max-w-4xl removed: the column fills the row
@@ -1222,7 +1222,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
               aria-label="إنهاء وضع التركيز (Esc)"
               title="إنهاء وضع التركيز (Esc)"
               data-testid="pdf-focus-exit"
-              className="press pointer-events-auto inline-flex h-12 items-center gap-2 rounded-full border border-[#1e293b] bg-[#0b1120]/90 px-4 text-xs font-bold text-slate-200 shadow-2xl backdrop-blur transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+              className="press pointer-events-auto inline-flex h-12 items-center gap-2 rounded-full border border-[#1e293b] bg-[#0b1120]/90 px-4 text-xs font-bold text-slate-200 shadow-2xl backdrop-blur transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]"
             >
               <Focus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
               إنهاء وضع التركيز

@@ -108,12 +108,12 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
         <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">
           <div className={cn('relative w-full rounded-full bg-white/20 transition-[height] duration-150', keyboardFocus ? 'h-2' : 'h-1.5 group-hover:h-2')}>
             <div className="absolute inset-y-0 left-0 rounded-full bg-white/30" style={{ width: `${buffered}%` }} data-testid="video-buffer-fill" />
-            <div className="absolute inset-y-0 left-0 rounded-full bg-teal-400" style={{ width: `${progress}%` }} />
+            <div className="absolute inset-y-0 left-0 rounded-full bg-primary-400" style={{ width: `${progress}%` }} />
           </div>
         </div>
         <SliderPrimitive.Thumb
           data-testid="video-seek-thumb"
-          className="block h-4 w-4 rounded-full bg-white shadow ring-2 ring-teal-400/60 transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-4"
+          className="block h-4 w-4 rounded-full bg-white shadow ring-2 ring-primary-400/60 transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-4"
           aria-label="شريط التقدم"
           aria-valuetext={seekValueText(currentTime, durationKnown ? duration : 0)}
         />
@@ -173,7 +173,7 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
               <div className="relative h-1.5 w-full rounded-full bg-white/25">
                 <div className="absolute inset-y-0 left-0 rounded-full bg-white" style={{ width: `${(muted ? 0 : volume) * 100}%` }} />
               </div>
-              <SliderPrimitive.Thumb aria-label="مستوى الصوت" className="block h-3.5 w-3.5 rounded-full bg-white shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300" />
+              <SliderPrimitive.Thumb aria-label="مستوى الصوت" className="block h-3.5 w-3.5 rounded-full bg-white shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300" />
             </SliderPrimitive.Root>
           </div>
         </div>
@@ -208,7 +208,7 @@ export const ControlsBar = forwardRef<HTMLDivElement, ControlsBarProps>(function
                   >
                     <SelectPrimitive.ItemText>{formatRate(option)}</SelectPrimitive.ItemText>
                     <SelectPrimitive.ItemIndicator>
-                      <Check className="h-3.5 w-3.5 text-teal-300" strokeWidth={2.5} />
+                      <Check className="h-3.5 w-3.5 text-primary-300" strokeWidth={2.5} />
                     </SelectPrimitive.ItemIndicator>
                   </SelectPrimitive.Item>
                 ))}

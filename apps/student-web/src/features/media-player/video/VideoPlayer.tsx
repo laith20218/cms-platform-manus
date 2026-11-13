@@ -865,7 +865,7 @@ export default function VideoPlayer({
               type="button"
               onClick={() => refresh()}
               data-testid="video-retry"
-              className="press inline-flex min-h-11 items-center gap-2 rounded-2xl bg-teal-500 px-5 py-2 text-sm font-bold text-[#0b1120] transition-colors hover:bg-teal-400"
+              className="press inline-flex min-h-11 items-center gap-2 rounded-2xl bg-primary-500 px-5 py-2 text-sm font-bold text-[#0b1120] transition-colors hover:bg-primary-400"
             >
               <RotateCcw className="h-4 w-4" strokeWidth={2} /> إعادة المحاولة
             </button>
@@ -878,7 +878,7 @@ export default function VideoPlayer({
             <button
               type="button"
               onClick={() => { setFatalError(null); refresh('manual'); }}
-              className="press inline-flex min-h-11 items-center gap-2 rounded-2xl bg-teal-500 px-5 py-2 text-sm font-bold text-[#0b1120] transition-colors hover:bg-teal-400"
+              className="press inline-flex min-h-11 items-center gap-2 rounded-2xl bg-primary-500 px-5 py-2 text-sm font-bold text-[#0b1120] transition-colors hover:bg-primary-400"
             >
               <RotateCcw className="h-4 w-4" strokeWidth={2} /> إعادة المحاولة
             </button>
