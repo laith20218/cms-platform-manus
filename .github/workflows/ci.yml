@@ -165,6 +165,24 @@ jobs:
 
       # ===== Push 11.5 / PART C: Playwright e2e (network-mocked specs; no backend needed) =====
 
+      # CI fix (2026-11-11, wave 14.2 unblocker): GHA's ubuntu-24.04 image points apt at
+      # the Azure region mirror via /etc/apt/apt-mirrors.txt (read as mirror+file:). When
+      # azure.archive.ubuntu.com fails DNS on a runner (seen twice on PR #82, run #349
+      # attempts 1 & 2 — exit 100 from `playwright install --with-deps`), every apt call
+      # in this job dies, including the ffmpeg install below (same VM, shared /etc/apt).
+      # Rewrite the mirrorlist and ALL source formats (one-line .list + DEB822 .sources;
+      # /etc/apt/sources.list may be absent on 24.04 — globs must not fail the step) to
+      # the canonical geo-DNS mirror archive.ubuntu.com. Idempotent; update errors are
+      # non-fatal — the install step itself surfaces any real package error.
+      - name: Redirect apt mirror away from azure.archive.ubuntu.com (GHA DNS failure)
+        run: |
+          sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' \
+            /etc/apt/apt-mirrors.txt \
+            /etc/apt/sources.list \
+            /etc/apt/sources.list.d/*.list \
+            /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get update -qq || true
+
       - name: Install Playwright Chromium
         run: pnpm --filter @cms/student-web exec playwright install --with-deps chromium
 
@@ -267,6 +285,53 @@ jobs:
         with:
           name: frontend-sbom
           path: artifacts/sbom/student-web.cdx.json
+
+      # Diagnostic ONLY (2026-11-11, PR #83): NOT a fix and does not change pass/fail.
+      # Fires only when an earlier step in this job failed (if: failure()), capturing
+      # DNS/HTTP/apt forensic state in the log for post-incident analysis of the GHA
+      # Ubuntu-archive DNS outage (run #349: azure.archive.ubuntu.com; run #350:
+      # archive.ubuntu.com itself). Every command tolerates its own failure.
+      - name: Diagnose CI network state (on failure)
+        if: failure()
+        run: |
+          echo "::group::DNS resolution — expected OK"
+          for h in packages.microsoft.com registry.npmjs.org github.com; do
+            printf '%-30s ' "$h"; getent hosts "$h" || echo "FAIL"
+          done
+          echo "::endgroup::"
+
+          echo "::group::DNS resolution — expected FAIL during incident"
+          for h in azure.archive.ubuntu.com archive.ubuntu.com security.ubuntu.com; do
+            printf '%-30s ' "$h"; getent hosts "$h" || echo "FAIL"
+          done
+          echo "::endgroup::"
+
+          echo "::group::HTTP probes (5s timeout)"
+          for u in https://packages.microsoft.com/ https://archive.ubuntu.com/ https://security.ubuntu.com/; do
+            printf '%-40s ' "$u"
+            curl -sS --max-time 5 -o /dev/null -w '%{http_code}\n' "$u" || echo "curl-fail"
+          done
+          echo "::endgroup::"
+
+          echo "::group::/etc/resolv.conf"
+          cat /etc/resolv.conf || true
+          echo "::endgroup::"
+
+          echo "::group::apt mirror + sources (post-redirect state)"
+          echo "--- /etc/apt/apt-mirrors.txt ---"
+          cat /etc/apt/apt-mirrors.txt 2>/dev/null || echo "(absent)"
+          echo "--- /etc/apt/sources.list ---"
+          cat /etc/apt/sources.list 2>/dev/null || echo "(absent on 24.04)"
+          echo "--- /etc/apt/sources.list.d/ ---"
+          ls -la /etc/apt/sources.list.d/ 2>/dev/null || echo "(absent)"
+          for f in /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+            [ -f "$f" ] && { echo "=== $f ==="; cat "$f"; } || true
+          done
+          echo "::endgroup::"
+
+          echo "::group::apt proxy config"
+          apt-config dump 2>/dev/null | grep -iE 'proxy|mirror' || echo "(no proxy config)"
+          echo "::endgroup::"
 
   # =========================================================
   # JOB 3: Security Scan (CodeQL + Trivy)
