@@ -2,26 +2,29 @@ import { Link } from 'react-router-dom';
 import { useMySubjects, hasScope, type MySubjectEntry } from '@/features/my-studies/hooks/useMySubjects';
 import { useSubjectModal } from '@/features/subjects/SubjectModalContext';
 import { Skeleton } from '@/components/ui/Skeleton';
+import type { StudentStats } from '@/features/stats/services/stats-api';
 
 /**
- * MySubjectsSection — Wave 14.3 PR #2 («موادي»).
+ * MySubjectsSection — Wave 14.3 PR #2 («موادي»), rebuilt in Wave 15.2 (D1/D5).
  *
- * One compact chip per ENTITLED subject (useMySubjects — the same
+ * One progress card per ENTITLED subject (useMySubjects — the same
  * ['my-subjects-entitled'] cache every My Studies tab reads), rendered at the
  * top of the Dashboard. New students see their subjects here even with zero
- * attempts: the «التقدّم حسب المادة» grid below is attempt-driven and stays a
- * progress view. Each chip opens the shared scope-gated SubjectModal
- * (PR #1/#1.5) so every subject on the Dashboard is actionable — same
- * destinations and gating as the subjects browser quick-actions:
+ * attempts: the /stats/me bySubject rows are merged per subjectId (0% until
+ * the first attempt). The old «التقدّم حسب المادة» grid was deleted (D5) and
+ * non-entitled stats rows no longer render at all (no «غير مفعّلة» badge, D1).
+ * Each card opens the shared scope-gated SubjectModal (PR #1/#1.5) so every
+ * subject on the Dashboard is actionable — same destinations and gating as
+ * the subjects browser quick-actions:
  *   content: always · exams: QuestionsExams · library: LecturesText||VideoAudio
  *   · courses: VideoAudio.
  *
- * States: loading → 3 skeleton chips; error → inline retry; empty (no active
+ * States: loading → 3 skeleton cards; error → inline retry; empty (no active
  * subscription code) → dashed card with the activation CTA (/activate-code).
  */
 
-/** PR #1.5 scope rules, shared with the progress-card buttons in DashboardPage. */
-// eslint-disable-next-line react-refresh/only-export-components -- Wave 14.3 PR #2 pins the shared scope mapping next to its primary consumer; duplicating it into DashboardPage would let the two drift (same one-file precedent as SubjectModalContext's provider + hook).
+/** PR #1.5 scope rules, shared with ContinueCard (15.2) and the subject sheet. */
+// eslint-disable-next-line react-refresh/only-export-components -- Wave 14.3 PR #2 pins the shared scope mapping next to its primary consumer; duplicating it would let consumers drift (same one-file precedent as SubjectModalContext's provider + hook).
 export function scopeForSubject(subject: MySubjectEntry) {
   return {
     content: true,
@@ -31,10 +34,15 @@ export function scopeForSubject(subject: MySubjectEntry) {
   };
 }
 
-export function MySubjectsSection() {
+export function MySubjectsSection({ bySubject }: { bySubject: StudentStats['bySubject'] }) {
   const mySubjects = useMySubjects();
   const { openSubjectModal } = useSubjectModal();
   const subjects = mySubjects.data ?? [];
+
+  // 15.2 (D1): /stats/me progress rows merged onto the entitled subject list.
+  const progressById = new Map<string, StudentStats['bySubject'][number]>(
+    bySubject.map((row) => [row.subjectId, row]),
+  );
 
   const openSubject = (subject: MySubjectEntry) => {
     openSubjectModal({
@@ -53,10 +61,10 @@ export function MySubjectsSection() {
       </div>
 
       {mySubjects.isLoading ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-          <Skeleton className="h-11 rounded-2xl" />
-          <Skeleton className="h-11 rounded-2xl" />
-          <Skeleton className="h-11 rounded-2xl" />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+          <Skeleton className="h-40 rounded-2xl" />
+          <Skeleton className="h-40 rounded-2xl" />
+          <Skeleton className="h-40 rounded-2xl" />
         </div>
       ) : mySubjects.isError ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-4">
@@ -80,22 +88,44 @@ export function MySubjectsSection() {
           </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-          {subjects.map((subject) => (
-            <button
-              key={subject.id}
-              type="button"
-              onClick={() => openSubject(subject)}
-              aria-label={`خيارات المادة ${subject.nameAr}`}
-              data-testid={`my-subject-chip-${subject.id}`}
-              className="press flex min-h-11 items-center gap-2 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] px-4 py-3 text-start transition-colors hover:bg-[var(--c-bg-hover)]"
-            >
-              {subject.color && (
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: subject.color }} />
-              )}
-              <span className="truncate font-semibold text-[var(--c-text)]">{subject.nameAr}</span>
-            </button>
-          ))}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {subjects.map((subject) => {
+            const progress = progressById.get(subject.id);
+            const pct = progress ? Math.min(100, progress.completedPercentage) : 0;
+            const questions = progress?.questionsAnswered ?? 0;
+            const accuracy = progress?.accuracy;
+
+            return (
+              <button
+                key={subject.id}
+                type="button"
+                data-testid={`my-subject-card-${subject.id}`}
+                onClick={() => openSubject(subject)}
+                aria-label={`خيارات المادة ${subject.nameAr}`}
+                className="press flex flex-col gap-3 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-4 text-start transition-colors hover:bg-[var(--c-bg-hover)]"
+              >
+                <div className="flex items-center gap-2">
+                  {subject.color && (
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: subject.color }} />
+                  )}
+                  <span className="truncate font-semibold text-[var(--c-text)]">{subject.nameAr}</span>
+                </div>
+                <div className="flex justify-between text-xs text-[var(--c-text-muted)]">
+                  <span>الإكمال</span>
+                  <strong className="text-[var(--c-primary-700)]" lang="en">{pct.toFixed(0)}%</strong>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--c-bg)]">
+                  <div className="h-full rounded-full bg-[var(--c-primary-700)]" style={{ width: `${pct}%` }} />
+                </div>
+                <p className="text-xs text-[var(--c-text-muted)]">
+                  <span lang="en">{questions}</span> سؤال مجاب
+                  {accuracy !== undefined && (
+                    <> • الدقة: <span lang="en">{accuracy.toFixed(0)}%</span></>
+                  )}
+                </p>
+              </button>
+            );
+          })}
         </div>
       )}
     </section>
