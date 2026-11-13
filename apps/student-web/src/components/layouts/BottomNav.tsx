@@ -16,16 +16,17 @@ import { cn } from '@/utils';
  *   and each tap has a press micro-interaction (scale).
  */
 const items = [
-  { to: '/dashboard', icon: Home, label: 'الرئيسية' },
-  { to: '/subjects', icon: GraduationCap, label: 'المواد' },
-  { to: '/my-studies', icon: BookOpenCheck, label: 'دراستي' },
-  { to: '/favorites', icon: Star, label: 'المفضلة' },
-  { to: '/profile', icon: User, label: 'حسابي' },
+  { slug: 'dashboard', to: '/dashboard', icon: Home, label: 'الرئيسية' },
+  { slug: 'subjects', to: '/subjects', icon: GraduationCap, label: 'المواد' },
+  { slug: 'my-studies', to: '/my-studies', icon: BookOpenCheck, label: 'دراستي' },
+  { slug: 'favorites', to: '/favorites', icon: Star, label: 'المفضلة' },
+  { slug: 'profile', to: '/profile', icon: User, label: 'حسابي' },
 ];
 
 export function BottomNav() {
   return (
     <nav
+      data-testid="app-bottomnav"
       aria-label="التنقل الرئيسي"
       className="lg:hidden fixed bottom-0 inset-x-0 z-[var(--z-sticky)] border-t backdrop-blur-2xl"
       style={{
@@ -36,11 +37,12 @@ export function BottomNav() {
         boxShadow: '0 -8px 32px rgba(15, 23, 42, 0.08)',
       }}
     >
-      <ul className="flex items-stretch justify-around h-[68px]">
+      <ul className="flex items-stretch justify-around h-[var(--cms-bottom-h)]">
         {items.map((item) => (
           <li key={item.to} className="flex-1 min-w-0">
             <NavLink
               to={item.to}
+              data-testid={`bottomnav-item-${item.slug}`}
               className={({ isActive }) =>
                 cn(
                   'press relative flex h-full min-h-11 w-full flex-col items-center justify-center gap-1 rounded-2xl',
