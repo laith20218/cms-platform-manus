@@ -4,6 +4,8 @@ import { Toaster } from 'sonner';
 import { ThemeProvider } from './providers/ThemeProvider';
 import { AuthProvider } from './providers/AuthProvider';
 import { AppRoutes } from './router';
+import { SubjectModalProvider } from '@/features/subjects/SubjectModalContext';
+import { SubjectModal } from '@/features/subjects/SubjectModal';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -22,7 +24,13 @@ export function App() {
       <ThemeProvider>
         <AuthProvider>
           <BrowserRouter>
-            <AppRoutes />
+            <SubjectModalProvider>
+              <AppRoutes />
+              {/* Global subject-actions sheet (Wave 14.3 PR #1) — mounted as a
+                  sibling of the routes, mirroring <Toaster>, so it overlays
+                  every page. It consumes the router, hence inside BrowserRouter. */}
+              <SubjectModal />
+            </SubjectModalProvider>
             <Toaster
               position="top-center"
               dir="rtl"
