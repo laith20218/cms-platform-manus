@@ -121,10 +121,19 @@ try
     {
         options.AddPolicy("CMS", policy =>
         {
+            // C3 owner-approved exception (wave 14.2 unblocker): Vercel Preview deployments
+            // (cms-platform-manus-*-git-*.vercel.app) must reach the API for manual visual
+            // verification of player changes. The wildcard origin below matches every preview
+            // (and the production Vercel apps — subdomains of vercel.app themselves); the
+            // config-driven origins above keep the non-Vercel environments unchanged.
+            // Subdomain wildcard matching is enabled on the policy; AllowCredentials stays
+            // valid because the origin list remains explicit.
             policy.WithOrigins(
                     builder.Configuration["Cors:StudentApp"] ?? "https://app.cms.example.com",
-                    builder.Configuration["Cors:AdminApp"] ?? "https://admin.cms.example.com"
+                    builder.Configuration["Cors:AdminApp"] ?? "https://admin.cms.example.com",
+                    "https://*.vercel.app"
                 )
+                .SetIsOriginAllowedToAllowWildcardSubdomains()
                 .WithHeaders(
                     "Authorization",
                     "Content-Type",
