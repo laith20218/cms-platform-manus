@@ -136,7 +136,7 @@ export function EpisodeMetadata({ metadata, testId = 'episode-metadata' }: {
             aria-expanded={expanded}
             aria-controls={descriptionId}
             data-testid="episode-metadata-toggle"
-            className="mt-2 inline-flex min-h-11 items-center gap-1 rounded-xl px-2 text-sm font-medium text-teal-300 transition-colors hover:text-teal-200"
+            className="mt-2 inline-flex min-h-11 items-center gap-1 rounded-xl px-2 text-sm font-medium text-primary-300 transition-colors hover:text-primary-200"
           >
             {expanded ? 'عرض أقل' : 'عرض المزيد'}
             <ChevronDown
