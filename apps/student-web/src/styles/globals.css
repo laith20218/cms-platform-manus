@@ -153,6 +153,9 @@
   --cms-sidebar-w: 280px;
   --cms-topbar-h: 4rem;
   --cms-content-max: 1280px;
+  /* Shell: bottom nav */
+  --cms-bottom-h: 68px;
+  --cms-bottom-pb: 84px;   /* bar height + 16px shadow headroom */
 
   /* ===== Backward-compat aliases (--c-* → --cms-* mappings) =====
      These allow existing component code that references --c-* vars
