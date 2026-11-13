@@ -62,18 +62,30 @@ export function Sidebar() {
   // 15.1.5 — custom active detection for the /my-studies hub links. NavLink
   // (end=false, pathname-only matching) marked ALL FOUR study items active on
   // any /my-studies URL. Compare BOTH the pathname and the ?tab= param: the 3
-  // resource items own their exact tab; دراستي owns ONLY the tab-less URL —
-  // the hub's default tab is 'courses' (MyStudiesPage.tsx falls back to it
-  // when ?tab= is absent or invalid), which is the SAME tab الكورسات links
-  // to, so folding the default into دراستي would double-highlight on
-  // /my-studies?tab=courses.
+  // resource items own their exact tab; دراستي owns the tab-less URL plus the
+  // tabs with no dedicated sidebar item — the hub's default tab is 'courses'
+  // (MyStudiesPage.tsx falls back to it when ?tab= is absent or invalid), which
+  // is the SAME tab الكورسات links to, so folding the default into دراستي
+  // would double-highlight on /my-studies?tab=courses.
+  //
+  // 15.1.6 — residual fix from the PR #90 report: ?tab=practice and
+  // ?tab=exam-courses had ZERO active items (tabs without a dedicated sidebar
+  // entry). دراستي now owns them too.
   function isStudyItemActive(to: string): boolean {
     const [path, query = ''] = to.split('?');
     if (location.pathname !== path) return false;
     const toTab = new URLSearchParams(query).get('tab');
     const currentTab = searchParams.get('tab');
     if (toTab) return currentTab === toTab;
-    return !currentTab;
+    // دراستي is active when no tab is present (hub home), OR when
+    // the active tab is one that has no dedicated sidebar item.
+    // Currently: practice, exam-courses.
+    // If a future tab is added without a sidebar item, add it here.
+    return (
+      !currentTab ||
+      currentTab === 'practice' ||
+      currentTab === 'exam-courses'
+    );
   }
 
   const itemClasses = (active: boolean) =>

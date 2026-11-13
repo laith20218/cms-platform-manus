@@ -20,6 +20,10 @@ import { Sidebar } from '@/components/layouts/Sidebar';
 // Recon note: MyStudiesPage falls back to tab='courses' when ?tab= is absent,
 // so /my-studies and /my-studies?tab=courses render the same panel — but the
 // sidebar must still highlight only دراستي vs only الكورسات respectively.
+//
+// 15.1.6 — residual regression (PR #90 report): the tabs WITHOUT a dedicated
+// sidebar item (?tab=practice, ?tab=exam-courses) showed ZERO active items;
+// دراستي now owns them, so it is the single active item on those routes too.
 // ---------------------------------------------------------------------------
 
 const STUDY_TESTIDS = [
@@ -71,6 +75,18 @@ describe('Sidebar — single active study item on /my-studies routes (15.1.5)', 
   it('marks only بنك الأسئلة active on /my-studies?tab=exams', () => {
     renderSidebarAt('/my-studies?tab=exams');
     expectStudyItemsActiveState('sidebar-item-exams');
+  });
+
+  // ---- 15.1.6: tabs with no dedicated sidebar item → دراستي is active ----
+
+  it('marks only دراستي active on /my-studies?tab=practice', () => {
+    renderSidebarAt('/my-studies?tab=practice');
+    expectStudyItemsActiveState('sidebar-item-my-studies');
+  });
+
+  it('marks only دراستي active on /my-studies?tab=exam-courses', () => {
+    renderSidebarAt('/my-studies?tab=exam-courses');
+    expectStudyItemsActiveState('sidebar-item-my-studies');
   });
 
   it('keeps all 4 study items inactive on /dashboard (dashboard NavLink active)', () => {
