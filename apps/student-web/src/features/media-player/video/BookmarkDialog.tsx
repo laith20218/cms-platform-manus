@@ -103,7 +103,7 @@ export function BookmarkDialog({
         >
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
-              <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-teal-400/20 bg-teal-400/10 text-teal-300">
+              <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary-400/20 bg-primary-400/10 text-primary-300">
                 <Bookmark className="h-5 w-5" strokeWidth={1.75} />
               </span>
               <div>
@@ -133,7 +133,7 @@ export function BookmarkDialog({
                   value={start}
                   onChange={(e) => setStart(Math.max(0, Number(e.target.value)))}
                   data-testid="bookmark-start"
-                  className="h-11 w-full rounded-2xl border border-white/10 bg-white/5 px-3 font-mono text-sm tabular-nums text-white outline-none transition-colors focus:border-teal-400/60"
+                  className="h-11 w-full rounded-2xl border border-white/10 bg-white/5 px-3 font-mono text-sm tabular-nums text-white outline-none transition-colors focus:border-primary-400/60"
                 />
               </label>
               <label className="block">
@@ -145,14 +145,14 @@ export function BookmarkDialog({
                   value={end}
                   onChange={(e) => setEnd(Number(e.target.value))}
                   data-testid="bookmark-end"
-                  className="h-11 w-full rounded-2xl border border-white/10 bg-white/5 px-3 font-mono text-sm tabular-nums text-white outline-none transition-colors focus:border-teal-400/60"
+                  className="h-11 w-full rounded-2xl border border-white/10 bg-white/5 px-3 font-mono text-sm tabular-nums text-white outline-none transition-colors focus:border-primary-400/60"
                 />
               </label>
             </div>
 
             <label className="block">
               <span className="mb-1.5 block text-xs font-semibold text-slate-300">
-                العنوان <span className="text-teal-300">*</span>
+                العنوان <span className="text-primary-300">*</span>
               </span>
               <input
                 type="text"
@@ -161,7 +161,7 @@ export function BookmarkDialog({
                 onChange={(e) => setLabel(e.target.value)}
                 placeholder="مثال: شرح الرسم البياني"
                 data-testid="bookmark-label"
-                className="h-11 w-full rounded-2xl border border-white/10 bg-white/5 px-3 text-sm text-white placeholder:text-slate-500 outline-none transition-colors focus:border-teal-400/60"
+                className="h-11 w-full rounded-2xl border border-white/10 bg-white/5 px-3 text-sm text-white placeholder:text-slate-500 outline-none transition-colors focus:border-primary-400/60"
               />
             </label>
 
@@ -174,7 +174,7 @@ export function BookmarkDialog({
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="أي تفاصيل إضافية"
                 data-testid="bookmark-note"
-                className="h-11 w-full rounded-2xl border border-white/10 bg-white/5 px-3 text-sm text-white placeholder:text-slate-500 outline-none transition-colors focus:border-teal-400/60"
+                className="h-11 w-full rounded-2xl border border-white/10 bg-white/5 px-3 text-sm text-white placeholder:text-slate-500 outline-none transition-colors focus:border-primary-400/60"
               />
             </label>
 
@@ -189,7 +189,7 @@ export function BookmarkDialog({
               onClick={() => void submit()}
               disabled={submitting}
               data-testid="bookmark-submit"
-              className="press flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-teal-500 px-4 text-sm font-bold text-[#0b1120] transition-colors hover:bg-teal-400 disabled:opacity-60"
+              className="press flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-primary-500 px-4 text-sm font-bold text-[#0b1120] transition-colors hover:bg-primary-400 disabled:opacity-60"
             >
               {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Bookmark className="h-4 w-4" strokeWidth={2} />}
               {submitting ? 'جارٍ الحفظ…' : 'حفظ المقطع'}

@@ -153,7 +153,7 @@ function NoteEditor({ note, onCommit, onDelete, onClose }: NoteEditorProps) {
         aria-label="نص الملاحظة"
         data-testid="pdf-note-textarea"
         placeholder="اكتب ملاحظتك هنا…"
-        className="w-full resize-none rounded-xl border border-white/10 bg-white/5 p-2 text-sm leading-relaxed text-slate-100 outline-none placeholder:text-slate-500 focus:border-teal-400/40 focus:ring-2 focus:ring-teal-400/20"
+        className="w-full resize-none rounded-xl border border-white/10 bg-white/5 p-2 text-sm leading-relaxed text-slate-100 outline-none placeholder:text-slate-500 focus:border-primary-400/40 focus:ring-2 focus:ring-primary-400/20"
       />
     </div>
   );

@@ -103,7 +103,7 @@ export function PlayerLoading({ label }: { label: string }) {
       data-testid="player-loading"
       className="flex aspect-video w-full flex-col items-center justify-center gap-5 rounded-3xl border border-white/10 bg-white/[0.03] px-6"
     >
-      <LoaderCircle className="h-12 w-12 animate-spin text-teal-300/80" strokeWidth={1.5} />
+      <LoaderCircle className="h-12 w-12 animate-spin text-primary-300/80" strokeWidth={1.5} />
       <p className="text-sm font-medium text-slate-300">{label}</p>
       <div className="flex w-full max-w-xs items-center gap-2" aria-hidden="true">
         <div className="h-1.5 flex-1 animate-pulse rounded-full bg-white/10" />
