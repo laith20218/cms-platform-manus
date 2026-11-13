@@ -485,7 +485,7 @@ function LockedVideoCard({ failed }: { failed: boolean }) {
       {failed ? (
         <AlertTriangle className="h-12 w-12 text-amber-400/90" strokeWidth={1.5} aria-hidden="true" />
       ) : (
-        <LoaderCircle className="h-12 w-12 animate-spin text-teal-300/90" strokeWidth={1.5} aria-hidden="true" />
+        <LoaderCircle className="h-12 w-12 animate-spin text-primary-300/90" strokeWidth={1.5} aria-hidden="true" />
       )}
       <p className="max-w-md text-sm font-medium leading-7 text-white/85">
         {failed
