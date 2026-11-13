@@ -717,7 +717,17 @@ function SubjectCard({ subject, index, entitled, onLocked }: {
               subject BottomSheet. Hidden at ≥sm where the quick-actions row shows. */}
           <button
             type="button"
-            onClick={() => openSubjectModal({ id: subject.id, slug: subject.slug, nameAr: subject.nameAr })}
+            onClick={() => openSubjectModal({
+              id: subject.id,
+              slug: subject.slug,
+              nameAr: subject.nameAr,
+              scope: {
+                content: true,
+                exams: canQuestions,
+                library: hasLibrary,
+                courses: canVideoAudio,
+              },
+            })}
             className="press flex sm:hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-hover)] hover:text-[var(--c-text)]"
             data-testid="subject-more-trigger"
             aria-label="خيارات المادة"
