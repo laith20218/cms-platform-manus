@@ -286,6 +286,53 @@ jobs:
           name: frontend-sbom
           path: artifacts/sbom/student-web.cdx.json
 
+      # Diagnostic ONLY (2026-11-11, PR #83): NOT a fix and does not change pass/fail.
+      # Fires only when an earlier step in this job failed (if: failure()), capturing
+      # DNS/HTTP/apt forensic state in the log for post-incident analysis of the GHA
+      # Ubuntu-archive DNS outage (run #349: azure.archive.ubuntu.com; run #350:
+      # archive.ubuntu.com itself). Every command tolerates its own failure.
+      - name: Diagnose CI network state (on failure)
+        if: failure()
+        run: |
+          echo "::group::DNS resolution — expected OK"
+          for h in packages.microsoft.com registry.npmjs.org github.com; do
+            printf '%-30s ' "$h"; getent hosts "$h" || echo "FAIL"
+          done
+          echo "::endgroup::"
+
+          echo "::group::DNS resolution — expected FAIL during incident"
+          for h in azure.archive.ubuntu.com archive.ubuntu.com security.ubuntu.com; do
+            printf '%-30s ' "$h"; getent hosts "$h" || echo "FAIL"
+          done
+          echo "::endgroup::"
+
+          echo "::group::HTTP probes (5s timeout)"
+          for u in https://packages.microsoft.com/ https://archive.ubuntu.com/ https://security.ubuntu.com/; do
+            printf '%-40s ' "$u"
+            curl -sS --max-time 5 -o /dev/null -w '%{http_code}\n' "$u" || echo "curl-fail"
+          done
+          echo "::endgroup::"
+
+          echo "::group::/etc/resolv.conf"
+          cat /etc/resolv.conf || true
+          echo "::endgroup::"
+
+          echo "::group::apt mirror + sources (post-redirect state)"
+          echo "--- /etc/apt/apt-mirrors.txt ---"
+          cat /etc/apt/apt-mirrors.txt 2>/dev/null || echo "(absent)"
+          echo "--- /etc/apt/sources.list ---"
+          cat /etc/apt/sources.list 2>/dev/null || echo "(absent on 24.04)"
+          echo "--- /etc/apt/sources.list.d/ ---"
+          ls -la /etc/apt/sources.list.d/ 2>/dev/null || echo "(absent)"
+          for f in /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+            [ -f "$f" ] && { echo "=== $f ==="; cat "$f"; } || true
+          done
+          echo "::endgroup::"
+
+          echo "::group::apt proxy config"
+          apt-config dump 2>/dev/null | grep -iE 'proxy|mirror' || echo "(no proxy config)"
+          echo "::endgroup::"
+
   # =========================================================
   # JOB 3: Security Scan (CodeQL + Trivy)
   # =========================================================
