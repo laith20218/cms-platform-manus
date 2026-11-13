@@ -151,6 +151,7 @@
 
   /* ===== 8. Layout tokens ===== */
   --cms-sidebar-w: 280px;
+  --cms-sidebar-rail-w: 84px;   /* tablet icon rail (md → lg) */
   --cms-topbar-h: 4rem;
   --cms-content-max: 1280px;
   /* Shell: bottom nav */
