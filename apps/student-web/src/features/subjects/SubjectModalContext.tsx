@@ -29,6 +29,20 @@ export type SubjectModalApi = {
 
 const SubjectModalContext = createContext<SubjectModalApi | null>(null);
 
+/**
+ * No-op fallback for consumers rendered OUTSIDE the provider (isolated test
+ * renders of SubjectsPage, future Storybook-style stories). Matches the
+ * codebase's tolerant-context precedent (usePlayerShell returns null rather
+ * than throwing). In the real app the provider is always mounted (App.tsx),
+ * so this default only ever fires in isolation — where a silent no-op is the
+ * least surprising behavior for an optional affordance like the "…" trigger.
+ */
+const noopSubjectModalApi: SubjectModalApi = {
+  openSubjectModal: () => {},
+  closeSubjectModal: () => {},
+  state: { isOpen: false, subject: null },
+};
+
 export function SubjectModalProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SubjectModalState>({ isOpen: false, subject: null });
 
@@ -46,9 +60,5 @@ export function SubjectModalProvider({ children }: { children: ReactNode }) {
 
 // eslint-disable-next-line react-refresh/only-export-components -- spec (Wave 14.3 PR #1) pins provider + hook in ONE context file; the codebase's split-file alternative (see useAuth.ts) would deviate from the approved deliverable list.
 export function useSubjectModal(): SubjectModalApi {
-  const context = useContext(SubjectModalContext);
-  if (!context) {
-    throw new Error('useSubjectModal must be used within <SubjectModalProvider>');
-  }
-  return context;
+  return useContext(SubjectModalContext) ?? noopSubjectModalApi;
 }
