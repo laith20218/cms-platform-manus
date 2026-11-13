@@ -5,11 +5,12 @@ import { useQuery } from '@tanstack/react-query';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import {
   ArrowLeft, BookOpen, BookOpenCheck, Check, ChevronDown, ChevronLeft, ClipboardCheck,
-  Clock3, GraduationCap, Layers, LibraryBig, RotateCcw, Sparkles,
+  Clock3, GraduationCap, Layers, LibraryBig, MoreVertical, RotateCcw, Sparkles,
 } from 'lucide-react';
 import { academicApi, type SubjectSummary } from './services/academic-api';
 import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
 import { ActivationCodeModal } from './ActivationCodeModal';
+import { useSubjectModal } from './SubjectModalContext';
 import { BottomSheet } from '@/components/ui/Overlays';
 import { cn } from '@/utils';
 
@@ -664,6 +665,7 @@ function SubjectCard({ subject, index, entitled, onLocked }: {
   onLocked: (subject: { id: string; nameAr: string }) => void;
 }) {
   const navigate = useNavigate();
+  const { openSubjectModal } = useSubjectModal();
   const scopes = subject.contentScopes ?? [];
   const canQuestions = scopes.includes('QuestionsExams');
   const canLectures = scopes.includes('LecturesText');
@@ -687,28 +689,42 @@ function SubjectCard({ subject, index, entitled, onLocked }: {
         className="flex h-full flex-col rounded-3xl border border-[var(--c-border)] bg-[var(--c-surface)] p-5 transition-all hover:border-[var(--c-primary-300)] hover:shadow-lg"
         data-testid="subject-card"
       >
-        <button type="button" onClick={openSubject} className="group block w-full text-right" data-testid="subject-card-open" aria-label={`فتح مادة ${subject.nameAr}`}>
-          <div className="mb-3 flex items-center gap-3">
-            <div
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm"
-              style={{ background: subject.color || 'var(--c-primary-700)' }}
-            >
-              <BookOpen className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="truncate font-bold text-[var(--c-text)] transition-colors group-hover:text-[var(--c-primary-700)]">{subject.nameAr}</span>
-                {!entitled && (
-                  <span className="shrink-0 rounded-full bg-[var(--c-bg-hover)] px-2 py-0.5 text-[10px] font-semibold text-[var(--c-text-faint)]" data-testid="subject-card-locked-badge">
-                    مقفلة
-                  </span>
-                )}
+        <div className="mb-3 flex items-start gap-1">
+          <button type="button" onClick={openSubject} className="group block min-w-0 flex-1 text-right" data-testid="subject-card-open" aria-label={`فتح مادة ${subject.nameAr}`}>
+            <div className="flex items-center gap-3">
+              <div
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm"
+                style={{ background: subject.color || 'var(--c-primary-700)' }}
+              >
+                <BookOpen className="h-5 w-5" />
               </div>
-              <div className="mt-0.5 text-xs text-[var(--c-text-muted)]" lang="en">{subject.totalQuestions} سؤال • {subject.totalLectures} محاضرة</div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate font-bold text-[var(--c-text)] transition-colors group-hover:text-[var(--c-primary-700)]">{subject.nameAr}</span>
+                  {!entitled && (
+                    <span className="shrink-0 rounded-full bg-[var(--c-bg-hover)] px-2 py-0.5 text-[10px] font-semibold text-[var(--c-text-faint)]" data-testid="subject-card-locked-badge">
+                      مقفلة
+                    </span>
+                  )}
+                </div>
+                <div className="mt-0.5 text-xs text-[var(--c-text-muted)]" lang="en">{subject.totalQuestions} سؤال • {subject.totalLectures} محاضرة</div>
+              </div>
+              <ArrowLeft className="h-4 w-4 shrink-0 text-[var(--c-text-faint)] transition-all group-hover:-translate-x-0.5 group-hover:text-[var(--c-primary-700)]" />
             </div>
-            <ArrowLeft className="h-4 w-4 shrink-0 text-[var(--c-text-faint)] transition-all group-hover:-translate-x-0.5 group-hover:text-[var(--c-primary-700)]" />
-          </div>
-        </button>
+          </button>
+
+          {/* Mobile-only quick-actions trigger (Wave 14.3 PR #1): opens the shared
+              subject BottomSheet. Hidden at ≥sm where the quick-actions row shows. */}
+          <button
+            type="button"
+            onClick={() => openSubjectModal({ id: subject.id, slug: subject.slug, nameAr: subject.nameAr })}
+            className="press flex sm:hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-hover)] hover:text-[var(--c-text)]"
+            data-testid="subject-more-trigger"
+            aria-label="خيارات المادة"
+          >
+            <MoreVertical className="h-4 w-4" />
+          </button>
+        </div>
 
         {subject.userProgress && (
           <div className="mb-3">
@@ -728,7 +744,7 @@ function SubjectCard({ subject, index, entitled, onLocked }: {
           </div>
         )}
 
-        <div className="mt-auto flex flex-wrap items-center gap-1.5 border-t border-[var(--c-border)] pt-3" data-testid="subject-quick-actions">
+        <div className="mt-auto flex max-sm:hidden flex-wrap items-center gap-1.5 border-t border-[var(--c-border)] pt-3" data-testid="subject-quick-actions">
           <Link
             to={`/subjects/${subject.slug}`}
             className="press inline-flex min-h-9 items-center gap-1 rounded-xl bg-[var(--c-primary-50)] px-3 py-1.5 text-xs font-bold text-[var(--c-primary-700)] transition-colors hover:bg-[var(--c-primary-100)]"
