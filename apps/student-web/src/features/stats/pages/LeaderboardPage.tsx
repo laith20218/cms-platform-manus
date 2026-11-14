@@ -13,7 +13,13 @@ const rankConfig: RankConfig[] = [
   { icon: Medal, color: '#CD7F32', bg: 'rgba(205,127,50,0.15)', label: 'الثالث' },
 ];
 
-export default function LeaderboardPage() {
+/**
+ * `hideBreadcrumb` (W15.4.1): the /study hub mounts this page as its
+ * «الصدارة» tab and owns the navigation context itself — the breadcrumb
+ * trail (الرئيسية ← الإحصائيات) is suppressed there only; the standalone
+ * /leaderboard route keeps it.
+ */
+export default function LeaderboardPage({ hideBreadcrumb = false }: { hideBreadcrumb?: boolean } = {}) {
   const [period, setPeriod] = useState<'all' | 'month' | 'week'>('all');
 
   const { data: leaderboard, isLoading, isError, refetch } = useQuery({
@@ -46,13 +52,15 @@ export default function LeaderboardPage() {
   return (
     <div className="space-y-5 max-w-[680px] mx-auto">
       {/* Breadcrumbs */}
-      <div className="flex items-center gap-2 text-xs text-[var(--c-text-muted)]">
-        <Link to="/dashboard" className="hover:text-[var(--c-primary-700)]">الرئيسية</Link>
-        <ChevronLeft className="w-3 h-3" />
-        <Link to="/stats" className="hover:text-[var(--c-primary-700)]">الإحصائيات</Link>
-        <ChevronLeft className="w-3 h-3" />
-        <span className="font-semibold text-[var(--c-text)]">المتصدرين</span>
-      </div>
+      {!hideBreadcrumb && (
+        <div className="flex items-center gap-2 text-xs text-[var(--c-text-muted)]">
+          <Link to="/dashboard" className="hover:text-[var(--c-primary-700)]">الرئيسية</Link>
+          <ChevronLeft className="w-3 h-3" />
+          <Link to="/stats" className="hover:text-[var(--c-primary-700)]">الإحصائيات</Link>
+          <ChevronLeft className="w-3 h-3" />
+          <span className="font-semibold text-[var(--c-text)]">المتصدرين</span>
+        </div>
+      )}
 
       {/* Title + Period */}
       <div className="flex items-center justify-between">
