@@ -231,13 +231,17 @@ function stubCascade(opts: { mySubjects: unknown[]; semesterSubjects: unknown[] 
   });
 }
 
-/** Walks the full cascade: university → college → year → semester. */
-async function walkCascade() {
-  fireEvent.click(await screen.findByText('جامعة حمص'));
-  fireEvent.click(await screen.findByText('كلية الطب البشري'));
-  fireEvent.click(await screen.findByTestId('year-tab'));
-  fireEvent.click(await screen.findByTestId('semester-chip'));
+/** W15.3.2 — the cascade lives in the URL now: render straight at a
+ *  fully-chosen cascade (university → college → year → semester) instead of
+ *  clicking through the old stepper. */
+function renderSubjectsAt(params: string) {
+  renderWithProviders(
+    [`/subjects${params ? `?${params}` : ''}`],
+    <Routes><Route path="/subjects" element={<SubjectsPage />} /></Routes>
+  );
 }
+
+const FULL_CASCADE_PARAMS = 'universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1';
 
 describe('SubjectsPage — entitlement-aware quick actions', () => {
   it('renders the my-subjects strip and scope-gated action buttons on subject cards', async () => {
@@ -246,13 +250,11 @@ describe('SubjectsPage — entitlement-aware quick actions', () => {
       semesterSubjects: [{ id: 's1', slug: 'تشريح-مرضي', nameAr: 'تشريح مرضي', totalQuestions: 10, totalLectures: 4, totalFiles: 2, contentScopes: ['QuestionsExams', 'LecturesText', 'VideoAudio'] }],
     });
 
-    renderWithProviders(['/subjects'], <Routes><Route path="/subjects" element={<SubjectsPage />} /></Routes>);
+    renderSubjectsAt(FULL_CASCADE_PARAMS);
 
     // My-subjects strip
     expect(await screen.findByTestId('my-subjects-strip')).toBeInTheDocument();
     expect(screen.getByText('موادي المفعّلة')).toBeInTheDocument();
-
-    await walkCascade();
 
     const card = await screen.findByTestId('subject-card');
     expect(card).toBeInTheDocument();
@@ -269,9 +271,7 @@ describe('SubjectsPage — entitlement-aware quick actions', () => {
       semesterSubjects: [{ id: 's1', slug: 'تشريح-مرضي', nameAr: 'تشريح مرضي', totalQuestions: 10, totalLectures: 4, totalFiles: 0, contentScopes: ['QuestionsExams'] }],
     });
 
-    renderWithProviders(['/subjects'], <Routes><Route path="/subjects" element={<SubjectsPage />} /></Routes>);
-
-    await walkCascade();
+    renderSubjectsAt(FULL_CASCADE_PARAMS);
 
     const actions = await screen.findByTestId('subject-quick-actions');
     expect(actions.textContent).toContain('المحتوى');
@@ -283,9 +283,7 @@ describe('SubjectsPage — entitlement-aware quick actions', () => {
   it('shows the activation CTA when the semester has no visible subjects and the student has none either', async () => {
     stubCascade({ mySubjects: [], semesterSubjects: [] });
 
-    renderWithProviders(['/subjects'], <Routes><Route path="/subjects" element={<SubjectsPage />} /></Routes>);
-
-    await walkCascade();
+    renderSubjectsAt(FULL_CASCADE_PARAMS);
 
     expect(await screen.findByTestId('subjects-empty')).toBeInTheDocument();
     expect(screen.getByTestId('activate-code-cta')).toBeInTheDocument();
