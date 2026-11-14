@@ -294,13 +294,4 @@ describe('SubjectsPage — card click flow (modal vs redirect)', () => {
     expect(await screen.findByTestId('activation-modal-error')).toBeInTheDocument();
     expect(screen.getByText('الكود مستخدم مسبقاً')).toBeInTheDocument();
   });
-
-  it('quick actions deep-link into the filtered hub', async () => {
-    renderSubjectsAt(FULL_CASCADE_PARAMS);
-
-    const examsLink = await screen.findByTestId('quick-action-exams');
-    expect(examsLink.getAttribute('href')).toBe('/my-studies?subjectId=s1&tab=exams');
-    const libraryLink = screen.getByTestId('quick-action-library');
-    expect(libraryLink.getAttribute('href')).toBe('/my-studies?subjectId=s1&tab=library');
-  });
 });

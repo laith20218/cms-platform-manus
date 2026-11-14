@@ -244,7 +244,7 @@ function renderSubjectsAt(params: string) {
 const FULL_CASCADE_PARAMS = 'universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1';
 
 describe('SubjectsPage — entitlement-aware quick actions', () => {
-  it('renders the my-subjects strip and scope-gated action buttons on subject cards', async () => {
+  it('renders the my-subjects strip and فتح button on entitled card', async () => {
     stubCascade({
       mySubjects: ENTITLED_SUBJECTS,
       semesterSubjects: [{ id: 's1', slug: 'تشريح-مرضي', nameAr: 'تشريح مرضي', totalQuestions: 10, totalLectures: 4, totalFiles: 2, contentScopes: ['QuestionsExams', 'LecturesText', 'VideoAudio'] }],
@@ -258,26 +258,10 @@ describe('SubjectsPage — entitlement-aware quick actions', () => {
 
     const card = await screen.findByTestId('subject-card');
     expect(card).toBeInTheDocument();
-    const actions = screen.getByTestId('subject-quick-actions');
-    expect(actions.textContent).toContain('المحتوى');
-    expect(actions.textContent).toContain('الاختبارات');
-    expect(actions.textContent).toContain('المكتبة');
-    expect(actions.textContent).toContain('الكورسات');
-  });
-
-  it('hides scope-missing quick actions (questions-only grant)', async () => {
-    stubCascade({
-      mySubjects: [],
-      semesterSubjects: [{ id: 's1', slug: 'تشريح-مرضي', nameAr: 'تشريح مرضي', totalQuestions: 10, totalLectures: 4, totalFiles: 0, contentScopes: ['QuestionsExams'] }],
-    });
-
-    renderSubjectsAt(FULL_CASCADE_PARAMS);
-
-    const actions = await screen.findByTestId('subject-quick-actions');
-    expect(actions.textContent).toContain('المحتوى');
-    expect(actions.textContent).toContain('الاختبارات');
-    expect(actions.textContent).not.toContain('المكتبة');
-    expect(actions.textContent).not.toContain('الكورسات');
+    // W15.3.4 — the quick-actions row is consolidated into one «فتح» button.
+    const action = screen.getByTestId('subject-card-action');
+    expect(action).toBeInTheDocument();
+    expect(action.textContent).toContain('فتح');
   });
 
   it('shows the activation CTA when the semester has no visible subjects and the student has none either', async () => {
