@@ -25,9 +25,6 @@ public static class DependencyInjection
             cfg.AddBehavior(typeof(IPipelineBehavior<,>), typeof(Behaviors.PerformanceBehavior<,>));
         });
 
-        // AutoMapper
-        services.AddAutoMapper(cfg => cfg.AddMaps(assembly));
-
         // FluentValidation
         services.AddValidatorsFromAssembly(assembly);
 
