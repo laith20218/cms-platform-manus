@@ -73,6 +73,9 @@ interface Option {
   meta?: string;
 }
 
+// Wave 15.3.1: migrated --cms-* tokens to --c-* equivalents for
+// visual consistency with SubjectsPage. Post-14.1, these resolve
+// to the same value EXCEPT --800 (renders darker; owner confirms).
 export function CascadeFilters({
   value, onChange, subjectId, onSelectSubject, entitledSubjectIds, subjectLabel: subjectLabelFallback,
 }: CascadeFiltersProps) {
@@ -200,7 +203,7 @@ export function CascadeFilters({
       onClick={() => onChange(EMPTY_CASCADE)}
       data-testid="cascade-reset"
       aria-label="إعادة تعيين التصفية الهرمية"
-      className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--cms-line)] bg-[var(--cms-surface)] px-3.5 text-sm font-semibold text-[var(--cms-text-soft)] transition-colors hover:border-[var(--cms-teal-500)] hover:text-[var(--cms-teal-800)]"
+      className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] px-3.5 text-sm font-semibold text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-500)] hover:text-[var(--c-primary-800)]"
     >
       <RotateCcw className="h-4 w-4" aria-hidden="true" />
       إعادة تعيين
@@ -251,10 +254,10 @@ export function CascadeFilters({
           aria-haspopup="dialog"
           aria-expanded={sheetOpen}
           className={cn(
-            'press inline-flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border px-3.5 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cms-teal-700)]',
+            'press inline-flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border px-3.5 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--c-primary-700)]',
             activeCount > 0
-              ? 'border-[var(--cms-teal-600)] bg-[var(--cms-teal-50)] text-[var(--cms-teal-800)]'
-              : 'border-[var(--cms-line)] bg-[var(--cms-surface)] text-[var(--cms-text-soft)] hover:border-[var(--cms-teal-500)]'
+              ? 'border-[var(--c-primary-600)] bg-[var(--c-primary-50)] text-[var(--c-primary-800)]'
+              : 'border-[var(--c-border)] bg-[var(--c-surface)] text-[var(--c-text-soft)] hover:border-[var(--c-primary-500)]'
           )}
         >
           <span className="flex min-w-0 items-center gap-2">
@@ -263,7 +266,7 @@ export function CascadeFilters({
             {activeCount > 0 && (
               <span
                 className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-bold"
-                style={{ background: 'var(--cms-teal-700)', color: 'var(--cms-text-inverse)' }}
+                style={{ background: 'var(--c-primary-700)', color: 'var(--cms-text-inverse)' }}
                 data-testid="cascade-active-count"
                 aria-label={`${activeCount} مرشحات مفعّلة`}
               >
@@ -271,11 +274,11 @@ export function CascadeFilters({
               </span>
             )}
           </span>
-          <ChevronDown className="h-4 w-4 shrink-0 text-[var(--cms-text-muted)]" aria-hidden="true" />
+          <ChevronDown className="h-4 w-4 shrink-0 text-[var(--c-text-muted)]" aria-hidden="true" />
         </button>
         {summaryParts.length > 0 && (
           <p
-            className="mt-1.5 truncate text-xs text-[var(--cms-text-muted)]"
+            className="mt-1.5 truncate text-xs text-[var(--c-text-muted)]"
             data-testid="cascade-summary"
           >
             {summaryParts.join(' · ')}
@@ -295,7 +298,7 @@ export function CascadeFilters({
             onClick={() => setSheetOpen(false)}
             data-testid="cascade-sheet-done"
             className="press mt-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold shadow-sm"
-            style={{ background: 'var(--cms-teal-700)', color: 'var(--cms-text-inverse)' }}
+            style={{ background: 'var(--c-primary-700)', color: 'var(--cms-text-inverse)' }}
           >
             تم
           </button>
@@ -340,23 +343,23 @@ function CascadeSelect({
         data-testid={testId}
         disabled={disabled}
         className={cn(
-          'press inline-flex min-h-11 min-w-[9.5rem] max-w-full items-center justify-between gap-2 rounded-xl border px-3.5 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cms-teal-700)]',
+          'press inline-flex min-h-11 min-w-[9.5rem] max-w-full items-center justify-between gap-2 rounded-xl border px-3.5 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--c-primary-700)]',
           value
-            ? 'border-[var(--cms-teal-600)] bg-[var(--cms-teal-50)] text-[var(--cms-teal-800)]'
-            : 'border-[var(--cms-line)] bg-[var(--cms-surface)] text-[var(--cms-text-soft)] hover:border-[var(--cms-teal-500)]',
+            ? 'border-[var(--c-primary-600)] bg-[var(--c-primary-50)] text-[var(--c-primary-800)]'
+            : 'border-[var(--c-border)] bg-[var(--c-surface)] text-[var(--c-text-soft)] hover:border-[var(--c-primary-500)]',
           'disabled:cursor-not-allowed disabled:opacity-50',
         )}
       >
         <span className="flex min-w-0 items-center gap-1.5">
           {/* Level prefix: darkens with the selected teal background (axe 2.2 AA —
               --cms-text-muted on --cms-teal-50 measures below 4.5:1). */}
-          <span className={cn('shrink-0', value ? 'text-[var(--cms-teal-800)]' : 'text-[var(--cms-text-muted)]')}>{label}:</span>
+          <span className={cn('shrink-0', value ? 'text-[var(--c-primary-800)]' : 'text-[var(--c-text-muted)]')}>{label}:</span>
           <span className="truncate">
             {loading ? '…' : selectedLabel ?? selected?.label ?? placeholder}
           </span>
         </span>
         <SelectPrimitive.Icon>
-          <ChevronDown className="h-4 w-4 shrink-0 text-[var(--cms-text-muted)]" aria-hidden="true" />
+          <ChevronDown className="h-4 w-4 shrink-0 text-[var(--c-text-muted)]" aria-hidden="true" />
         </SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>
@@ -365,17 +368,17 @@ function CascadeSelect({
           sideOffset={6}
           // W15.1 (B.2): above the bottom-sheet layers (overlay 60 / content 61) —
           // the select dropdown must open ABOVE the sheet that hosts it.
-          className="z-[calc(var(--z-modal)+2)] max-h-72 min-w-[12rem] overflow-hidden rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] shadow-lg"
+          className="z-[calc(var(--z-modal)+2)] max-h-72 min-w-[12rem] overflow-hidden rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] shadow-lg"
         >
           <SelectPrimitive.Viewport className="p-1.5">
             <SelectPrimitive.Item
               value="__all__"
               data-testid={`${testId}-all`}
-              className="flex min-h-11 cursor-pointer select-none items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm font-semibold text-[var(--cms-text-soft)] outline-none data-[highlighted]:bg-[var(--cms-bg-hover)]"
+              className="flex min-h-11 cursor-pointer select-none items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm font-semibold text-[var(--c-text-soft)] outline-none data-[highlighted]:bg-[var(--c-bg-hover)]"
             >
               {placeholder}
               <SelectPrimitive.ItemIndicator>
-                <Check className="h-4 w-4 text-[var(--cms-teal-700)]" aria-hidden="true" />
+                <Check className="h-4 w-4 text-[var(--c-primary-700)]" aria-hidden="true" />
               </SelectPrimitive.ItemIndicator>
             </SelectPrimitive.Item>
             {options.map((option) => (
@@ -384,26 +387,26 @@ function CascadeSelect({
                 value={option.id}
                 disabled={option.disabled}
                 data-testid={`${testId}-${option.id}`}
-                className="flex min-h-11 cursor-pointer select-none items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm font-medium outline-none data-[highlighted]:bg-[var(--cms-teal-50)] data-[highlighted]:text-[var(--cms-teal-800)] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50"
+                className="flex min-h-11 cursor-pointer select-none items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm font-medium outline-none data-[highlighted]:bg-[var(--c-primary-50)] data-[highlighted]:text-[var(--c-primary-800)] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50"
               >
                 <span className="flex min-w-0 items-center gap-1.5">
-                  {option.disabled && showLocks && <Lock className="h-3.5 w-3.5 shrink-0 text-[var(--cms-text-muted)]" aria-hidden="true" />}
+                  {option.disabled && showLocks && <Lock className="h-3.5 w-3.5 shrink-0 text-[var(--c-text-muted)]" aria-hidden="true" />}
                   <span className="truncate" title={option.disabled ? 'يتطلب اشتراكاً فعالاً' : option.label}>{option.label}</span>
                 </span>
                 <span className="flex items-center gap-1.5">
                   {option.meta && (
-                    <span className="text-xs text-[var(--cms-text-muted)]" lang="en">
+                    <span className="text-xs text-[var(--c-text-muted)]" lang="en">
                       {option.meta}
                     </span>
                   )}
                   <SelectPrimitive.ItemIndicator>
-                    <Check className="h-4 w-4 text-[var(--cms-teal-700)]" aria-hidden="true" />
+                    <Check className="h-4 w-4 text-[var(--c-primary-700)]" aria-hidden="true" />
                   </SelectPrimitive.ItemIndicator>
                 </span>
               </SelectPrimitive.Item>
             ))}
             {options.length === 0 && !loading && (
-              <p className="px-3 py-2 text-xs text-[var(--cms-text-muted)]">لا توجد خيارات</p>
+              <p className="px-3 py-2 text-xs text-[var(--c-text-muted)]">لا توجد خيارات</p>
             )}
           </SelectPrimitive.Viewport>
         </SelectPrimitive.Content>
