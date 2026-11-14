@@ -104,7 +104,7 @@ export default function LeaderboardPage({ hideBreadcrumb = false }: { hideBreadc
       {/* Rest of leaderboard */}
       <div className="space-y-2">
         {rest.map((entry, i) => (
-          <motion.div key={entry.studentId}
+          <motion.div key={`${entry.rank}-${entry.studentName}`}
             initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.03 }}
             className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
               entry.isYou ? 'border-[var(--c-primary-500)] bg-[var(--c-primary-50)]' : 'border-[var(--c-border)] bg-[var(--c-surface)]'
