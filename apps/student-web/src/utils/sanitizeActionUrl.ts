@@ -29,6 +29,10 @@
  * Mirrors the public+protected routes registered in `app/router.tsx`.
  * Root `/` is allowed because the router redirects it to `/dashboard`.
  */
+// Wave 15.4.0: added '/my-studies', '/exam-courses', '/practice'
+// — pre-existing gap (notification actionUrls to the hub were
+// silently rejected). Prefix matching already covers sub-paths
+// like '/my-studies/courses/:id' and '/practice/exam/:id'.
 const ALLOWED_ACTION_PATHS = [
   '/',
   '/dashboard',
@@ -45,6 +49,9 @@ const ALLOWED_ACTION_PATHS = [
   '/settings',
   '/terms',
   '/privacy',
+  '/my-studies',
+  '/exam-courses',
+  '/practice',
 ] as const;
 
 export function sanitizeActionUrl(
