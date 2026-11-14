@@ -69,7 +69,7 @@ export function ContinueCard({ bySubject }: { bySubject: StudentStats['bySubject
               scope: scopeForSubject(subject),
             })
           }
-          className="press shrink-0 h-11 px-6 rounded-xl bg-white text-[var(--c-primary-700)] font-bold text-sm hover:bg-opacity-95 transition"
+          className="press shrink-0 h-11 px-6 rounded-xl bg-white text-[var(--c-primary-700)] font-bold text-sm hover:bg-white/95 transition"
         >
           {progress ? 'أكمل الدراسة' : 'ابدأ الآن'}
         </button>
