@@ -237,7 +237,7 @@ CMS هو تطبيق ويب احترافي (Progressive Web App — PWA) مخصص
 | Entity Framework Core | 9.x | ORM |
 | FluentValidation | 11.x | التحقق من المدخلات |
 | MediatR | 12.x | CQRS pattern |
-| AutoMapper | 13.x | mapping الكائنات |
+| AutoMapper | — | removed in Wave 15.0.1 (was unused) |
 | Serilog | 4.x | التسجيل المنظم |
 | Swagger / OpenAPI | — | توثيق API |
 | xUnit | 2.x | اختبارات الوحدة |

@@ -111,7 +111,6 @@ ASP.NET Core 9
 ├── Entity Framework Core 9
 │   └── Npgsql.EntityFrameworkCore.PostgreSQL
 ├── MediatR 12 (CQRS)
-├── AutoMapper 13
 ├── FluentValidation 11
 ├── Serilog 4
 │   ├── Serilog.Sinks.Console
