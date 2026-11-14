@@ -95,12 +95,14 @@ function renderApp(initialEntry: string) {
   );
 }
 
-async function walkCascade() {
-  fireEvent.click(await screen.findByText('جامعة حمص'));
-  fireEvent.click(await screen.findByText('كلية الطب البشري'));
-  fireEvent.click(await screen.findByTestId('year-tab'));
-  fireEvent.click(await screen.findByTestId('semester-chip'));
+/** W15.3.2 — the cascade lives in the URL now: render straight at a
+ *  fully-chosen cascade (university → college → year → semester) instead of
+ *  clicking through the old stepper. */
+function renderSubjectsAt(params: string) {
+  return renderApp(`/subjects${params ? `?${params}` : ''}`);
 }
+
+const FULL_CASCADE_PARAMS = 'universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -209,8 +211,7 @@ describe('My Studies — subjectId query-param filtering', () => {
 
 describe('SubjectsPage — card click flow (modal vs redirect)', () => {
   it('routes an entitled subject card into the filtered My Studies hub', async () => {
-    renderApp('/subjects');
-    await walkCascade();
+    renderSubjectsAt(FULL_CASCADE_PARAMS);
 
     // s1 is entitled (QuestionsExams) → tab=exams deep link.
     fireEvent.click((await screen.findAllByTestId('subject-card-open'))[0]);
@@ -223,8 +224,7 @@ describe('SubjectsPage — card click flow (modal vs redirect)', () => {
   });
 
   it('opens the activation modal over the page for an unentitled subject (no navigation)', async () => {
-    renderApp('/subjects');
-    await walkCascade();
+    renderSubjectsAt(FULL_CASCADE_PARAMS);
 
     // Second card (s9 الجراحة) is not entitled.
     const cards = await screen.findAllByTestId('subject-card-open');
@@ -240,8 +240,7 @@ describe('SubjectsPage — card click flow (modal vs redirect)', () => {
 
   it('redeems a code from the modal and routes into My Studies', async () => {
     postMock.mockResolvedValue({ data: { ok: true } });
-    renderApp('/subjects');
-    await walkCascade();
+    renderSubjectsAt(FULL_CASCADE_PARAMS);
 
     const cards = await screen.findAllByTestId('subject-card-open');
     fireEvent.click(cards[1]);
@@ -262,8 +261,7 @@ describe('SubjectsPage — card click flow (modal vs redirect)', () => {
     // Regression: normalizeCode used to slice(0, 16), silently truncating every
     // admin code generated with a prefix (PREFIX + XXXX-XXXX-XXXX-XXXX = 22+).
     postMock.mockResolvedValue({ data: { ok: true } });
-    renderApp('/subjects');
-    await walkCascade();
+    renderSubjectsAt(FULL_CASCADE_PARAMS);
 
     const cards = await screen.findAllByTestId('subject-card-open');
     fireEvent.click(cards[1]);
@@ -284,8 +282,7 @@ describe('SubjectsPage — card click flow (modal vs redirect)', () => {
       response: { status: 400, data: { detail: 'الكود مستخدم مسبقاً' } },
       isAxiosError: true,
     });
-    renderApp('/subjects');
-    await walkCascade();
+    renderSubjectsAt(FULL_CASCADE_PARAMS);
 
     const cards = await screen.findAllByTestId('subject-card-open');
     fireEvent.click(cards[1]);
@@ -299,8 +296,7 @@ describe('SubjectsPage — card click flow (modal vs redirect)', () => {
   });
 
   it('quick actions deep-link into the filtered hub', async () => {
-    renderApp('/subjects');
-    await walkCascade();
+    renderSubjectsAt(FULL_CASCADE_PARAMS);
 
     const examsLink = await screen.findByTestId('quick-action-exams');
     expect(examsLink.getAttribute('href')).toBe('/my-studies?subjectId=s1&tab=exams');
