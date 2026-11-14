@@ -38,8 +38,9 @@ public record LeaderboardDto(
     LeaderboardEntryDto? YourRank
 );
 
-// W15.4.4.0a (D3): StudentId removed — entries are anonymous to the client except
-// for the display fields; IsYou marks the requesting student's own row.
+// W15.4.4.0a (D3): the student identifier no longer rides this DTO — entries are
+// anonymous to the client except for the display fields; IsYou marks the requesting
+// student's own row.
 public record LeaderboardEntryDto(
     int Rank,
     string StudentName,
