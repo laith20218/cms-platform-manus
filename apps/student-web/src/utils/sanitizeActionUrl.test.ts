@@ -62,6 +62,33 @@ describe('sanitizeActionUrl', () => {
     });
   });
 
+  describe('accepts hub / exam-courses / practice paths (Wave 15.4.0)', () => {
+    // Wave 15.4.0 whitelist addition: '/my-studies', '/exam-courses', '/practice'.
+    // Prefix matching covers hub sub-paths; query strings are preserved.
+    const cases: Array<[string, string]> = [
+      ['/my-studies', '/my-studies'],
+      ['/my-studies?tab=library', '/my-studies?tab=library'],
+      ['/my-studies/courses/c1', '/my-studies/courses/c1'],
+      ['/exam-courses', '/exam-courses'],
+      ['/exam-courses/c1', '/exam-courses/c1'],
+      ['/practice', '/practice'],
+      ['/practice/exam/ex1', '/practice/exam/ex1'],
+      ['/practice/categorized/s1', '/practice/categorized/s1'],
+    ];
+
+    for (const [input, expected] of cases) {
+      it(`accepts ${input}`, () => {
+        expect(sanitizeActionUrl(input, ORIGIN)).toBe(expected);
+      });
+    }
+
+    it('accepts an absolute same-origin hub URL with query (strips origin)', () => {
+      expect(sanitizeActionUrl('https://app.example.com/my-studies?tab=exams', ORIGIN)).toBe(
+        '/my-studies?tab=exams',
+      );
+    });
+  });
+
   describe('rejects dangerous schemes', () => {
     const cases = [
       'javascript:alert(document.cookie)',
