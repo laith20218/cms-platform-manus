@@ -15,6 +15,9 @@ const VerifyOtpPage = lazy(() => import('@/features/auth/pages/VerifyOtpPage'));
 const ForgotPasswordPage = lazy(() => import('@/features/auth/pages/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('@/features/auth/pages/ResetPasswordPage'));
 const DashboardPage = lazy(() => import('@/features/dashboard/DashboardPage').then(({ DashboardPage }) => ({ default: DashboardPage })));
+// W15.4.1 — parallel /study hub (6 tabs). Not linked from the nav yet; the
+// 15.4.4 cutover redirects /my-studies here.
+const StudyPage = lazy(() => import('@/features/study/pages/StudyPage').then(({ StudyPage }) => ({ default: StudyPage })));
 const SubjectsPage = lazy(() => import('@/features/subjects/SubjectsPage'));
 const SubjectDetailPage = lazy(() => import('@/features/subjects/SubjectDetailPage'));
 const LecturePage = lazy(() => import('@/features/subjects/LecturePage'));
@@ -84,6 +87,8 @@ export function AppRoutes() {
         {/* Protected Routes */}
         <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
           <Route path="/dashboard" element={<DashboardPage />} />
+          {/* W15.4.1 — parallel /study hub: direct URL only until the 15.4.4 cutover. */}
+          <Route path="/study" element={<StudyPage />} />
           <Route path="/subjects" element={<SubjectsPage />} />
           <Route path="/subjects/:subjectSlug" element={<SubjectDetailPage />} />
           <Route path="/subjects/:subjectSlug/lectures/:lectureId" element={<LecturePage />} />
