@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using CMS.Application.DTOs.Profile;
 using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
 using CMS.Domain.Enums;
@@ -402,6 +403,73 @@ public sealed class StudentProfileController : ControllerBase
         return Ok(new { avatarUrl = storedKey, previewUrl = signedUrl, contentType, sizeBytes = file.Length });
     }
 
+    /// <summary>
+    /// W15.4.4.0a — leaderboard mutual-sharing consent (D2): returns whether the
+    /// student's own data appears in subject leaderboards. Default false.
+    /// </summary>
+    [HttpGet("leaderboard-sharing")]
+    [ProducesResponseType(typeof(LeaderboardSharingDto), StatusCodes.Status200OK)]
+    public async Task<ActionResult<LeaderboardSharingDto>> GetLeaderboardSharing(CancellationToken ct)
+    {
+        var subject = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
+        if (!Guid.TryParse(subject, out var studentId)) return Unauthorized();
+
+        var shares = await _db.Students.AsNoTracking()
+            .Where(s => s.Id == studentId && s.DeletedAt == null)
+            .Select(s => (bool?)s.SharesLeaderboard)
+            .FirstOrDefaultAsync(ct);
+        if (shares is null) return Unauthorized();
+
+        return Ok(new LeaderboardSharingDto(shares.Value));
+    }
+
+    /// <summary>
+    /// W15.4.4.0a — flips the leaderboard-sharing consent flag. A non-sharing student
+    /// is 403-blocked from viewing leaderboards (see StatsHandlers); the toggle is the
+    /// only way to opt in. Every effective change is audit-logged (UpdateProfile pattern).
+    /// </summary>
+    [HttpPut("leaderboard-sharing")]
+    [ProducesResponseType(typeof(LeaderboardSharingDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<LeaderboardSharingDto>> SetLeaderboardSharing([FromBody] SetLeaderboardSharingRequest? body, CancellationToken ct)
+    {
+        var subject = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
+        if (!Guid.TryParse(subject, out var studentId)) return Unauthorized();
+
+        if (body is null || body.SharesLeaderboard is not { } shares)
+            return BadRequest(new ProblemDetails
+            {
+                Title = "قيمة غير صالحة",
+                Status = 400,
+                Detail = "يجب إرسال قيمة منطقية (true/false) للحقل sharesLeaderboard."
+            });
+
+        var student = await _db.Students.FirstOrDefaultAsync(s => s.Id == studentId && s.DeletedAt == null, ct);
+        if (student is null) return Unauthorized();
+
+        // Single-field update + best-effort audit row, no transaction wrapper (the
+        // InMemory test harness cannot BeginTransaction; a lost audit row on a rare
+        // failure is acceptable — the flag itself is the source of truth).
+        var previous = student.SharesLeaderboard;
+        student.SetLeaderboardSharing(shares);
+        await _db.SaveChangesAsync(ct);
+
+        if (previous != shares)
+        {
+            await _security.LogSecurityEventAsync(
+                studentId: studentId,
+                adminId: null,
+                eventType: SecurityEventType.SecurityAlert,
+                severity: SecuritySeverity.Info,
+                description: $"الطالب \"{student.FullName}\" ({student.Phone}) {(shares ? "فعّل" : "أوقف")} مشاركة بياناته في لوحة الصدارة",
+                ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString(),
+                userAgent: Request.Headers.UserAgent.ToString(),
+                ct: ct);
+        }
+
+        return Ok(new LeaderboardSharingDto(shares));
+    }
+
     private static string? MaskCode(string? code) => string.IsNullOrWhiteSpace(code)
         ? null
         : code.Length <= 8 ? "••••••••" : $"{code[..4]}••••{code[^4..]}";
@@ -439,3 +507,6 @@ public sealed record UpdateOwnProfileRequest(
     string? FullName,
     Guid? CollegeId,
     Guid? AcademicYearId);
+
+/// <summary>W15.4.4.0a — PUT /api/v1/profile/leaderboard-sharing body. Null-able so a missing/unset field is rejected with 400.</summary>
+public sealed record SetLeaderboardSharingRequest(bool? SharesLeaderboard);
