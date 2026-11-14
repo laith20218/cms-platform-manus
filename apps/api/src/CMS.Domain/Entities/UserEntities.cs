@@ -63,6 +63,14 @@ public class Student : BaseEntity
         UpdatedAt = DateTime.UtcNow;
     }
 
+    // W15.4.4.0a (D2): leaderboard mutual-sharing consent. Default false — a student
+    // opts in via PUT /api/v1/profile/leaderboard-sharing; only opted-in students
+    // appear in (and may view) subject leaderboards.
+    public bool SharesLeaderboard { get; private set; } = false;
+
+    /// <summary>Sets the leaderboard-sharing consent flag.</summary>
+    public void SetLeaderboardSharing(bool shares) => SharesLeaderboard = shares;
+
     public DateTime? DeletedAt { get; set; }
 
     // Navigation
