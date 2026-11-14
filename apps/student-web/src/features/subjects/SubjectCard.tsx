@@ -1,7 +1,7 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  ArrowLeft, BookOpen, BookOpenCheck, ClipboardCheck, Clock3, GraduationCap, LibraryBig, MoreVertical,
+  ArrowLeft, BookOpen, ChevronLeft, Clock3,
 } from 'lucide-react';
 import type { SubjectSummary } from './services/academic-api';
 import { useSubjectModal } from './SubjectModalContext';
@@ -13,7 +13,13 @@ import { useSubjectModal } from './SubjectModalContext';
  *
  * W15.3.1b — extracted verbatim from SubjectsPage.tsx (was the inline
  * SubjectCard at lines 661-801) so the 15.3.2 cascade rework can compose it
- * below CascadeFilters. No behavior / testid / className changes.
+ * below CascadeFilters.
+ *
+ * W15.3.4 — the two secondary action surfaces (mobile "…" trigger + desktop
+ * quick-actions row) are consolidated into ONE prominent «فتح» button
+ * (subject-card-action, entitled only) opening the shared scope-gated
+ * SubjectModal — the same sheet MuwadiCard opens. The primary header click
+ * (subject-card-open → /my-studies or the activation dialog) is unchanged.
  */
 export interface SubjectCardProps {
   subject: SubjectSummary;
@@ -71,28 +77,6 @@ export function SubjectCard({ subject, index, entitled, onLocked }: SubjectCardP
               <ArrowLeft className="h-4 w-4 shrink-0 text-[var(--c-text-faint)] transition-all group-hover:-translate-x-0.5 group-hover:text-[var(--c-primary-700)]" />
             </div>
           </button>
-
-          {/* Mobile-only quick-actions trigger (Wave 14.3 PR #1): opens the shared
-              subject BottomSheet. Hidden at ≥sm where the quick-actions row shows. */}
-          <button
-            type="button"
-            onClick={() => openSubjectModal({
-              id: subject.id,
-              slug: subject.slug,
-              nameAr: subject.nameAr,
-              scope: {
-                content: true,
-                exams: canQuestions,
-                library: hasLibrary,
-                courses: canVideoAudio,
-              },
-            })}
-            className="press flex sm:hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-hover)] hover:text-[var(--c-text)]"
-            data-testid="subject-more-trigger"
-            aria-label="خيارات المادة"
-          >
-            <MoreVertical className="h-4 w-4" />
-          </button>
         </div>
 
         {subject.userProgress && (
@@ -113,41 +97,33 @@ export function SubjectCard({ subject, index, entitled, onLocked }: SubjectCardP
           </div>
         )}
 
-        <div className="mt-auto flex max-sm:hidden flex-wrap items-center gap-1.5 border-t border-[var(--c-border)] pt-3" data-testid="subject-quick-actions">
-          <Link
-            to={`/subjects/${subject.slug}`}
-            className="press inline-flex min-h-9 items-center gap-1 rounded-xl bg-[var(--c-primary-50)] px-3 py-1.5 text-xs font-bold text-[var(--c-primary-700)] transition-colors hover:bg-[var(--c-primary-100)]"
+        {/* W15.3.4 — the consolidated action surface: entitled-only «فتح»
+            opening the shared scope-gated SubjectModal. */}
+        {entitled && (
+          <button
+            type="button"
+            data-testid="subject-card-action"
+            onClick={(e) => {
+              e.stopPropagation();
+              openSubjectModal({
+                id: subject.id,
+                slug: subject.slug,
+                nameAr: subject.nameAr,
+                scope: {
+                  content: true,
+                  exams: canQuestions,
+                  library: hasLibrary,
+                  courses: canVideoAudio,
+                },
+              });
+            }}
+            aria-label={`فتح مادة ${subject.nameAr}`}
+            className="press mt-4 inline-flex w-full min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--c-primary-700)] px-4 text-sm font-bold text-white transition-colors hover:bg-[var(--c-primary-800)]"
           >
-            <BookOpenCheck className="h-3.5 w-3.5" /> المحتوى
-          </Link>
-          {canQuestions && (
-            <Link
-              to={`/my-studies?subjectId=${subject.id}&tab=exams`}
-              className="press inline-flex min-h-9 items-center gap-1 rounded-xl bg-[var(--c-bg-hover)] px-3 py-1.5 text-xs font-bold text-[var(--c-text-soft)] transition-colors hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)]"
-              data-testid="quick-action-exams"
-            >
-              <ClipboardCheck className="h-3.5 w-3.5" /> الاختبارات
-            </Link>
-          )}
-          {hasLibrary && (
-            <Link
-              to={`/my-studies?subjectId=${subject.id}&tab=library`}
-              className="press inline-flex min-h-9 items-center gap-1 rounded-xl bg-[var(--c-bg-hover)] px-3 py-1.5 text-xs font-bold text-[var(--c-text-soft)] transition-colors hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)]"
-              data-testid="quick-action-library"
-            >
-              <LibraryBig className="h-3.5 w-3.5" /> المكتبة
-            </Link>
-          )}
-          {canVideoAudio && (
-            <Link
-              to={`/my-studies?subjectId=${subject.id}&tab=courses`}
-              className="press inline-flex min-h-9 items-center gap-1 rounded-xl bg-[var(--c-bg-hover)] px-3 py-1.5 text-xs font-bold text-[var(--c-text-soft)] transition-colors hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)]"
-              data-testid="quick-action-courses"
-            >
-              <GraduationCap className="h-3.5 w-3.5" /> الكورسات
-            </Link>
-          )}
-        </div>
+            فتح
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        )}
 
         {subject.lastContentUpdatedAt && (
           <div className="mt-2.5 flex items-center gap-1 text-[11px] text-[var(--c-text-faint)]">
