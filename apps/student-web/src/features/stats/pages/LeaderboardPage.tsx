@@ -1,9 +1,11 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Link } from 'react-router-dom';
-import { Trophy, Medal, ChevronLeft, Loader2, Crown, type LucideIcon } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Trophy, Medal, ChevronLeft, Loader2, Crown, RefreshCcw, type LucideIcon } from 'lucide-react';
 import { statsApi, type LeaderboardEntry } from '../services/stats-api';
+import { useLeaderboardSharing } from '../hooks/useLeaderboardSharing';
+import LeaderboardSubjectPicker from '../components/LeaderboardSubjectPicker';
+import LeaderboardSharingToggle from '../components/LeaderboardSharingToggle';
 
 type RankConfig = { icon: LucideIcon; color: string; bg: string; label: string };
 
@@ -18,27 +20,64 @@ const rankConfig: RankConfig[] = [
  * «الصدارة» tab and owns the navigation context itself — the breadcrumb
  * trail (الرئيسية ← الإحصائيات) is suppressed there only; the standalone
  * /leaderboard route keeps it.
+ *
+ * W15.4.4.0b state machine — the leaderboard is subject-scoped and
+ * consent-gated (backend W15.4.4.0a):
+ *   (a) no ?subjectId      → LeaderboardSubjectPicker
+ *   (b/c) consent loading/error → spinner / retry card
+ *   (d) not sharing        → opt-in prompt (inline sharing toggle)
+ *   (e) leaderboard loading → spinner
+ *   (f) leaderboard error  → 403 «no entitlement» card | generic error
+ *   (g) data               → ranked list
  */
 export default function LeaderboardPage({ hideBreadcrumb = false }: { hideBreadcrumb?: boolean } = {}) {
-  const [period, setPeriod] = useState<'all' | 'month' | 'week'>('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const subjectId = searchParams.get('subjectId');
+  const periodParam = searchParams.get('period');
+  const period: 'all' | 'month' | 'week' = periodParam === 'month' || periodParam === 'week' ? periodParam : 'all';
 
-  const { data: leaderboard, isLoading, isError, refetch } = useQuery({
-    queryKey: ['leaderboard', period],
-    queryFn: () => statsApi.getLeaderboard('all', undefined, period, 100),
+  const sharing = useLeaderboardSharing();
+
+  const leaderboard = useQuery({
+    queryKey: ['leaderboard', subjectId, period],
+    queryFn: () => statsApi.getLeaderboard('subject', subjectId!, period, 100),
+    enabled: !!subjectId && sharing.isEnabled === true,
   });
 
-  if (isLoading) {
-    return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-[var(--c-primary-700)]" /></div>;
+  const setPeriod = (p: 'all' | 'month' | 'week') => {
+    const next = new URLSearchParams(searchParams);
+    next.set('period', p);
+    setSearchParams(next);
+  };
+
+  const clearSubject = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('subjectId');
+    setSearchParams(next);
+  };
+
+  // (a) No subject picked yet — show the entitled-subjects picker.
+  if (!subjectId) {
+    return <LeaderboardSubjectPicker />;
   }
 
-  // Wave 12.5.A (Group 4) — a failed load used to render a BLANK page (`return null`).
-  if (isError || !leaderboard) {
+  const spinner = (
+    <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-[var(--c-primary-700)]" /></div>
+  );
+
+  // (b) Consent state still resolving.
+  if (sharing.isLoading) {
+    return spinner;
+  }
+
+  // (c) Consent state failed to load — distinct from the leaderboard itself.
+  if (sharing.isError) {
     return (
-      <div role="alert" className="mx-auto max-w-2xl rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center" data-testid="leaderboard-error">
-        <h1 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل قائمة المتصدرين</h1>
+      <div role="alert" className="mx-auto max-w-2xl rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center">
+        <h2 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل حالة المشاركة</h2>
         <button
-          onClick={() => refetch()}
-          className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"
+          onClick={() => sharing.refetch()}
+          className="press mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"
         >
           إعادة المحاولة
         </button>
@@ -46,8 +85,72 @@ export default function LeaderboardPage({ hideBreadcrumb = false }: { hideBreadc
     );
   }
 
-  const top3 = leaderboard.topStudents.slice(0, 3);
-  const rest = leaderboard.topStudents.slice(3);
+  // (d) Not opted in — mutual sharing is required before seeing any board.
+  // Toggling on invalidates ['leaderboard-sharing'], flips isEnabled, and the
+  // query's `enabled` flag fires it without further interaction.
+  if (sharing.isEnabled === false) {
+    return (
+      <div
+        data-testid="leaderboard-optin-prompt"
+        className="mx-auto max-w-2xl space-y-4 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8"
+      >
+        <h2 className="text-lg font-bold text-[var(--c-text)]">
+          شارك في لوحة الصدارة لرؤية ترتيب زملائك
+        </h2>
+        <p className="text-sm text-[var(--c-text-muted)]">
+          لرؤية لوحة متصدري هذه المادة، فعّل المشاركة. عند التفعيل، تظهر بياناتك للطلاب المشاركين الآخرين وترى بياناتهم.
+        </p>
+        <LeaderboardSharingToggle />
+      </div>
+    );
+  }
+
+  // (e) Board is fetching (only reachable once consent is true).
+  if (leaderboard.isLoading) {
+    return spinner;
+  }
+
+  // (f) Board failed — the backend distinguishes non-entitled (403) from
+  // server/network errors; the subjects come from useMySubjects so a 403 is
+  // unlikely, but a stale URL could still hit it.
+  if (leaderboard.isError) {
+    const status = (leaderboard.error as { response?: { status?: number } } | null)?.response?.status;
+    if (status === 403) {
+      return (
+        <div
+          role="alert"
+          data-testid="leaderboard-no-entitlement"
+          className="mx-auto max-w-2xl rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center"
+        >
+          <h2 className="text-lg font-bold text-[var(--c-text)]">لا تملك صلاحية عرض لوحة متصدري هذه المادة.</h2>
+          <button
+            onClick={clearSubject}
+            className="press mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"
+          >
+            اختر مادة أخرى
+          </button>
+        </div>
+      );
+    }
+    return (
+      <div role="alert" className="mx-auto max-w-2xl rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center" data-testid="leaderboard-error">
+        <h1 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل قائمة المتصدرين</h1>
+        <button
+          onClick={() => leaderboard.refetch()}
+          className="press mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"
+        >
+          إعادة المحاولة
+        </button>
+      </div>
+    );
+  }
+
+  if (!leaderboard.data) {
+    return spinner;
+  }
+
+  const top3 = leaderboard.data.topStudents.slice(0, 3);
+  const rest = leaderboard.data.topStudents.slice(3);
 
   return (
     <div className="space-y-5 max-w-[680px] mx-auto">
@@ -62,16 +165,24 @@ export default function LeaderboardPage({ hideBreadcrumb = false }: { hideBreadc
         </div>
       )}
 
-      {/* Title + Period */}
+      {/* Title + Period + change-subject */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold flex items-center gap-2"><Trophy className="w-6 h-6 text-[var(--c-warning-500)]" /> لوحة المتصدرين</h1>
-        <div className="flex gap-1 p-1 rounded-lg bg-[var(--c-neutral-100)]">
-          {(['all', 'month', 'week'] as const).map((p) => (
-            <button key={p} onClick={() => setPeriod(p)}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${period === p ? 'bg-[var(--c-surface)] text-[var(--c-text)] shadow-sm' : 'text-[var(--c-text-muted)]'}`}>
-              {p === 'all' ? 'الكل' : p === 'month' ? 'الشهر' : 'الأسبوع'}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={clearSubject}
+            className="press flex items-center gap-1 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-semibold text-[var(--c-text)] transition-colors hover:bg-[var(--c-bg-hover)]"
+          >
+            <RefreshCcw className="w-3 h-3" /> تغيير المادة
+          </button>
+          <div className="flex gap-1 p-1 rounded-lg bg-[var(--c-neutral-100)]">
+            {(['all', 'month', 'week'] as const).map((p) => (
+              <button key={p} onClick={() => setPeriod(p)}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${period === p ? 'bg-[var(--c-surface)] text-[var(--c-text)] shadow-sm' : 'text-[var(--c-text-muted)]'}`}>
+                {p === 'all' ? 'الكل' : p === 'month' ? 'الشهر' : 'الأسبوع'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -88,15 +199,15 @@ export default function LeaderboardPage({ hideBreadcrumb = false }: { hideBreadc
       )}
 
       {/* Your Rank (if outside top 3) */}
-      {leaderboard.yourRank && leaderboard.yourRank.rank > 3 && (
+      {leaderboard.data.yourRank && leaderboard.data.yourRank.rank > 3 && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
           className="flex items-center gap-3 p-4 rounded-xl border-2 border-[var(--c-primary-500)] bg-[var(--c-primary-50)]">
           <div className="w-12 h-12 rounded-full flex items-center justify-center font-extrabold text-white" style={{ background: 'var(--grad-primary)' }} lang="en">
-            #{leaderboard.yourRank.rank}
+            #{leaderboard.data.yourRank.rank}
           </div>
           <div className="flex-1">
-            <div className="font-bold text-[var(--c-text)]">{leaderboard.yourRank.studentName} <span className="text-xs text-[var(--c-primary-700)] font-medium">(أنت)</span></div>
-            <div className="text-xs text-[var(--c-text-muted)]" lang="en">{leaderboard.yourRank.questionsAnswered} سؤال • {leaderboard.yourRank.accuracy.toFixed(0)}% دقة</div>
+            <div className="font-bold text-[var(--c-text)]">{leaderboard.data.yourRank.studentName} <span className="text-xs text-[var(--c-primary-700)] font-medium">(أنت)</span></div>
+            <div className="text-xs text-[var(--c-text-muted)]" lang="en">{leaderboard.data.yourRank.questionsAnswered} سؤال • {leaderboard.data.yourRank.accuracy.toFixed(0)}% دقة</div>
           </div>
         </motion.div>
       )}
@@ -131,10 +242,10 @@ export default function LeaderboardPage({ hideBreadcrumb = false }: { hideBreadc
         ))}
       </div>
 
-      {leaderboard.topStudents.length === 0 && (
+      {leaderboard.data.topStudents.length === 0 && (
         <div className="text-center py-20">
           <Trophy className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-muted)] opacity-50" />
-          <p className="text-[var(--c-text-muted)]">لا توجد بيانات كافية بعد</p>
+          <p className="text-[var(--c-text-muted)]">لا توجد بيانات كافية بعد لهذه المادة.</p>
         </div>
       )}
     </div>
