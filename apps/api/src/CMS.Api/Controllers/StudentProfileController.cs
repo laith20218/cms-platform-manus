@@ -460,7 +460,7 @@ public sealed class StudentProfileController : ControllerBase
                 studentId: studentId,
                 adminId: null,
                 eventType: SecurityEventType.SecurityAlert,
-                severity: SecuritySeverity.Info,
+                severity: SecuritySeverity.Warning,
                 description: $"الطالب \"{student.FullName}\" ({student.Phone}) {(shares ? "فعّل" : "أوقف")} مشاركة بياناته في لوحة الصدارة",
                 ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString(),
                 userAgent: Request.Headers.UserAgent.ToString(),
