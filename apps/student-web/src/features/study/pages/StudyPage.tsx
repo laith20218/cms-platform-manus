@@ -17,8 +17,8 @@ import { LeaderboardTab } from '../components/LeaderboardTab';
 /**
  * "/study" hub (Wave 15.4.1 — PARALLEL BUILD). The 6-tab reshaped home for
  * everything study-related: overview, progress, library, courses, exams,
- * leaderboard. It coexists with the untouched /my-studies hub until the
- * 15.4.4 cutover — nothing links here yet (no Sidebar/BottomNav entry),
+ * leaderboard. It coexists with the untouched legacy hub (my-studies) until
+ * the 15.4.4 cutover — nothing links here yet (no Sidebar/BottomNav entry),
  * it is reachable only via direct URL, and tests navigate straight to it.
  *
  * Structure mirrors MyStudiesPage (tab bar, subject filter chip, error

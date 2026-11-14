@@ -12,7 +12,7 @@ function formatStudyTime(minutes: number) {
 /**
  * /study → «نظرة عامة» tab (Wave 15.4.1 parallel build): the Dashboard's
  * greeting + 4 headline stat cards, duplicated into the new 6-tab hub.
- * /my-studies is untouched until the 15.4.4 cutover.
+ * The legacy my-studies hub stays untouched until the 15.4.4 cutover.
  *
  * TODO 15.4.5: unify with DashboardPage's hero via a shared
  * <StudyOverviewHero> component (DEBT-DASHBOARD-DUP).
