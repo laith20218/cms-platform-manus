@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
-import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom';
+import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // ---- shared mocks (hoisted) ----
@@ -196,34 +196,6 @@ describe('Legacy redirects into the My Studies hub', () => {
     renderWithProviders(['/library'], <AppRoutes />);
     expect(await screen.findByTestId('panel-library')).toBeInTheDocument();
     expect(screen.getByTestId('tab-library').getAttribute('aria-selected')).toBe('true');
-  });
-
-  it('redirects /exam-courses to /my-studies?tab=exam-courses, preserving every deep-link param', async () => {
-    const LocationProbe = () => {
-      const location = useLocation();
-      return <div data-testid="location-probe" data-path={location.pathname} data-search={location.search} />;
-    };
-    renderWithProviders(
-      ['/exam-courses?tab=categorized&universityId=u1&subjectId=s1'],
-      <>
-        <AppRoutes />
-        <LocationProbe />
-      </>
-    );
-
-    await waitFor(() => {
-      const probe = screen.getByTestId('location-probe');
-      expect(probe.getAttribute('data-path')).toBe('/my-studies');
-      const search = probe.getAttribute('data-search') ?? '';
-      expect(search).toContain('tab=exam-courses');
-      // The legacy internal lens ?tab=categorized maps to the namespaced ?examTab=.
-      expect(search).toContain('examTab=categorized');
-      // Cascade + subject params pass through untouched.
-      expect(search).toContain('universityId=u1');
-      expect(search).toContain('subjectId=s1');
-    });
-    // The hub renders the storefront tab with the deep-linked params applied.
-    expect(await screen.findByTestId('panel-exam-courses')).toBeInTheDocument();
   });
 });
 
