@@ -2956,6 +2956,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("questions_answered");
 
+                    b.Property<bool>("SharesLeaderboard")
+                        .HasColumnType("boolean")
+                        .HasColumnName("shares_leaderboard");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer")
                         .HasColumnName("status");
