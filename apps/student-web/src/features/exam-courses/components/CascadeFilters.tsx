@@ -64,6 +64,10 @@ export interface CascadeFiltersProps {
    *  list can't resolve it (e.g. subjectId deep-linked with no cascade) — feeds
    *  the mobile sticky-bar summary. */
   subjectLabel?: string | null;
+  /** W15.3.1: hide the 5th (subject) select — pages that host their own subject
+   *  grid (SubjectsPage) reuse the cascade for the four academic levels only.
+   *  subjectId / onSelectSubject / subjectLabel are accepted but unused. */
+  hideSubjectSelect?: boolean;
 }
 
 interface Option {
@@ -77,7 +81,7 @@ interface Option {
 // visual consistency with SubjectsPage. Post-14.1, these resolve
 // to the same value EXCEPT --800 (renders darker; owner confirms).
 export function CascadeFilters({
-  value, onChange, subjectId, onSelectSubject, entitledSubjectIds, subjectLabel: subjectLabelFallback,
+  value, onChange, subjectId, onSelectSubject, entitledSubjectIds, subjectLabel: subjectLabelFallback, hideSubjectSelect = false,
 }: CascadeFiltersProps) {
   // <sm → sticky bar + bottom sheet; ≥sm → the classic inline row.
   const isDesktop = useMediaQuery('(min-width: 640px)');
@@ -107,7 +111,7 @@ export function CascadeFilters({
   const subjectsQuery = useQuery({
     queryKey: ['cascade', 'subjects', value.semesterId],
     queryFn: () => academicApi.getSubjects(value.semesterId!),
-    enabled: !!value.semesterId,
+    enabled: !hideSubjectSelect && !!value.semesterId,
   });
 
   // Defensive: the universities envelope is { items } but callers/tests may hand an
@@ -182,18 +186,22 @@ export function CascadeFilters({
         loading={!!value.yearId && semestersQuery.isLoading}
         onChange={setSemester}
       />
-      <CascadeSelect
-        testId="cascade-select-subject"
-        label="المادة"
-        placeholder="اختر فصلاً أولاً"
-        options={subjectOptions}
-        value={subjectId && subjects.some((item) => item.id === subjectId) ? subjectId : null}
-        disabled={!value.semesterId || (!!value.semesterId && subjectsQuery.isLoading)}
-        loading={!!value.semesterId && subjectsQuery.isLoading}
-        onChange={(id) => id && onSelectSubject(id)}
-        selectedLabel={selectedSubjectLabel}
-        showLocks
-      />
+      {/* W15.3.1: the subject level is host-page territory when hidden — the
+          four academic selects (and the reset) are the entire cascade. */}
+      {!hideSubjectSelect && (
+        <CascadeSelect
+          testId="cascade-select-subject"
+          label="المادة"
+          placeholder="اختر فصلاً أولاً"
+          options={subjectOptions}
+          value={subjectId && subjects.some((item) => item.id === subjectId) ? subjectId : null}
+          disabled={!value.semesterId || (!!value.semesterId && subjectsQuery.isLoading)}
+          loading={!!value.semesterId && subjectsQuery.isLoading}
+          onChange={(id) => id && onSelectSubject(id)}
+          selectedLabel={selectedSubjectLabel}
+          showLocks
+        />
+      )}
     </>
   );
 
@@ -234,10 +242,13 @@ export function CascadeFilters({
   if (collegeLabel) summaryParts.push(`الكلية: ${collegeLabel}`);
   if (yearLabel) summaryParts.push(`السنة: ${yearLabel}`);
   if (semesterLabel) summaryParts.push(`الفصل: ${semesterLabel}`);
-  if (subjectSummaryLabel) summaryParts.push(`المادة: ${subjectSummaryLabel}`);
+  if (subjectSummaryLabel && !hideSubjectSelect) summaryParts.push(`المادة: ${subjectSummaryLabel}`);
 
-  const activeCount = [value.universityId, value.collegeId, value.yearId, value.semesterId, subjectId]
-    .filter(Boolean).length;
+  // W15.3.1: with hideSubjectSelect the badge counts only the visible levels (max 4).
+  const activeCount = (hideSubjectSelect
+    ? [value.universityId, value.collegeId, value.yearId, value.semesterId]
+    : [value.universityId, value.collegeId, value.yearId, value.semesterId, subjectId]
+  ).filter(Boolean).length;
 
   return (
     <>
