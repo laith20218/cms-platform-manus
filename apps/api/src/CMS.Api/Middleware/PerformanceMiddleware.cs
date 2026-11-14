@@ -30,7 +30,10 @@ public class ResponseCacheMiddleware
         ["GET:/api/v1/questions/"] = 300,                // 5 minutes (by id)
         ["GET:/api/v1/exams/"] = 300,                    // 5 minutes
         ["GET:/api/v1/library/subject/"] = 300,          // 5 minutes
-        ["GET:/api/v1/stats/leaderboard"] = 3600,        // 1 hour
+        // W15.4.4.0a (Option A): /stats/leaderboard removed from the response cache.
+        // Rankings are now consent-filtered per the mutual-sharing model (D2); a cached
+        // 200 body would keep showing students up to TTL seconds after they opted out.
+        // The in-handler ICacheService cache remains, with a 60s TTL.
         ["GET:/api/v1/stats/global"] = 900,               // 15 minutes
         ["GET:/api/v1/notifications/unread-count"] = 30,  // 30 seconds
     };

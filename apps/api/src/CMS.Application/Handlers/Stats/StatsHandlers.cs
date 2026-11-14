@@ -137,6 +137,17 @@ public class StatsHandlers :
         if (!await _entitlements.CanAccessSubjectAsync(req.StudentId.Value, req.ScopeId.Value, "read", ct))
             throw new ForbiddenException("لا تملك صلاحية الوصول إلى لوحة متصدرين هذه المادة");
 
+        // W15.4.4.0a mutual-sharing consent (D2/D4): a student who does not share their
+        // own data may not view rankings. Kept AFTER the scope/entitlement checks so those
+        // 403s keep their existing meaning (LeaderboardScopeTests pins the entitlement call
+        // order), and BEFORE the cache read so the gate applies on cache hits too. Distinct
+        // Arabic message so the frontend (15.4.4.0b) can show the opt-in prompt instead of
+        // a generic error. Error-code unification is DEBT-LEADERBOARD-ERROR-CODE.
+        var requestingStudent = await _db.Students.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == req.StudentId.Value, ct);
+        if (requestingStudent?.SharesLeaderboard != true)
+            throw new ForbiddenException("لم تُفعّل المشاركة في لوحة الصدارة. فعّل المشاركة من إعدادات الخصوصية لرؤية ترتيب زملائك.");
+
         var cacheKey = $"leaderboard:{req.Scope}:{req.ScopeId}:{req.Period}:{req.Count}";
         var cached = await _cache.GetAsync<LeaderboardDto?>(cacheKey, ct);
         if (cached != null) return cached;
@@ -148,63 +159,68 @@ public class StatsHandlers :
             _ => DateTime.MinValue
         };
 
-        // Build base query for first attempts only, scoped to the authorized subject
+        // Build base query for first attempts only, scoped to the authorized subject AND
+        // to students who opted into leaderboard sharing (W15.4.4.0a D2): non-sharing
+        // students never appear in TopStudents and are never ranked.
         var query = _db.AttemptLogs.AsNoTracking()
-            .Where(a => a.IsFirstAttempt && a.CreatedAt >= cutoff && a.Question.SubjectId == req.ScopeId.Value)
+            .Where(a => a.IsFirstAttempt && a.CreatedAt >= cutoff
+                && a.Question.SubjectId == req.ScopeId.Value
+                && a.Student.SharesLeaderboard)
             .Include(a => a.Student)
             .Include(a => a.Question)
             .ThenInclude(q => q.Subject);
 
         var attempts = await query.ToListAsync(ct);
 
-        // Group by student
-        var rankings = attempts
+        // Group by student. StudentId rides this intermediate projection only (the DTO no
+        // longer exposes it, D3) and is used solely to compute IsYou / the student's rank.
+        var ranked = attempts
             .GroupBy(a => new { a.StudentId, a.Student.FullName, a.Student.AvatarUrl })
-            .Select(g => new LeaderboardEntryDto(
-                0, // Rank will be assigned below
-                g.Key.StudentId, g.Key.FullName, g.Key.AvatarUrl,
-                g.Count(), g.Average(a => a.IsCorrect ? 100.0 : 0),
-                false
-            ))
+            .Select(g => new
+            {
+                g.Key.StudentId,
+                g.Key.FullName,
+                g.Key.AvatarUrl,
+                QuestionsAnswered = g.Count(),
+                Accuracy = g.Average(a => a.IsCorrect ? 100.0 : 0)
+            })
             .OrderByDescending(r => r.Accuracy)
             .ThenByDescending(r => r.QuestionsAnswered)
-            .Take(req.Count)
             .ToList();
 
-        // Assign ranks
-        for (int i = 0; i < rankings.Count; i++)
-        {
-            var entry = rankings[i];
-            rankings[i] = entry with { Rank = i + 1, IsYou = req.StudentId.HasValue && entry.StudentId == req.StudentId.Value };
-        }
+        // Top N with sequential ranks; IsYou computed before the DTO projection (D3).
+        var rankings = ranked
+            .Take(req.Count)
+            .Select((entry, index) => new LeaderboardEntryDto(
+                index + 1,
+                entry.FullName,
+                entry.AvatarUrl,
+                entry.QuestionsAnswered,
+                entry.Accuracy,
+                entry.StudentId == req.StudentId.Value))
+            .ToList();
 
-        // Find student's rank (even if outside top N)
+        // The requesting student's rank among the opted-in population only. Their entry is
+        // present whenever they have attempts in this subject: the consent gate above
+        // verified SharesLeaderboard, and the query above includes opted-in students.
         LeaderboardEntryDto? yourRank = null;
-        if (req.StudentId.HasValue)
+        var mine = ranked.Find(r => r.StudentId == req.StudentId.Value);
+        if (mine is not null)
         {
-            yourRank = rankings.FirstOrDefault(r => r.StudentId == req.StudentId.Value);
-            if (yourRank == null)
-            {
-                // Student not in top N - calculate their actual rank
-                var studentAttempts = attempts.Where(a => a.StudentId == req.StudentId.Value).ToList();
-                if (studentAttempts.Any())
-                {
-                    var studentAccuracy = studentAttempts.Average(a => a.IsCorrect ? 100.0 : 0);
-                    var studentCount = studentAttempts.Count;
-                    var rank = attempts
-                        .GroupBy(a => a.StudentId)
-                        .Select(g => new { Acc = g.Average(a => a.IsCorrect ? 100.0 : 0), Cnt = g.Count() })
-                        .Count(x => x.Acc > studentAccuracy || (x.Acc == studentAccuracy && x.Cnt > studentCount)) + 1;
-
-                    yourRank = new LeaderboardEntryDto(rank, req.StudentId.Value,
-                        studentAttempts.First().Student.FullName, studentAttempts.First().Student.AvatarUrl,
-                        studentCount, studentAccuracy, true);
-                }
-            }
+            yourRank = new LeaderboardEntryDto(
+                ranked.IndexOf(mine) + 1,
+                mine.FullName,
+                mine.AvatarUrl,
+                mine.QuestionsAnswered,
+                mine.Accuracy,
+                true);
         }
 
         var result = new LeaderboardDto(rankings, yourRank);
-        await _cache.SetAsync(cacheKey, result, TimeSpan.FromHours(1), ct);
+        // Consent filter: 60s TTL (was 3600s). A shorter TTL reduces the window during
+        // which an opted-out student still appears. Proper invalidation on toggle is
+        // DEBT-LEADERBOARD-CACHE-INVALIDATE.
+        await _cache.SetAsync(cacheKey, result, TimeSpan.FromSeconds(60), ct);
         return result;
     }
 
