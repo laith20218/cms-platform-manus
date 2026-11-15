@@ -128,9 +128,22 @@ public static class HtmlViewCsp
     /// student-web origin (R51 workorder value).</summary>
     public const string DefaultFrameAncestors = "https://cms-platform-manus-student-web.vercel.app";
 
+    /// <summary>
+    /// Wave 15.5a (DEBT-CSP-01): allow project-specific Vercel preview URLs so the
+    /// HTML player works on Preview deployments. Previously only the production URL
+    /// was allowed; PR previews failed with "refused to connect". CSP's single-level
+    /// wildcard matches cms-platform-manus-student-web-&lt;branch&gt;-&lt;hash&gt;-&lt;owner&gt;.vercel.app
+    /// but NOT the bare production host, so both must be listed. NOT the bare
+    /// *.vercel.app wildcard and NOT admin-web (the admin app does not embed the player).
+    /// </summary>
+    public const string PreviewFrameAncestors = "https://cms-platform-manus-student-web-*.vercel.app";
+
     public static string Build(bool enableScripts, string frameAncestors)
     {
         var ancestors = string.IsNullOrWhiteSpace(frameAncestors) ? DefaultFrameAncestors : frameAncestors.Trim();
+        // DEBT-CSP-01: the base origin (config or default) is kept verbatim and the
+        // project preview pattern is appended, so production AND previews may embed.
+        ancestors = $"{ancestors} {PreviewFrameAncestors}";
 
         if (!enableScripts)
         {
