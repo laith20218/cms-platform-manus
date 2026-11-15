@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using CMS.Api.Authorization;
+using CMS.Api.Security;
 using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -117,23 +118,29 @@ try
     // courses preflight failure), Content-Type + Accept + Accept-Language (axios defaults),
     // and X-Correlation-Id (CorrelationIdMiddleware honours it when present). Header-name
     // matching in preflight evaluation is case-insensitive per the Fetch specification.
+    // Wave 15.5a (DEBT-CORS-01): narrowed from *.vercel.app (any Vercel-hosted site,
+    // added in PR #84 as a temporary exception) to project-specific patterns. Only
+    // this project's Vercel deployments (production + previews) are accepted, via
+    // Uri host parsing so "https://cms-platform-manus-student-web.evil.vercel.app"-
+    // style prefix+suffix bypasses are rejected (the host must be EXACTLY the
+    // production host, or start with "<project>-"). See PR #84 for the original
+    // wildcard rationale.
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("CMS", policy =>
         {
-            // C3 owner-approved exception (wave 14.2 unblocker): Vercel Preview deployments
-            // (cms-platform-manus-*-git-*.vercel.app) must reach the API for manual visual
-            // verification of player changes. The wildcard origin below matches every preview
-            // (and the production Vercel apps — subdomains of vercel.app themselves); the
-            // config-driven origins above keep the non-Vercel environments unchanged.
-            // Subdomain wildcard matching is enabled on the policy; AllowCredentials stays
-            // valid because the origin list remains explicit.
-            policy.WithOrigins(
-                    builder.Configuration["Cors:StudentApp"] ?? "https://app.cms.example.com",
-                    builder.Configuration["Cors:AdminApp"] ?? "https://admin.cms.example.com",
-                    "https://*.vercel.app"
-                )
-                .SetIsOriginAllowedToAllowWildcardSubdomains()
+            // Read at POLICY-BUILD time (first CORS evaluation), not at Program.cs
+            // registration time: the integration-test factories (WebApplicationFactory)
+            // merge their ConfigureAppConfiguration in-memory collections only after
+            // the host starts building, so an eagerly captured array saw nulls. This
+            // mirrors the pre-15.5a behavior, which read builder.Configuration inside
+            // this same lambda.
+            var corsOrigins = new[]
+            {
+                builder.Configuration["Cors:StudentApp"] ?? "https://app.cms.example.com",
+                builder.Configuration["Cors:AdminApp"] ?? "https://admin.cms.example.com"
+            };
+            policy.SetIsOriginAllowed(origin => CmsCorsOrigins.IsAllowed(origin, corsOrigins))
                 .WithHeaders(
                     "Authorization",
                     "Content-Type",

@@ -27,6 +27,22 @@ public class StatsHandlers :
         _entitlements = entitlements;
     }
 
+    // Wave 15.5a (DEBT-LEADERBOARD-CACHE-INVALIDATE): version-based invalidation. On
+    // toggle, the version counter bumps; all old cache entries become unreachable and
+    // expire naturally. Effect: immediate visibility of the new sharing state (closes
+    // the 60s TTL compromise from W15.4.4.0a). Static + Interlocked is deliberate: the
+    // API is a single-instance deployment (Render), so no cross-node coordination is
+    // needed and no ctor churn is forced on every handler construction site.
+    private static long _leaderboardCacheVersion;
+
+    /// <summary>
+    /// Called by the leaderboard-sharing toggle (StudentProfileController). Bumps the
+    /// version embedded in every leaderboard cache key, so previously cached entries
+    /// become unreachable immediately and expire via their own TTL.
+    /// </summary>
+    public static void InvalidateLeaderboardCache()
+        => Interlocked.Increment(ref _leaderboardCacheVersion);
+
     // ===== Student Stats =====
     public async Task<StudentStatsDto> Handle(GetStudentStatsQuery req, CancellationToken ct)
     {
@@ -126,29 +142,34 @@ public class StatsHandlers :
         // year/college/all scopes would leak cross-cohort rankings because there is no
         // entitlement path for them yet. Reject with 403 and record a security event
         // surface via ForbiddenException (the caller's ExceptionHandlingMiddleware logs 403s).
+        // Wave 15.5a (DEBT-LEADERBOARD-ERROR-CODE): distinct error codes allow the frontend
+        // to differentiate cases without matching on Arabic message strings. The middleware
+        // surfaces ex.ErrorCode verbatim in the ProblemDetails "errorCode" extension.
         if (!string.Equals(req.Scope, "subject", StringComparison.OrdinalIgnoreCase) || !req.ScopeId.HasValue)
-            throw new ForbiddenException("يرفض النظام طلبات لوحة المتصدرين خارج نطاق مادة محددة");
+            throw new ForbiddenException("يرفض النظام طلبات لوحة المتصدرين خارج نطاق مادة محددة", "LEADERBOARD_SCOPE_INVALID");
 
         if (!req.StudentId.HasValue)
-            throw new ForbiddenException("هوية الطالب مطلوبة للوصول إلى لوحة المتصدرين");
+            throw new ForbiddenException("هوية الطالب مطلوبة للوصول إلى لوحة المتصدرين", "LEADERBOARD_NO_STUDENT");
 
         // Server-side entitlement check: the student must have an active grant for the requested subject.
         // A valid-looking Guid that the student has no entitlement for must not leak cohort data.
         if (!await _entitlements.CanAccessSubjectAsync(req.StudentId.Value, req.ScopeId.Value, "read", ct))
-            throw new ForbiddenException("لا تملك صلاحية الوصول إلى لوحة متصدرين هذه المادة");
+            throw new ForbiddenException("لا تملك صلاحية الوصول إلى لوحة متصدرين هذه المادة", "LEADERBOARD_NOT_ENTITLED");
 
         // W15.4.4.0a mutual-sharing consent (D2/D4): a student who does not share their
         // own data may not view rankings. Kept AFTER the scope/entitlement checks so those
         // 403s keep their existing meaning (LeaderboardScopeTests pins the entitlement call
         // order), and BEFORE the cache read so the gate applies on cache hits too. Distinct
         // Arabic message so the frontend (15.4.4.0b) can show the opt-in prompt instead of
-        // a generic error. Error-code unification is DEBT-LEADERBOARD-ERROR-CODE.
+        // a generic error.
         var requestingStudent = await _db.Students.AsNoTracking()
             .FirstOrDefaultAsync(s => s.Id == req.StudentId.Value, ct);
         if (requestingStudent?.SharesLeaderboard != true)
-            throw new ForbiddenException("لم تُفعّل المشاركة في لوحة الصدارة. فعّل المشاركة من إعدادات الخصوصية لرؤية ترتيب زملائك.");
+            throw new ForbiddenException("لم تُفعّل المشاركة في لوحة الصدارة. فعّل المشاركة من إعدادات الخصوصية لرؤية ترتيب زملائك.", "LEADERBOARD_NOT_OPTED_IN");
 
-        var cacheKey = $"leaderboard:{req.Scope}:{req.ScopeId}:{req.Period}:{req.Count}";
+        // DEBT-LEADERBOARD-CACHE-INVALIDATE (15.5a): the version prefix makes every
+        // toggle a cache generation boundary — old keys are never read again.
+        var cacheKey = $"leaderboard:v{Interlocked.Read(ref _leaderboardCacheVersion)}:{req.Scope}:{req.ScopeId}:{req.Period}:{req.Count}";
         var cached = await _cache.GetAsync<LeaderboardDto?>(cacheKey, ct);
         if (cached != null) return cached;
 
@@ -217,9 +238,10 @@ public class StatsHandlers :
         }
 
         var result = new LeaderboardDto(rankings, yourRank);
-        // Consent filter: 60s TTL (was 3600s). A shorter TTL reduces the window during
-        // which an opted-out student still appears. Proper invalidation on toggle is
-        // DEBT-LEADERBOARD-CACHE-INVALIDATE.
+        // Consent filter: 60s TTL (was 3600s), now paired with version-based invalidation
+        // (15.5a): the toggle bumps the version embedded in the key above, so an opted-out
+        // student disappears immediately; the TTL remains a safety net for non-toggle
+        // changes (direct DB edits, backfills).
         await _cache.SetAsync(cacheKey, result, TimeSpan.FromSeconds(60), ct);
         return result;
     }
