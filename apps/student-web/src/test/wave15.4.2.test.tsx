@@ -141,14 +141,7 @@ describe('ExamCoursesPage — standalone /exam-courses route (15.4.2)', () => {
     expect(screen.getByTestId('location-probe').getAttribute('data-path')).toBe('/exam-courses');
   });
 
-  it('still renders the storefront inside the hub at /my-studies?tab=exam-courses (regression)', async () => {
-    renderApp(`/my-studies?tab=exam-courses&universityId=u1&subjectId=s1`);
-
-    expect(await screen.findByTestId('panel-exam-courses')).toBeInTheDocument();
-    expect(screen.getByTestId('tab-exam-courses').getAttribute('aria-selected')).toBe('true');
-    // The hub keeps the storefront's own section header inside the panel
-    // (renders once the entitled subjects resolve).
-    expect(await screen.findByText('الدورات الامتحانية', { selector: 'h2' })).toBeInTheDocument();
-    expect(screen.getByTestId('location-probe').getAttribute('data-path')).toBe('/my-studies');
-  });
+  // W15.4.4a: the former "storefront inside the hub at /my-studies?tab=exam-courses"
+  // regression test is retired — the hub URL now redirects to /exam-courses, which
+  // is covered by the two tests above + wave15.4.4a.test.tsx (redirect assertions).
 });

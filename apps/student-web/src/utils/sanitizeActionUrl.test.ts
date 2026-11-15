@@ -89,6 +89,24 @@ describe('sanitizeActionUrl', () => {
     });
   });
 
+  describe('accepts /study paths (Wave 15.4.4a)', () => {
+    // Wave 15.4.4a whitelist addition: '/study' — the cutover makes it the
+    // primary hub. The /my-studies rows above keep passing: legacy actionUrls
+    // still resolve via the redirect route.
+    const cases: Array<[string, string]> = [
+      ['/study', '/study'],
+      ['/study?tab=library', '/study?tab=library'],
+      ['/study?tab=exams&subtab=practice', '/study?tab=exams&subtab=practice'],
+      ['/study?subjectId=s1&tab=courses', '/study?subjectId=s1&tab=courses'],
+    ];
+
+    for (const [input, expected] of cases) {
+      it(`accepts ${input}`, () => {
+        expect(sanitizeActionUrl(input, ORIGIN)).toBe(expected);
+      });
+    }
+  });
+
   describe('rejects dangerous schemes', () => {
     const cases = [
       'javascript:alert(document.cookie)',
