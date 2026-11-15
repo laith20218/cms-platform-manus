@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
-import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // ---- shared mocks (hoisted) ----
@@ -183,19 +183,31 @@ describe('MyStudiesPage — tabs', () => {
   });
 });
 
-// ================= Legacy redirects =================
+// ================= Legacy redirects (15.4.4a: into /study) =================
 
-describe('Legacy redirects into the My Studies hub', () => {
-  it('redirects /exams to /my-studies?tab=exams', async () => {
-    renderWithProviders(['/exams'], <AppRoutes />);
-    expect(await screen.findByTestId('panel-exams')).toBeInTheDocument();
-    expect(screen.getByTestId('tab-exams').getAttribute('aria-selected')).toBe('true');
+describe('Legacy redirects into the /study hub (15.4.4a)', () => {
+  /** Same probe pattern as wave15.4.2.test.tsx — exposes the live location. */
+  const LocationProbe = () => {
+    const location = useLocation();
+    return <div data-testid="location-probe" data-path={location.pathname} data-search={location.search} />;
+  };
+
+  it('redirects /exams to /study?tab=exams', async () => {
+    renderWithProviders(['/exams'], <><AppRoutes /><LocationProbe /></>);
+    expect(await screen.findByTestId('study-panel-exams')).toBeInTheDocument();
+    expect(screen.getByTestId('study-tab-exams').getAttribute('aria-selected')).toBe('true');
+    const probe = screen.getByTestId('location-probe');
+    expect(probe.getAttribute('data-path')).toBe('/study');
+    expect(probe.getAttribute('data-search')).toBe('?tab=exams');
   });
 
-  it('redirects /library to /my-studies?tab=library', async () => {
-    renderWithProviders(['/library'], <AppRoutes />);
-    expect(await screen.findByTestId('panel-library')).toBeInTheDocument();
-    expect(screen.getByTestId('tab-library').getAttribute('aria-selected')).toBe('true');
+  it('redirects /library to /study?tab=library', async () => {
+    renderWithProviders(['/library'], <><AppRoutes /><LocationProbe /></>);
+    expect(await screen.findByTestId('study-panel-library')).toBeInTheDocument();
+    expect(screen.getByTestId('study-tab-library').getAttribute('aria-selected')).toBe('true');
+    const probe = screen.getByTestId('location-probe');
+    expect(probe.getAttribute('data-path')).toBe('/study');
+    expect(probe.getAttribute('data-search')).toBe('?tab=library');
   });
 });
 
