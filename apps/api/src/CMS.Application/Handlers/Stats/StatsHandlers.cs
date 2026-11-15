@@ -126,27 +126,30 @@ public class StatsHandlers :
         // year/college/all scopes would leak cross-cohort rankings because there is no
         // entitlement path for them yet. Reject with 403 and record a security event
         // surface via ForbiddenException (the caller's ExceptionHandlingMiddleware logs 403s).
+        // Wave 15.5a (DEBT-LEADERBOARD-ERROR-CODE): distinct error codes allow the frontend
+        // to differentiate cases without matching on Arabic message strings. The middleware
+        // surfaces ex.ErrorCode verbatim in the ProblemDetails "errorCode" extension.
         if (!string.Equals(req.Scope, "subject", StringComparison.OrdinalIgnoreCase) || !req.ScopeId.HasValue)
-            throw new ForbiddenException("يرفض النظام طلبات لوحة المتصدرين خارج نطاق مادة محددة");
+            throw new ForbiddenException("يرفض النظام طلبات لوحة المتصدرين خارج نطاق مادة محددة", "LEADERBOARD_SCOPE_INVALID");
 
         if (!req.StudentId.HasValue)
-            throw new ForbiddenException("هوية الطالب مطلوبة للوصول إلى لوحة المتصدرين");
+            throw new ForbiddenException("هوية الطالب مطلوبة للوصول إلى لوحة المتصدرين", "LEADERBOARD_NO_STUDENT");
 
         // Server-side entitlement check: the student must have an active grant for the requested subject.
         // A valid-looking Guid that the student has no entitlement for must not leak cohort data.
         if (!await _entitlements.CanAccessSubjectAsync(req.StudentId.Value, req.ScopeId.Value, "read", ct))
-            throw new ForbiddenException("لا تملك صلاحية الوصول إلى لوحة متصدرين هذه المادة");
+            throw new ForbiddenException("لا تملك صلاحية الوصول إلى لوحة متصدرين هذه المادة", "LEADERBOARD_NOT_ENTITLED");
 
         // W15.4.4.0a mutual-sharing consent (D2/D4): a student who does not share their
         // own data may not view rankings. Kept AFTER the scope/entitlement checks so those
         // 403s keep their existing meaning (LeaderboardScopeTests pins the entitlement call
         // order), and BEFORE the cache read so the gate applies on cache hits too. Distinct
         // Arabic message so the frontend (15.4.4.0b) can show the opt-in prompt instead of
-        // a generic error. Error-code unification is DEBT-LEADERBOARD-ERROR-CODE.
+        // a generic error.
         var requestingStudent = await _db.Students.AsNoTracking()
             .FirstOrDefaultAsync(s => s.Id == req.StudentId.Value, ct);
         if (requestingStudent?.SharesLeaderboard != true)
-            throw new ForbiddenException("لم تُفعّل المشاركة في لوحة الصدارة. فعّل المشاركة من إعدادات الخصوصية لرؤية ترتيب زملائك.");
+            throw new ForbiddenException("لم تُفعّل المشاركة في لوحة الصدارة. فعّل المشاركة من إعدادات الخصوصية لرؤية ترتيب زملائك.", "LEADERBOARD_NOT_OPTED_IN");
 
         var cacheKey = $"leaderboard:{req.Scope}:{req.ScopeId}:{req.Period}:{req.Count}";
         var cached = await _cache.GetAsync<LeaderboardDto?>(cacheKey, ct);

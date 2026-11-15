@@ -47,8 +47,11 @@ public class BusinessRuleViolationException : DomainException
 /// </summary>
 public class ForbiddenException : DomainException
 {
-    public ForbiddenException(string message)
-        : base(message, "FORBIDDEN")
+    // Wave 15.5a (DEBT-LEADERBOARD-ERROR-CODE): callers may pass a structured code
+    // (e.g. LEADERBOARD_NOT_OPTED_IN) so 403 causes are distinguishable at the API
+    // level; the default keeps every other throw site's "FORBIDDEN" unchanged.
+    public ForbiddenException(string message, string errorCode = "FORBIDDEN")
+        : base(message, errorCode)
     {
     }
 }
