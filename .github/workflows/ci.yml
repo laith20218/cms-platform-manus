@@ -197,6 +197,20 @@ jobs:
           restore-keys: |
             playwright-${{ runner.os }}-
 
+      # Wave 15.5b (Item 8, experimental): cache the apt archives that
+      # `playwright install --with-deps` downloads (fonts + libs, ~10-15
+      # packages). On a cache hit apt-get can install from the local archive
+      # instead of re-downloading. Honest caveat: whether sudo apt-get on the
+      # runner image benefits depends on the image's apt config — if CI fails
+      # or the next runs show no improvement, revert this step in a follow-up.
+      - name: Cache apt archives
+        uses: actions/cache@v4
+        id: apt-cache
+        with:
+          path: /var/cache/apt/archives
+          key: apt-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: apt-${{ runner.os }}-
+
       - name: Install Playwright Chromium
         run: pnpm --filter @cms/student-web exec playwright install --with-deps chromium
 
