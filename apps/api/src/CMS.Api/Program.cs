@@ -117,23 +117,50 @@ try
     // courses preflight failure), Content-Type + Accept + Accept-Language (axios defaults),
     // and X-Correlation-Id (CorrelationIdMiddleware honours it when present). Header-name
     // matching in preflight evaluation is case-insensitive per the Fetch specification.
+    // Wave 15.5a (DEBT-CORS-01): narrowed from *.vercel.app (any Vercel-hosted site,
+    // added in PR #84 as a temporary exception) to project-specific patterns. Only
+    // this project's Vercel deployments (production + previews) are accepted, via
+    // Uri host parsing so "https://cms-platform-manus-student-web.evil.vercel.app"-
+    // style prefix+suffix bypasses are rejected (the host must be EXACTLY the
+    // production host, or start with "<project>-"). See PR #84 for the original
+    // wildcard rationale.
+    var corsOrigins = new[]
+    {
+        builder.Configuration["Cors:StudentApp"] ?? "https://app.cms.example.com",
+        builder.Configuration["Cors:AdminApp"] ?? "https://admin.cms.example.com"
+    };
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("CMS", policy =>
         {
-            // C3 owner-approved exception (wave 14.2 unblocker): Vercel Preview deployments
-            // (cms-platform-manus-*-git-*.vercel.app) must reach the API for manual visual
-            // verification of player changes. The wildcard origin below matches every preview
-            // (and the production Vercel apps — subdomains of vercel.app themselves); the
-            // config-driven origins above keep the non-Vercel environments unchanged.
-            // Subdomain wildcard matching is enabled on the policy; AllowCredentials stays
-            // valid because the origin list remains explicit.
-            policy.WithOrigins(
-                    builder.Configuration["Cors:StudentApp"] ?? "https://app.cms.example.com",
-                    builder.Configuration["Cors:AdminApp"] ?? "https://admin.cms.example.com",
-                    "https://*.vercel.app"
-                )
-                .SetIsOriginAllowedToAllowWildcardSubdomains()
+            policy.SetIsOriginAllowed(origin =>
+                {
+                    // 1. Exact matches from config (Cors:StudentApp, Cors:AdminApp) —
+                    //    keeps every non-Vercel environment (Render production hosts,
+                    //    local overrides) working unchanged.
+                    if (corsOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
+                        return true;
+
+                    // 2. Project-specific Vercel deployments (student-web + admin-web):
+                    //    the production host, or preview hosts
+                    //    cms-platform-manus-<app>-<branch>-<hash>-<owner>.vercel.app.
+                    //    Host parsing makes the boundary exact: "cms-platform-manus-
+                    //    student-web.evil.vercel.app" does NOT start with
+                    //    "cms-platform-manus-student-web-" (dot, not dash) and is rejected.
+                    if (Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.Scheme == "https")
+                    {
+                        if (uri.Host == "cms-platform-manus-student-web.vercel.app" ||
+                            (uri.Host.StartsWith("cms-platform-manus-student-web-") &&
+                             uri.Host.EndsWith(".vercel.app")))
+                            return true;
+                        if (uri.Host == "cms-platform-manus-admin-web.vercel.app" ||
+                            (uri.Host.StartsWith("cms-platform-manus-admin-web-") &&
+                             uri.Host.EndsWith(".vercel.app")))
+                            return true;
+                    }
+
+                    return false;
+                })
                 .WithHeaders(
                     "Authorization",
                     "Content-Type",
