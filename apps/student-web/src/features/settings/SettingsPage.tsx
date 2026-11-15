@@ -4,9 +4,10 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Settings as SettingsIcon, Moon, Bell, Lock, Loader2 } from 'lucide-react';
+import { Settings as SettingsIcon, Moon, Bell, Lock, Loader2, ShieldCheck } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { getApiErrorMessage } from '@/utils/api-error';
+import LeaderboardSharingToggle from '@/features/stats/components/LeaderboardSharingToggle';
 
 export default function SettingsPage() {
   // ThemeProvider persists the choice under 'cms-theme' — the key must match exactly
@@ -74,6 +75,11 @@ export default function SettingsPage() {
             <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform" style={{ transform: notifEnabled ? 'translateX(2px)' : 'translateX(26px)' }} />
           </button>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6">
+        <h2 className="text-base font-semibold mb-4 text-[var(--cms-text)] flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> الخصوصية</h2>
+        <LeaderboardSharingToggle />
       </section>
 
       <section className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6">

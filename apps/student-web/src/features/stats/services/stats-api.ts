@@ -22,12 +22,28 @@ export interface Leaderboard {
 
 export interface LeaderboardEntry {
   rank: number;
-  studentId: string;
   studentName: string;
-  avatarUrl?: string;
+  avatarUrl: string | null;
   questionsAnswered: number;
   accuracy: number;
   isYou: boolean;
+}
+
+/** GET/PUT /profile/leaderboard-sharing — mutual-sharing consent (W15.4.4.0a backend). */
+export interface LeaderboardSharingDto {
+  sharesLeaderboard: boolean;
+}
+
+export async function getLeaderboardSharing(): Promise<LeaderboardSharingDto> {
+  const { data } = await apiClient.get('/profile/leaderboard-sharing');
+  return data;
+}
+
+export async function setLeaderboardSharing(shares: boolean): Promise<LeaderboardSharingDto> {
+  const { data } = await apiClient.put('/profile/leaderboard-sharing', {
+    sharesLeaderboard: shares,
+  });
+  return data;
 }
 
 export const statsApi = {

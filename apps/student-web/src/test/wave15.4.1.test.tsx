@@ -165,8 +165,11 @@ describe('StudyPage — 6-tab parallel hub (15.4.1)', () => {
 
     const panel = await screen.findByTestId('study-panel-leaderboard');
     expect(screen.getByTestId('study-leaderboard-tab')).toBeInTheDocument();
-    // Wait for the leaderboard to settle past its loading spinner.
-    expect(await screen.findByText('لوحة المتصدرين')).toBeInTheDocument();
+    // W15.4.4.0b: with no ?subjectId the tab shows the subject picker —
+    // the board itself renders only after a subject is picked.
+    expect(await screen.findByTestId('leaderboard-subject-picker')).toBeInTheDocument();
+    expect(await screen.findByTestId('leaderboard-subject-s1')).toBeInTheDocument();
+    expect(screen.getByTestId('leaderboard-subject-s2')).toBeInTheDocument();
 
     // hideBreadcrumb: the hub owns navigation — no breadcrumb links to
     // /dashboard or /stats anywhere inside the panel.
