@@ -34,8 +34,8 @@ import { cn } from '@/utils';
  *
  * §13: logical properties only (border-s/end-*), 48px+ touch targets,
  * focus-visible rings, aria-current on the active thumb, reduced-motion-safe
- * auto-scroll, ramp tokens (#0b1120 rail / #1e293b borders / #1685F8 active /
- * #25C7E8 focus / slate-400 muted).
+ * auto-scroll, ramp tokens (#0b1120 rail / #1e293b borders / primary-500 active /
+ * primary-400 focus / slate-400 muted).
  */
 
 const THUMB_WIDTH_PX = 96;
@@ -211,7 +211,7 @@ export function ThumbnailsRail({ doc, dims, activePage, cacheKey, onGoToPage, fo
               <DialogPrimitive.Close
                 aria-label="إغلاق المصغرات"
                 data-testid="pdf-thumbs-close"
-                className="press flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-200 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+                className="press flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-200 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]"
               >
                 <X className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
               </DialogPrimitive.Close>
@@ -319,9 +319,9 @@ function ThumbList({ doc, dims, activePage, cacheKey, onGoToPage, ioRoot, testId
               onClick={() => onGoToPage(page)}
               aria-label={`الصفحة ${page}${active ? ' — الحالية' : ''}`}
               aria-current={active ? 'true' : undefined}
-              className={`press flex w-full flex-col items-center rounded-xl border p-1 transition-colors duration-200 ease-out focus-visible:ring-2 focus-visible:ring-[#25C7E8] focus-visible:outline-none ${
+              className={`press flex w-full flex-col items-center rounded-xl border p-1 transition-colors duration-200 ease-out focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)] focus-visible:outline-none ${
                 active
-                  ? 'border-[#1685F8] bg-white/10 ring-2 ring-[#1685F8]'
+                  ? 'border-[var(--color-primary-500)] bg-white/10 ring-2 ring-[var(--color-primary-500)]'
                   : 'border-[#1e293b] bg-white/5 hover:bg-white/10'
               }`}
             >
