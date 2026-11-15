@@ -27,6 +27,22 @@ public class StatsHandlers :
         _entitlements = entitlements;
     }
 
+    // Wave 15.5a (DEBT-LEADERBOARD-CACHE-INVALIDATE): version-based invalidation. On
+    // toggle, the version counter bumps; all old cache entries become unreachable and
+    // expire naturally. Effect: immediate visibility of the new sharing state (closes
+    // the 60s TTL compromise from W15.4.4.0a). Static + Interlocked is deliberate: the
+    // API is a single-instance deployment (Render), so no cross-node coordination is
+    // needed and no ctor churn is forced on every handler construction site.
+    private static long _leaderboardCacheVersion;
+
+    /// <summary>
+    /// Called by the leaderboard-sharing toggle (StudentProfileController). Bumps the
+    /// version embedded in every leaderboard cache key, so previously cached entries
+    /// become unreachable immediately and expire via their own TTL.
+    /// </summary>
+    public static void InvalidateLeaderboardCache()
+        => Interlocked.Increment(ref _leaderboardCacheVersion);
+
     // ===== Student Stats =====
     public async Task<StudentStatsDto> Handle(GetStudentStatsQuery req, CancellationToken ct)
     {
@@ -151,7 +167,9 @@ public class StatsHandlers :
         if (requestingStudent?.SharesLeaderboard != true)
             throw new ForbiddenException("لم تُفعّل المشاركة في لوحة الصدارة. فعّل المشاركة من إعدادات الخصوصية لرؤية ترتيب زملائك.", "LEADERBOARD_NOT_OPTED_IN");
 
-        var cacheKey = $"leaderboard:{req.Scope}:{req.ScopeId}:{req.Period}:{req.Count}";
+        // DEBT-LEADERBOARD-CACHE-INVALIDATE (15.5a): the version prefix makes every
+        // toggle a cache generation boundary — old keys are never read again.
+        var cacheKey = $"leaderboard:v{Interlocked.Read(ref _leaderboardCacheVersion)}:{req.Scope}:{req.ScopeId}:{req.Period}:{req.Count}";
         var cached = await _cache.GetAsync<LeaderboardDto?>(cacheKey, ct);
         if (cached != null) return cached;
 
@@ -220,9 +238,10 @@ public class StatsHandlers :
         }
 
         var result = new LeaderboardDto(rankings, yourRank);
-        // Consent filter: 60s TTL (was 3600s). A shorter TTL reduces the window during
-        // which an opted-out student still appears. Proper invalidation on toggle is
-        // DEBT-LEADERBOARD-CACHE-INVALIDATE.
+        // Consent filter: 60s TTL (was 3600s), now paired with version-based invalidation
+        // (15.5a): the toggle bumps the version embedded in the key above, so an opted-out
+        // student disappears immediately; the TTL remains a safety net for non-toggle
+        // changes (direct DB edits, backfills).
         await _cache.SetAsync(cacheKey, result, TimeSpan.FromSeconds(60), ct);
         return result;
     }

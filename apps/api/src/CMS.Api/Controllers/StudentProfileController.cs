@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using CMS.Application.DTOs.Profile;
+using CMS.Application.Handlers.Stats;
 using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
 using CMS.Domain.Enums;
@@ -456,6 +457,15 @@ public sealed class StudentProfileController : ControllerBase
 
         if (previous != shares)
         {
+            // Wave 15.5a (DEBT-LEADERBOARD-CACHE-INVALIDATE): version-based invalidation.
+            // On toggle, the version counter bumps; all old leaderboard cache entries
+            // become unreachable and expire naturally. Effect: immediate visibility of
+            // the new sharing state — the 60s cache TTL no longer delays the cohort view
+            // or the removal of an opted-out student.
+            StatsHandlers.InvalidateLeaderboardCache();
+
+            // Wave 15.5a (DEBT-LEADERBOARD-AUDIT): verified — the toggle is auditable
+            // via SecurityService (added in W15.4.4.0a, UpdateProfile pattern).
             await _security.LogSecurityEventAsync(
                 studentId: studentId,
                 adminId: null,
