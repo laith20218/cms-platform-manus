@@ -84,12 +84,13 @@ export function AppRoutes() {
           <Route path="/my-studies/courses/:courseId" element={<CoursePlayerPage />} />
           {/* Push 10.8 — the temporary /player-test sandbox is DELETED: the real
               player stack now lives in the production course player page. */}
-          {/* Backward compatibility: legacy entry points redirect into the hub.
-              Deep links (/exams/:id, /subjects/:slug/library) keep working below. */}
-          <Route path="/exams" element={<Navigate to="/my-studies?tab=exams" replace />} />
+          {/* Backward compatibility: legacy entry points redirect into the /study hub
+              directly (15.4.4a — no chain via /my-studies). Deep links
+              (/exams/:id, /subjects/:slug/library) keep working below. */}
+          <Route path="/exams" element={<Navigate to="/study?tab=exams" replace />} />
           <Route path="/exams/:examId" element={<SecurityWrapper><ExamPage /></SecurityWrapper>} />
           <Route path="/exams/:sessionId/review" element={<SecurityWrapper><ExamReviewPage /></SecurityWrapper>} />
-          <Route path="/library" element={<Navigate to="/my-studies?tab=library" replace />} />
+          <Route path="/library" element={<Navigate to="/study?tab=library" replace />} />
           <Route path="/subjects/:subjectSlug/library" element={<LibraryPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/profile" element={<ProfilePage />} />
@@ -103,6 +104,9 @@ export function AppRoutes() {
               at /my-studies?tab=exam-courses keeps working until the 15.4.4 cutover. */}
           <Route path="/exam-courses" element={<ExamCoursesPage />} />
           <Route path="/exam-courses/:courseId" element={<ExamCourseDetailPage />} />
+          {/* W15.4.4a — bare /practice joins the cutover: it now lands on the
+              practice sub-tab of the /study exams tab (was unrouted/404 before). */}
+          <Route path="/practice" element={<Navigate to="/study?tab=exams&subtab=practice" replace />} />
           {/* W14.4 — practice player (B.1, D13): exam-model runs + categorized lens */}
           <Route path="/practice/exam/:examModelId" element={<PracticePage />} />
           <Route path="/practice/categorized/:subjectId" element={<PracticePage />} />
