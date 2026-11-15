@@ -19,7 +19,7 @@ import type { HighlightEntry, NoteEntry, StudyListKind } from './study-lists';
  * (goToPage) and FLASHES the target (the parent owns the flash timer).
  *
  * §13: ≥44px rows, aria-labels, logical properties only, ramp tokens
- * (#0b1120 / #1e293b / #25C7E8 focus), tabular numerals, Arabic ≥1.6
+ * (#0b1120 / #1e293b / primary-400 focus), tabular numerals, Arabic ≥1.6
  * line-height, max-h + scroll for long lists.
  */
 
@@ -74,7 +74,7 @@ export function StudyListsPanel({
             onClick={onClose}
             aria-label={`إغلاق ${meta.title}`}
             data-testid="pdf-study-lists-close"
-            className="press flex h-10 w-10 items-center justify-center rounded-xl text-slate-300 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+            className="press flex h-10 w-10 items-center justify-center rounded-xl text-slate-300 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]"
           >
             <X className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
           </button>
@@ -98,7 +98,7 @@ export function StudyListsPanel({
             <DialogPrimitive.Close
               aria-label={`إغلاق ${meta.title}`}
               data-testid="pdf-study-lists-close"
-              className="press flex h-10 w-10 items-center justify-center rounded-xl text-slate-300 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+              className="press flex h-10 w-10 items-center justify-center rounded-xl text-slate-300 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]"
             >
               <X className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
             </DialogPrimitive.Close>
@@ -132,7 +132,7 @@ function ListBody({ kind, notes, highlights, bookmarks, snippetFor, onEntryClick
               data-testid="pdf-list-row"
               data-page={note.pageNumber}
               onClick={() => onEntryClick(note.pageNumber, note.id)}
-              className="press flex w-full items-start gap-2 rounded-xl border border-transparent px-2 py-2.5 text-start transition-colors duration-200 ease-out hover:border-[#1e293b] hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8] min-h-11"
+              className="press flex w-full items-start gap-2 rounded-xl border border-transparent px-2 py-2.5 text-start transition-colors duration-200 ease-out hover:border-[#1e293b] hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)] min-h-11"
             >
               <StickyNote className="mt-0.5 h-4 w-4 shrink-0" style={{ color: note.payload.color }} aria-hidden="true" />
               <span className="min-w-0 flex-1">
@@ -162,7 +162,7 @@ function ListBody({ kind, notes, highlights, bookmarks, snippetFor, onEntryClick
               data-testid="pdf-list-row"
               data-page={highlight.pageNumber}
               onClick={() => onEntryClick(highlight.pageNumber, highlight.id)}
-              className="press flex w-full items-start gap-2 rounded-xl border border-transparent px-2 py-2.5 text-start transition-colors duration-200 ease-out hover:border-[#1e293b] hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8] min-h-11"
+              className="press flex w-full items-start gap-2 rounded-xl border border-transparent px-2 py-2.5 text-start transition-colors duration-200 ease-out hover:border-[#1e293b] hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)] min-h-11"
             >
               <span
                 aria-hidden="true"
@@ -201,9 +201,9 @@ function ListBody({ kind, notes, highlights, bookmarks, snippetFor, onEntryClick
                 type="button"
                 onClick={() => onEntryClick(bookmark.page, null)}
                 aria-label={`الانتقال إلى الصفحة ${bookmark.page}`}
-                className="press flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-2 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+                className="press flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-2 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]"
               >
-                <Bookmark className="h-4 w-4 shrink-0 text-[#25C7E8]" aria-hidden="true" />
+                <Bookmark className="h-4 w-4 shrink-0 text-[var(--color-primary-400)]" aria-hidden="true" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-bold leading-relaxed text-slate-200">
                     {captured || `الصفحة ${bookmark.page}`}
@@ -219,7 +219,7 @@ function ListBody({ kind, notes, highlights, bookmarks, snippetFor, onEntryClick
                 onClick={() => onBookmarkRemove(bookmark.page)}
                 aria-label={`إزالة العلامة عن الصفحة ${bookmark.page}`}
                 data-testid="pdf-bookmark-remove"
-                className="press flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors duration-200 ease-out hover:bg-red-500/15 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+                className="press flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors duration-200 ease-out hover:bg-red-500/15 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]"
               >
                 <X className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
               </button>

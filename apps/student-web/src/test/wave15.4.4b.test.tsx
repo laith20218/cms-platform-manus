@@ -4,7 +4,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { Sidebar } from '@/components/layouts/Sidebar';
 import { BottomNav } from '@/components/layouts/BottomNav';
 import { SubjectModal } from '@/features/subjects/SubjectModal';
-import { SubjectModalProvider, useSubjectModal, type SubjectForModal } from '@/features/subjects/SubjectModalContext';
+import { useSubjectModal, type SubjectForModal } from '@/features/subjects/SubjectModalContext';
+import { SubjectModalProvider } from '@/features/subjects/SubjectModalProvider';
 
 // ---------------------------------------------------------------------------
 // Wave 15.4.4b — every UI surface that pointed at the legacy /my-studies hub
