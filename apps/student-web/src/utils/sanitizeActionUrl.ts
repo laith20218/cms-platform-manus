@@ -33,6 +33,8 @@
 // — pre-existing gap (notification actionUrls to the hub were
 // silently rejected). Prefix matching already covers sub-paths
 // like '/my-studies/courses/:id' and '/practice/exam/:id'.
+// Wave 15.4.4a: added '/study' — the cutover makes it the primary hub
+// (old '/my-studies' actionUrls keep working via the redirect route).
 const ALLOWED_ACTION_PATHS = [
   '/',
   '/dashboard',
@@ -52,6 +54,7 @@ const ALLOWED_ACTION_PATHS = [
   '/my-studies',
   '/exam-courses',
   '/practice',
+  '/study',
 ] as const;
 
 export function sanitizeActionUrl(
