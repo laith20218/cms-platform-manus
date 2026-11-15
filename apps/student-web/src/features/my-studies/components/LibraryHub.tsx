@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { toast } from 'sonner';
 import {
-  BookMarked, CalendarDays, ChevronLeft, Eye, FileCode, FileSpreadsheet,
+  BookMarked, Bookmark, CalendarDays, ChevronLeft, Eye, FileCode, FileSpreadsheet,
   FileText, Image as ImageIcon, LoaderCircle, Music, Target, Video,
 } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
+import { libraryApi } from '@/features/library/services/library-api';
+import { DocumentViewer } from '@/features/library/DocumentViewer';
 import { cn } from '@/utils';
 import { useMySubjects } from '../hooks/useMySubjects';
 import { LockedEmptyState } from './LockedEmptyState';
@@ -20,11 +23,14 @@ const CATEGORIES = [
   { key: 'all', label: 'الكل' },
   { key: 'Curriculum', label: 'المنهاج' },
   { key: 'Lecture', label: 'المحاضرات' },
-  { key: 'Summary', label: 'الملخصات' },
+  { key: 'Summary', label: 'ملخصات المحاضرات' },
   { key: 'GoldenIdeas', label: 'الأفكار الذهبية' },
 ] as const;
 
 type CategoryKey = (typeof CATEGORIES)[number]['key'];
+
+/** Format facet keys — mirror the API's LibraryFileType PascalCase enum names. */
+type FormatKey = 'all' | 'Pdf' | 'Html' | 'Image' | 'Video' | 'Audio' | 'Summary' | 'Comprehensive' | 'Paragraph';
 
 const TYPE_META: Record<string, { icon: typeof FileText; label: string; color: string; bg: string }> = {
   Pdf: { icon: FileText, label: 'PDF', color: 'var(--c-danger-500)', bg: 'rgba(255,82,82,0.10)' },
@@ -44,13 +50,28 @@ const CATEGORY_BADGES: Record<string, { label: string; classes: string }> = {
   GoldenIdeas: { label: 'أفكار ذهبية', classes: 'bg-[var(--c-warning-50)] text-[var(--c-warning-500)]' },
 };
 
+/** Chip descriptors for the format filter row (Row B) — labels reuse TYPE_META. */
+const FORMATS: ReadonlyArray<{ key: FormatKey; label: string }> = [
+  { key: 'all', label: 'الكل' },
+  { key: 'Pdf', label: TYPE_META.Pdf.label },
+  { key: 'Html', label: TYPE_META.Html.label },
+  { key: 'Image', label: TYPE_META.Image.label },
+  { key: 'Video', label: TYPE_META.Video.label },
+  { key: 'Audio', label: TYPE_META.Audio.label },
+  { key: 'Summary', label: TYPE_META.Summary.label },
+  { key: 'Comprehensive', label: TYPE_META.Comprehensive.label },
+  { key: 'Paragraph', label: TYPE_META.Paragraph.label },
+];
+
 interface HubLibraryFile {
   id: string;
   type: string;
   title: string;
-  description?: string | null;
+  description?: string;
   fileSize: number;
   viewsCount: number;
+  /** Favorites toggle state — required by DocumentViewer's LibraryFile prop. */
+  isFavorite: boolean;
   /** Curricular category (Curriculum / Lecture / Summary / GoldenIdeas) — null = uncategorized. */
   category?: string | null;
   createdAt?: string | null;
@@ -60,14 +81,32 @@ interface HubLibraryFile {
 }
 
 /**
- * My Studies → Library tab (Push 5 redesign): fetches every file across the
- * student's entitled subjects, groups it behind elegant category tabs
- * (الكل | المنهاج | المحاضرات | الملخصات | الأفكار الذهبية) and renders a card
- * grid with type icon, subject, category badge and upload date.
- * `subjectId` (Push 6) narrows the hub to a single subject.
+ * The unified library surface (Wave 15.5.1a): one component serving BOTH
+ * /study?tab=library and /subjects/:slug/library. Fetches every file across
+ * the student's entitled subjects (or one subject when `subjectId` is passed),
+ * groups it behind two faceted filter rows (category + format, AND logic,
+ * counters recompute against the other facet), renders a context-aware
+ * breadcrumb + h1, opens the DocumentViewer on card click (A1), and carries
+ * the favorites toggle (moved from the legacy LibraryPage).
  */
-export function LibraryHub({ subjectId }: { subjectId?: string | null }) {
-  const [category, setCategory] = useState<CategoryKey>('all');
+export function LibraryHub({ subjectId, subjectSlug }: { subjectId?: string | null; subjectSlug?: string }) {
+  const [activeCategory, setActiveCategory] = useState<CategoryKey>('all');
+  const [activeFormat, setActiveFormat] = useState<FormatKey>('all');
+  const [selectedFile, setSelectedFile] = useState<HubLibraryFile | null>(null);
+
+  // Wave 15.5.1a — the same context flag drives the h1 + breadcrumb branches.
+  const location = useLocation();
+  const inStudyContext = location.pathname.startsWith('/study');
+
+  const queryClient = useQueryClient();
+  const toggleFavoriteMutation = useMutation({
+    mutationFn: (file: HubLibraryFile) => libraryApi.toggleFavorite(file.id, file.isFavorite),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['library-hub'] });
+      queryClient.invalidateQueries({ queryKey: ['favorites'] });
+    },
+    onError: () => toast.error('تعذّر تحديث المفضلة. تحقق من اتصالك واستحقاقك.'),
+  });
 
   const mySubjects = useMySubjects();
   const allSubjects = mySubjects.data ?? [];
@@ -125,16 +164,35 @@ export function LibraryHub({ subjectId }: { subjectId?: string | null }) {
     [files],
   );
 
-  // Available category tabs: always show الكل; show a category tab only when
+  // Wave 15.5.1a faceting (AND logic): each facet counts against the OTHER's
+  // active value, so chips preview the result of clicking them.
+  const matchesFormat = (f: HubLibraryFile) => activeFormat === 'all' || f.type === activeFormat;
+  const matchesCategory = (f: HubLibraryFile) => activeCategory === 'all' || f.category === activeCategory;
+
+  const visibleFiles = allFiles.filter(matchesFormat).filter(matchesCategory);
+
+  // Available category chips: always show الكل; show a category chip only when
   // at least one file carries it (clean, honest filtering).
   const availableCategories = useMemo(() => {
     const present = new Set(allFiles.map((f) => f.category ?? ''));
     return CATEGORIES.filter((c) => c.key === 'all' || present.has(c.key));
   }, [allFiles]);
 
-  const filtered = useMemo(
-    () => (category === 'all' ? allFiles : allFiles.filter((f) => f.category === category)),
-    [allFiles, category]
+  // Format chips follow the same full-dataset gating for consistency.
+  const availableFormats = useMemo(() => {
+    const present = new Set(allFiles.map((f) => f.type));
+    return FORMATS.filter((x) => x.key === 'all' || present.has(x.key));
+  }, [allFiles]);
+
+  const categoryCount = (key: CategoryKey) => (
+    key === 'all'
+      ? allFiles.filter(matchesFormat).length
+      : allFiles.filter(matchesFormat).filter((f) => f.category === key).length
+  );
+  const formatCount = (key: FormatKey) => (
+    key === 'all'
+      ? allFiles.filter(matchesCategory).length
+      : allFiles.filter(matchesCategory).filter((f) => f.type === key).length
   );
 
   if (entitlementDenied || queryDenied) {
@@ -196,11 +254,39 @@ export function LibraryHub({ subjectId }: { subjectId?: string | null }) {
 
   return (
     <div>
-      {/* Category filter tabs */}
-      <div role="tablist" aria-label="تصنيفات المكتبة" className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-5" data-testid="library-category-tabs">
+      {/* Wave 15.5.1a — the /study context already owns the page h1 (دراستي);
+          the standalone /subjects/:slug/library route renders its own. */}
+      {!inStudyContext && (
+        <h1 className="text-2xl font-bold">المكتبة الرقمية</h1>
+      )}
+
+      {/* Breadcrumbs — context-aware; classNames carried over from the legacy LibraryPage. */}
+      <div className="flex items-center gap-2 text-xs text-[var(--c-text-muted)]" data-testid="library-breadcrumb">
+        {inStudyContext ? (
+          <>
+            <Link to="/study" className="hover:text-[var(--c-primary-700)]">دراستي</Link>
+            <ChevronLeft className="w-3 h-3" />
+            <span className="font-semibold text-[var(--c-text)]">المكتبة</span>
+          </>
+        ) : (
+          <>
+            <Link to="/dashboard" className="hover:text-[var(--c-primary-700)]">الرئيسية</Link>
+            <ChevronLeft className="w-3 h-3" />
+            {subjectSlug && (
+              <>
+                <Link to={`/subjects/${subjectSlug}`} className="hover:text-[var(--c-primary-700)]">المادة</Link>
+                <ChevronLeft className="w-3 h-3" />
+              </>
+            )}
+            <span className="font-semibold text-[var(--c-text)]">المكتبة</span>
+          </>
+        )}
+      </div>
+
+      {/* Category filter chips (Row A) */}
+      <div role="tablist" aria-label="تصنيفات المكتبة" className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-3 mt-5" data-testid="library-category-tabs">
         {availableCategories.map(({ key, label }) => {
-          const active = category === key;
-          const count = key === 'all' ? allFiles.length : allFiles.filter((f) => f.category === key).length;
+          const active = activeCategory === key;
           return (
             <button
               key={key}
@@ -208,7 +294,7 @@ export function LibraryHub({ subjectId }: { subjectId?: string | null }) {
               type="button"
               aria-selected={active}
               data-testid={`library-tab-${key}`}
-              onClick={() => setCategory(key)}
+              onClick={() => setActiveCategory(key)}
               className={cn(
                 'inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all border',
                 active
@@ -219,7 +305,39 @@ export function LibraryHub({ subjectId }: { subjectId?: string | null }) {
             >
               {label}
               <span className={cn('text-[11px] px-1.5 py-px rounded-full tabular-nums', active ? 'bg-white/20' : 'bg-[var(--c-bg-hover)]')} lang="en">
-                {count}
+                {categoryCount(key)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Format filter chips (Row B) — same pill style, TYPE_META icon, faceted count */}
+      <div role="tablist" aria-label="صيغ المكتبة" className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-5" data-testid="library-format-tabs">
+        {availableFormats.map(({ key, label }) => {
+          const active = activeFormat === key;
+          const meta = key === 'all' ? null : TYPE_META[key];
+          const Icon = meta?.icon;
+          return (
+            <button
+              key={key}
+              role="tab"
+              type="button"
+              aria-selected={active}
+              data-testid={`library-format-${key}`}
+              onClick={() => setActiveFormat(key)}
+              className={cn(
+                'inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all border',
+                active
+                  ? 'text-white border-transparent shadow-sm'
+                  : 'text-[var(--c-text-soft)] border-[var(--c-border)] bg-[var(--c-surface)] hover:border-[var(--c-primary-200)] hover:text-[var(--c-primary-700)]'
+              )}
+              style={active ? { background: 'var(--grad-primary)' } : undefined}
+            >
+              {Icon && <Icon className="w-3.5 h-3.5" style={active ? undefined : { color: meta?.color }} />}
+              {label}
+              <span className={cn('text-[11px] px-1.5 py-px rounded-full tabular-nums', active ? 'bg-white/20' : 'bg-[var(--c-bg-hover)]')} lang="en">
+                {formatCount(key)}
               </span>
             </button>
           );
@@ -230,24 +348,27 @@ export function LibraryHub({ subjectId }: { subjectId?: string | null }) {
         <div className="flex items-center justify-center py-16" data-testid="library-loading">
           <LoaderCircle className="w-8 h-8 animate-spin text-[var(--c-text-muted)]" />
         </div>
-      ) : filtered.length === 0 ? (
+      ) : visibleFiles.length === 0 ? (
         <div className="text-center py-14 rounded-2xl border border-dashed border-[var(--c-border)]" data-testid="library-empty">
           <BookMarked className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" />
           <p className="text-[var(--c-text-muted)]">
-            {category === 'all' ? 'لا توجد ملفات في مكتبتك بعد' : 'لا توجد ملفات في هذا التصنيف'}
+            {activeCategory === 'all' && activeFormat === 'all'
+              ? 'لا توجد ملفات في مكتبتك بعد'
+              : 'لا توجد ملفات تطابق هذا التصنيف أو الصيغة'}
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="library-grid">
-          {filtered.map((file, index) => {
+          {visibleFiles.map((file, index) => {
             const meta = TYPE_META[file.type] ?? TYPE_META.Paragraph;
             const Icon = meta.icon;
             const badge = file.category ? CATEGORY_BADGES[file.category] : null;
             return (
               <motion.div key={file.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.04, 0.3) }}>
-                <Link
-                  to={`/subjects/${file.subjectSlug}/library`}
-                  className="flex items-start gap-3 p-4 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] hover:border-[var(--c-primary-200)] hover:shadow-md hover:-translate-y-0.5 transition-all group"
+                <button
+                  type="button"
+                  onClick={() => setSelectedFile(file)}
+                  className="w-full text-start flex items-start gap-3 p-4 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] hover:border-[var(--c-primary-200)] hover:shadow-md hover:-translate-y-0.5 transition-all group"
                   data-testid="library-card"
                 >
                   <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: meta.bg, color: meta.color }}>
@@ -282,11 +403,34 @@ export function LibraryHub({ subjectId }: { subjectId?: string | null }) {
                       <span>{formatSize(file.fileSize)}</span>
                     </div>
                   </div>
-                  <ChevronLeft className="w-4 h-4 text-[var(--c-text-muted)] group-hover:text-[var(--c-primary-700)] transition-colors shrink-0 mt-1" />
-                </Link>
+                  <button
+                    type="button"
+                    data-testid={`library-card-favorite-${file.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleFavoriteMutation.mutate(file);
+                    }}
+                    disabled={toggleFavoriteMutation.isPending}
+                    aria-label={file.isFavorite ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة'}
+                    className="shrink-0 rounded-md p-1 transition-colors disabled:opacity-50 text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]"
+                  >
+                    <Bookmark className="w-4 h-4" fill={file.isFavorite ? 'currentColor' : 'none'} />
+                  </button>
+                </button>
               </motion.div>
             );
           })}
+        </div>
+      )}
+
+      {/* Wave 15.5.1a (A1) — single click opens the viewer; the wrapper div is a
+          pure test hook (no layout impact). */}
+      {selectedFile && (
+        <div data-testid="library-file-viewer">
+          <DocumentViewer
+            file={selectedFile}
+            onClose={() => setSelectedFile(null)}
+          />
         </div>
       )}
     </div>
