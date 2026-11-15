@@ -62,6 +62,10 @@ export function ExamCoursesCatalog() {
   const subjectId = routeSubjectId && subjects.some((s) => s.id === routeSubjectId)
     ? routeSubjectId
     : subjects[0]?.id ?? null;
+  // Wave 15.5b (DEBT-EXAMCOURSES-LEGACY): this catalog reads ?examTab= directly.
+  // Legacy ?tab=years|categorized URLs (which the removed ExamCoursesRedirect used
+  // to map) are silently ignored — they render the default lens. No current code
+  // generates those legacy URLs; no live users affected.
   const tab: TabKey = searchParams.get('examTab') === 'categorized' ? 'categorized' : 'years';
 
   // W15.0 — the cascade lives in the URL (deep-linkable); every level is optional.
