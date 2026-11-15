@@ -183,6 +183,20 @@ jobs:
             /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           sudo apt-get update -qq || true
 
+      # Wave 15.5a (DEBT-PLAYWRIGHT-01): cache the Playwright browser download
+      # (~100MB of Chromium + deps pulled from CDN on EVERY run until now). Keyed
+      # on the lockfile(s) so a @playwright/test version bump rolls the cache
+      # forward; restore-keys fall back to the OS prefix on a partial miss (the
+      # install step below is idempotent and tops up whatever is missing).
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml', '**/package.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
       - name: Install Playwright Chromium
         run: pnpm --filter @cms/student-web exec playwright install --with-deps chromium
 
