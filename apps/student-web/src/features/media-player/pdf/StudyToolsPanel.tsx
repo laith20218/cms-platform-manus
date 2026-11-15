@@ -45,7 +45,7 @@ import { HIGHLIGHT_COLORS, NOTE_COLORS, PEN_COLORS, SHAPE_COLORS } from './pdf-p
  * width) — testid `pdf-study-focus`, OUTSIDE the pdf-tool- prefix.
  *
  * §13: 48px touch targets, aria-pressed + aria-label on every icon button,
- * focus-visible cyan rings, active accent ring #1685F8, ramp tokens, logical
+ * focus-visible primary rings, active accent ring primary-500, ramp tokens, logical
  * properties only, < lg collapses into a Radix Dialog drawer (48px trigger).
  */
 
@@ -195,7 +195,7 @@ export function StudyToolsPanel({
             <DialogPrimitive.Close
               aria-label="إغلاق أدوات الدراسة"
               data-testid="pdf-study-tools-close"
-              className="press mx-auto mb-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-200 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+              className="press mx-auto mb-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-200 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]"
             >
               <X className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
             </DialogPrimitive.Close>
@@ -275,9 +275,9 @@ function ToolStack({
               data-testid={TOOL_TEST_IDS[id]}
               data-active={active ? 'true' : 'false'}
               className={cn(
-                'press inline-flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]',
+                'press inline-flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]',
                 active
-                  ? 'border-[#1685F8] bg-[#1685F8]/15 text-[#25C7E8] ring-2 ring-[#1685F8]'
+                  ? 'border-[var(--color-primary-500)] bg-[var(--color-primary-500)]/15 text-[var(--color-primary-400)] ring-2 ring-[var(--color-primary-500)]'
                   : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
                 disabled && 'cursor-not-allowed opacity-40',
               )}
@@ -317,7 +317,7 @@ function ToolStack({
         aria-pressed={searchOpen}
         title={scannedPage ? scannedTitle : 'بحث في المستند'}
         data-testid="pdf-study-search"
-        className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8] disabled:cursor-not-allowed disabled:opacity-40"
+        className="press inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition-colors duration-200 ease-out hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)] disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Search className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
       </button>
@@ -333,9 +333,9 @@ function ToolStack({
         title="العلامة المرجعية للصفحة الحالية"
         data-testid="pdf-bookmark-add"
         className={cn(
-          'press inline-flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]',
+          'press inline-flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]',
           pageBookmarked
-            ? 'border-[#1685F8] bg-[#1685F8]/15 text-[#25C7E8] ring-2 ring-[#1685F8]'
+            ? 'border-[var(--color-primary-500)] bg-[var(--color-primary-500)]/15 text-[var(--color-primary-400)] ring-2 ring-[var(--color-primary-500)]'
             : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
         )}
       >
@@ -387,9 +387,9 @@ function ToolStack({
           title="وضع التركيز (F)"
           data-testid="pdf-study-focus"
           className={cn(
-            'press inline-flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]',
+            'press inline-flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]',
             focusMode
-              ? 'border-[#1685F8] bg-[#1685F8]/15 text-[#25C7E8] ring-2 ring-[#1685F8]'
+              ? 'border-[var(--color-primary-500)] bg-[var(--color-primary-500)]/15 text-[var(--color-primary-400)] ring-2 ring-[var(--color-primary-500)]'
               : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
           )}
         >
@@ -425,9 +425,9 @@ function ListSectionButton({ icon: Icon, label, testid, active, disabled, onClic
       data-testid={testid}
       data-active={active ? 'true' : 'false'}
       className={cn(
-        'press flex w-12 flex-col items-center gap-0.5 rounded-2xl border px-1 py-1.5 transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8] disabled:cursor-not-allowed disabled:opacity-40',
+        'press flex w-12 flex-col items-center gap-0.5 rounded-2xl border px-1 py-1.5 transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)] disabled:cursor-not-allowed disabled:opacity-40',
         active
-          ? 'border-[#1685F8] bg-[#1685F8]/15 text-[#25C7E8] ring-2 ring-[#1685F8]'
+          ? 'border-[var(--color-primary-500)] bg-[var(--color-primary-500)]/15 text-[var(--color-primary-400)] ring-2 ring-[var(--color-primary-500)]'
           : 'border-transparent text-slate-300 hover:bg-white/10 hover:text-white',
       )}
     >
@@ -454,7 +454,7 @@ function RailColorPicker({ label, colors, value, onChange, testId }: {
           aria-label={label}
           title={label}
           data-testid={testId}
-          className="press inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 transition-colors duration-200 ease-out hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+          className="press inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 transition-colors duration-200 ease-out hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]"
         >
           <span className="h-5 w-5 rounded-full border-2 border-white/30 shadow-inner" style={{ background: value }} />
         </button>
@@ -477,7 +477,7 @@ function RailColorPicker({ label, colors, value, onChange, testId }: {
                 onClick={() => { onChange(color); setOpen(false); }}
                 aria-label={`لون ${color}`}
                 aria-pressed={color === value}
-                className="press relative inline-flex h-10 w-10 items-center justify-center rounded-full border-2 transition-transform duration-200 ease-out hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]"
+                className="press relative inline-flex h-10 w-10 items-center justify-center rounded-full border-2 transition-transform duration-200 ease-out hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]"
                 style={{ background: color, borderColor: color === value ? '#ffffff' : 'transparent' }}
               >
                 {color === value && <Check className="h-4 w-4 text-black/60" strokeWidth={3} aria-hidden="true" />}
@@ -508,8 +508,8 @@ function RailShapeKinds({ shapeKind, onShapeKindChange }: {
           title={label}
           data-testid={`pdf-rail-shape-kind-${id}`}
           className={cn(
-            'press inline-flex h-7 w-7 items-center justify-center rounded-lg transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25C7E8]',
-            shapeKind === id ? 'bg-[#1685F8]/20 text-[#25C7E8]' : 'text-slate-300 hover:bg-white/10 hover:text-white',
+            'press inline-flex h-7 w-7 items-center justify-center rounded-lg transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-400)]',
+            shapeKind === id ? 'bg-[var(--color-primary-500)]/20 text-[var(--color-primary-400)]' : 'text-slate-300 hover:bg-white/10 hover:text-white',
           )}
         >
           <Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
