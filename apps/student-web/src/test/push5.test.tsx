@@ -22,7 +22,7 @@ vi.mock('@/features/security/useContentProtection', () => ({
   useContentProtection: () => { /* jsdom: protection listeners disabled in tests */ },
 }));
 
-import MyStudiesPage from '@/features/my-studies/pages/MyStudiesPage';
+import { StudyPage } from '@/features/study/pages/StudyPage';
 import SubjectDetailPage from '@/features/subjects/SubjectDetailPage';
 import SubjectsPage from '@/features/subjects/SubjectsPage';
 
@@ -67,7 +67,7 @@ describe('My Studies — entitlement visual connection', () => {
       if (url.includes('/subjects/my-subjects')) return { data: [] };
       return { data: [] };
     });
-    renderWithProviders(['/my-studies?tab=library'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+    renderWithProviders(['/study?tab=library'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
 
     const locked = await screen.findByTestId('locked-empty-state');
     expect(locked).toBeInTheDocument();
@@ -82,7 +82,7 @@ describe('My Studies — entitlement visual connection', () => {
       if (url.includes('/subjects/my-subjects')) return { data: [] };
       return { data: [] };
     });
-    renderWithProviders(['/my-studies?tab=exams'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+    renderWithProviders(['/study?tab=exams'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
 
     expect(await screen.findByTestId('locked-empty-state')).toBeInTheDocument();
     expect(screen.getByTestId('activate-code-cta')).toBeInTheDocument();
@@ -93,7 +93,7 @@ describe('My Studies — entitlement visual connection', () => {
       if (url.includes('/subjects/my-subjects')) return { data: [] };
       return { data: [] };
     });
-    renderWithProviders(['/my-studies'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+    renderWithProviders(['/study?tab=courses'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
 
     expect(await screen.findByTestId('locked-empty-state')).toBeInTheDocument();
   });
@@ -104,7 +104,7 @@ describe('My Studies — entitlement visual connection', () => {
       if (url.includes('/library/subject/')) return { data: { items: [] } };
       return { data: [] };
     });
-    renderWithProviders(['/my-studies?tab=library'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+    renderWithProviders(['/study?tab=library'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
 
     expect(await screen.findByTestId('library-empty')).toBeInTheDocument();
     expect(screen.queryByTestId('locked-empty-state')).not.toBeInTheDocument();
@@ -124,7 +124,7 @@ describe('LibraryHub — category filter tabs', () => {
 
   it('renders all category tabs with counts and every file under الكل', async () => {
     stubLibrary();
-    renderWithProviders(['/my-studies?tab=library'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+    renderWithProviders(['/study?tab=library'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
 
     await waitFor(() => expect(screen.getAllByTestId('library-card').length).toBe(4));
     const allTab = screen.getByTestId('library-tab-all');
@@ -139,7 +139,7 @@ describe('LibraryHub — category filter tabs', () => {
 
   it('filters files when a category tab is selected', async () => {
     stubLibrary();
-    renderWithProviders(['/my-studies?tab=library'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+    renderWithProviders(['/study?tab=library'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
 
     await waitFor(() => expect(screen.getAllByTestId('library-card').length).toBe(4));
     fireEvent.click(screen.getByTestId('library-tab-Summary'));
@@ -150,7 +150,7 @@ describe('LibraryHub — category filter tabs', () => {
 
   it('shows category badge, subject name and upload date on the cards', async () => {
     stubLibrary();
-    renderWithProviders(['/my-studies?tab=library'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+    renderWithProviders(['/study?tab=library'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
 
     await waitFor(() => expect(screen.getAllByTestId('library-card').length).toBe(4));
     expect(screen.getAllByTestId('library-card-category').length).toBe(3); // f4 uncategorized → no badge
