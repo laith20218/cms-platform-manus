@@ -12,11 +12,11 @@ import { entitlementRequestConfig } from '@/features/entitlements/services/entit
 import { libraryApi } from '@/features/library/services/library-api';
 import { DocumentViewer } from '@/features/library/DocumentViewer';
 import { cn } from '@/utils';
-import { useMySubjects } from '../hooks/useMySubjects';
-import { LockedEmptyState } from './LockedEmptyState';
-import { CatalogEntitlementErrorCard, CatalogErrorCard } from './CatalogErrorCards';
 import { loadCatalogAcrossSubjects } from '../utils/catalog-load';
 import { variantForReason, EntitlementDeniedError } from '../services/courses-api';
+import type { MySubjectEntry } from '../hooks/useMySubjects';
+import { LockedEmptyState } from './LockedEmptyState';
+import { CatalogEntitlementErrorCard, CatalogErrorCard } from './CatalogErrorCards';
 
 /** Category tabs (Push 5 Task 3) — mirror the backend LibraryFileCategory enum. */
 const CATEGORIES = [
@@ -89,7 +89,15 @@ interface HubLibraryFile {
  * breadcrumb + h1, opens the DocumentViewer on card click (A1), and carries
  * the favorites toggle (moved from the legacy LibraryPage).
  */
-export function LibraryHub({ subjectId, subjectSlug }: { subjectId?: string | null; subjectSlug?: string }) {
+export function LibraryHub({
+  subjectId,
+  subjectSlug,
+  subjectName,
+}: {
+  subjectId?: string | null;
+  subjectSlug?: string;
+  subjectName?: string;
+}) {
   const [activeCategory, setActiveCategory] = useState<CategoryKey>('all');
   const [activeFormat, setActiveFormat] = useState<FormatKey>('all');
   const [selectedFile, setSelectedFile] = useState<HubLibraryFile | null>(null);
@@ -108,9 +116,52 @@ export function LibraryHub({ subjectId, subjectSlug }: { subjectId?: string | nu
     onError: () => toast.error('تعذّر تحديث المفضلة. تحقق من اتصالك واستحقاقك.'),
   });
 
-  const mySubjects = useMySubjects();
-  const allSubjects = mySubjects.data ?? [];
-  const subjects = subjectId ? allSubjects.filter((s) => s.id === subjectId) : allSubjects;
+  // Use enrolled subjects only when no subjectId is provided. When subjectId
+  // is set (LibraryPage context), the props are authoritative — no need to ask
+  // the server "what are my subjects?". Same queryKey/queryFn as the shared
+  // useMySubjects hook, so cached data is shared with every other call site.
+  const {
+    data: enrolledSubjects,
+    isError: subjectsError,
+    isLoading: subjectsLoading,
+    refetch: refetchSubjects,
+  } = useQuery({
+    queryKey: ['my-subjects-entitled'],
+    staleTime: 60_000,
+    queryFn: async (): Promise<MySubjectEntry[]> => {
+      // R69 — GET /subjects/my-subjects is JWT-authorised only (AcademicController
+      // runs no X-Entitlement validation on it). Requesting an entitlement token
+      // here made the whole My Studies shell throw once POST /entitlements/issue
+      // started returning 403 for zero-grant students (R69 §2.B guard) — turning
+      // the truthful "locked" state into a false connection error. The subjects
+      // list must resolve so every tab can render its own locked state.
+      const res = await apiClient.get('/subjects/my-subjects');
+      const list = res.data?.items ?? res.data ?? [];
+      return Array.isArray(list) ? list : [];
+    },
+    enabled: !subjectId,
+  });
+
+  // Single-subject contexts (LibraryPage) carry the full descriptor in props;
+  // the synthetic row feeds the catalog loader's subjectId/slug/name mapping.
+  // /study deep-links (?subjectId=…&tab=library) have no name here — they stay
+  // on the enrolled list (filtered to that subject) so the card's subject chip
+  // keeps rendering a real name and stale links still hit the locked card.
+  const subjects = useMemo<MySubjectEntry[]>(() => {
+    if (subjectId && subjectName) {
+      return [{
+        id: subjectId,
+        slug: subjectSlug ?? '',
+        nameAr: subjectName,
+      }];
+    }
+    const enrolled = enrolledSubjects ?? [];
+    return subjectId ? enrolled.filter((s) => s.id === subjectId) : enrolled;
+  }, [subjectId, subjectSlug, subjectName, enrolledSubjects]);
+  // Unfiltered entitled list — the locked-state signal (same value the old
+  // useMySubjects().data carried); the synthetic row stands in for it only in
+  // the single-subject context, where the page itself vouches for access.
+  const allSubjects: MySubjectEntry[] = subjectId && subjectName ? subjects : (enrolledSubjects ?? []);
 
   // Wave 12.5.A (Group 1) — R69 taxonomy: per-subject failures surface, never
   // a silent empty list.
@@ -205,10 +256,10 @@ export function LibraryHub({ subjectId, subjectSlug }: { subjectId?: string | nu
     );
   }
 
-  if (mySubjects.isError) {
+  if (subjectsError) {
     return (
       <CatalogErrorCard
-        onRetry={() => mySubjects.refetch()}
+        onRetry={() => refetchSubjects()}
         testId="library-hub-error"
         title="تعذّر تحميل المكتبة"
         body="حدث خطأ في الاتصال. تحقّق من الشبكة ثم أعد المحاولة."
@@ -216,7 +267,9 @@ export function LibraryHub({ subjectId, subjectSlug }: { subjectId?: string | nu
     );
   }
 
-  if (mySubjects.isLoading) {
+  // Disabled single-subject queries never load (react-query v5: isLoading is
+  // false when enabled is false) — this gate is live only on /study.
+  if (subjectsLoading) {
     return (
       <div className="flex items-center justify-center py-16" data-testid="library-loading">
         <LoaderCircle className="w-8 h-8 animate-spin text-[var(--c-text-muted)]" />

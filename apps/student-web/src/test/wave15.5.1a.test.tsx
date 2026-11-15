@@ -157,6 +157,14 @@ describe('Wave 15.5.1a — unified library', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'المكتبة الرقمية' })).toBeInTheDocument();
     expect(screen.getByTestId('library-tab-all')).toBeInTheDocument();
     expect(screen.getByTestId('library-format-all')).toBeInTheDocument();
+    // Regression lock (v3): /subjects context must NOT call
+    // /subjects/my-subjects — the fix that unblocked e2e.
+    const mySubjectsCalls = getMock.mock.calls.filter(
+      ([url]) =>
+        typeof url === 'string' &&
+        url.includes('/subjects/my-subjects')
+    );
+    expect(mySubjectsCalls).toHaveLength(0);
   });
 
   it('favorites toggle triggers mutation', async () => {

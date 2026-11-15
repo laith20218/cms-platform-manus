@@ -20,5 +20,11 @@ export default function LibraryPage() {
   });
   if (isLoading) return <LoadingScreen />;
   if (!subject) return <NotFoundPage />;
-  return <LibraryHub subjectId={subject.id} subjectSlug={subjectSlug} />;
+  return (
+    <LibraryHub
+      subjectId={subject.id}
+      subjectSlug={subjectSlug}
+      subjectName={subject.nameAr}
+    />
+  );
 }
