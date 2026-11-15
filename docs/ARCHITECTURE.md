@@ -1982,4 +1982,10 @@ curl https://api.cms.example.com/health/ready
 
 ---
 
+## Wave history
+
+- **Wave 15.3.1b** (SubjectCard extraction) — merged as part of Wave 15.3.2 (SubjectsPage adopts CascadeFilters) in a single squash commit due to stacked-PR base drift. No separate `wave-15.3.1b` tag exists. The end state is identical: `SubjectCard` lives in `features/subjects/SubjectCard.tsx` and is used by both tab flows.
+
+---
+
 **نهاية ملف ARCHITECTURE.md**
