@@ -33,7 +33,6 @@ vi.mock('@/app/providers/useAuth', () => ({
 }));
 
 import { StudyPage } from '@/features/study/pages/StudyPage';
-import MyStudiesPage from '@/features/my-studies/pages/MyStudiesPage';
 
 // ---- fixtures (same shape as wave15.4.1) ----
 const MY_SUBJECTS = [
@@ -68,10 +67,9 @@ function renderStudyAt(path: string) {
   return renderAt(path, '/study', <StudyPage />);
 }
 
-/** Renders the legacy /my-studies hub directly at `path`. */
-function renderMyStudiesAt(path: string) {
-  return renderAt(path, '/my-studies', <MyStudiesPage />);
-}
+// 15.4.4b: the former 'keeps /my-studies a 5-tab hub' regression test was
+// retired with MyStudiesPage — /study is the only hub now, and its sub-tab
+// structure is covered by the three tests below + wave15.4.1.test.tsx.
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -109,22 +107,6 @@ describe('StudyPage exams tab — اختبارات/تدريب sub-tabs (15.4.3)'
     expect(screen.getByTestId('study-exams-subtab-practice').getAttribute('aria-selected')).toBe('true');
     expect(screen.getByTestId('study-exams-subtab-exams').getAttribute('aria-selected')).toBe('false');
     expect(screen.getByTestId('study-exams-panel-practice')).toBeInTheDocument();
-    expect(screen.queryByTestId('study-exams-panel-exams')).not.toBeInTheDocument();
-  });
-
-  it('keeps /my-studies a 5-tab hub with no /study sub-tab bar (regression)', async () => {
-    renderMyStudiesAt('/my-studies?tab=exams');
-
-    // The 5-tab hub is intact: every legacy tab is still a top-level tab.
-    expect(screen.getByTestId('tab-exams').getAttribute('aria-selected')).toBe('true');
-    for (const key of ['practice', 'exam-courses', 'exams', 'library', 'courses']) {
-      expect(screen.getByTestId(`tab-${key}`)).toBeInTheDocument();
-    }
-    expect(await screen.findByTestId('panel-exams')).toBeInTheDocument();
-
-    // /study's sub-tab structure must NOT leak into the legacy hub.
-    expect(screen.queryByTestId('study-exams-subtab-exams')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('study-exams-subtab-practice')).not.toBeInTheDocument();
     expect(screen.queryByTestId('study-exams-panel-exams')).not.toBeInTheDocument();
   });
 });

@@ -50,7 +50,7 @@ vi.mock('@/components/layouts/AppShell', () => ({
   AppShell: () => <></>,
 }));
 
-import MyStudiesPage from '@/features/my-studies/pages/MyStudiesPage';
+import { StudyPage } from '@/features/study/pages/StudyPage';
 import { variantForReason } from '@/features/my-studies/services/courses-api';
 
 // ---- fixtures (mirroring the real /subjects/my-subjects payload) ----
@@ -73,8 +73,8 @@ function renderCatalog() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/my-studies?tab=courses']}>
-        <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>
+      <MemoryRouter initialEntries={['/study?tab=courses']}>
+        <Routes><Route path="/study" element={<StudyPage />} /></Routes>
       </MemoryRouter>
     </QueryClientProvider>
   );

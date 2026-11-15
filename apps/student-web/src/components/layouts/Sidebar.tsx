@@ -2,16 +2,19 @@
 // The Push-8 "hero" دراستي pill is dissolved into a regular primary item (the
 // reference mockup groups it as a regular entry, not a hero).
 // W15.1 (A.4): the "الدورات الامتحانية" entry was REMOVED — the storefront now
-// lives inside the My Studies hub (?tab=exam-courses), reachable from every device
+// lives at /exam-courses (standalone since 15.4.2), reachable from every device
 // (the old sidebar link was desktop-only and added a redundant navigation path).
 // The tablet rail keeps an 84px icon-only column (md), full labels on desktop (lg);
 // all widths/heights consume the layout tokens from globals.css.
 //
-// 15.1.5: the four /my-studies hub links (دراستي + المكتبة + الكورسات + بنك الأسئلة)
+// 15.1.5: the four study hub links (دراستي + المكتبة + الكورسات + بنك الأسئلة)
 // no longer use NavLink — it matches by pathname only, so all four stayed
-// highlighted at once on any /my-studies URL. They render as Links with
+// highlighted at once on any hub URL. They render as Links with
 // explicit pathname + ?tab= detection (isStudyItemActive below) so exactly
 // ONE item is active at a time.
+// 15.4.4b: the hub links point at /study (was /my-studies — that URL now
+// transparently redirects there). تقدمي and لوحة الصدارة join them from
+// المزيد: /study?tab=progress / ?tab=leaderboard (tab-aware detection too).
 import { Link, NavLink, useLocation, useSearchParams } from 'react-router-dom';
 import {
   BarChart3, BookOpen, BookOpenCheck, ClipboardCheck, GraduationCap, LayoutGrid,
@@ -25,7 +28,7 @@ const navGroups = [
     label: 'القائمة الرئيسية',
     items: [
       { slug: 'dashboard', to: '/dashboard', icon: LayoutGrid, label: 'الرئيسية' },
-      { slug: 'my-studies', to: '/my-studies', icon: BookOpenCheck, label: 'دراستي' },
+      { slug: 'my-studies', to: '/study', icon: BookOpenCheck, label: 'دراستي' },
       { slug: 'subjects', to: '/subjects', icon: GraduationCap, label: 'المواد' },
       { slug: 'favorites', to: '/favorites', icon: Star, label: 'المفضلة' },
       { slug: 'profile', to: '/profile', icon: UserRound, label: 'حسابي' },
@@ -35,9 +38,9 @@ const navGroups = [
     id: 'resources',
     label: 'الموارد',
     items: [
-      { slug: 'library', to: '/my-studies?tab=library', icon: BookOpen, label: 'المكتبة' },
-      { slug: 'courses', to: '/my-studies?tab=courses', icon: MonitorPlay, label: 'الكورسات' },
-      { slug: 'exams', to: '/my-studies?tab=exams', icon: ClipboardCheck, label: 'بنك الأسئلة' },
+      { slug: 'library', to: '/study?tab=library', icon: BookOpen, label: 'المكتبة' },
+      { slug: 'courses', to: '/study?tab=courses', icon: MonitorPlay, label: 'الكورسات' },
+      { slug: 'exams', to: '/study?tab=exams', icon: ClipboardCheck, label: 'بنك الأسئلة' },
     ],
   },
   // TEMPORARY (Wave 15.1): These 4 items will be relocated in
@@ -47,8 +50,8 @@ const navGroups = [
     id: 'more',
     label: 'المزيد',
     items: [
-      { slug: 'stats', to: '/stats', icon: BarChart3, label: 'تقدمي' },
-      { slug: 'leaderboard', to: '/leaderboard', icon: Trophy, label: 'لوحة الصدارة' },
+      { slug: 'stats', to: '/study?tab=progress', icon: BarChart3, label: 'تقدمي' },
+      { slug: 'leaderboard', to: '/study?tab=leaderboard', icon: Trophy, label: 'لوحة الصدارة' },
       { slug: 'activate-code', to: '/activate-code', icon: Ticket, label: 'تفعيل كود' },
       { slug: 'settings', to: '/settings', icon: Settings, label: 'الإعدادات' },
     ],
@@ -59,18 +62,14 @@ export function Sidebar() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  // 15.1.5 — custom active detection for the /my-studies hub links. NavLink
-  // (end=false, pathname-only matching) marked ALL FOUR study items active on
-  // any /my-studies URL. Compare BOTH the pathname and the ?tab= param: the 3
-  // resource items own their exact tab; دراستي owns the tab-less URL plus the
-  // tabs with no dedicated sidebar item — the hub's default tab is 'courses'
-  // (MyStudiesPage.tsx falls back to it when ?tab= is absent or invalid), which
-  // is the SAME tab الكورسات links to, so folding the default into دراستي
-  // would double-highlight on /my-studies?tab=courses.
-  //
-  // 15.1.6 — residual fix from the PR #90 report: ?tab=practice and
-  // ?tab=exam-courses had ZERO active items (tabs without a dedicated sidebar
-  // entry). دراستي now owns them too.
+  // 15.1.5 — custom active detection for the /study hub links. NavLink
+  // (end=false, pathname-only matching) marked ALL study items active on
+  // any /study URL. Compare BOTH the pathname and the ?tab= param: the
+  // tab-carrying items own their exact tab; دراستي owns the tab-less URL plus
+  // the tabs with no dedicated sidebar item. 15.4.4b — the hub's default tab
+  // is 'overview' (StudyPage falls back to it when ?tab= is absent or
+  // invalid), and تقدمي / لوحة الصدارة joined from المزيد as
+  // ?tab=progress / ?tab=leaderboard, so they take the tab-aware path too.
   function isStudyItemActive(to: string): boolean {
     const [path, query = ''] = to.split('?');
     if (location.pathname !== path) return false;
@@ -79,12 +78,12 @@ export function Sidebar() {
     if (toTab) return currentTab === toTab;
     // دراستي is active when no tab is present (hub home), OR when
     // the active tab is one that has no dedicated sidebar item.
-    // Currently: practice, exam-courses.
-    // If a future tab is added without a sidebar item, add it here.
+    // Dedicated items own: library, courses, exams (الموارد) +
+    // progress, leaderboard (المزيد). Everything else (overview,
+    // unknown values StudyPage falls back from) folds into دراستي.
     return (
       !currentTab ||
-      currentTab === 'practice' ||
-      currentTab === 'exam-courses'
+      !['library', 'courses', 'exams', 'progress', 'leaderboard'].includes(currentTab)
     );
   }
 
@@ -114,9 +113,9 @@ export function Sidebar() {
           </div>
           <nav className="space-y-1">
             {group.items.map((item) => {
-              // 15.1.5 — /my-studies hub links take the custom ?tab= detection
+              // 15.1.5 — the /study hub links take the custom ?tab= detection
               // (Link + explicit aria-current); everything else stays NavLink.
-              const isStudyLink = item.to === '/my-studies' || item.to.startsWith('/my-studies?');
+              const isStudyLink = item.to === '/study' || item.to.startsWith('/study?');
               if (isStudyLink) {
                 const active = isStudyItemActive(item.to);
                 return (

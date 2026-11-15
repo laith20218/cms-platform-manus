@@ -29,8 +29,9 @@ export function QuickAccessSection() {
   const mySubjects = useMySubjects();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // 15.4.4b: tiles deep-link into the /study hub tabs (was /my-studies).
   const tileHref = (tab: string) =>
-    selectedId ? `/my-studies?subjectId=${selectedId}&tab=${tab}` : `/my-studies?tab=${tab}`;
+    selectedId ? `/study?subjectId=${selectedId}&tab=${tab}` : `/study?tab=${tab}`;
 
   if (mySubjects.isLoading) {
     return (

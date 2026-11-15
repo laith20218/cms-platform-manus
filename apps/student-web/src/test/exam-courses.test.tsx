@@ -21,10 +21,10 @@ vi.mock('@/features/entitlements/services/entitlement-api', async () => {
   return { ...actual, entitlementRequestConfig: async () => ({}) };
 });
 
-// W15.1 (A): the storefront catalog lives in the My Studies hub — tests render
-// ExamCoursesCatalog at /my-studies exactly like the hub panel does (the internal
-// lens is now ?examTab=; the /exam-courses route is a redirect, covered in
-// my-studies.test.tsx).
+// W15.4.2/15.4.4b: the storefront catalog lives at the standalone /exam-courses
+// page (the legacy hub tab at /my-studies?tab=exam-courses is a redirect since
+// 15.4.4a) — tests render ExamCoursesCatalog at /exam-courses exactly like the
+// page does (the internal lens is ?examTab=).
 import { ExamCoursesCatalog } from '@/features/exam-courses/components/ExamCoursesCatalog';
 import ExamCourseDetailPage from '@/features/exam-courses/pages/ExamCourseDetailPage';
 
@@ -102,7 +102,7 @@ function renderApp(initialEntry: string) {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
-          <Route path="/my-studies" element={<><ExamCoursesCatalog /><LocationProbe /></>} />
+          <Route path="/exam-courses" element={<><ExamCoursesCatalog /><LocationProbe /></>} />
           <Route path="/exam-courses/:courseId" element={<><ExamCourseDetailPage /><LocationProbe /></>} />
           <Route path="*" element={<LocationProbe />} />
         </Routes>
@@ -118,7 +118,7 @@ beforeEach(() => {
 
 describe('W14.4 ExamCourses catalog — دورات سنوات', () => {
   it('defaults the year filter to the LATEST round year and narrows the list', async () => {
-    renderApp('/my-studies');
+    renderApp('/exam-courses');
 
     // Default subject = first entitled subject; year defaults to 2026 (latest present).
     expect(await screen.findByTestId('exam-course-card-ec2')).toBeTruthy();
@@ -131,7 +131,7 @@ describe('W14.4 ExamCourses catalog — دورات سنوات', () => {
   });
 
   it('opens the bundle detail when a course card is clicked', async () => {
-    renderApp('/my-studies');
+    renderApp('/exam-courses');
     fireEvent.click(await screen.findByTestId('exam-course-card-ec2'));
 
     await waitFor(() => {
@@ -141,7 +141,7 @@ describe('W14.4 ExamCourses catalog — دورات سنوات', () => {
 
   it('renders the locked card for grant-less students (A.1 deep-link guard)', async () => {
     stubGet({ mySubjects: [] });
-    renderApp('/my-studies');
+    renderApp('/exam-courses');
 
     // W15.1 (B.1): the subject chips row is gone — the cascade is the single
     // subject control, and it is absent entirely for grant-less students.
@@ -152,7 +152,7 @@ describe('W14.4 ExamCourses catalog — دورات سنوات', () => {
 
 describe('W14.4 ExamCourses catalog — دورات مصنفة', () => {
   it('renders the Lecture → ParagraphTag tree and starts a filtered practice run', async () => {
-    renderApp('/my-studies?examTab=categorized');
+    renderApp('/exam-courses?examTab=categorized');
 
     // First lecture accordion is open by default; its tag groups render.
     expect(await screen.findByText('الفصل الأول')).toBeTruthy();
@@ -172,7 +172,7 @@ describe('W14.4 ExamCourses catalog — دورات مصنفة', () => {
   });
 
   it('navigates with the exact paragraphTag when a tagged group is chosen', async () => {
-    renderApp('/my-studies?examTab=categorized');
+    renderApp('/exam-courses?examTab=categorized');
 
     fireEvent.click(await screen.findByTestId('start-practice-lec1-الفصل الأول'));
 
@@ -190,7 +190,7 @@ describe('W15.0 ExamCourses catalog — cascading filters', () => {
   });
 
   it('deep-link: renders the cascade from URL params and fetches each child level', async () => {
-    renderApp('/my-studies?universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1&subjectId=s1');
+    renderApp('/exam-courses?universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1&subjectId=s1');
 
     // The university select displays the deep-linked university name.
     expect(await screen.findByTestId('cascade-select-university')).toBeTruthy();
@@ -207,7 +207,7 @@ describe('W15.0 ExamCourses catalog — cascading filters', () => {
 
   it('persists the last filter to localStorage and restores it on a fresh mount', async () => {
     // First visit: deep link carries the cascade; the catalog persists it.
-    const first = renderApp('/my-studies?universityId=u1&subjectId=s1');
+    const first = renderApp('/exam-courses?universityId=u1&subjectId=s1');
     await screen.findByTestId('cascade-select-university');
     await waitFor(() => {
       expect(window.localStorage.getItem('cms-exam-courses-filters-v1')).toContain('"universityId":"u1"');
@@ -217,7 +217,7 @@ describe('W15.0 ExamCourses catalog — cascading filters', () => {
 
     // Fresh mount WITHOUT URL params: the persisted state seeds the URL (replace),
     // and the child-level query fires again.
-    renderApp('/my-studies');
+    renderApp('/exam-courses');
     await waitFor(() => {
       const probe = screen.getByTestId('location-probe');
       expect(probe.getAttribute('data-search')).toContain('universityId=u1');
@@ -227,7 +227,7 @@ describe('W15.0 ExamCourses catalog — cascading filters', () => {
   });
 
   it('locks non-entitled subjects in the cascade subject level (A.1 ruling)', async () => {
-    renderApp('/my-studies?universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1&subjectId=s1');
+    renderApp('/exam-courses?universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1&subjectId=s1');
 
     // Subject select enabled (semester chosen) and shows the selected entitled subject.
     const subjectSelect = await screen.findByTestId('cascade-select-subject');
@@ -242,7 +242,7 @@ describe('W15.0 ExamCourses catalog — cascading filters', () => {
   });
 
   it('changing the university level via the select writes the deep-linkable URL', async () => {
-    renderApp('/my-studies');
+    renderApp('/exam-courses');
 
     const trigger = await screen.findByTestId('cascade-select-university');
     fireEvent.click(trigger);
@@ -283,7 +283,7 @@ describe('W15.1 B.2 — mobile cascade: sticky bar + bottom sheet', () => {
   });
 
   it('replaces the inline row with the sticky trigger and shows the compact summary', async () => {
-    renderApp('/my-studies?universityId=u1&subjectId=s1');
+    renderApp('/exam-courses?universityId=u1&subjectId=s1');
 
     // Sticky bar instead of the inline selects; no duplicated DOM.
     expect(await screen.findByTestId('cascade-sheet-trigger')).toBeTruthy();
@@ -300,7 +300,7 @@ describe('W15.1 B.2 — mobile cascade: sticky bar + bottom sheet', () => {
   });
 
   it('hosts the five selects inside the bottom sheet and closes on Done', async () => {
-    renderApp('/my-studies');
+    renderApp('/exam-courses');
 
     fireEvent.click(await screen.findByTestId('cascade-sheet-trigger'));
     expect(await screen.findByTestId('cascade-sheet')).toBeTruthy();
@@ -313,7 +313,7 @@ describe('W15.1 B.2 — mobile cascade: sticky bar + bottom sheet', () => {
   });
 
   it('a cascade change inside the sheet writes the deep-linkable URL', async () => {
-    renderApp('/my-studies');
+    renderApp('/exam-courses');
 
     fireEvent.click(await screen.findByTestId('cascade-sheet-trigger'));
     const trigger = await screen.findByTestId('cascade-select-university');

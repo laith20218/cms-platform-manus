@@ -44,7 +44,7 @@ vi.mock('@/components/layouts/AppShell', () => ({
   AppShell: () => <Outlet />,
 }));
 
-import MyStudiesPage from '@/features/my-studies/pages/MyStudiesPage';
+import { StudyPage } from '@/features/study/pages/StudyPage';
 import CoursePlayerPage from '@/features/my-studies/pages/CoursePlayerPage';
 import { AppRoutes } from '@/app/router';
 import type { CourseDetail } from '@/features/my-studies/services/courses-api';
@@ -136,52 +136,9 @@ beforeEach(() => {
   postMock.mockReset();
 });
 
-// ================= MyStudiesPage: tabs =================
-
-describe('MyStudiesPage — tabs', () => {
-  it('renders the five study tabs (practice / exam-courses / exams / library / courses)', () => {
-    renderWithProviders(['/my-studies'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
-    // W15.1 (A.1): 'التدريب' (renamed from 'الدورات') + the new exam-courses tab.
-    expect(screen.getByRole('tab', { name: /التدريب/ })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /الدورات الامتحانية/ })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /الاختبارات/ })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /المكتبة/ })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /الكورسات/ })).toBeInTheDocument();
-  });
-
-  it('defaults to the courses tab', () => {
-    renderWithProviders(['/my-studies'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
-    expect(screen.getByTestId('tab-courses').getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByTestId('panel-courses')).toBeInTheDocument();
-  });
-
-  it('switches to the exam-courses tab on click — the storefront renders inside the hub', async () => {
-    renderWithProviders(['/my-studies'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
-    fireEvent.click(screen.getByTestId('tab-exam-courses'));
-    expect(screen.getByTestId('panel-exam-courses')).toBeInTheDocument();
-    expect(screen.getByTestId('tab-exam-courses').getAttribute('aria-selected')).toBe('true');
-    // The storefront's own section header renders inside the hub panel.
-    expect(await screen.findByText('الدورات الامتحانية', { selector: 'h2' })).toBeInTheDocument();
-  });
-
-  it('switches to the exams tab on click', () => {
-    renderWithProviders(['/my-studies'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
-    fireEvent.click(screen.getByTestId('tab-exams'));
-    expect(screen.getByTestId('panel-exams')).toBeInTheDocument();
-    expect(screen.getByTestId('tab-exams').getAttribute('aria-selected')).toBe('true');
-  });
-
-  it('switches to the library tab on click', () => {
-    renderWithProviders(['/my-studies'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
-    fireEvent.click(screen.getByTestId('tab-library'));
-    expect(screen.getByTestId('panel-library')).toBeInTheDocument();
-  });
-
-  it('honours ?tab=library on direct entry', () => {
-    renderWithProviders(['/my-studies?tab=library'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
-    expect(screen.getByTestId('panel-library')).toBeInTheDocument();
-  });
-});
+// ================= W15.4.4b: hub surfaces via /study =================
+// (The former 'MyStudiesPage — tabs' suite was retired with the page in
+// 15.4.4b: /study's 6-tab structure is covered by wave15.4.1.test.tsx.)
 
 // ================= Legacy redirects (15.4.4a: into /study) =================
 
@@ -231,7 +188,7 @@ describe('ExamsCatalog — W15.1 C: zero-exam filtering, auto-expand, empty CTA'
       if (url.includes('/exams/by-subject/s2')) return { data: [] };
       return { data: [] };
     });
-    renderWithProviders(['/my-studies?tab=exams'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+    renderWithProviders(['/study?tab=exams'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
 
     // C.1: s1 (has exams) starts EXPANDED — its exam row is visible without any click.
     expect(await screen.findByText('اختبار القلب')).toBeInTheDocument();
@@ -244,11 +201,11 @@ describe('ExamsCatalog — W15.1 C: zero-exam filtering, auto-expand, empty CTA'
       if (url.includes('/subjects/my-subjects')) return { data: EXAM_SUBJECTS };
       return { data: [] };
     });
-    renderWithProviders(['/my-studies?tab=exams'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+    renderWithProviders(['/study?tab=exams'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
 
     expect(await screen.findByTestId('exams-empty')).toBeInTheDocument();
     const cta = screen.getByTestId('exams-empty-cta');
-    expect(cta.getAttribute('href')).toBe('/my-studies?tab=exam-courses');
+    expect(cta.getAttribute('href')).toBe('/exam-courses');
     expect(cta.textContent).toContain('الدورات الامتحانية');
   });
 });
@@ -257,7 +214,7 @@ describe('ExamsCatalog — W15.1 C: zero-exam filtering, auto-expand, empty CTA'
 
 describe('CoursesCatalog', () => {
   it('shows the student\'s courses with a link to the player', async () => {
-    renderWithProviders(['/my-studies'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+    renderWithProviders(['/study?tab=courses'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
     const card = await screen.findByText('كورس التشريح');
     expect(card).toBeInTheDocument();
     const link = card.closest('a');
@@ -272,7 +229,7 @@ describe('CoursesCatalog', () => {
       if (url.includes('/courses/subject/')) return { data: [] };
       return { data: [] };
     });
-    renderWithProviders(['/my-studies'], <Routes><Route path="/my-studies" element={<MyStudiesPage />} /></Routes>);
+    renderWithProviders(['/study?tab=courses'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
     expect(await screen.findByTestId('courses-empty')).toBeInTheDocument();
   });
 });

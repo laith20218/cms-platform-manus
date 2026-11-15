@@ -18,7 +18,7 @@ import { cn } from '@/utils';
 const items = [
   { slug: 'dashboard', to: '/dashboard', icon: Home, label: 'الرئيسية' },
   { slug: 'subjects', to: '/subjects', icon: GraduationCap, label: 'المواد' },
-  { slug: 'my-studies', to: '/my-studies', icon: BookOpenCheck, label: 'دراستي' },
+  { slug: 'my-studies', to: '/study', icon: BookOpenCheck, label: 'دراستي' },
   { slug: 'favorites', to: '/favorites', icon: Star, label: 'المفضلة' },
   { slug: 'profile', to: '/profile', icon: User, label: 'حسابي' },
 ];

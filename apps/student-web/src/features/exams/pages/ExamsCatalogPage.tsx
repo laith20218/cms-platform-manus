@@ -201,7 +201,7 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
             الاختبارات الجديدة تظهر هنا بمجرد نشرها — في هذه الأثناء يمكنك التدرّب على نماذج الاختبارات من الدورات الامتحانية.
           </p>
           <Link
-            to="/my-studies?tab=exam-courses"
+            to="/exam-courses"
             data-testid="exams-empty-cta"
             className="press inline-flex min-h-11 items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold text-white shadow-md transition-transform hover:scale-[1.03] active:scale-95"
             style={{ background: 'var(--grad-primary)' }}
