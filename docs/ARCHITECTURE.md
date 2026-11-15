@@ -209,7 +209,7 @@ flowchart TB
         Handlers["Handlers"]
         Validators["Validators (FluentValidation)"]
         DTOs["DTOs"]
-        Mappings["Mappings (AutoMapper)"]
+        Mappings["Mappings (manual, in handlers)"]
         Behaviors["Behaviors (Logging, Validation, Performance)"]
     end
     

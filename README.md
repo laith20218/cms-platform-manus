@@ -41,7 +41,7 @@ CMS هو تطبيق ويب احترافي (Progressive Web App - PWA) مخصص �
 ### Backend
 - **ASP.NET Core 9** (C# 13)
 - **Entity Framework Core 9** + PostgreSQL 16
-- **MediatR** (CQRS) + **AutoMapper**
+- **MediatR** (CQRS)
 - **Serilog** (logging) + **FluentValidation**
 
 ### Infrastructure

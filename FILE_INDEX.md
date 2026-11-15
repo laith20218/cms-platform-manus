@@ -559,7 +559,7 @@
 - `Middleware/ExceptionHandlingMiddleware.cs` — RFC 7807 + Security Headers (~150 سطر)
 
 ### CMS.Application (Application Layer) (3 ملفات)
-- `DependencyInjection/DependencyInjection.cs` — MediatR + AutoMapper + FluentValidation
+- `DependencyInjection/DependencyInjection.cs` — MediatR + FluentValidation
 - `Interfaces/IRepositories.cs` — All repository + service interfaces (~120 سطر)
 - `Behaviors/PipelineBehaviors.cs` — Validation + Logging + Performance (~100 سطر)
 
