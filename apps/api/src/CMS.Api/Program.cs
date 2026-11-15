@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using CMS.Api.Authorization;
+using CMS.Api.Security;
 using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -124,43 +125,22 @@ try
     // style prefix+suffix bypasses are rejected (the host must be EXACTLY the
     // production host, or start with "<project>-"). See PR #84 for the original
     // wildcard rationale.
-    var corsOrigins = new[]
-    {
-        builder.Configuration["Cors:StudentApp"] ?? "https://app.cms.example.com",
-        builder.Configuration["Cors:AdminApp"] ?? "https://admin.cms.example.com"
-    };
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("CMS", policy =>
         {
-            policy.SetIsOriginAllowed(origin =>
-                {
-                    // 1. Exact matches from config (Cors:StudentApp, Cors:AdminApp) —
-                    //    keeps every non-Vercel environment (Render production hosts,
-                    //    local overrides) working unchanged.
-                    if (corsOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
-                        return true;
-
-                    // 2. Project-specific Vercel deployments (student-web + admin-web):
-                    //    the production host, or preview hosts
-                    //    cms-platform-manus-<app>-<branch>-<hash>-<owner>.vercel.app.
-                    //    Host parsing makes the boundary exact: "cms-platform-manus-
-                    //    student-web.evil.vercel.app" does NOT start with
-                    //    "cms-platform-manus-student-web-" (dot, not dash) and is rejected.
-                    if (Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.Scheme == "https")
-                    {
-                        if (uri.Host == "cms-platform-manus-student-web.vercel.app" ||
-                            (uri.Host.StartsWith("cms-platform-manus-student-web-") &&
-                             uri.Host.EndsWith(".vercel.app")))
-                            return true;
-                        if (uri.Host == "cms-platform-manus-admin-web.vercel.app" ||
-                            (uri.Host.StartsWith("cms-platform-manus-admin-web-") &&
-                             uri.Host.EndsWith(".vercel.app")))
-                            return true;
-                    }
-
-                    return false;
-                })
+            // Read at POLICY-BUILD time (first CORS evaluation), not at Program.cs
+            // registration time: the integration-test factories (WebApplicationFactory)
+            // merge their ConfigureAppConfiguration in-memory collections only after
+            // the host starts building, so an eagerly captured array saw nulls. This
+            // mirrors the pre-15.5a behavior, which read builder.Configuration inside
+            // this same lambda.
+            var corsOrigins = new[]
+            {
+                builder.Configuration["Cors:StudentApp"] ?? "https://app.cms.example.com",
+                builder.Configuration["Cors:AdminApp"] ?? "https://admin.cms.example.com"
+            };
+            policy.SetIsOriginAllowed(origin => CmsCorsOrigins.IsAllowed(origin, corsOrigins))
                 .WithHeaders(
                     "Authorization",
                     "Content-Type",

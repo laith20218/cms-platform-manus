@@ -34,7 +34,9 @@ public sealed class LeaderboardScopeTests
             new GetLeaderboardQuery("year", Guid.NewGuid(), student.Id, "all", 100),
             CancellationToken.None);
 
-        await act.Should().ThrowAsync<ForbiddenException>();
+        // 15.5a (DEBT-LEADERBOARD-ERROR-CODE): scope 403s carry a distinct code.
+        (await act.Should().ThrowAsync<ForbiddenException>())
+            .Which.ErrorCode.Should().Be("LEADERBOARD_SCOPE_INVALID");
         entitlements.Verify(svc => svc.CanAccessSubjectAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -53,7 +55,9 @@ public sealed class LeaderboardScopeTests
             new GetLeaderboardQuery("subject", null, student.Id, "all", 100),
             CancellationToken.None);
 
-        await act.Should().ThrowAsync<ForbiddenException>();
+        // 15.5a: missing ScopeId lands on the same scope guard as a non-subject scope.
+        (await act.Should().ThrowAsync<ForbiddenException>())
+            .Which.ErrorCode.Should().Be("LEADERBOARD_SCOPE_INVALID");
     }
 
     [Fact]
@@ -71,7 +75,8 @@ public sealed class LeaderboardScopeTests
             new GetLeaderboardQuery("subject", subject.Id, null, "all", 100),
             CancellationToken.None);
 
-        await act.Should().ThrowAsync<ForbiddenException>();
+        (await act.Should().ThrowAsync<ForbiddenException>())
+            .Which.ErrorCode.Should().Be("LEADERBOARD_NO_STUDENT");
     }
 
     [Fact]
@@ -93,7 +98,8 @@ public sealed class LeaderboardScopeTests
             new GetLeaderboardQuery("subject", subject.Id, student.Id, "all", 100),
             CancellationToken.None);
 
-        await act.Should().ThrowAsync<ForbiddenException>();
+        (await act.Should().ThrowAsync<ForbiddenException>())
+            .Which.ErrorCode.Should().Be("LEADERBOARD_NOT_ENTITLED");
         entitlements.Verify(svc => svc.CanAccessSubjectAsync(student.Id, subject.Id, "read", It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -117,7 +123,8 @@ public sealed class LeaderboardScopeTests
             new GetLeaderboardQuery("subject", otherSubjectId, student.Id, "all", 100),
             CancellationToken.None);
 
-        await act.Should().ThrowAsync<ForbiddenException>();
+        (await act.Should().ThrowAsync<ForbiddenException>())
+            .Which.ErrorCode.Should().Be("LEADERBOARD_NOT_ENTITLED");
         // The handler must consult entitlements for the *requested* scopeId, not the student's own subject.
         entitlements.Verify(svc => svc.CanAccessSubjectAsync(student.Id, otherSubjectId, "read", It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -201,10 +208,12 @@ public sealed class LeaderboardScopeTests
             new GetLeaderboardQuery("subject", subject.Id, student.Id, "all", 100),
             CancellationToken.None);
 
-        // D4: the consent 403 must be distinguishable from the scope/entitlement 403s
-        // (message-based until DEBT-LEADERBOARD-ERROR-CODE unifies error codes).
-        (await act.Should().ThrowAsync<ForbiddenException>())
-            .Which.Message.Should().Contain("لم تُفعّل المشاركة في لوحة الصدارة");
+        // D4: the consent 403 must be distinguishable from the scope/entitlement 403s.
+        // 15.5a (DEBT-LEADERBOARD-ERROR-CODE): the structured code replaces message
+        // matching as the contract; the message assertion stays as a regression pin.
+        var ex = (await act.Should().ThrowAsync<ForbiddenException>()).Which;
+        ex.ErrorCode.Should().Be("LEADERBOARD_NOT_OPTED_IN");
+        ex.Message.Should().Contain("لم تُفعّل المشاركة في لوحة الصدارة");
     }
 
     [Fact]
@@ -322,5 +331,87 @@ public sealed class LeaderboardScopeTests
         // D3: StudentId must not ride the wire contract — entries are anonymous
         // except for display fields and IsYou.
         typeof(LeaderboardEntryDto).GetProperty("StudentId").Should().BeNull();
+    }
+
+    // ===== W15.5a: version-based cache invalidation (DEBT-LEADERBOARD-CACHE-INVALIDATE) =====
+
+    /// <summary>
+    /// A real dictionary-backed cache (OfflineHttpCache pattern): GetAsync serves a
+    /// stored entry verbatim, so a cache HIT is observable — unlike the Loose Moq cache
+    /// used elsewhere, which misses forever. Only a version bump (new cache key) can
+    /// force the refetch asserted below.
+    /// </summary>
+    private sealed class DictionaryCache : ICacheService
+    {
+        public readonly System.Collections.Concurrent.ConcurrentDictionary<string, object?> Stored = new();
+
+        public Task<T?> GetAsync<T>(string key, CancellationToken ct = default)
+            => Task.FromResult(Stored.TryGetValue(key, out var value) && value is T typed ? typed : default);
+        public Task<T?> GetAndRemoveAsync<T>(string key, CancellationToken ct = default)
+        {
+            Stored.TryRemove(key, out var value);
+            return Task.FromResult(value is T typed ? typed : default);
+        }
+        public Task SetAsync<T>(string key, T value, TimeSpan? expiry = null, CancellationToken ct = default)
+        {
+            Stored[key] = value;
+            return Task.CompletedTask;
+        }
+        public Task<long> IncrementAsync(string key, TimeSpan? expiry = null, CancellationToken ct = default)
+            => Task.FromResult((long)Stored.AddOrUpdate(key, 1L, (_, v) => v is long n ? n + 1 : 1L));
+        public Task RemoveAsync(string key, CancellationToken ct = default)
+        {
+            Stored.TryRemove(key, out _);
+            return Task.CompletedTask;
+        }
+        public Task RemoveByPatternAsync(string pattern, CancellationToken ct = default)
+        {
+            foreach (var key in Stored.Keys.Where(k => k.Contains(pattern.Trim('*'))))
+                Stored.TryRemove(key, out _);
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task Leaderboard_InvalidateCache_BumpsVersion_AndNextQuerySeesFreshData()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = TestDbHelper.GetTestStudent(db);
+        student.SetLeaderboardSharing(true);
+        var subject = TestDbHelper.GetTestSubject(db);
+        var question = TestDbHelper.GetTestQuestion(db);
+        var sharer = AddStudentWithAttempts(db, question.Id, correct: 3, wrong: 0, shares: true);
+        await db.SaveChangesAsync();
+
+        var entitlements = new Mock<IEntitlementService>(MockBehavior.Strict);
+        entitlements.Setup(svc => svc.CanAccessSubjectAsync(student.Id, subject.Id, "read", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        var cache = new DictionaryCache();
+        var handler = new StatsHandlers(db, cache, entitlements.Object);
+
+        // First query caches the leaderboard under leaderboard:v{N}:...
+        var first = await handler.Handle(
+            new GetLeaderboardQuery("subject", subject.Id, student.Id, "all", 100),
+            CancellationToken.None);
+        first.TopStudents.Select(e => e.StudentName).Should().Contain(sharer.FullName);
+
+        // The peer opts out (direct DB write here; the endpoint path is covered by
+        // LeaderboardSharingEndpointTests) and the cache version is bumped. The next
+        // query must reflect the change IMMEDIATELY — without the bump the 60s TTL
+        // would serve the stale entry containing the peer.
+        sharer.SetLeaderboardSharing(false);
+        await db.SaveChangesAsync();
+        StatsHandlers.InvalidateLeaderboardCache();
+
+        var second = await handler.Handle(
+            new GetLeaderboardQuery("subject", subject.Id, student.Id, "all", 100),
+            CancellationToken.None);
+        second.TopStudents.Select(e => e.StudentName).Should().NotContain(sharer.FullName);
+
+        // Two distinct versioned keys were stored: the bump produced a NEW key rather
+        // than overwriting the old one (old entries simply expire via TTL).
+        cache.Stored.Keys.Should().HaveCount(2);
+        cache.Stored.Keys.Should().OnlyContain(k => k.StartsWith("leaderboard:v"));
+        cache.Stored.Keys.Should().OnlyContain(k => k.Contains(":subject:"));
     }
 }
