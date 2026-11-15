@@ -317,6 +317,14 @@ try
     {
         Predicate = check => check.Tags.Contains("ready")
     }).RequireRateLimiting("health");
+    // Wave 15.5c (DEBT-HEALTH-ENDPOINT): /health/live is a PURE liveness check —
+    // no DB dependency. Confirmed safe for UptimeRobot pings without waking Neon
+    // (owner mitigated 82.8% compute usage by pausing UptimeRobot; re-enables
+    // targeting this path only). The empty Predicate means NO registered check
+    // executes (AddNpgSql + UpstashRedisHealthCheck are both tagged "ready" and
+    // run only under /health and /health/ready). Guarded by
+    // CMS.Tests/Integration/Health/HealthEndpointTests: /health/live must answer
+    // 200 even when the database is unreachable.
     app.MapHealthChecks("/health/live", new HealthCheckOptions
     {
         Predicate = _ => false
