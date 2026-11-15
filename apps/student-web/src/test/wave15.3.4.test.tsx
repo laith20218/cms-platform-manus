@@ -21,7 +21,7 @@ vi.mock('@/features/entitlements/services/entitlement-api', async () => {
 });
 
 import SubjectsPage from '@/features/subjects/SubjectsPage';
-import { SubjectModalProvider } from '@/features/subjects/SubjectModalContext';
+import { SubjectModalProvider } from '@/features/subjects/SubjectModalProvider';
 import { SubjectModal } from '@/features/subjects/SubjectModal';
 
 // ---- fixtures ----

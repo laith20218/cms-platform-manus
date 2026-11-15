@@ -4,7 +4,7 @@ import { Toaster } from 'sonner';
 import { ThemeProvider } from './providers/ThemeProvider';
 import { AuthProvider } from './providers/AuthProvider';
 import { AppRoutes } from './router';
-import { SubjectModalProvider } from '@/features/subjects/SubjectModalContext';
+import { SubjectModalProvider } from '@/features/subjects/SubjectModalProvider';
 import { SubjectModal } from '@/features/subjects/SubjectModal';
 
 const queryClient = new QueryClient({

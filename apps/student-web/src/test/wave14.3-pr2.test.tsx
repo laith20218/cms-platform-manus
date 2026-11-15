@@ -20,7 +20,7 @@ vi.mock('@/app/providers/useAuth', () => ({
 }));
 
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
-import { SubjectModalProvider } from '@/features/subjects/SubjectModalContext';
+import { SubjectModalProvider } from '@/features/subjects/SubjectModalProvider';
 import { SubjectModal } from '@/features/subjects/SubjectModal';
 
 // ---- fixtures ----
