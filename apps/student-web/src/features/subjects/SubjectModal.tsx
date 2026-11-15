@@ -28,11 +28,12 @@ type SubjectAction = {
 // Same destinations as the card's desktop quick-actions row (SubjectsPage).
 // `key` doubles as the scope gate: the sheet renders an action only when the
 // subject has no scope or its flag is true — the same conditions the row uses.
+// 15.4.4b: hub deep links point at /study (was /my-studies — redirects anyway).
 const ACTION_DEFINITIONS: SubjectAction[] = [
   { key: 'content', testId: 'subject-action-content', label: 'المحتوى', icon: BookOpen, href: (s) => `/subjects/${s.slug}` },
-  { key: 'exams', testId: 'subject-action-exams', label: 'الاختبارات', icon: ClipboardCheck, href: (s) => `/my-studies?subjectId=${s.id}&tab=exams` },
-  { key: 'library', testId: 'subject-action-library', label: 'المكتبة', icon: LibraryBig, href: (s) => `/my-studies?subjectId=${s.id}&tab=library` },
-  { key: 'courses', testId: 'subject-action-courses', label: 'الكورسات', icon: GraduationCap, href: (s) => `/my-studies?subjectId=${s.id}&tab=courses` },
+  { key: 'exams', testId: 'subject-action-exams', label: 'الاختبارات', icon: ClipboardCheck, href: (s) => `/study?subjectId=${s.id}&tab=exams` },
+  { key: 'library', testId: 'subject-action-library', label: 'المكتبة', icon: LibraryBig, href: (s) => `/study?subjectId=${s.id}&tab=library` },
+  { key: 'courses', testId: 'subject-action-courses', label: 'الكورسات', icon: GraduationCap, href: (s) => `/study?subjectId=${s.id}&tab=courses` },
 ];
 
 export function SubjectModal() {

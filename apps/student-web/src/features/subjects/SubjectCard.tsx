@@ -42,7 +42,9 @@ export function SubjectCard({ subject, index, entitled, onLocked }: SubjectCardP
 
   const openSubject = () => {
     if (entitled) {
-      navigate(`/my-studies?subjectId=${subject.id}&tab=${preferredTab}`);
+      // 15.4.4b: the subject-filtered hub deep link points at /study (was
+      // /my-studies — that URL now redirects).
+      navigate(`/study?subjectId=${subject.id}&tab=${preferredTab}`);
     } else {
       onLocked({ id: subject.id, nameAr: subject.nameAr });
     }
