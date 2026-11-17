@@ -32,7 +32,7 @@ vi.mock('@/app/providers/useAuth', () => ({
   }),
 }));
 
-import { StudyPage } from '@/features/study/pages/StudyPage';
+import { ExamsPage } from '@/features/exams/pages/ExamsPage';
 
 // ---- fixtures (same shape as wave15.4.1) ----
 const MY_SUBJECTS = [
@@ -62,9 +62,9 @@ function renderAt(path: string, routePath: string, element: ReactElement) {
   );
 }
 
-/** Renders the /study hub directly at `path`. */
-function renderStudyAt(path: string) {
-  return renderAt(path, '/study', <StudyPage />);
+/** Renders the standalone /exams page directly at `path` (W16.1a). */
+function renderExamsAt(path: string) {
+  return renderAt(path, '/exams', <ExamsPage />);
 }
 
 // 15.4.4b: the former 'keeps /my-studies a 5-tab hub' regression test was
@@ -77,11 +77,11 @@ beforeEach(() => {
   stubGet();
 });
 
-// ================= W15.4.3: exams sub-tabs on /study =================
+// ================= W15.4.3 → W16.1a: exams sub-tabs on the /exams page =================
 
-describe('StudyPage exams tab — اختبارات/تدريب sub-tabs (15.4.3)', () => {
+describe('ExamsPage — اختبارات/تدريب sub-tabs (15.4.3 → 16.1a)', () => {
   it('defaults to the exams sub-tab when no ?subtab= is present', () => {
-    renderStudyAt('/study?tab=exams');
+    renderExamsAt('/exams');
 
     expect(screen.getByTestId('study-exams-tab')).toBeInTheDocument();
     expect(screen.getByTestId('study-exams-subtab-exams').getAttribute('aria-selected')).toBe('true');
@@ -91,7 +91,7 @@ describe('StudyPage exams tab — اختبارات/تدريب sub-tabs (15.4.3)'
   });
 
   it('switches to the practice sub-tab when التدريب is clicked', () => {
-    renderStudyAt('/study?tab=exams');
+    renderExamsAt('/exams');
 
     fireEvent.click(screen.getByTestId('study-exams-subtab-practice'));
 
@@ -102,7 +102,7 @@ describe('StudyPage exams tab — اختبارات/تدريب sub-tabs (15.4.3)'
   });
 
   it('renders the practice sub-tab directly from a ?subtab=practice deep link', () => {
-    renderStudyAt('/study?tab=exams&subtab=practice');
+    renderExamsAt('/exams?subtab=practice');
 
     expect(screen.getByTestId('study-exams-subtab-practice').getAttribute('aria-selected')).toBe('true');
     expect(screen.getByTestId('study-exams-subtab-exams').getAttribute('aria-selected')).toBe('false');

@@ -17,7 +17,9 @@ import { cn } from '@/utils';
 const TILES = [
   { key: 'library', label: 'المكتبة', tab: 'library', icon: BookOpen },
   { key: 'courses', label: 'الكورسات', tab: 'courses', icon: MonitorPlay },
-  { key: 'exams', label: 'بنك الأسئلة', tab: 'exams', icon: ClipboardCheck },
+  // W16.1a — the tile follows بنك الأسئلة to its own hub tab (?tab=bank);
+  // the exams surface is a standalone /exams page now.
+  { key: 'bank', label: 'بنك الأسئلة', tab: 'bank', icon: ClipboardCheck },
 ] as const;
 
 /** Active/inactive chip states — 'chip-active' is a marker class for consumers. */

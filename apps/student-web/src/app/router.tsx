@@ -27,6 +27,9 @@ const QuestionPage = lazy(() => import('@/features/questions/QuestionPage'));
 const FavoritesPage = lazy(() => import('@/features/favorites/FavoritesPage'));
 const ExamPage = lazy(() => import('@/features/exams/pages/ExamPage'));
 const ExamReviewPage = lazy(() => import('@/features/exams/pages/ExamReviewPage'));
+// W16.1a — the exams surface (الاختبارات + التدريب sub-tabs) is a standalone
+// page now; /study?tab=exams redirects here.
+const ExamsPage = lazy(() => import('@/features/exams/pages/ExamsPage').then(({ ExamsPage }) => ({ default: ExamsPage })));
 const LibraryPage = lazy(() => import('@/features/library/LibraryPage'));
 const CoursePlayerPage = lazy(() => import('@/features/my-studies/pages/CoursePlayerPage'));
 const SearchPage = lazy(() => import('@/features/search/SearchPage'));
@@ -84,10 +87,12 @@ export function AppRoutes() {
           <Route path="/my-studies/courses/:courseId" element={<CoursePlayerPage />} />
           {/* Push 10.8 — the temporary /player-test sandbox is DELETED: the real
               player stack now lives in the production course player page. */}
-          {/* Backward compatibility: legacy entry points redirect into the /study hub
-              directly (15.4.4a — no chain via /my-studies). Deep links
-              (/exams/:id, /subjects/:slug/library) keep working below. */}
-          <Route path="/exams" element={<Navigate to="/study?tab=exams" replace />} />
+          {/* Backward compatibility: legacy entry points redirect to the new
+              surfaces directly (15.4.4a — no chain via /my-studies). Deep links
+              (/exams/:id, /subjects/:slug/library) keep working below.
+              W16.1a (R1): /exams is the exams page itself now — the hub's
+              ?tab=exams redirects here (StudyPage), not the other way around. */}
+          <Route path="/exams" element={<ExamsPage />} />
           <Route path="/exams/:examId" element={<SecurityWrapper><ExamPage /></SecurityWrapper>} />
           <Route path="/exams/:sessionId/review" element={<SecurityWrapper><ExamReviewPage /></SecurityWrapper>} />
           <Route path="/library" element={<Navigate to="/study?tab=library" replace />} />
@@ -104,9 +109,9 @@ export function AppRoutes() {
               at /my-studies?tab=exam-courses keeps working until the 15.4.4 cutover. */}
           <Route path="/exam-courses" element={<ExamCoursesPage />} />
           <Route path="/exam-courses/:courseId" element={<ExamCourseDetailPage />} />
-          {/* W15.4.4a — bare /practice joins the cutover: it now lands on the
-              practice sub-tab of the /study exams tab (was unrouted/404 before). */}
-          <Route path="/practice" element={<Navigate to="/study?tab=exams&subtab=practice" replace />} />
+          {/* W15.4.4a — bare /practice lands on the practice sub-tab of the
+              exams page (W16.1a: /exams standalone — was /study?tab=exams&subtab=practice). */}
+          <Route path="/practice" element={<Navigate to="/exams?subtab=practice" replace />} />
           {/* W14.4 — practice player (B.1, D13): exam-model runs + categorized lens */}
           <Route path="/practice/exam/:examModelId" element={<PracticePage />} />
           <Route path="/practice/categorized/:subjectId" element={<PracticePage />} />

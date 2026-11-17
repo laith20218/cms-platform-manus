@@ -45,6 +45,7 @@ vi.mock('@/components/layouts/AppShell', () => ({
 }));
 
 import { StudyPage } from '@/features/study/pages/StudyPage';
+import { ExamsPage } from '@/features/exams/pages/ExamsPage';
 import CoursePlayerPage from '@/features/my-studies/pages/CoursePlayerPage';
 import { AppRoutes } from '@/app/router';
 import type { CourseDetail } from '@/features/my-studies/services/courses-api';
@@ -140,22 +141,31 @@ beforeEach(() => {
 // (The former 'MyStudiesPage — tabs' suite was retired with the page in
 // 15.4.4b: /study's 6-tab structure is covered by wave15.4.1.test.tsx.)
 
-// ================= Legacy redirects (15.4.4a: into /study) =================
+// ================= Legacy redirects (15.4.4a: into /study — W16.1a: out again) =================
 
-describe('Legacy redirects into the /study hub (15.4.4a)', () => {
+describe('Legacy redirects into the /study hub (15.4.4a → W16.1a)', () => {
   /** Same probe pattern as wave15.4.2.test.tsx — exposes the live location. */
   const LocationProbe = () => {
     const location = useLocation();
     return <div data-testid="location-probe" data-path={location.pathname} data-search={location.search} />;
   };
 
-  it('redirects /exams to /study?tab=exams', async () => {
+  it('renders the standalone exams page at /exams (W16.1a — was: redirect to /study?tab=exams)', async () => {
     renderWithProviders(['/exams'], <><AppRoutes /><LocationProbe /></>);
-    expect(await screen.findByTestId('study-panel-exams')).toBeInTheDocument();
-    expect(screen.getByTestId('study-tab-exams').getAttribute('aria-selected')).toBe('true');
+    expect(await screen.findByTestId('exams-page')).toBeInTheDocument();
+    expect(screen.getByTestId('study-exams-tab')).toBeInTheDocument();
     const probe = screen.getByTestId('location-probe');
-    expect(probe.getAttribute('data-path')).toBe('/study');
-    expect(probe.getAttribute('data-search')).toBe('?tab=exams');
+    expect(probe.getAttribute('data-path')).toBe('/exams');
+    expect(probe.getAttribute('data-search')).toBe('');
+  });
+
+  it('redirects /study?tab=exams to /exams, forwarding subjectId/subtab (W16.1a R1)', async () => {
+    renderWithProviders(['/study?subjectId=s1&subtab=practice&tab=exams'], <><AppRoutes /><LocationProbe /></>);
+    expect(await screen.findByTestId('exams-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('study-exams-panel-practice')).toBeInTheDocument();
+    const probe = screen.getByTestId('location-probe');
+    expect(probe.getAttribute('data-path')).toBe('/exams');
+    expect(probe.getAttribute('data-search')).toBe('?subjectId=s1&subtab=practice');
   });
 
   it('redirects /library to /study?tab=library', async () => {
@@ -188,7 +198,7 @@ describe('ExamsCatalog — W15.1 C: zero-exam filtering, auto-expand, empty CTA'
       if (url.includes('/exams/by-subject/s2')) return { data: [] };
       return { data: [] };
     });
-    renderWithProviders(['/study?tab=exams'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
+    renderWithProviders(['/exams'], <Routes><Route path="/exams" element={<ExamsPage />} /></Routes>);
 
     // C.1: s1 (has exams) starts EXPANDED — its exam row is visible without any click.
     expect(await screen.findByText('اختبار القلب')).toBeInTheDocument();
@@ -201,7 +211,7 @@ describe('ExamsCatalog — W15.1 C: zero-exam filtering, auto-expand, empty CTA'
       if (url.includes('/subjects/my-subjects')) return { data: EXAM_SUBJECTS };
       return { data: [] };
     });
-    renderWithProviders(['/study?tab=exams'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
+    renderWithProviders(['/exams'], <Routes><Route path="/exams" element={<ExamsPage />} /></Routes>);
 
     expect(await screen.findByTestId('exams-empty')).toBeInTheDocument();
     const cta = screen.getByTestId('exams-empty-cta');

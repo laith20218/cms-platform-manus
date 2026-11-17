@@ -47,7 +47,9 @@ export function ActivationCodeModal({
       queryClient.invalidateQueries({ queryKey: ['subjects'] });
       setTimeout(() => {
         onClose();
-        navigate(`/my-studies?subjectId=${subject.id}&tab=exams`);
+        // W16.1a — the exams surface is the standalone /exams page
+        // (was /my-studies?subjectId=…&tab=exams → redirect chain).
+        navigate(`/exams?subjectId=${subject.id}`);
       }, 900);
     },
   });

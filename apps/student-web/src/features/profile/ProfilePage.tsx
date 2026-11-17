@@ -1,8 +1,9 @@
 // CMS student profile: clinical account summary with privacy-preserving subscription codes.
 import { useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { CalendarDays, Camera, CheckCircle2, Clock3, GraduationCap, KeyRound, Loader2, LockKeyhole, LogOut, Mail, Pencil, ShieldCheck, UserRound, X } from 'lucide-react';
+import { CalendarDays, Camera, CheckCircle2, Clock3, GraduationCap, KeyRound, Loader2, LockKeyhole, LogOut, Mail, Pencil, Settings, ShieldCheck, Ticket, UserRound, X } from 'lucide-react';
 import { useAuth } from '@/app/providers/useAuth';
 import { authApi } from '@/features/auth/services/auth-api';
 import { profileApi } from './services/profile-api';
@@ -233,6 +234,36 @@ export default function ProfilePage() {
             {avatarStatus.text}
           </p>
         )}
+      </section>
+
+      {/* ===== W16.1a quick links — تفعيل كود + الإعدادات moved here from the sidebar ===== */}
+      <section className="grid gap-4 sm:grid-cols-2">
+        <Link
+          to="/activate-code"
+          data-testid="profile-activate-code-link"
+          className="press flex items-center gap-4 rounded-2xl border border-[var(--cms-teal-100)] bg-[var(--cms-teal-50)] p-5 shadow-sm transition-colors hover:border-[var(--cms-teal-500)]"
+        >
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--cms-teal-600)] text-[var(--cms-text-inverse)]">
+            <Ticket className="h-5 w-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-base font-bold text-[var(--cms-text)]">تفعيل كود</span>
+            <span className="mt-0.5 block text-sm text-[var(--cms-text-muted)]">فعّل كود اشتراك جديد لتوسيع موادك واختباراتك</span>
+          </span>
+        </Link>
+        <Link
+          to="/settings"
+          data-testid="profile-settings-link"
+          className="press flex items-center gap-4 rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-5 shadow-sm transition-colors hover:border-[var(--cms-teal-100)] hover:bg-[var(--cms-teal-50)]"
+        >
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--cms-ivory-200)] text-[var(--cms-teal-700)]">
+            <Settings className="h-5 w-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-base font-bold text-[var(--cms-text)]">الإعدادات</span>
+            <span className="mt-0.5 block text-sm text-[var(--cms-text-muted)]">المظهر والإشعارات ومشاركة لوحة الصدارة وكلمة المرور</span>
+          </span>
+        </Link>
       </section>
 
       {/* ===== 2-column grid: account info + academic path ===== */}

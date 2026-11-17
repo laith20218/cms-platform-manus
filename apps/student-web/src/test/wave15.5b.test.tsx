@@ -32,7 +32,7 @@ vi.mock('@/app/providers/useAuth', () => ({
   }),
 }));
 
-import { StudyPage } from '@/features/study/pages/StudyPage';
+import { ExamsPage } from '@/features/exams/pages/ExamsPage';
 
 // ---- fixtures (same shape as wave15.4.3) ----
 const MY_SUBJECTS = [
@@ -62,9 +62,9 @@ function renderAt(path: string, routePath: string, element: ReactElement) {
   );
 }
 
-/** Renders the /study hub directly at `path`. */
-function renderStudyAt(path: string) {
-  return renderAt(path, '/study', <StudyPage />);
+/** Renders the standalone /exams page directly at `path` (W16.1a). */
+function renderExamsAt(path: string) {
+  return renderAt(path, '/exams', <ExamsPage />);
 }
 
 beforeEach(() => {
@@ -75,9 +75,9 @@ beforeEach(() => {
 
 // ============ W15.5b (DEBT-LEADERBOARD-FALLBACK-01): unknown ?subtab= falls back ============
 
-describe('StudyPage exams tab — nonsense subtab fallback (15.5b)', () => {
-  it('/study?tab=exams&subtab=nonsense falls back to exams', () => {
-    renderStudyAt('/study?tab=exams&subtab=nonsense');
+describe('ExamsPage — nonsense subtab fallback (15.5b → 16.1a)', () => {
+  it('/exams?subtab=nonsense falls back to exams', () => {
+    renderExamsAt('/exams?subtab=nonsense');
 
     expect(screen.getByTestId('study-exams-tab')).toBeInTheDocument();
     expect(screen.getByTestId('study-exams-subtab-exams').getAttribute('aria-selected')).toBe('true');

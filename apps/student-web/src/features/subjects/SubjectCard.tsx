@@ -37,14 +37,20 @@ export function SubjectCard({ subject, index, entitled, onLocked }: SubjectCardP
   const canVideoAudio = scopes.includes('VideoAudio');
   const hasLibrary = canLectures || canVideoAudio;
 
-  // Entitled cards land on the tab their grant actually covers.
+  // Entitled cards land on the surface their grant actually covers.
   const preferredTab = canQuestions ? 'exams' : canVideoAudio ? 'courses' : 'exams';
 
   const openSubject = () => {
     if (entitled) {
       // 15.4.4b: the subject-filtered hub deep link points at /study (was
       // /my-studies — that URL now redirects).
-      navigate(`/study?subjectId=${subject.id}&tab=${preferredTab}`);
+      // W16.1a: the exams grant lands on the standalone /exams page directly
+      // (no redirect hop through the retired ?tab=exams).
+      if (preferredTab === 'exams') {
+        navigate(`/exams?subjectId=${subject.id}`);
+      } else {
+        navigate(`/study?subjectId=${subject.id}&tab=${preferredTab}`);
+      }
     } else {
       onLocked({ id: subject.id, nameAr: subject.nameAr });
     }
