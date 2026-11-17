@@ -23,6 +23,7 @@ vi.mock('@/features/security/useContentProtection', () => ({
 }));
 
 import { StudyPage } from '@/features/study/pages/StudyPage';
+import { ExamsPage } from '@/features/exams/pages/ExamsPage';
 import SubjectDetailPage from '@/features/subjects/SubjectDetailPage';
 import SubjectsPage from '@/features/subjects/SubjectsPage';
 
@@ -77,12 +78,13 @@ describe('My Studies — entitlement visual connection', () => {
     expect(screen.queryByTestId('library-category-tabs')).not.toBeInTheDocument();
   });
 
-  it('shows the locked state on the exams tab when the student has no active subjects', async () => {
+  it('shows the locked state on the exams page when the student has no active subjects', async () => {
     getMock.mockImplementation(async (url: string) => {
       if (url.includes('/subjects/my-subjects')) return { data: [] };
       return { data: [] };
     });
-    renderWithProviders(['/study?tab=exams'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
+    // W16.1a — the exams surface is the standalone /exams page.
+    renderWithProviders(['/exams'], <Routes><Route path="/exams" element={<ExamsPage />} /></Routes>);
 
     expect(await screen.findByTestId('locked-empty-state')).toBeInTheDocument();
     expect(screen.getByTestId('activate-code-cta')).toBeInTheDocument();

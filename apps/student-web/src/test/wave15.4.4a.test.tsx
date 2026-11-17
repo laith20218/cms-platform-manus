@@ -161,10 +161,11 @@ beforeEach(() => {
 // ================= W15.4.4a: /my-studies cutover to /study =================
 
 describe('W15.4.4a — /my-studies cutover redirects', () => {
-  it('redirects bare /my-studies to /study (overview)', async () => {
+  it('redirects bare /my-studies to /study (progress — the default tab)', async () => {
     renderApp('/my-studies');
 
     expect(await screen.findByTestId('study-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('study-panel-progress')).toBeInTheDocument();
     const probe = screen.getByTestId('location-probe');
     expect(probe.getAttribute('data-path')).toBe('/study');
     expect(probe.getAttribute('data-search')).toBe('');
@@ -179,14 +180,15 @@ describe('W15.4.4a — /my-studies cutover redirects', () => {
     expect(probe.getAttribute('data-search')).toBe('?tab=library');
   });
 
-  it('redirects /my-studies?tab=practice to /study?tab=exams&subtab=practice', async () => {
+  it('redirects /my-studies?tab=practice to /exams?subtab=practice (W16.1a — was /study?tab=exams&subtab=practice)', async () => {
     renderApp('/my-studies?tab=practice');
 
-    // The exams tab (15.4.1) hosts the practice sub-tab (15.4.3).
+    // W16.1a: the exams surface (sub-tabs included) is the standalone /exams page.
+    expect(await screen.findByTestId('exams-page')).toBeInTheDocument();
     expect(await screen.findByTestId('study-exams-panel-practice')).toBeInTheDocument();
     const probe = screen.getByTestId('location-probe');
-    expect(probe.getAttribute('data-path')).toBe('/study');
-    expect(probe.getAttribute('data-search')).toBe('?tab=exams&subtab=practice');
+    expect(probe.getAttribute('data-path')).toBe('/exams');
+    expect(probe.getAttribute('data-search')).toBe('?subtab=practice');
   });
 
   it('redirects /my-studies?tab=exam-courses to /exam-courses', async () => {
@@ -198,13 +200,14 @@ describe('W15.4.4a — /my-studies cutover redirects', () => {
     expect(probe.getAttribute('data-path')).toBe('/exam-courses');
   });
 
-  it('redirects bare /practice to /study?tab=exams&subtab=practice (15.4.4a route)', async () => {
+  it('redirects bare /practice to /exams?subtab=practice (15.4.4a route → 16.1a target)', async () => {
     renderApp('/practice');
 
+    expect(await screen.findByTestId('exams-page')).toBeInTheDocument();
     expect(await screen.findByTestId('study-exams-panel-practice')).toBeInTheDocument();
     const probe = screen.getByTestId('location-probe');
-    expect(probe.getAttribute('data-path')).toBe('/study');
-    expect(probe.getAttribute('data-search')).toBe('?tab=exams&subtab=practice');
+    expect(probe.getAttribute('data-path')).toBe('/exams');
+    expect(probe.getAttribute('data-search')).toBe('?subtab=practice');
   });
 });
 

@@ -190,10 +190,11 @@ describe('Dashboard — QuickAccess (15.2)', () => {
     expect(screen.getByTestId('quick-access-tile-library')).toHaveAttribute('href', '/study?tab=library');
 
     // Selecting s1 scopes every tile via the hub's ?subjectId= param.
+    // W16.1a — the exams tile follows بنك الأسئلة to its own hub tab (?tab=bank).
     fireEvent.click(screen.getByTestId('quick-access-chip-s1'));
     expect(screen.getByTestId('quick-access-tile-library')).toHaveAttribute('href', '/study?subjectId=s1&tab=library');
     expect(screen.getByTestId('quick-access-tile-courses')).toHaveAttribute('href', '/study?subjectId=s1&tab=courses');
-    expect(screen.getByTestId('quick-access-tile-exams')).toHaveAttribute('href', '/study?subjectId=s1&tab=exams');
+    expect(screen.getByTestId('quick-access-tile-bank')).toHaveAttribute('href', '/study?subjectId=s1&tab=bank');
 
     // «الكل» clears the filter again.
     fireEvent.click(screen.getByTestId('quick-access-chip-all'));

@@ -9,10 +9,11 @@ import { Sidebar } from '@/components/layouts/Sidebar';
 // دراستي + المكتبة + الكورسات + بنك الأسئلة all highlighted together on any
 // hub URL (PR #89 report).
 //
-// 15.4.4b — the hub is /study now (was /my-studies; that URL redirects), and
-// تقدمي / لوحة الصدارة joined the tab space from المزيد:
-// /study?tab=progress / ?tab=leaderboard. The same single-active rule covers
-// all six study items.
+// W16.1a — the sidebar reorganized into 2 groups: the hub links (دراستي +
+// المكتبة + الكورسات + بنك الأسئلة → /study?tab=…) keep the custom
+// pathname+?tab= detection; الاختبارات and لوحة الصدارة are regular NavLinks
+// to the standalone /exams and /leaderboard pages; تقدمي is gone (progress
+// is the hub's DEFAULT tab, so ?tab=progress folds into دراستي).
 //
 // Harness: mount the component under test inside a MemoryRouter seeded with
 // the URL under assertion, then read the rendered state. The Sidebar is the
@@ -21,8 +22,8 @@ import { Sidebar } from '@/components/layouts/Sidebar';
 // through aria-current="page", which the study links carry explicitly (plain
 // Links with custom pathname+?tab= detection) and NavLink items carry natively.
 //
-// Recon note: StudyPage falls back to tab='overview' when ?tab= is absent or
-// invalid, so /study and /study?tab=overview render the same panel — دراستي
+// Recon note: StudyPage falls back to tab='progress' when ?tab= is absent or
+// invalid, so /study and /study?tab=progress render the same panel — دراستي
 // owns both, and every tab without a dedicated sidebar item folds into it.
 // ---------------------------------------------------------------------------
 
@@ -30,9 +31,7 @@ const STUDY_TESTIDS = [
   'sidebar-item-my-studies',
   'sidebar-item-library',
   'sidebar-item-courses',
-  'sidebar-item-exams',
-  'sidebar-item-stats',
-  'sidebar-item-leaderboard',
+  'sidebar-item-bank',
 ] as const;
 
 function renderSidebarAt(initialEntry: string) {
@@ -58,14 +57,14 @@ function expectStudyItemsActiveState(activeTestid: string | null) {
   }
 }
 
-describe('Sidebar — single active study item on /study routes (15.1.5 / 15.4.4b)', () => {
+describe('Sidebar — single active study item on /study routes (15.1.5 / 16.1a)', () => {
   it('marks only دراستي active on /study without a tab param', () => {
     renderSidebarAt('/study');
     expectStudyItemsActiveState('sidebar-item-my-studies');
   });
 
-  it('marks only دراستي active on /study?tab=overview (the hub default)', () => {
-    renderSidebarAt('/study?tab=overview');
+  it('marks only دراستي active on /study?tab=progress (the hub default — تقدمي folded into دراستي)', () => {
+    renderSidebarAt('/study?tab=progress');
     expectStudyItemsActiveState('sidebar-item-my-studies');
   });
 
@@ -79,21 +78,9 @@ describe('Sidebar — single active study item on /study routes (15.1.5 / 15.4.4
     expectStudyItemsActiveState('sidebar-item-courses');
   });
 
-  it('marks only بنك الأسئلة active on /study?tab=exams (subtab-agnostic)', () => {
-    renderSidebarAt('/study?tab=exams&subtab=practice');
-    expectStudyItemsActiveState('sidebar-item-exams');
-  });
-
-  // ---- 15.4.4b: تقدمي / لوحة الصدارة own their /study tabs ----
-
-  it('marks only تقدمي active on /study?tab=progress', () => {
-    renderSidebarAt('/study?tab=progress');
-    expectStudyItemsActiveState('sidebar-item-stats');
-  });
-
-  it('marks only لوحة الصدارة active on /study?tab=leaderboard', () => {
-    renderSidebarAt('/study?tab=leaderboard');
-    expectStudyItemsActiveState('sidebar-item-leaderboard');
+  it('marks only بنك الأسئلة active on /study?tab=bank (NEW hub tab)', () => {
+    renderSidebarAt('/study?tab=bank');
+    expectStudyItemsActiveState('sidebar-item-bank');
   });
 
   it('keeps all study items inactive on /dashboard (dashboard NavLink active)', () => {
@@ -102,11 +89,32 @@ describe('Sidebar — single active study item on /study routes (15.1.5 / 15.4.4
     expect(screen.getByTestId('sidebar-item-dashboard')).toHaveAttribute('aria-current', 'page');
   });
 
-  // The standalone /stats page survives as a legacy alias (Wave A keeps the
-  // route): nothing highlights there — the sidebar's تقدمي now points at
-  // /study?tab=progress.
+  // The standalone /stats page survives as a legacy alias: nothing highlights
+  // there — the hub's default progress tab has no dedicated sidebar item.
   it('keeps the study items inactive on the legacy /stats alias page', () => {
     renderSidebarAt('/stats');
     expectStudyItemsActiveState(null);
+  });
+});
+
+describe('Sidebar — standalone pages own their NavLink (16.1a)', () => {
+  it('marks only الاختبارات active on /exams', () => {
+    renderSidebarAt('/exams');
+    expectStudyItemsActiveState(null);
+    expect(screen.getByTestId('sidebar-item-exams')).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByTestId('sidebar-item-leaderboard')).not.toHaveAttribute('aria-current');
+  });
+
+  it('keeps الاختبارات active on the /exams/:examId deep link (pathname prefix)', () => {
+    renderSidebarAt('/exams/e1');
+    expectStudyItemsActiveState(null);
+    expect(screen.getByTestId('sidebar-item-exams')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('marks only لوحة الصدارة active on /leaderboard', () => {
+    renderSidebarAt('/leaderboard');
+    expectStudyItemsActiveState(null);
+    expect(screen.getByTestId('sidebar-item-leaderboard')).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByTestId('sidebar-item-exams')).not.toHaveAttribute('aria-current');
   });
 });

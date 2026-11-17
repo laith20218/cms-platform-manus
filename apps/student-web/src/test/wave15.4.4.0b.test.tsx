@@ -33,7 +33,7 @@ vi.mock('@/app/providers/useAuth', () => ({
   }),
 }));
 
-import { StudyPage } from '@/features/study/pages/StudyPage';
+import LeaderboardPage from '@/features/stats/pages/LeaderboardPage';
 import SettingsPage from '@/features/settings/SettingsPage';
 
 // ---- fixtures ----
@@ -93,7 +93,9 @@ function renderAt(path: string) {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/study" element={<><StudyPage /><LocationProbe /></>} />
+          {/* W16.1a — the leaderboard is the standalone /leaderboard page
+              (was: the /study?tab=leaderboard hub tab until the redirect). */}
+          <Route path="/leaderboard" element={<><LeaderboardPage /><LocationProbe /></>} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<div data-testid="route-fallback" />} />
         </Routes>
@@ -114,9 +116,9 @@ beforeEach(() => {
 // ================= W15.4.4.0b: leaderboard opt-in + subject picker =================
 
 describe('Leaderboard subject picker + mutual-sharing opt-in (15.4.4.0b)', () => {
-  it('/study?tab=leaderboard (no subjectId) renders Picker', async () => {
+  it('/leaderboard (no subjectId) renders Picker', async () => {
     mockConfig.sharing = false;
-    renderAt('/study?tab=leaderboard');
+    renderAt('/leaderboard');
 
     expect(await screen.findByTestId('leaderboard-subject-picker')).toBeInTheDocument();
     expect(await screen.findByTestId('leaderboard-subject-s1')).toBeInTheDocument();
@@ -125,7 +127,7 @@ describe('Leaderboard subject picker + mutual-sharing opt-in (15.4.4.0b)', () =>
 
   it('Picker → click subject → URL updates + leaderboard renders', async () => {
     mockConfig.sharing = true;
-    renderAt('/study?tab=leaderboard');
+    renderAt('/leaderboard');
 
     fireEvent.click(await screen.findByTestId('leaderboard-subject-s1'));
 
@@ -140,9 +142,9 @@ describe('Leaderboard subject picker + mutual-sharing opt-in (15.4.4.0b)', () =>
     expect(document.body.textContent).not.toContain('studentId');
   });
 
-  it('/study?tab=leaderboard&subjectId=s1 (not sharing) → opt-in prompt', async () => {
+  it('/leaderboard?subjectId=s1 (not sharing) → opt-in prompt', async () => {
     mockConfig.sharing = false;
-    renderAt('/study?tab=leaderboard&subjectId=s1');
+    renderAt('/leaderboard?subjectId=s1');
 
     expect(await screen.findByTestId('leaderboard-optin-prompt')).toBeInTheDocument();
     expect(await screen.findByTestId('leaderboard-sharing-toggle')).toBeInTheDocument();
@@ -151,7 +153,7 @@ describe('Leaderboard subject picker + mutual-sharing opt-in (15.4.4.0b)', () =>
 
   it('Opt-in prompt → toggle on → leaderboard renders', async () => {
     mockConfig.sharing = false;
-    renderAt('/study?tab=leaderboard&subjectId=s1');
+    renderAt('/leaderboard?subjectId=s1');
 
     expect(await screen.findByTestId('leaderboard-optin-prompt')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('switch'));

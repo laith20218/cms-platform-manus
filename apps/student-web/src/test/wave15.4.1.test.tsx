@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // ---- shared mocks (hoisted) — mirrors push6.test.tsx ----
@@ -61,29 +61,33 @@ const STATS = {
   },
 };
 
-const LEADERBOARD = { topStudents: [], yourRank: null };
-
 function stubGet() {
   getMock.mockImplementation(async (url: string) => {
     if (url.includes('/subjects/my-subjects')) return { data: MY_SUBJECTS };
     if (url.includes('/stats/me')) return { data: STATS };
-    if (url.includes('/stats/leaderboard')) return { data: LEADERBOARD };
     if (url.includes('/library/subject/')) return { data: { items: [] } };
     if (url.includes('/exams/by-subject/')) return { data: [] };
     return { data: [] };
   });
 }
 
+/** Exposes the live location so redirect assertions can read the final URL. */
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location-probe" data-path={location.pathname} data-search={location.search} />;
+}
+
 /** Renders the /study route directly (W15.4.1: the hub is URL-only — tests
- *  navigate straight to it, no sidebar link exists yet). */
+ *  navigate straight to it). The catch-all probe renders whenever a retired
+ *  tab redirects OUT of the hub (W16.1a: /exams, /leaderboard). */
 function renderStudyAt(path: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/study" element={<StudyPage />} />
-          <Route path="*" element={<div data-testid="route-fallback" />} />
+          <Route path="/study" element={<><StudyPage /><LocationProbe /></>} />
+          <Route path="*" element={<LocationProbe />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -96,38 +100,39 @@ beforeEach(() => {
   stubGet();
 });
 
-// ================= W15.4.1: the parallel /study hub =================
+// ================= W16.1a: the 4-tab /study hub =================
 
-describe('StudyPage — 6-tab parallel hub (15.4.1)', () => {
-  it('renders /study with the overview tab active by default', async () => {
+describe('StudyPage — 4-tab hub (15.4.1 → 16.1a)', () => {
+  it('renders /study with the progress tab active by default (overview retired)', async () => {
     renderStudyAt('/study');
 
     expect(screen.getByTestId('study-page')).toBeInTheDocument();
-    expect(screen.getByTestId('study-tab-overview').getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByTestId('study-panel-overview')).toBeInTheDocument();
-    // Greeting resolves once /stats/me loads.
-    expect(await screen.findByText(/أهلاً، طالب/)).toBeInTheDocument();
-    expect(screen.getByTestId('study-overview-tab')).toBeInTheDocument();
-    expect(screen.getByTestId('study-stat-questions')).toBeInTheDocument();
+    expect(screen.getByTestId('study-tab-progress').getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('study-panel-progress')).toBeInTheDocument();
+    // ProgressTab settles once /stats/me loads — the bySubject grid renders.
+    expect(await screen.findByText('الأداء حسب المادة')).toBeInTheDocument();
+    expect(screen.getByTestId('study-progress-tab')).toBeInTheDocument();
+    expect(screen.getByText('تشريح مرضي')).toBeInTheDocument();
   });
 
-  it('renders all six tabs with the correct labels', () => {
+  it('renders all four tabs with the correct labels (overview/exams/leaderboard retired)', () => {
     renderStudyAt('/study');
 
     const expected: ReadonlyArray<readonly [string, string]> = [
-      ['overview', 'نظرة عامة'],
       ['progress', 'تقدمي'],
       ['library', 'المكتبة'],
+      ['bank', 'بنك الأسئلة'],
       ['courses', 'الكورسات'],
-      ['exams', 'الاختبارات'],
-      ['leaderboard', 'الصدارة'],
     ];
     for (const [key, label] of expected) {
       const tab = screen.getByTestId(`study-tab-${key}`);
       expect(tab).toBeInTheDocument();
       expect(tab.textContent).toContain(label);
     }
-    // No seventh tab leaks in from the legacy hub.
+    // The retired hub tabs are gone; the practice sub-tab never leaked in.
+    expect(screen.queryByTestId('study-tab-overview')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('study-tab-exams')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('study-tab-leaderboard')).not.toBeInTheDocument();
     expect(screen.queryByTestId('study-tab-practice')).not.toBeInTheDocument();
   });
 
@@ -138,15 +143,15 @@ describe('StudyPage — 6-tab parallel hub (15.4.1)', () => {
 
     expect(screen.getByTestId('study-panel-library')).toBeInTheDocument();
     expect(screen.getByTestId('study-tab-library').getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByTestId('study-tab-overview').getAttribute('aria-selected')).toBe('false');
+    expect(screen.getByTestId('study-tab-progress').getAttribute('aria-selected')).toBe('false');
   });
 
-  it('renders the exams tab from a direct ?tab=exams URL', () => {
-    renderStudyAt('/study?tab=exams');
+  it('renders the bank tab placeholder (16.1a shell — content mount is 16.1b)', () => {
+    renderStudyAt('/study?tab=bank');
 
-    expect(screen.getByTestId('study-tab-exams').getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByTestId('study-panel-exams')).toBeInTheDocument();
-    expect(screen.getByTestId('study-exams-tab')).toBeInTheDocument();
+    expect(screen.getByTestId('study-tab-bank').getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('study-panel-bank')).toBeInTheDocument();
+    expect(screen.getByTestId('study-bank-placeholder')).toBeInTheDocument();
   });
 
   it('shows the subject filter chip when ?subjectId= is present', async () => {
@@ -159,22 +164,41 @@ describe('StudyPage — 6-tab parallel hub (15.4.1)', () => {
     expect(chip.textContent).toContain('تشريح مرضي');
     expect(screen.getByTestId('study-subject-filter-clear')).toBeInTheDocument();
   });
+});
 
-  it('renders the leaderboard tab with no breadcrumb links inside the panel', async () => {
+// ================= W16.1a: retired hub tabs redirect out (O1/R1) =================
+
+describe('StudyPage — retired hub tabs redirect out (16.1a)', () => {
+  it('?tab=overview redirects to ?tab=progress (O1)', async () => {
+    renderStudyAt('/study?tab=overview');
+
+    expect(await screen.findByTestId('study-panel-progress')).toBeInTheDocument();
+    const probe = screen.getByTestId('location-probe');
+    expect(probe.getAttribute('data-path')).toBe('/study');
+    expect(probe.getAttribute('data-search')).toBe('?tab=progress');
+  });
+
+  it('?tab=exams redirects to the standalone /exams page (R1)', () => {
+    renderStudyAt('/study?tab=exams');
+
+    const probe = screen.getByTestId('location-probe');
+    expect(probe.getAttribute('data-path')).toBe('/exams');
+    expect(probe.getAttribute('data-search')).toBe('');
+  });
+
+  it('?tab=exams forwards ?subjectId= to /exams', () => {
+    renderStudyAt('/study?subjectId=s1&tab=exams');
+
+    const probe = screen.getByTestId('location-probe');
+    expect(probe.getAttribute('data-path')).toBe('/exams');
+    expect(probe.getAttribute('data-search')).toBe('?subjectId=s1');
+  });
+
+  it('?tab=leaderboard redirects to the standalone /leaderboard page (R1)', () => {
     renderStudyAt('/study?tab=leaderboard');
 
-    const panel = await screen.findByTestId('study-panel-leaderboard');
-    expect(screen.getByTestId('study-leaderboard-tab')).toBeInTheDocument();
-    // W15.4.4.0b: with no ?subjectId the tab shows the subject picker —
-    // the board itself renders only after a subject is picked.
-    expect(await screen.findByTestId('leaderboard-subject-picker')).toBeInTheDocument();
-    expect(await screen.findByTestId('leaderboard-subject-s1')).toBeInTheDocument();
-    expect(screen.getByTestId('leaderboard-subject-s2')).toBeInTheDocument();
-
-    // hideBreadcrumb: the hub owns navigation — no breadcrumb links to
-    // /dashboard or /stats anywhere inside the panel.
-    expect(within(panel).queryByRole('link', { name: 'الرئيسية' })).not.toBeInTheDocument();
-    expect(within(panel).queryByRole('link', { name: 'الإحصائيات' })).not.toBeInTheDocument();
-    expect(within(panel).queryAllByRole('link')).toHaveLength(0);
+    const probe = screen.getByTestId('location-probe');
+    expect(probe.getAttribute('data-path')).toBe('/leaderboard');
+    expect(probe.getAttribute('data-search')).toBe('');
   });
 });

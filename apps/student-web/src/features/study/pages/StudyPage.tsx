@@ -1,37 +1,37 @@
-import { useSearchParams } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  BarChart3, BookOpen, BookOpenCheck, ClipboardCheck, Filter, GraduationCap,
-  LayoutGrid, Trophy, X,
+  BarChart3, BookOpen, BookOpenCheck, ClipboardList, Filter, GraduationCap, X,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
-import { OverviewTab } from '../components/OverviewTab';
 import { ProgressTab } from '../components/ProgressTab';
 import { LibraryTab } from '../components/LibraryTab';
 import { CoursesTab } from '../components/CoursesTab';
-import { ExamsTab } from '../components/ExamsTab';
-import { LeaderboardTab } from '../components/LeaderboardTab';
 
 /**
- * "/study" hub (Wave 15.4.1 — PARALLEL BUILD). The 6-tab reshaped home for
- * everything study-related: overview, progress, library, courses, exams,
- * leaderboard. It coexists with the untouched legacy hub (my-studies) until
- * the 15.4.4 cutover — nothing links here yet (no Sidebar/BottomNav entry),
- * it is reachable only via direct URL, and tests navigate straight to it.
+ * "/study" hub (Wave 15.4.1 → Wave 16.1a). The 4-tab home for study
+ * resources: progress, library, bank, courses.
  *
- * Structure mirrors MyStudiesPage (tab bar, subject filter chip, error
- * boundaries per panel) with its own `study-*` testids so both hubs can
- * be tested independently during the parallel period.
+ * W16.1a reshape:
+ *   - overview    → REMOVED. progress replaces it as the DEFAULT tab; the
+ *                    retired ?tab=overview redirects to ?tab=progress (O1).
+ *   - exams       → REMOVED from the hub — the الاختبارات/التدريب sub-tabs
+ *                    are a standalone /exams page now (ExamsPage). Legacy
+ *                    ?tab=exams redirects there with ?subjectId=/?subtab=
+ *                    forwarded (R1).
+ *   - leaderboard → REMOVED from the hub — the standalone /leaderboard page
+ *                    renders it. Legacy ?tab=leaderboard redirects there (R1).
+ *   - bank         → NEW tab (بنك الأسئلة). The content mount itself is Wave
+ *                    16.1b (D2-a — QuestionBankTab + exam-course detail);
+ *                    until then the tab renders an explicit placeholder card.
  */
 const TABS = [
-  { key: 'overview', label: 'نظرة عامة', icon: LayoutGrid },
   { key: 'progress', label: 'تقدمي', icon: BarChart3 },
   { key: 'library', label: 'المكتبة', icon: BookOpen },
+  { key: 'bank', label: 'بنك الأسئلة', icon: ClipboardList },
   { key: 'courses', label: 'الكورسات', icon: GraduationCap },
-  { key: 'exams', label: 'الاختبارات', icon: ClipboardCheck },
-  { key: 'leaderboard', label: 'الصدارة', icon: Trophy },
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
@@ -42,16 +42,32 @@ const isTabKey = (value: string | null): value is TabKey =>
 export function StudyPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get('tab');
-  const tab: TabKey = isTabKey(rawTab) ? rawTab : 'overview';
   const subjectId = searchParams.get('subjectId');
 
   // Resolve the filtered subject's name for the context chip (same contract
-  // as MyStudiesPage — entitled subjects only).
+  // as the former hub — entitled subjects only). Called BEFORE the retired-tab
+  // redirect below so the hook order is stable on every render.
   const mySubjects = useMySubjects();
+
+  // W16.1a (O1/R1) — retired hub tabs transparently redirect, preserving
+  // every other search param (subjectId, subtab, cascade levels…):
+  //   ?tab=overview    → /study?tab=progress  (the renamed default tab)
+  //   ?tab=exams      → /exams                (standalone page)
+  //   ?tab=leaderboard → /leaderboard         (standalone page)
+  if (rawTab === 'overview' || rawTab === 'exams' || rawTab === 'leaderboard') {
+    const next = new URLSearchParams(searchParams);
+    if (rawTab === 'overview') next.set('tab', 'progress');
+    else next.delete('tab');
+    const target = rawTab === 'overview' ? '/study' : `/${rawTab}`;
+    const qs = next.toString();
+    return <Navigate to={target + (qs ? '?' + qs : '')} replace />;
+  }
+
+  const tab: TabKey = isTabKey(rawTab) ? rawTab : 'progress';
   const filteredSubject = (mySubjects.data ?? []).find((s) => s.id === subjectId) ?? null;
 
   // Tab switches PRESERVE the full param set (subjectId, cascade levels…)
-  // instead of rebuilding the URL from scratch — same contract as MyStudiesPage.
+  // instead of rebuilding the URL from scratch.
   const switchTab = (key: TabKey) => {
     const next = new URLSearchParams(searchParams);
     next.set('tab', key);
@@ -73,7 +89,7 @@ export function StudyPage() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-[var(--c-text)]">دراستي</h1>
-          <p className="text-sm text-[var(--c-text-muted)]">نظرة عامة وتقدمك ومكتبتك وكورساتك واختباراتك وصدارتك في مكان واحد</p>
+          <p className="text-sm text-[var(--c-text-muted)]">تقدمك ومكتبتك وبنك أسئلتك وكورساتك في مكان واحد</p>
         </div>
       </div>
 
@@ -152,11 +168,6 @@ export function StudyPage() {
           Each panel gets its own error boundary: one failing API call must
           show a Retry card, never a blank hub. */}
       <div role="tabpanel" data-testid={`study-panel-${tab}`}>
-        {tab === 'overview' && (
-          <ErrorBoundary title="تعذّر تحميل النظرة العامة">
-            <OverviewTab />
-          </ErrorBoundary>
-        )}
         {tab === 'progress' && (
           <ErrorBoundary title="تعذّر تحميل التقدم">
             <ProgressTab />
@@ -167,22 +178,36 @@ export function StudyPage() {
             <LibraryTab subjectId={subjectId} />
           </ErrorBoundary>
         )}
+        {tab === 'bank' && <BankTabPlaceholder />}
         {tab === 'courses' && (
           <ErrorBoundary title="تعذّر تحميل الكورسات">
             <CoursesTab subjectId={subjectId} />
           </ErrorBoundary>
         )}
-        {tab === 'exams' && (
-          <ErrorBoundary title="تعذّر تحميل الاختبارات">
-            <ExamsTab subjectId={subjectId} />
-          </ErrorBoundary>
-        )}
-        {tab === 'leaderboard' && (
-          <ErrorBoundary title="تعذّر تحميل الصدارة">
-            <LeaderboardTab />
-          </ErrorBoundary>
-        )}
       </div>
     </div>
+  );
+}
+
+/**
+ * W16.1a — the bank tab's shell. The QuestionBank content mount is Wave
+ * 16.1b (D2-a): until then the tab shows an explicit "being prepared"
+ * card so the sidebar's بنك الأسئلة entry lands on a real, labeled
+ * surface instead of falling back to the default tab.
+ */
+function BankTabPlaceholder() {
+  return (
+    <section
+      data-testid="study-bank-placeholder"
+      className="rounded-2xl border border-dashed border-[var(--c-primary-200)] bg-[var(--c-surface)] p-8 text-center"
+    >
+      <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--c-primary-50)] text-[var(--c-primary-700)]">
+        <ClipboardList className="h-6 w-6" />
+      </div>
+      <h2 className="text-lg font-bold text-[var(--c-text)]">بنك الأسئلة</h2>
+      <p className="mt-2 text-sm leading-6 text-[var(--c-text-muted)]">
+        قيد التجهيز — يُركّب محتوى بنك الأسئلة في الموجة 16.1b، وسيظهر هنا متصلاً بموادك ومحاضراتك وتدريباتك المصنّفة.
+      </p>
+    </section>
   );
 }

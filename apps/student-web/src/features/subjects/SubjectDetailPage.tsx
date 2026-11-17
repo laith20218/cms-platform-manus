@@ -133,7 +133,7 @@ export default function SubjectDetailPage() {
           </Link>
         )}
         {canQuestions && (
-          <Link to={`/my-studies?subjectId=${subject.id}&tab=exams`} role="tab" className="px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] whitespace-nowrap">الاختبارات</Link>
+          <Link to={`/exams?subjectId=${subject.id}`} role="tab" className="px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] whitespace-nowrap">الاختبارات</Link>
         )}
         {!hasLibrary && !canQuestions && !canVideoAudio && (
           <span className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-[var(--c-text-faint)] whitespace-nowrap" data-testid="subject-no-extras">

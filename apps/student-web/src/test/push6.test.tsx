@@ -21,6 +21,7 @@ vi.mock('@/features/entitlements/services/entitlement-api', async () => {
 });
 
 import { StudyPage } from '@/features/study/pages/StudyPage';
+import { ExamsPage } from '@/features/exams/pages/ExamsPage';
 import SubjectsPage from '@/features/subjects/SubjectsPage';
 
 // ---- fixtures ----
@@ -79,7 +80,7 @@ function renderWithProviders(initialEntries: string[], element: React.ReactNode)
   );
 }
 
-/** Renders /study and /subjects plus a probe that exposes the current location. */
+/** Renders /study, /exams and /subjects plus a probe that exposes the current location. */
 function renderApp(initialEntry: string) {
   const LocationProbe = () => {
     const location = useLocation();
@@ -89,6 +90,9 @@ function renderApp(initialEntry: string) {
     [initialEntry],
     <Routes>
       <Route path="/study" element={<><StudyPage /><LocationProbe /></>} />
+      {/* W16.1a — the exams surface is the standalone /exams page (was: the
+          /study?tab=exams hub tab). */}
+      <Route path="/exams" element={<><ExamsPage /><LocationProbe /></>} />
       <Route path="/subjects" element={<><SubjectsPage /><LocationProbe /></>} />
       <Route path="*" element={<LocationProbe />} />
     </Routes>
@@ -111,14 +115,14 @@ beforeEach(() => {
 });
 
 // ================= Push 6 Task 2: the الدورات practice surface =================
-// (15.4.4b: the legacy hub's tab strip is gone with MyStudiesPage — practice
-// now lives at /study?tab=exams&subtab=practice; the sub-tab structure is
-// covered by wave15.4.3.test.tsx. The behavioral tests below ride the same
-// PracticeCatalog through the /study exams tab.)
+// (W16.1a: practice lives on the standalone /exams page — was
+// /study?tab=exams&subtab=practice; the sub-tab structure is covered by
+// wave15.4.3.test.tsx. The behavioral tests below ride the same
+// PracticeCatalog through the /exams page.)
 
-describe('Study — التدريب practice sub-tab', () => {
+describe('Exams — التدريب practice sub-tab (16.1a standalone page)', () => {
   it('lists only lectures that carry questions, with counts and practice links', async () => {
-    renderApp('/study?tab=exams&subtab=practice');
+    renderApp('/exams?subtab=practice');
 
     const grid = await screen.findByTestId('practice-grid');
     // lec2 (0 questions) is filtered out; lec1 + lec3 remain.
@@ -133,14 +137,14 @@ describe('Study — التدريب practice sub-tab', () => {
 
   it('shows the locked state on the practice tab when the student has no active subjects', async () => {
     stubGet({ mySubjects: [] });
-    renderApp('/study?tab=exams&subtab=practice');
+    renderApp('/exams?subtab=practice');
     expect(await screen.findByTestId('locked-empty-state')).toBeInTheDocument();
     expect(screen.getByTestId('activate-code-cta')).toBeInTheDocument();
   });
 
   it('shows the scope-specific lock when no grant covers questions', async () => {
     stubGet({ mySubjects: [{ id: 's2', slug: 'باطنة', nameAr: 'الباطنة', contentScopes: ['VideoAudio'] }] });
-    renderApp('/study?tab=exams&subtab=practice');
+    renderApp('/exams?subtab=practice');
     expect(await screen.findByText('الدورات غير مشمولة باشتراكك')).toBeInTheDocument();
   });
 });
@@ -182,19 +186,22 @@ describe('My Studies — subjectId query-param filtering', () => {
     renderApp('/study?subjectId=s1&tab=courses');
 
     await screen.findByText('كورس التشريح');
-    fireEvent.click(screen.getByTestId('study-tab-exams'));
+    fireEvent.click(screen.getByTestId('study-tab-library'));
 
-    expect(await screen.findByTestId('study-exams-tab')).toBeInTheDocument();
+    expect(await screen.findByTestId('study-panel-library')).toBeInTheDocument();
     // W15.1 (A): switchTab now EDITS the current params, so serialization order
     // follows the existing URL — assert both params are present, not their order.
     const search = screen.getByTestId('location-probe').getAttribute('data-search') ?? '';
-    expect(search).toContain('tab=exams');
+    expect(search).toContain('tab=library');
     expect(search).toContain('subjectId=s1');
+  });
 
-    // The practice sub-tab stays narrowed to s1 (محاضرة القلب belongs to s2).
-    fireEvent.click(screen.getByTestId('study-exams-subtab-practice'));
+  it('narrows the standalone practice page to the ?subjectId= deep link (16.1a)', async () => {
+    renderApp('/exams?subjectId=s1&subtab=practice');
+
     expect(await screen.findByTestId('practice-grid')).toBeInTheDocument();
     expect(screen.getByText('محاضرة الالتهابات')).toBeInTheDocument();
+    // محاضرة القلب belongs to s2 — the subject filter excludes it.
     expect(screen.queryByText('محاضرة القلب')).not.toBeInTheDocument();
   });
 
@@ -208,17 +215,17 @@ describe('My Studies — subjectId query-param filtering', () => {
 // ================= Push 6 Task 3a: subject card click flow =================
 
 describe('SubjectsPage — card click flow (modal vs redirect)', () => {
-  it('routes an entitled subject card into the filtered /study hub (15.4.4b)', async () => {
+  it('routes an entitled subject card into the standalone exams page (16.1a)', async () => {
     renderSubjectsAt(FULL_CASCADE_PARAMS);
 
-    // s1 is entitled (QuestionsExams) → tab=exams deep link.
+    // s1 is entitled (QuestionsExams) → /exams?subjectId= deep link.
     fireEvent.click((await screen.findAllByTestId('subject-card-open'))[0]);
 
     await waitFor(() => {
-      expect(screen.getByTestId('location-probe').getAttribute('data-path')).toBe('/study');
+      expect(screen.getByTestId('location-probe').getAttribute('data-path')).toBe('/exams');
     });
-    expect(screen.getByTestId('location-probe').getAttribute('data-search')).toBe('?subjectId=s1&tab=exams');
-    expect(await screen.findByTestId('study-panel-exams')).toBeInTheDocument();
+    expect(screen.getByTestId('location-probe').getAttribute('data-search')).toBe('?subjectId=s1');
+    expect(await screen.findByTestId('study-exams-tab')).toBeInTheDocument();
   });
 
   it('opens the activation modal over the page for an unentitled subject (no navigation)', async () => {

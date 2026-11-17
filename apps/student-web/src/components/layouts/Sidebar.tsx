@@ -1,24 +1,30 @@
-// CMS student sidebar (W15.1): 3 sections — القائمة الرئيسية / الموارد / المزيد.
+// CMS student sidebar (W15.1 → W16.1a): 2 sections — القائمة الرئيسية / الموارد.
 // The Push-8 "hero" دراستي pill is dissolved into a regular primary item (the
 // reference mockup groups it as a regular entry, not a hero).
-// W15.1 (A.4): the "الدورات الامتحانية" entry was REMOVED — the storefront now
-// lives at /exam-courses (standalone since 15.4.2), reachable from every device
+// W15.1 (A.4): the "الدورات الامتحانية" entry was REMOVED — the storefront lives
+// at /exam-courses (standalone since 15.4.2), reachable from every device
 // (the old sidebar link was desktop-only and added a redundant navigation path).
 // The tablet rail keeps an 84px icon-only column (md), full labels on desktop (lg);
 // all widths/heights consume the layout tokens from globals.css.
 //
-// 15.1.5: the four study hub links (دراستي + المكتبة + الكورسات + بنك الأسئلة)
+// 15.1.5: the study hub links (دراستي + المكتبة + الكورسات + بنك الأسئلة)
 // no longer use NavLink — it matches by pathname only, so all four stayed
 // highlighted at once on any hub URL. They render as Links with
 // explicit pathname + ?tab= detection (isStudyItemActive below) so exactly
 // ONE item is active at a time.
-// 15.4.4b: the hub links point at /study (was /my-studies — that URL now
-// transparently redirects there). تقدمي and لوحة الصدارة join them from
-// المزيد: /study?tab=progress / ?tab=leaderboard (tab-aware detection too).
+//
+// W16.1a: «المزيد» is dissolved —
+//   - الاختبارات (/exams) and لوحة الصدارة (/leaderboard) are standalone
+//     pages and join القائمة الرئيسية as regular NavLink items;
+//   - تقدمي folds into دراستي (progress is the hub's default tab);
+//   - بنك الأسئلة gets its own hub tab (/study?tab=bank — NEW href; the
+//     content mount lands in Wave 16.1b);
+//   - تفعيل كود and الإعدادات move into the Profile page (quick links
+//     section there); the routes stay as deep links.
 import { Link, NavLink, useLocation, useSearchParams } from 'react-router-dom';
 import {
-  BarChart3, BookOpen, BookOpenCheck, ClipboardCheck, GraduationCap, LayoutGrid,
-  MonitorPlay, Settings, Star, Ticket, Trophy, UserRound,
+  BookOpen, BookOpenCheck, ClipboardCheck, ClipboardList, GraduationCap, LayoutGrid,
+  MonitorPlay, Star, Trophy, UserRound,
 } from 'lucide-react';
 import { cn } from '@/utils';
 
@@ -30,6 +36,9 @@ const navGroups = [
       { slug: 'dashboard', to: '/dashboard', icon: LayoutGrid, label: 'الرئيسية' },
       { slug: 'my-studies', to: '/study', icon: BookOpenCheck, label: 'دراستي' },
       { slug: 'subjects', to: '/subjects', icon: GraduationCap, label: 'المواد' },
+      // W16.1a — standalone pages join the primary group.
+      { slug: 'exams', to: '/exams', icon: ClipboardCheck, label: 'الاختبارات' },
+      { slug: 'leaderboard', to: '/leaderboard', icon: Trophy, label: 'لوحة الصدارة' },
       { slug: 'favorites', to: '/favorites', icon: Star, label: 'المفضلة' },
       { slug: 'profile', to: '/profile', icon: UserRound, label: 'حسابي' },
     ],
@@ -40,20 +49,8 @@ const navGroups = [
     items: [
       { slug: 'library', to: '/study?tab=library', icon: BookOpen, label: 'المكتبة' },
       { slug: 'courses', to: '/study?tab=courses', icon: MonitorPlay, label: 'الكورسات' },
-      { slug: 'exams', to: '/study?tab=exams', icon: ClipboardCheck, label: 'بنك الأسئلة' },
-    ],
-  },
-  // TEMPORARY (Wave 15.1): These 4 items will be relocated in
-  // Wave 15.4 (Study reshape + Profile merge). Kept here so no
-  // route becomes unreachable in the interim. See DEBT-ORPHAN-01.
-  {
-    id: 'more',
-    label: 'المزيد',
-    items: [
-      { slug: 'stats', to: '/study?tab=progress', icon: BarChart3, label: 'تقدمي' },
-      { slug: 'leaderboard', to: '/study?tab=leaderboard', icon: Trophy, label: 'لوحة الصدارة' },
-      { slug: 'activate-code', to: '/activate-code', icon: Ticket, label: 'تفعيل كود' },
-      { slug: 'settings', to: '/settings', icon: Settings, label: 'الإعدادات' },
+      // W16.1a — بنك الأسئلة gets its own hub tab (content mount: 16.1b).
+      { slug: 'bank', to: '/study?tab=bank', icon: ClipboardList, label: 'بنك الأسئلة' },
     ],
   },
 ];
@@ -66,24 +63,21 @@ export function Sidebar() {
   // (end=false, pathname-only matching) marked ALL study items active on
   // any /study URL. Compare BOTH the pathname and the ?tab= param: the
   // tab-carrying items own their exact tab; دراستي owns the tab-less URL plus
-  // the tabs with no dedicated sidebar item. 15.4.4b — the hub's default tab
-  // is 'overview' (StudyPage falls back to it when ?tab= is absent or
-  // invalid), and تقدمي / لوحة الصدارة joined from المزيد as
-  // ?tab=progress / ?tab=leaderboard, so they take the tab-aware path too.
+  // the tabs with no dedicated sidebar item.
+  // W16.1a — the dedicated hub items are library, courses, bank (الموارد).
+  // Everything else (progress — the hub's DEFAULT tab since 16.1a — and
+  // unknown values StudyPage falls back from) folds into دراستي.
   function isStudyItemActive(to: string): boolean {
     const [path, query = ''] = to.split('?');
     if (location.pathname !== path) return false;
     const toTab = new URLSearchParams(query).get('tab');
     const currentTab = searchParams.get('tab');
     if (toTab) return currentTab === toTab;
-    // دراستي is active when no tab is present (hub home), OR when
-    // the active tab is one that has no dedicated sidebar item.
-    // Dedicated items own: library, courses, exams (الموارد) +
-    // progress, leaderboard (المزيد). Everything else (overview,
-    // unknown values StudyPage falls back from) folds into دراستي.
+    // دراستي is active when no tab is present (hub home — default tab is
+    // progress), OR when the active tab has no dedicated sidebar item.
     return (
       !currentTab ||
-      !['library', 'courses', 'exams', 'progress', 'leaderboard'].includes(currentTab)
+      !['library', 'courses', 'bank'].includes(currentTab)
     );
   }
 
@@ -114,7 +108,9 @@ export function Sidebar() {
           <nav className="space-y-1">
             {group.items.map((item) => {
               // 15.1.5 — the /study hub links take the custom ?tab= detection
-              // (Link + explicit aria-current); everything else stays NavLink.
+              // (Link + explicit aria-current); everything else stays NavLink
+              // (الاختبارات / لوحة الصدارة included — pathname matching covers
+              // their deep links: /exams/:id, /leaderboard…).
               const isStudyLink = item.to === '/study' || item.to.startsWith('/study?');
               if (isStudyLink) {
                 const active = isStudyItemActive(item.to);

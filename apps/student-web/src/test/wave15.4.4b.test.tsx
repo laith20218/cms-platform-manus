@@ -8,14 +8,17 @@ import { useSubjectModal, type SubjectForModal } from '@/features/subjects/Subje
 import { SubjectModalProvider } from '@/features/subjects/SubjectModalProvider';
 
 // ---------------------------------------------------------------------------
-// Wave 15.4.4b — every UI surface that pointed at the legacy /my-studies hub
-// (and the old /stats, /leaderboard standalone pages for المزيد) now points
-// at /study with the appropriate ?tab=. These tests pin the link TARGETS of
-// the primary navigation surfaces; the redirect behavior of the old URLs is
-// covered by wave15.4.4a.test.tsx.
+// Wave 15.4.4b → W16.1a — every UI surface that pointed at the legacy
+// /my-studies hub (and the old /stats, /leaderboard standalone pages for
+// المزيد) now points at /study with the appropriate ?tab=. W16.1a dissolves
+// المزيد: الاختبارات and لوحة الصدارة point at their standalone pages
+// (/exams, /leaderboard), بنك الأسئلة gets its own hub tab (?tab=bank), and
+// تقدمي folds into دراستي (progress is the hub default). The redirect
+// behavior of the retired URLs is covered by wave15.4.4a.test.tsx +
+// my-studies.test.tsx.
 // ---------------------------------------------------------------------------
 
-describe('W15.4.4b — Sidebar points at /study', () => {
+describe('W16.1a — Sidebar points at the new surfaces', () => {
   function renderSidebar() {
     return render(
       <MemoryRouter initialEntries={['/dashboard']}>
@@ -39,19 +42,27 @@ describe('W15.4.4b — Sidebar points at /study', () => {
     expect(screen.getByTestId('sidebar-item-courses')).toHaveAttribute('href', '/study?tab=courses');
   });
 
-  it('بنك الأسئلة links to /study?tab=exams', () => {
+  it('بنك الأسئلة links to /study?tab=bank (NEW href — was ?tab=exams)', () => {
     renderSidebar();
-    expect(screen.getByTestId('sidebar-item-exams')).toHaveAttribute('href', '/study?tab=exams');
+    expect(screen.getByTestId('sidebar-item-bank')).toHaveAttribute('href', '/study?tab=bank');
   });
 
-  it('تقدمي (المزيد) links to /study?tab=progress (was /stats)', () => {
+  it('الاختبارات links to the standalone /exams page (NEW)', () => {
     renderSidebar();
-    expect(screen.getByTestId('sidebar-item-stats')).toHaveAttribute('href', '/study?tab=progress');
+    expect(screen.getByTestId('sidebar-item-exams')).toHaveAttribute('href', '/exams');
   });
 
-  it('لوحة الصدارة (المزيد) links to /study?tab=leaderboard (was /leaderboard)', () => {
+  it('لوحة الصدارة links to the standalone /leaderboard page (NEW — was ?tab=leaderboard)', () => {
     renderSidebar();
-    expect(screen.getByTestId('sidebar-item-leaderboard')).toHaveAttribute('href', '/study?tab=leaderboard');
+    expect(screen.getByTestId('sidebar-item-leaderboard')).toHaveAttribute('href', '/leaderboard');
+  });
+
+  it('المزيد is gone — no تقدمي/تفعيل كود/الإعدادات items remain', () => {
+    renderSidebar();
+    expect(screen.queryByTestId('sidebar-group-more')).toBeNull();
+    expect(screen.queryByTestId('sidebar-item-stats')).toBeNull();
+    expect(screen.queryByTestId('sidebar-item-activate-code')).toBeNull();
+    expect(screen.queryByTestId('sidebar-item-settings')).toBeNull();
   });
 });
 
@@ -85,7 +96,7 @@ describe('W15.4.4b — SubjectModal actions point at /study', () => {
     );
   }
 
-  it('الاختبارات navigates to /study?subjectId=s1&tab=exams', async () => {
+  it('الاختبارات navigates to /exams?subjectId=s1 (W16.1a — was /study?subjectId=s1&tab=exams)', async () => {
     render(
       <MemoryRouter>
         <SubjectModalProvider>
@@ -99,7 +110,7 @@ describe('W15.4.4b — SubjectModal actions point at /study', () => {
 
     expect(await screen.findByTestId('subject-action-exams')).toHaveAttribute(
       'href',
-      '/study?subjectId=s1&tab=exams',
+      '/exams?subjectId=s1',
     );
     // The sibling actions carry the same /study base (subjectId preserved).
     expect(screen.getByTestId('subject-action-library')).toHaveAttribute(
