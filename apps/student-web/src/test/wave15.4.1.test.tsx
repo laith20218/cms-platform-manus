@@ -146,12 +146,16 @@ describe('StudyPage — 4-tab hub (15.4.1 → 16.1a)', () => {
     expect(screen.getByTestId('study-tab-progress').getAttribute('aria-selected')).toBe('false');
   });
 
-  it('renders the bank tab placeholder (16.1a shell — content mount is 16.1b)', () => {
+  it('renders the exam-courses storefront in the bank tab (16.1b — D2-a mount)', async () => {
     renderStudyAt('/study?tab=bank');
 
     expect(screen.getByTestId('study-tab-bank').getAttribute('aria-selected')).toBe('true');
     expect(screen.getByTestId('study-panel-bank')).toBeInTheDocument();
-    expect(screen.getByTestId('study-bank-placeholder')).toBeInTheDocument();
+    // The catalog mounts as the bank panel (hideHeader — the hub owns the h1);
+    // the 16.1a placeholder is gone. No published courses → the catalog's empty state.
+    expect(screen.queryByTestId('study-bank-placeholder')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('exam-courses-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('exam-courses-tab-years').getAttribute('aria-selected')).toBe('true');
   });
 
   it('shows the subject filter chip when ?subjectId= is present', async () => {

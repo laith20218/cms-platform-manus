@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { AppShell } from '@/components/layouts/AppShell';
 import { LoadingScreen } from '@/components/ui/LoadingScreen';
@@ -42,13 +42,7 @@ const PrivacyPage = lazy(() => import('@/features/legal/PrivacyPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 const ActivateCodePage = lazy(() => import('@/features/subscriptions/ActivateCodePage'));
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage'));
-// W14.4 — exam courses detail (the storefront itself now lives in the hub).
-const ExamCourseDetailPage = lazy(() => import('@/features/exam-courses/pages/ExamCourseDetailPage'));
 const PracticePage = lazy(() => import('@/features/practice/pages/PracticePage'));
-// W15.4.2 — the exam-courses storefront is a real standalone page again
-// (parallel build). Direct URL only until the 15.4.4 cutover; the 3 internal
-// links keep pointing at /my-studies?tab=exam-courses until then.
-const ExamCoursesPage = lazy(() => import('@/features/exam-courses/pages/ExamCoursesPage').then(({ ExamCoursesPage }) => ({ default: ExamCoursesPage })));
 
 // P2-31: Hide OTP route when OtpEnabled=false
 const otpEnabled = import.meta.env.VITE_OTP_ENABLED === 'true';
@@ -81,7 +75,7 @@ export function AppRoutes() {
           <Route path="/favorites" element={<FavoritesPage />} />
           {/* W15.4.4a — /my-studies cutover: the legacy hub redirects into /study
               (tab map in MyStudiesRedirect: practice → exams&subtab=practice,
-              exam-courses → /exam-courses, library/courses/exams → ?tab=X).
+              exam-courses → /study?tab=bank, library/courses/exams → ?tab=X).
               /my-studies/courses/:courseId below still renders the real player. */}
           <Route path="/my-studies" element={<MyStudiesRedirect />} />
           <Route path="/my-studies/courses/:courseId" element={<CoursePlayerPage />} />
@@ -105,10 +99,13 @@ export function AppRoutes() {
           {/* 5C: Missing features */}
           <Route path="/activate-code" element={<ActivateCodePage />} />
           <Route path="/settings" element={<SettingsPage />} />
-          {/* W15.4.2 — the storefront is a real page (parallel build); the hub tab
-              at /my-studies?tab=exam-courses keeps working until the 15.4.4 cutover. */}
-          <Route path="/exam-courses" element={<ExamCoursesPage />} />
-          <Route path="/exam-courses/:courseId" element={<ExamCourseDetailPage />} />
+          {/* W16.1b (D2-a) — legacy /exam-courses routes redirect into the hub's
+              bank tab: the storefront (ExamCoursesCatalog) and the bundle detail
+              (ExamCourseDetailPage) mount inside /study?tab=bank now. Both routes
+              preserve every query param (subjectId, cascade levels, examTab…);
+              the detail route also moves :courseId into ?courseId=. */}
+          <Route path="/exam-courses" element={<ExamCoursesRedirect />} />
+          <Route path="/exam-courses/:courseId" element={<ExamCoursesRedirect />} />
           {/* W15.4.4a — bare /practice lands on the practice sub-tab of the
               exams page (W16.1a: /exams standalone — was /study?tab=exams&subtab=practice). */}
           <Route path="/practice" element={<Navigate to="/exams?subtab=practice" replace />} />
@@ -134,4 +131,17 @@ function RouteBoundary({ children }: { children: React.ReactNode }) {
       <Suspense fallback={<LoadingScreen />}>{children}</Suspense>
     </ErrorBoundary>
   );
+}
+
+/** W16.1b (D2-a) — legacy /exam-courses/:courseId deep links redirect into the
+ *  hub's bank tab. courseId moves from the path into the ?courseId= query param
+ *  (ExamCourseDetailPage reads it from useSearchParams now); every OTHER query
+ *  param (subjectId, cascade levels, examTab…) rides along unchanged. */
+function ExamCoursesRedirect() {
+  const { courseId } = useParams<{ courseId: string }>();
+  const [params] = useSearchParams();
+  const next = new URLSearchParams(params);
+  next.set('tab', 'bank');
+  if (courseId) next.set('courseId', courseId);
+  return <Navigate to={`/study?${next.toString()}`} replace />;
 }

@@ -71,6 +71,16 @@ const TREE_S1 = {
   ],
 };
 
+// W16.1b (D2-a) — the bundle detail rides on ?courseId= inside the hub now.
+const DETAIL_EC1 = {
+  id: 'ec1', nameAr: 'دورة 2025 الأولى', nameEn: null, description: null, coverUrl: null,
+  year: 2025, semester: 1, courseType: 'First', freeOrPaid: true,
+  exams: [
+    { examId: 'ex1', titleAr: 'اختبار 1', durationMinutes: 45, totalQuestions: 30, sortOrder: 0, inProgress: true, completed: false, attemptCount: 1, bestScore: null },
+    { examId: 'ex2', titleAr: 'اختبار 2', durationMinutes: 60, totalQuestions: 40, sortOrder: 1, inProgress: false, completed: true, attemptCount: 2, bestScore: 80 },
+  ],
+};
+
 const UNIVERSITIES = { items: [{ id: 'u1', nameAr: 'جامعة حمص', collegesCount: 1 }] };
 const COLLEGES_U1 = [{ id: 'c1', nameAr: 'الطب البشري', yearsCount: 1 }];
 const YEARS_C1 = [{ id: 'y1', nameAr: 'السنة الثالثة', semestersCount: 1 }];
@@ -81,6 +91,7 @@ function stubGet() {
     if (url.includes('/subjects/my-subjects')) return { data: ENTITLED_SUBJECTS };
     if (url.includes('/practice/categorized/s1')) return { data: TREE_S1 };
     if (url.includes('/exam-courses/subject/s1')) return { data: COURSES_S1 };
+    if (url.includes('/exam-courses/ec1')) return { data: DETAIL_EC1 };
     if (url === '/universities') return { data: UNIVERSITIES };
     if (url === '/universities/u1/colleges') return { data: COLLEGES_U1 };
     if (url === '/colleges/c1/years') return { data: YEARS_C1 };
@@ -114,34 +125,46 @@ beforeEach(() => {
   stubGet();
 });
 
-// ================= W15.4.2: the standalone /exam-courses page =================
+// ================= W16.1b (D2-a): /exam-courses redirects into the bank tab =================
 
-describe('ExamCoursesPage — standalone /exam-courses route (15.4.2)', () => {
-  it('renders the page directly at /exam-courses (no hub redirect)', async () => {
+describe('Legacy /exam-courses routes redirect into the hub bank tab (16.1b D2-a)', () => {
+  it('redirects /exam-courses into /study?tab=bank and renders the storefront there', async () => {
     renderApp(`/exam-courses?${FULL_CASCADE_PARAMS}`);
 
-    // The page shell renders with its h1 header (lazy chunk + data resolve async).
-    expect(await screen.findByTestId('exam-courses-page')).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { level: 1, name: 'الدورات الامتحانية' })).toBeInTheDocument();
-
-    // The catalog renders its years lens (default) with the cascade applied.
+    // The hub shell renders (h1 دراستي) and its bank panel hosts the catalog.
+    expect(await screen.findByTestId('study-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('study-panel-bank')).toBeInTheDocument();
     expect(await screen.findByTestId('exam-courses-list')).toBeInTheDocument();
     expect(screen.getByTestId('exam-courses-tab-years').getAttribute('aria-selected')).toBe('true');
+    // The hub owns the page h1 — the catalog's own header stays hidden in it.
+    expect(screen.queryByRole('heading', { name: 'الدورات الامتحانية' })).toBeNull();
 
-    // KEY behavioral change: the URL stays on /exam-courses (was /my-studies).
-    expect(screen.getByTestId('location-probe').getAttribute('data-path')).toBe('/exam-courses');
+    // The redirect preserves every other query param (cascade + subjectId).
+    const probe = screen.getByTestId('location-probe');
+    expect(probe.getAttribute('data-path')).toBe('/study');
+    expect(probe.getAttribute('data-search')).toContain('tab=bank');
+    expect(probe.getAttribute('data-search')).toContain('universityId=u1');
+    expect(probe.getAttribute('data-search')).toContain('subjectId=s1');
   });
 
-  it('renders the categorized lens from ?examTab=categorized', async () => {
+  it('redirects with ?examTab=categorized preserved (the categorized lens renders)', async () => {
     renderApp(`/exam-courses?${FULL_CASCADE_PARAMS}&examTab=categorized`);
 
     expect(await screen.findByTestId('exam-courses-panel-categorized')).toBeInTheDocument();
     expect(await screen.findByTestId('categorized-tree')).toBeInTheDocument();
     expect(screen.getByTestId('exam-courses-tab-categorized').getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByTestId('location-probe').getAttribute('data-path')).toBe('/exam-courses');
+    const probe = screen.getByTestId('location-probe');
+    expect(probe.getAttribute('data-path')).toBe('/study');
+    expect(probe.getAttribute('data-search')).toContain('examTab=categorized');
   });
 
-  // W15.4.4a: the former "storefront inside the hub at /my-studies?tab=exam-courses"
-  // regression test is retired — the hub URL now redirects to /exam-courses, which
-  // is covered by the two tests above + wave15.4.4a.test.tsx (redirect assertions).
+  it('redirects /exam-courses/:courseId into /study?tab=bank&courseId=… (detail mounts in the hub)', async () => {
+    renderApp('/exam-courses/ec1');
+
+    expect(await screen.findByTestId('study-panel-bank')).toBeInTheDocument();
+    expect(await screen.findByTestId('course-exam-ex1')).toBeInTheDocument();
+    const probe = screen.getByTestId('location-probe');
+    expect(probe.getAttribute('data-path')).toBe('/study');
+    expect(probe.getAttribute('data-search')).toBe('?tab=bank&courseId=ec1');
+  });
 });

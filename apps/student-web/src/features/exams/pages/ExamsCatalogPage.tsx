@@ -180,7 +180,7 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
       ) : visibleSubjects.length === 0 ? (
         // W15.1 (C.2): the empty state matches the LockedEmptyState anatomy —
         // decorative gradient blob, tinted icon tile, title + hint, and an actionable
-        // CTA into the exam-courses tab (practice material) instead of a dead end.
+        // CTA into the bank tab (practice material) instead of a dead end.
         // Every color rides the --c-* tokens, so dark mode adapts automatically.
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -201,7 +201,7 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
             الاختبارات الجديدة تظهر هنا بمجرد نشرها — في هذه الأثناء يمكنك التدرّب على نماذج الاختبارات من الدورات الامتحانية.
           </p>
           <Link
-            to="/exam-courses"
+            to="/study?tab=bank"
             data-testid="exams-empty-cta"
             className="press inline-flex min-h-11 items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold text-white shadow-md transition-transform hover:scale-[1.03] active:scale-95"
             style={{ background: 'var(--grad-primary)' }}

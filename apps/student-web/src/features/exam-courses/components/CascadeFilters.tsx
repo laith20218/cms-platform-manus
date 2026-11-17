@@ -16,7 +16,7 @@ import {
 
 /**
  * W15.0 — the University → College → Year → Semester → Subject cascading filter bar
- * on /exam-courses (now the My Studies → الدورات الامتحانية tab). Each level rides
+ * on /exam-courses (now the /study hub's bank tab — /study?tab=bank, W16.1b D2-a). Each level rides
  * the EXISTING per-level endpoints (academicApi — DIAG-2: no aggregate tree endpoint
  * exists; levels are cached independently by React Query so revisits are instant).
  * Choosing a level clears everything below it; «الكل» resets that level and its

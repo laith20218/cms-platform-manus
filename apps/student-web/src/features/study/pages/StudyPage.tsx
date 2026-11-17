@@ -9,6 +9,8 @@ import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { ProgressTab } from '../components/ProgressTab';
 import { LibraryTab } from '../components/LibraryTab';
 import { CoursesTab } from '../components/CoursesTab';
+import { ExamCoursesCatalog } from '@/features/exam-courses/components/ExamCoursesCatalog';
+import ExamCourseDetailPage from '@/features/exam-courses/pages/ExamCourseDetailPage';
 
 /**
  * "/study" hub (Wave 15.4.1 → Wave 16.1a). The 4-tab home for study
@@ -23,9 +25,12 @@ import { CoursesTab } from '../components/CoursesTab';
  *                    forwarded (R1).
  *   - leaderboard → REMOVED from the hub — the standalone /leaderboard page
  *                    renders it. Legacy ?tab=leaderboard redirects there (R1).
- *   - bank         → NEW tab (بنك الأسئلة). The content mount itself is Wave
- *                    16.1b (D2-a — QuestionBankTab + exam-course detail);
- *                    until then the tab renders an explicit placeholder card.
+ *   - bank         → the exam-courses storefront mounts here (W16.1b — D2-a):
+ *                    ExamCoursesCatalog (years/categorized lenses) renders as
+ *                    the panel, and a ?courseId= param swaps in the bundle
+ *                    detail (ExamCourseDetailPage) instead. Legacy /exam-courses
+ *                    routes redirect into this tab. The catalog's own header
+ *                    is suppressed (hideHeader) — the hub owns the h1.
  */
 const TABS = [
   { key: 'progress', label: 'تقدمي', icon: BarChart3 },
@@ -65,6 +70,10 @@ export function StudyPage() {
 
   const tab: TabKey = isTabKey(rawTab) ? rawTab : 'progress';
   const filteredSubject = (mySubjects.data ?? []).find((s) => s.id === subjectId) ?? null;
+  // W16.1b (D2-a) — the bundle detail deep-link param: ?tab=bank&courseId=…
+  // swaps the catalog panel for ExamCourseDetailPage (courseId flows through
+  // useSearchParams; the legacy /exam-courses/:courseId route redirects here).
+  const courseIdParam = searchParams.get('courseId');
 
   // Tab switches PRESERVE the full param set (subjectId, cascade levels…)
   // instead of rebuilding the URL from scratch.
@@ -178,7 +187,13 @@ export function StudyPage() {
             <LibraryTab subjectId={subjectId} />
           </ErrorBoundary>
         )}
-        {tab === 'bank' && <BankTabPlaceholder />}
+        {tab === 'bank' && (
+          <ErrorBoundary title="تعذّر تحميل الدورات الامتحانية">
+            {/* W16.1b (D2-a) — the storefront mounts in the bank tab: the catalog
+                by default, the bundle detail when ?courseId= rides in the URL. */}
+            {courseIdParam ? <ExamCourseDetailPage /> : <ExamCoursesCatalog hideHeader />}
+          </ErrorBoundary>
+        )}
         {tab === 'courses' && (
           <ErrorBoundary title="تعذّر تحميل الكورسات">
             <CoursesTab subjectId={subjectId} />
@@ -186,28 +201,5 @@ export function StudyPage() {
         )}
       </div>
     </div>
-  );
-}
-
-/**
- * W16.1a — the bank tab's shell. The QuestionBank content mount is Wave
- * 16.1b (D2-a): until then the tab shows an explicit "being prepared"
- * card so the sidebar's بنك الأسئلة entry lands on a real, labeled
- * surface instead of falling back to the default tab.
- */
-function BankTabPlaceholder() {
-  return (
-    <section
-      data-testid="study-bank-placeholder"
-      className="rounded-2xl border border-dashed border-[var(--c-primary-200)] bg-[var(--c-surface)] p-8 text-center"
-    >
-      <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--c-primary-50)] text-[var(--c-primary-700)]">
-        <ClipboardList className="h-6 w-6" />
-      </div>
-      <h2 className="text-lg font-bold text-[var(--c-text)]">بنك الأسئلة</h2>
-      <p className="mt-2 text-sm leading-6 text-[var(--c-text-muted)]">
-        قيد التجهيز — يُركّب محتوى بنك الأسئلة في الموجة 16.1b، وسيظهر هنا متصلاً بموادك ومحاضراتك وتدريباتك المصنّفة.
-      </p>
-    </section>
   );
 }

@@ -5,7 +5,9 @@ import { useSearchParams, Navigate } from 'react-router-dom';
  * mounted at /my-studies (the parallel /study hub from 15.4.1 takes over).
  * This transparent redirect keeps every legacy URL working:
  *
- *   /my-studies?tab=exam-courses      → /exam-courses (standalone page, 15.4.2)
+ *   /my-studies?tab=exam-courses      → /study?tab=bank (W16.1b — D2-a: the
+ *                                        storefront mounts in the hub's bank
+ *                                        tab; was /exam-courses, 15.4.2)
  *   /my-studies?tab=practice           → /exams?subtab=practice (W16.1a — was
  *                                        /study?tab=exams&subtab=practice, 15.4.3)
  *   /my-studies?tab=library|courses    → /study?tab=<same key>
@@ -20,12 +22,13 @@ export function MyStudiesRedirect() {
   const tab = params.get('tab');
   const subjectId = params.get('subjectId');
 
-  // exam-courses → /exam-courses
+  // exam-courses → /study?tab=bank (W16.1b — D2-a: the storefront mounts in
+  // the hub's bank tab; subjectId rides along as the hub filter param)
   if (tab === 'exam-courses') {
     const next = new URLSearchParams();
+    next.set('tab', 'bank');
     if (subjectId) next.set('subjectId', subjectId);
-    const qs = next.toString();
-    return <Navigate to={'/exam-courses' + (qs ? '?' + qs : '')} replace />;
+    return <Navigate to={'/study?' + next.toString()} replace />;
   }
 
   // practice → /exams?subtab=practice (W16.1a — the exams surface is
