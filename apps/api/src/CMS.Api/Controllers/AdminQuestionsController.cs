@@ -86,7 +86,8 @@ public sealed class AdminQuestionsController : ControllerBase
             question.CreatedAt,
             question.UpdatedAt,
             question.Year,
-            question.ParagraphTag)).ToList();
+            question.ParagraphTag,
+            question.SemesterCourseId)).ToList(); // Wave 16.2 (C3-3): الدورة anchor
 
         return Ok(new PagedResult<AdminQuestionListItemDto>(
             items,
@@ -395,5 +396,6 @@ public sealed class AdminQuestionsController : ControllerBase
             .Select(option => new QuestionOptionDto(option.Id, option.OptionLetter, option.Text, option.ImageUrl)).ToList(),
         question.CreatedAt,
         question.UpdatedAt,
-        question.ParagraphTag);
+        question.ParagraphTag,
+        question.SemesterCourseId); // Wave 16.2 (C3-3): الدورة anchor
 }

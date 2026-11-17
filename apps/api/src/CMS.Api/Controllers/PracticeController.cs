@@ -49,7 +49,8 @@ public sealed class PracticeController : ControllerBase
         var rejection = await SessionEntitlementRejectionAsync(studentId.Value, sessionId, ct);
         if (rejection is not null) return rejection;
         // W14.4: the categorized lens is echoed by the client and re-verified per answer.
-        var filter = MapFilter(dto.LectureId, dto.UntaggedLecture, dto.ParagraphTag, dto.UntaggedTag);
+        // W16.2 (C3-2): the lens accepts the multi-lecture form.
+        var filter = MapFilter(dto.LectureId, dto.UntaggedLecture, dto.ParagraphTag, dto.UntaggedTag, dto.LectureIds);
         return Ok(await _mediator.Send(new SubmitPracticeAnswerCommand(
             studentId.Value, sessionId, dto.QuestionId, dto.SelectedAnswer, dto.DurationSeconds, dto.AnsweredAt, filter), ct));
     }
@@ -87,7 +88,7 @@ public sealed class PracticeController : ControllerBase
         if (rejection is not null) return rejection;
         var categoryFilter = filter is null
             ? null
-            : MapFilter(filter.LectureId, filter.UntaggedLecture, filter.ParagraphTag, filter.UntaggedTag);
+            : MapFilter(filter.LectureId, filter.UntaggedLecture, filter.ParagraphTag, filter.UntaggedTag, filter.LectureIds);
         return Ok(await _mediator.Send(new GetPracticeProgressQuery(studentId.Value, sessionId, categoryFilter), ct));
     }
 
@@ -117,17 +118,19 @@ public sealed class PracticeController : ControllerBase
         if (rejection is not null) return rejection;
         return Ok(await _mediator.Send(new StartCategorizedPracticeCommand(
             studentId.Value, subjectId,
-            dto?.LectureId, dto?.UntaggedLecture ?? false, dto?.ParagraphTag, dto?.UntaggedTag ?? false), ct));
+            dto?.LectureId, dto?.UntaggedLecture ?? false, dto?.ParagraphTag, dto?.UntaggedTag ?? false,
+            dto?.LectureIds), ct)); // W16.2 (C3-2): multi-lecture start
     }
 
     // ===== helpers =====
 
     private Guid? GetStudentId() => Guid.TryParse(User.FindFirst("sub")?.Value, out var id) ? id : null;
 
-    /// <summary>NULL when the client sent no lens (exam-composition semantics stay W14.2).</summary>
-    private static PracticeCategoryFilter? MapFilter(Guid? lectureId, bool untaggedLecture, string? paragraphTag, bool untaggedTag) =>
-        lectureId.HasValue || untaggedLecture || !string.IsNullOrWhiteSpace(paragraphTag) || untaggedTag
-            ? new PracticeCategoryFilter(lectureId, untaggedLecture, paragraphTag, untaggedTag)
+    /// <summary>NULL when the client sent no lens (exam-composition semantics stay W14.2).
+    /// W16.2 (C3-2): a multi-lecture echo also constitutes a lens.</summary>
+    private static PracticeCategoryFilter? MapFilter(Guid? lectureId, bool untaggedLecture, string? paragraphTag, bool untaggedTag, List<Guid>? lectureIds = null) =>
+        lectureId.HasValue || untaggedLecture || !string.IsNullOrWhiteSpace(paragraphTag) || untaggedTag || lectureIds is { Count: > 0 }
+            ? new PracticeCategoryFilter(lectureId, untaggedLecture, paragraphTag, untaggedTag, lectureIds)
             : null;
 
     private async Task<Guid?> SubjectIdForExamAsync(Guid examId, CancellationToken ct) =>

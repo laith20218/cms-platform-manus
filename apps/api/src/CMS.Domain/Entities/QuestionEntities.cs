@@ -20,6 +20,13 @@ public class Question : AuditableEntity
     public QuestionUsage QuestionUsage { get; private set; } = QuestionUsage.Both;
     public Guid SubjectId { get; private set; }
     public Guid? LectureId { get; private set; }
+    /// <summary>
+    /// Wave 16.2 (C3-3): FK of the exam-course ("دورة") anchor this question is scoped to.
+    /// NULL = bank-wide (subject-wide) question. The Owner decision names the concept
+    /// "SemesterCourse"; in THIS schema the semester-scoped course entity is ExamCourse
+    /// (W14.1 D1 — Year + Semester + Subject bundle), so the FK targets exam_courses.
+    /// </summary>
+    public Guid? SemesterCourseId { get; private set; }
     // W14.5 (Phase B): the legacy Question.ExamId column is DROPPED (migration
     // 20261117120000_DropQuestionExamId). Exams have been composed exclusively via
     // the ExamQuestion join since W14.2 (R75 P1) — the column sat dormant since then.
@@ -54,6 +61,8 @@ public class Question : AuditableEntity
     // Navigation
     public Subject Subject { get; private set; } = null!;
     public Lecture? Lecture { get; private set; }
+    /// <summary>Wave 16.2 (C3-3): the exam-course ("دورة") anchor — see SemesterCourseId.</summary>
+    public ExamCourse? SemesterCourse { get; private set; }
     public ICollection<ExamQuestion> ExamQuestions { get; private set; } = new List<ExamQuestion>();
     public List<QuestionOption> Options { get; private set; } = new();
     public ICollection<QuestionImage> Images { get; private set; } = new List<QuestionImage>();
@@ -125,6 +134,14 @@ public class Question : AuditableEntity
     {
         if (string.IsNullOrWhiteSpace(paragraphTag)) { ParagraphTag = null; }
         else { ParagraphTag = paragraphTag.Trim().Length > 200 ? paragraphTag.Trim()[..200] : paragraphTag.Trim(); }
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Wave 16.2 (C3-3): sets or clears the exam-course ("دورة") anchor — a nullable
+    /// scope annotation, never ownership: clearing it returns the question to bank-wide.</summary>
+    public void SetSemesterCourse(Guid? semesterCourseId)
+    {
+        SemesterCourseId = semesterCourseId;
         UpdatedAt = DateTime.UtcNow;
     }
 

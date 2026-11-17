@@ -2553,6 +2553,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("reports_count");
 
+                    b.Property<Guid?>("SemesterCourseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("semester_course_id");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer")
                         .HasColumnName("status");
@@ -2596,6 +2600,9 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("LectureId")
                         .HasDatabaseName("ix_questions_lecture_id");
+
+                    b.HasIndex("SemesterCourseId")
+                        .HasDatabaseName("ix_questions_semester_course_id");
 
                     b.HasIndex("SubjectId")
                         .HasDatabaseName("ix_questions_subject_id");
@@ -4129,6 +4136,12 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasForeignKey("LectureId")
                         .HasConstraintName("fk_questions_lectures_lecture_id");
 
+                    b.HasOne("CMS.Domain.Entities.ExamCourse", "SemesterCourse")
+                        .WithMany()
+                        .HasForeignKey("SemesterCourseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_questions_exam_courses_semester_course_id");
+
                     b.HasOne("CMS.Domain.Entities.Subject", "Subject")
                         .WithMany("Questions")
                         .HasForeignKey("SubjectId")
@@ -4137,6 +4150,8 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_questions_subjects_subject_id");
 
                     b.Navigation("Lecture");
+
+                    b.Navigation("SemesterCourse");
 
                     b.Navigation("Subject");
                 });

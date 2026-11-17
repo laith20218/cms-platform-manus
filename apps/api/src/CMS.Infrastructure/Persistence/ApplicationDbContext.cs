@@ -319,6 +319,19 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.ExamModel).WithMany().HasForeignKey(x => x.ExamModelId).OnDelete(DeleteBehavior.Restrict);
         });
+        // Wave 16.2 (C3-3): Question → exam-course ("دورة") anchor — an optional scope
+        // annotation, never ownership. Restrict follows the standing ruling that a hard
+        // delete must never silently rewrite content rows: deleting a دورة that still
+        // anchors questions is rejected; questions detach explicitly via SetSemesterCourse(null)
+        // (returning to bank-wide). The FK index serves the C3-1 random-draw filter.
+        modelBuilder.Entity<Question>(entity =>
+        {
+            entity.HasOne(question => question.SemesterCourse)
+                .WithMany()
+                .HasForeignKey(question => question.SemesterCourseId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(question => question.SemesterCourseId);
+        });
         // Wave 14.1 (D13): one saved answer per (session, question) query path. The
         // session cascades with its owner; Question is RESTRICT (D2 spirit — a question
         // with answer history must not hard-delete silently).
