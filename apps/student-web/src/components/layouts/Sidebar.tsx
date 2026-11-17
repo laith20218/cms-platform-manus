@@ -1,9 +1,10 @@
 // CMS student sidebar (W15.1 → W16.1a): 2 sections — القائمة الرئيسية / الموارد.
 // The Push-8 "hero" دراستي pill is dissolved into a regular primary item (the
 // reference mockup groups it as a regular entry, not a hero).
-// W15.1 (A.4): the "الدورات الامتحانية" entry was REMOVED — the storefront lives
-// at /exam-courses (standalone since 15.4.2), reachable from every device
-// (the old sidebar link was desktop-only and added a redundant navigation path).
+// W15.1 (A.4): the "الدورات الامتحانية" entry was REMOVED — and since
+// W16.1b (D2-a) the storefront mounts inside the /study hub's bank tab
+// (بنك الأسئلة → /study?tab=bank; the legacy /exam-courses routes
+// redirect there — the old sidebar link was desktop-only anyway).
 // The tablet rail keeps an 84px icon-only column (md), full labels on desktop (lg);
 // all widths/heights consume the layout tokens from globals.css.
 //
@@ -18,7 +19,7 @@
 //     pages and join القائمة الرئيسية as regular NavLink items;
 //   - تقدمي folds into دراستي (progress is the hub's default tab);
 //   - بنك الأسئلة gets its own hub tab (/study?tab=bank — NEW href; the
-//     content mount lands in Wave 16.1b);
+//     storefront content mounts there since Wave 16.1b);
 //   - تفعيل كود and الإعدادات move into the Profile page (quick links
 //     section there); the routes stay as deep links.
 import { Link, NavLink, useLocation, useSearchParams } from 'react-router-dom';

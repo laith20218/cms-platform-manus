@@ -191,13 +191,15 @@ describe('W15.4.4a — /my-studies cutover redirects', () => {
     expect(probe.getAttribute('data-search')).toBe('?subtab=practice');
   });
 
-  it('redirects /my-studies?tab=exam-courses to /exam-courses', async () => {
+  it('redirects /my-studies?tab=exam-courses to /study?tab=bank (W16.1b — D2-a)', async () => {
     renderApp('/my-studies?tab=exam-courses');
 
-    // The storefront standalone page (15.4.2) takes over the old hub tab.
-    expect(await screen.findByTestId('exam-courses-page')).toBeInTheDocument();
+    // The storefront mounts inside the hub's bank tab now (was /exam-courses, 15.4.2).
+    expect(await screen.findByTestId('study-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('study-panel-bank')).toBeInTheDocument();
     const probe = screen.getByTestId('location-probe');
-    expect(probe.getAttribute('data-path')).toBe('/exam-courses');
+    expect(probe.getAttribute('data-path')).toBe('/study');
+    expect(probe.getAttribute('data-search')).toBe('?tab=bank');
   });
 
   it('redirects bare /practice to /exams?subtab=practice (15.4.4a route → 16.1a target)', async () => {

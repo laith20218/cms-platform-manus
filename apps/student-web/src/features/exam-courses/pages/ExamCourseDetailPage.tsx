@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
@@ -14,9 +14,16 @@ import { CatalogEntitlementErrorCard, CatalogErrorCard } from '@/features/my-stu
  * student's attempt state. Each exam offers BOTH entries:
  *  • تدريب — a PracticeSession run (immediate feedback, resets — D13, B.1)
  *  • اختبار — the real ExamSession flow (timed, graded, attempt-limited)
+ *
+ * W16.1b (D2-a) — courseId now arrives via the ?courseId= query param
+ * (useSearchParams) because the page renders INSIDE the /study hub's bank tab
+ * (mounted by StudyPage when tab=bank&courseId=…). The legacy
+ * /exam-courses/:courseId path redirects to that URL; the back button
+ * returns to /study?tab=bank.
  */
 export default function ExamCourseDetailPage() {
-  const { courseId } = useParams<{ courseId: string }>();
+  const [searchParams] = useSearchParams();
+  const courseId = searchParams.get('courseId');
   const navigate = useNavigate();
   const query = useQuery({
     queryKey: ['exam-course-detail', courseId],
@@ -63,7 +70,7 @@ export default function ExamCourseDetailPage() {
     <div className="max-w-4xl mx-auto">
       <button
         type="button"
-        onClick={() => navigate('/exam-courses')}
+        onClick={() => navigate('/study?tab=bank')}
         className="press mb-4 inline-flex min-h-11 items-center gap-1.5 text-sm text-[var(--cms-text-muted)] hover:text-[var(--cms-teal-700)]"
       >
         <ChevronLeft className="w-4 h-4" aria-hidden="true" />

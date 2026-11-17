@@ -52,7 +52,7 @@ const TABS: { key: TabKey; label: string; icon: typeof CalendarDays }[] = [
  *  builds on main, which does not carry that API). */
 const CASCADE_STORAGE_KEY = 'cms-exam-courses-filters-v1';
 
-export function ExamCoursesCatalog() {
+export function ExamCoursesCatalog({ hideHeader = false }: { hideHeader?: boolean }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const mySubjects = useMySubjects();
@@ -194,7 +194,7 @@ export function ExamCoursesCatalog() {
   if (subjects.length === 0) {
     return (
       <div>
-        <CatalogHeader subjectName={subject?.nameAr ?? null} />
+        {!hideHeader && <CatalogHeader subjectName={subject?.nameAr ?? null} />}
         <CatalogEntitlementErrorCard
           variant="no-grants"
           onRetry={() => void mySubjects.refetch()}
@@ -206,7 +206,10 @@ export function ExamCoursesCatalog() {
 
   return (
     <div>
-      <CatalogHeader subjectName={subject?.nameAr ?? null} />
+      {/* W16.1b (D2-a): the /study hub's bank tab mounts this catalog with
+          hideHeader — the hub owns the page h1 and its bank tab provides the
+          section context, so the catalog's own header would duplicate it. */}
+      {!hideHeader && <CatalogHeader subjectName={subject?.nameAr ?? null} />}
 
       {/* W15.0 — University → College → Year → Semester → Subject cascade (URL-
           persisted, localStorage-restored, deep-linkable). Entitled subjects only at
@@ -268,7 +271,7 @@ export function ExamCoursesCatalog() {
               onYear={(year) => setYearOverride(year)}
               onSemester={(semester) => setSemesterFilter(semester)}
               visibleCourses={visibleCourses}
-              onOpenCourse={(courseId) => navigate(`/exam-courses/${courseId}`)}
+              onOpenCourse={(courseId) => navigate(`/study?tab=bank&courseId=${courseId}`)}
               refetch={() => void coursesQuery.refetch()}
             />
           </ErrorBoundary>
