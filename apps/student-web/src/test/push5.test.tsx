@@ -156,8 +156,9 @@ describe('LibraryHub — category filter tabs', () => {
     expect(screen.getAllByTestId('library-card-category').length).toBe(3); // f4 uncategorized → no badge
     expect(screen.getAllByText('تشريح مرضي').length).toBeGreaterThan(0);
     // Wave 15.5.1a (A1): cards open the DocumentViewer directly — no more
-    // two-hop navigate through /subjects/:slug/library.
-    const firstCard = screen.getByText('منهاج التشريح الرسمي').closest('button');
+    // two-hop navigate through /subjects/:slug/library. (v3.1: the card is a
+    // div[role=button] now — nested <button> in <button> was invalid HTML.)
+    const firstCard = screen.getByText('منهاج التشريح الرسمي').closest('[data-testid="library-card"]');
     expect(firstCard).not.toBeNull();
     fireEvent.click(firstCard!);
     await waitFor(() => {

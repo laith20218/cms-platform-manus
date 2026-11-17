@@ -418,10 +418,24 @@ export function LibraryHub({
             const badge = file.category ? CATEGORY_BADGES[file.category] : null;
             return (
               <motion.div key={file.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.04, 0.3) }}>
-                <button
-                  type="button"
+                {/* v3.1 — div, not <button>: the favorite <button> nests inside
+                    (v2 §1.9), and button-in-button is invalid HTML whose React
+                    validateDOMNesting error trips w13.6's console-clean check.
+                    role+tabIndex+keydown keep the card fully keyboard-operable. */}
+                <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedFile(file)}
-                  className="w-full text-start flex items-start gap-3 p-4 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] hover:border-[var(--c-primary-200)] hover:shadow-md hover:-translate-y-0.5 transition-all group"
+                  onKeyDown={(e) => {
+                    // The nested favorite button handles its own Enter/Space —
+                    // a bubbled keydown from it must not also open the viewer.
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault(); // Space scrolls the page otherwise
+                      setSelectedFile(file);
+                    }
+                  }}
+                  className="w-full text-start flex items-start gap-3 p-4 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] hover:border-[var(--c-primary-200)] hover:shadow-md hover:-translate-y-0.5 transition-all group cursor-pointer"
                   data-testid="library-card"
                 >
                   <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: meta.bg, color: meta.color }}>
@@ -469,7 +483,7 @@ export function LibraryHub({
                   >
                     <Bookmark className="w-4 h-4" fill={file.isFavorite ? 'currentColor' : 'none'} />
                   </button>
-                </button>
+                </div>
               </motion.div>
             );
           })}
