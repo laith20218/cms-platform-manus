@@ -41,12 +41,17 @@ public record GetPracticeProgressQuery(
 /// The (lecture, paragraphTag) lens of the categorized practice tree. NULL LectureId +
 /// UntaggedLecture=false means "no lecture constraint"; UntaggedLecture=true restricts to
 /// questions with NO lecture (the "غير مصنف" bucket). ParagraphTag behaves the same way.
+/// Wave 16.2 (C3-2): LectureIds is the multi-lecture form — the union of the listed
+/// lectures. A single-lecture payload defaults to the one-item list; both absent =
+/// no lecture constraint.
 /// </summary>
 public record PracticeCategoryFilter(
     Guid? LectureId = null,
     bool UntaggedLecture = false,
     string? ParagraphTag = null,
-    bool UntaggedTag = false);
+    bool UntaggedTag = false,
+    // W16.2 (C3-2): multi-lecture lens — union of the listed lectures.
+    IReadOnlyList<Guid>? LectureIds = null);
 
 /// <summary>Tree of the subject's practice-eligible questions grouped Lecture → ParagraphTag.</summary>
 public record GetCategorizedPracticeTreeQuery(Guid StudentId, Guid SubjectId) : IRequest<CategorizedPracticeTreeDto>;
@@ -63,4 +68,7 @@ public record StartCategorizedPracticeCommand(
     Guid? LectureId,
     bool UntaggedLecture,
     string? ParagraphTag,
-    bool UntaggedTag) : IRequest<StartCategorizedPracticeResultDto>;
+    bool UntaggedTag,
+    // W16.2 (C3-2): multi-lecture start — the union lens; a single-lecture payload is
+    // the one-item special case of the same code path.
+    IEnumerable<Guid>? LectureIds = null) : IRequest<StartCategorizedPracticeResultDto>;

@@ -16,7 +16,9 @@ public record QuestionDto(
     List<QuestionImageDto> Images,
     QuestionUserAnswerDto? UserAnswer,
     bool IsFavorite,
-    QuestionStatsDto? Stats
+    QuestionStatsDto? Stats,
+    // Wave 16.2 (C3-3): the exam-course ("دورة") anchor — NULL = bank-wide question.
+    Guid? SemesterCourseId = null
 );
 
 public record QuestionListItemDto(
@@ -73,7 +75,9 @@ public record CreateQuestionDto(
     string Explanation,
     string? Reference,
     int? Year,
-    string? ParagraphTag = null
+    string? ParagraphTag = null,
+    // Wave 16.2 (C3-3): optional exam-course ("دورة") anchor.
+    Guid? SemesterCourseId = null
 );
 
 public record CreateOptionDto(
@@ -91,7 +95,9 @@ public record UpdateQuestionDto(
     List<UpdateOptionDto> Options,
     string? CorrectAnswer,
     int? Year = null,
-    string? ParagraphTag = null
+    string? ParagraphTag = null,
+    // Wave 16.2 (C3-3): optional exam-course ("دورة") anchor.
+    Guid? SemesterCourseId = null
 );
 
 public record UpdateOptionDto(
@@ -212,7 +218,9 @@ public record AdminQuestionListItemDto(
     DateTime CreatedAt,
     DateTime? UpdatedAt,
     int? Year = null,
-    string? ParagraphTag = null
+    string? ParagraphTag = null,
+    // Wave 16.2 (C3-3): the exam-course ("دورة") anchor — NULL = bank-wide question.
+    Guid? SemesterCourseId = null
 );
 
 public record AdminQuestionDetailDto(
@@ -231,7 +239,9 @@ public record AdminQuestionDetailDto(
     List<QuestionOptionDto> Options,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    string? ParagraphTag = null
+    string? ParagraphTag = null,
+    // Wave 16.2 (C3-3): the exam-course ("دورة") anchor — NULL = bank-wide question.
+    Guid? SemesterCourseId = null
 );
 
 // ===== W14.2 B.4 (D12) — admin triage of question reports =====

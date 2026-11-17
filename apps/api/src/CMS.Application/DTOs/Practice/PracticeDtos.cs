@@ -33,14 +33,18 @@ public record SubmitPracticeAnswerDto(
     Guid? LectureId = null,
     bool UntaggedLecture = false,
     string? ParagraphTag = null,
-    bool UntaggedTag = false);
+    bool UntaggedTag = false,
+    // W16.2 (C3-2) — the multi-lecture form of the same lens (echoed per call).
+    List<Guid>? LectureIds = null);
 
 /// <summary>W14.4 — query-param shape of the same lens for GET progress.</summary>
 public record PracticeProgressFilterDto(
     Guid? LectureId = null,
     bool UntaggedLecture = false,
     string? ParagraphTag = null,
-    bool UntaggedTag = false);
+    bool UntaggedTag = false,
+    // W16.2 (C3-2) — the multi-lecture form of the same lens.
+    List<Guid>? LectureIds = null);
 
 public record SubmitPracticeAnswerResultDto(
     Guid SessionId,
@@ -129,7 +133,10 @@ public record StartCategorizedPracticeDto(
     Guid? LectureId = null,
     bool UntaggedLecture = false,
     string? ParagraphTag = null,
-    bool UntaggedTag = false);
+    bool UntaggedTag = false,
+    // W16.2 (C3-2): multi-lecture start — union of the listed lectures; the legacy
+    // single-lecture field keeps working unchanged.
+    List<Guid>? LectureIds = null);
 
 public record StartCategorizedPracticeResultDto(
     Guid SessionId,

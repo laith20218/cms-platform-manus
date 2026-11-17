@@ -84,6 +84,32 @@ public class QuestionsController : ControllerBase
     }
 
     /// <summary>
+    /// Wave 16.2 (C3-1): random-N question draw for the bank/training engine.
+    /// Student view — options and images without correctness flags; duplicates are
+    /// impossible by construction. Narrowings are optional: lectureIds (multi),
+    /// paragraphTags (multi), semesterCourseId (the "دورة" anchor).
+    /// </summary>
+    [HttpGet("random")]
+    [Authorize]
+    [EnableRateLimiting("questions")]
+    public async Task<IActionResult> GetRandomQuestions(
+        [FromQuery] Guid subjectId, [FromQuery] int count,
+        [FromQuery] List<Guid>? lectureIds, [FromQuery] List<string>? paragraphTags,
+        [FromQuery] Guid? semesterCourseId, CancellationToken ct)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+        if (subjectId == Guid.Empty) return BadRequest(new { error = "subjectId is required" });
+
+        var rejection = await EntitlementRejectionAsync(studentId.Value, subjectId, ct);
+        if (rejection is not null) return rejection;
+
+        var result = await _mediator.Send(new GetRandomQuestionsQuery(
+            studentId.Value, subjectId, count, lectureIds, paragraphTags, semesterCourseId), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Get a single question by ID (without correct answer if not yet answered).
     /// </summary>
     [HttpGet("{id:guid}")]
@@ -198,7 +224,8 @@ public class QuestionsController : ControllerBase
             dto.Text, dto.Type, dto.SubjectId, dto.LectureId,
             dto.Difficulty, dto.Tags, dto.Options, dto.CorrectOptionId, dto.CorrectAnswer,
             dto.Explanation, dto.Reference, dto.Year, GetAdminId(),
-            dto.ParagraphTag, GetSessionId()
+            dto.ParagraphTag, GetSessionId(),
+            dto.SemesterCourseId // Wave 16.2 (C3-3)
         ), ct);
         return CreatedAtAction(nameof(GetQuestion), new { id = result.Id }, result);
     }
@@ -214,7 +241,8 @@ public class QuestionsController : ControllerBase
         if (!await CanManageAsync(Actions.Edit, "question", id, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
         var result = await _mediator.Send(new UpdateQuestionCommand(
             id, dto.Text, dto.Difficulty, dto.Tags, dto.Explanation, dto.Reference, dto.Options, dto.CorrectAnswer,
-            dto.Year, dto.ParagraphTag
+            dto.Year, dto.ParagraphTag,
+            dto.SemesterCourseId // Wave 16.2 (C3-3)
         ), ct);
         return Ok(result);
     }

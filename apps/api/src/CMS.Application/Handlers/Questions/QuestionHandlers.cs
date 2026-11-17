@@ -15,7 +15,8 @@ namespace CMS.Application.Handlers.Questions;
 public class QuestionQueryHandlers :
     IRequestHandler<GetQuestionsQuery, PagedResult<QuestionListItemDto>>,
     IRequestHandler<GetQuestionByIdQuery, QuestionDto>,
-    IRequestHandler<GetQuestionsByLectureQuery, List<QuestionListItemDto>>
+    IRequestHandler<GetQuestionsByLectureQuery, List<QuestionListItemDto>>,
+    IRequestHandler<GetRandomQuestionsQuery, List<QuestionPreviewDto>>
 {
     private readonly IApplicationDbContext _db;
     private readonly IEntitlementService _entitlements;
@@ -197,6 +198,57 @@ public class QuestionQueryHandlers :
         return questions.Select(q => MapToListItem(q, favoriteIds.Contains(q.Id))).ToList();
     }
 
+    // ===== Wave 16.2 (C3-1) — random bank draw =====
+
+    /// <summary>
+    /// Random-N draw over the subject's practice-eligible bank. The student view is the
+    /// preview contract (options/images, no correctness flags); the draw order is the
+    /// presentation order of the training run.
+    /// </summary>
+    public async Task<List<QuestionPreviewDto>> Handle(GetRandomQuestionsQuery req, CancellationToken ct)
+    {
+        if (!await _entitlements.CanAccessSubjectContentAsync(
+                req.StudentId, req.SubjectId, SubscriptionContentScope.QuestionsExams, ct))
+            throw new ForbiddenException("لا تملك صلاحية الوصول إلى هذه المادة");
+        if (req.Count is < 1 or > 100)
+            throw new DomainException("عدد الأسئلة المطلوب يجب أن يكون بين 1 و 100", "INVALID_RANDOM_COUNT");
+
+        // Base pool: the subject's practice-eligible bank (mirrors PracticeEligibleQuestions
+        // — published, not deleted, usable in practice). Exam-only questions stay out of
+        // training draws on purpose.
+        var query = _db.Questions.AsNoTracking()
+            .Where(q => q.SubjectId == req.SubjectId
+                && q.Status == ContentStatus.Published
+                && q.DeletedAt == null
+                && (q.QuestionUsage == QuestionUsage.Practice || q.QuestionUsage == QuestionUsage.Both));
+
+        // C3-1 optional narrowings.
+        if (req.LectureIds is { Count: > 0 })
+            query = query.Where(q => q.LectureId != null && req.LectureIds.Contains(q.LectureId.Value));
+        if (req.ParagraphTags is { Count: > 0 })
+            query = query.Where(q => q.ParagraphTag != null && req.ParagraphTags.Contains(q.ParagraphTag));
+        if (req.SemesterCourseId.HasValue)
+            query = query.Where(q => q.SemesterCourseId == req.SemesterCourseId);
+
+        // The draw itself. EF.Functions.Random() has no InMemory translation (the unit-test
+        // harness runs InMemory), so the draw follows the W14 exam-shuffle idiom instead:
+        // materialize the light id projection, shuffle client-side, take Count, then
+        // hydrate the winners. Distinct by construction — an id cannot be drawn twice.
+        var ids = await query.Select(q => q.Id).ToListAsync(ct);
+        var drawn = ids.OrderBy(_ => Guid.NewGuid()).Take(req.Count).ToList();
+        if (drawn.Count == 0) return new List<QuestionPreviewDto>();
+
+        var questions = await _db.Questions.AsNoTracking()
+            .Include(q => q.Options)
+            .Include(q => q.Images)
+            .Where(q => drawn.Contains(q.Id))
+            .ToListAsync(ct);
+
+        // Preserve the draw order — the training run renders in the drawn sequence.
+        var byId = questions.ToDictionary(q => q.Id);
+        return drawn.Select(id => MapToPreview(byId[id])).ToList();
+    }
+
     // ===== Mappers =====
     private static QuestionListItemDto MapToListItem(Question q, bool isFavorite) => new(
         q.Id, q.Text.Length > 150 ? q.Text[..150] + "..." : q.Text,
@@ -210,8 +262,18 @@ public class QuestionQueryHandlers :
         q.Tags, q.Lecture?.NameAr, q.Year, q.Reference, q.ParagraphTag,
         q.Options.OrderBy(o => o.SortOrder).Select(o => new QuestionOptionDto(o.Id, o.OptionLetter, o.Text, o.ImageUrl)).ToList(),
         q.Images.Select(img => new QuestionImageDto(img.Id, img.ImageUrl, img.AltText, img.Caption)).ToList(),
-        null, isFavorite, new QuestionStatsDto(q.AttemptsCount, q.GetCorrectRate())
+        null, isFavorite, new QuestionStatsDto(q.AttemptsCount, q.GetCorrectRate()),
+        q.SemesterCourseId // Wave 16.2 (C3-3)
     );
+
+    /// <summary>Wave 16.2 (C3-1): student-view mapper for the random draw — same shape as
+    /// the admin preview endpoint (no correctness flags, no explanation).</summary>
+    private static QuestionPreviewDto MapToPreview(Question q) => new(
+        q.Id, q.Text, q.Type.ToString(), q.Difficulty.ToString(), q.Tags,
+        q.Options.OrderBy(o => o.SortOrder)
+            .Select(o => new PreviewOptionDto(o.Id, o.OptionLetter, o.Text, o.ImageUrl)).ToList(),
+        q.Images.OrderBy(i => i.SortOrder)
+            .Select(i => new PreviewImageDto(i.ImageUrl, i.AltText, i.SortOrder)).ToList());
 
     /// <summary>
     /// W14.5 (Phase A) — resolves every question-image and option-image reference
@@ -275,6 +337,17 @@ public class QuestionCommandHandlers :
         if (req.ParagraphTag != null) question.SetParagraphTag(req.ParagraphTag);
         if (req.Year.HasValue) typeof(Question).GetProperty("Year")?.SetValue(question, req.Year);
 
+        // Wave 16.2 (C3-3): optional exam-course ("دورة") anchor — existence-checked so a
+        // typo id cannot silently park the question outside every course scope.
+        if (req.SemesterCourseId.HasValue)
+        {
+            var courseExists = await _db.ExamCourses.AsNoTracking()
+                .AnyAsync(course => course.Id == req.SemesterCourseId.Value, ct);
+            if (!courseExists)
+                throw new NotFoundException("ExamCourse", req.SemesterCourseId.Value);
+            question.SetSemesterCourse(req.SemesterCourseId);
+        }
+
         if (type == QuestionType.Essay)
         {
             question.SetCorrectAnswer(req.CorrectAnswer ?? string.Empty);
@@ -299,7 +372,8 @@ public class QuestionCommandHandlers :
             question.Id, question.Text, question.TextHtml, question.Type.ToString(),
             question.Difficulty.ToString(), question.Tags, null, req.Year, req.Reference, question.ParagraphTag,
             question.Options.OrderBy(o => o.SortOrder).Select(o => new QuestionOptionDto(o.Id, o.OptionLetter, o.Text, o.ImageUrl)).ToList(),
-            new List<QuestionImageDto>(), null, false, new QuestionStatsDto(0, 0)
+            new List<QuestionImageDto>(), null, false, new QuestionStatsDto(0, 0),
+            question.SemesterCourseId // Wave 16.2 (C3-3)
         );
     }
 
@@ -319,6 +393,18 @@ public class QuestionCommandHandlers :
         // Push 2 / Track 1: year + paragraph tag are now editable after creation.
         if (req.Year.HasValue) typeof(Question).GetProperty("Year")?.SetValue(question, req.Year);
         if (req.ParagraphTag != null) question.SetParagraphTag(req.ParagraphTag);
+
+        // Wave 16.2 (C3-3): the exam-course ("دورة") anchor is editable after creation —
+        // set when provided (mirrors the Year/ParagraphTag update semantics), with the
+        // same existence check as create.
+        if (req.SemesterCourseId.HasValue)
+        {
+            var courseExists = await _db.ExamCourses.AsNoTracking()
+                .AnyAsync(course => course.Id == req.SemesterCourseId.Value, ct);
+            if (!courseExists)
+                throw new NotFoundException("ExamCourse", req.SemesterCourseId.Value);
+            question.SetSemesterCourse(req.SemesterCourseId);
+        }
 
         if (question.Type == QuestionType.Essay)
         {
@@ -341,7 +427,8 @@ public class QuestionCommandHandlers :
             question.Id, question.Text, question.TextHtml, question.Type.ToString(),
             question.Difficulty.ToString(), question.Tags, null, question.Year, question.Reference, question.ParagraphTag,
             question.Options.OrderBy(o => o.SortOrder).Select(o => new QuestionOptionDto(o.Id, o.OptionLetter, o.Text, o.ImageUrl)).ToList(),
-            new List<QuestionImageDto>(), null, false, new QuestionStatsDto(question.AttemptsCount, question.GetCorrectRate())
+            new List<QuestionImageDto>(), null, false, new QuestionStatsDto(question.AttemptsCount, question.GetCorrectRate()),
+            question.SemesterCourseId // Wave 16.2 (C3-3)
         );
     }
 

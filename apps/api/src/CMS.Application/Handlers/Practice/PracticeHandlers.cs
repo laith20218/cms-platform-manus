@@ -312,7 +312,11 @@ public sealed class PracticeHandlers :
         if (!await _entitlements.CanAccessSubjectAsync(req.StudentId, req.SubjectId, "read", ct))
             throw new ForbiddenException("لا تملك اشتراكاً صالحاً لهذه المادة");
 
-        var filter = new PracticeCategoryFilter(req.LectureId, req.UntaggedLecture, req.ParagraphTag, req.UntaggedTag);
+        // W16.2 (C3-2): the lens accepts multiple lectures (the union of the listed
+        // lectures); the legacy single-lecture payload is the one-item special case.
+        var filter = new PracticeCategoryFilter(
+            req.LectureId, req.UntaggedLecture, req.ParagraphTag, req.UntaggedTag,
+            req.LectureIds?.ToList());
         var setIds = await ScopeToFilter(PracticeEligibleQuestions(req.SubjectId), filter)
             .Select(item => item.Id)
             .ToListAsync(ct);
@@ -377,28 +381,42 @@ public sealed class PracticeHandlers :
                 && question.DeletedAt == null
                 && (question.QuestionUsage == QuestionUsage.Practice || question.QuestionUsage == QuestionUsage.Both));
 
-    /// <summary>Applies the (lecture, paragraphTag) lens; Untagged* restricts to the "غير مصنف" bucket.</summary>
+    /// <summary>Applies the (lecture, paragraphTag) lens; Untagged* restricts to the "غير مصنف" bucket.
+    /// W16.2 (C3-2): the lecture constraint is the UNION of the lectures in the lens.</summary>
     private static IQueryable<Question> ScopeToFilter(IQueryable<Question> questions, PracticeCategoryFilter filter)
     {
+        var lectureIds = EffectiveLectureIds(filter);
         if (filter.UntaggedLecture) questions = questions.Where(question => question.LectureId == null);
-        else if (filter.LectureId.HasValue) questions = questions.Where(question => question.LectureId == filter.LectureId.Value);
+        else if (lectureIds is not null)
+            questions = questions.Where(question => question.LectureId != null && lectureIds.Contains(question.LectureId.Value));
         if (filter.UntaggedTag) questions = questions.Where(question => question.ParagraphTag == null || question.ParagraphTag == "");
         else if (!string.IsNullOrWhiteSpace(filter.ParagraphTag)) questions = questions.Where(question => question.ParagraphTag == filter.ParagraphTag);
         return questions;
     }
 
+    /// <summary>W16.2 (C3-2): the effective lecture lens — LectureIds wins; a legacy
+    /// single-lecture payload defaults to the one-item list; neither set = no constraint
+    /// (NULL). One shared code path for both payload shapes.</summary>
+    private static IReadOnlyList<Guid>? EffectiveLectureIds(PracticeCategoryFilter filter) =>
+        filter.LectureIds is { Count: > 0 } ? filter.LectureIds
+        : filter.LectureId.HasValue ? new[] { filter.LectureId.Value }
+        : null;
+
     /// <summary>Single-question equivalent of ScopeToFilter (+ eligibility) for submit-time membership checks.</summary>
-    private static bool MatchesFilter(Question question, Guid subjectId, PracticeCategoryFilter filter) =>
-        question.SubjectId == subjectId
-        && question.Status == ContentStatus.Published
-        && question.DeletedAt == null
-        && (question.QuestionUsage == QuestionUsage.Practice || question.QuestionUsage == QuestionUsage.Both)
-        && (filter.UntaggedLecture
-            ? question.LectureId == null
-            : filter.LectureId.HasValue ? question.LectureId == filter.LectureId.Value : true)
-        && (filter.UntaggedTag
-            ? string.IsNullOrWhiteSpace(question.ParagraphTag)
-            : string.IsNullOrWhiteSpace(filter.ParagraphTag) ? true : question.ParagraphTag == filter.ParagraphTag);
+    private static bool MatchesFilter(Question question, Guid subjectId, PracticeCategoryFilter filter)
+    {
+        var lectureIds = EffectiveLectureIds(filter);
+        return question.SubjectId == subjectId
+            && question.Status == ContentStatus.Published
+            && question.DeletedAt == null
+            && (question.QuestionUsage == QuestionUsage.Practice || question.QuestionUsage == QuestionUsage.Both)
+            && (filter.UntaggedLecture
+                ? question.LectureId == null
+                : lectureIds is null || (question.LectureId.HasValue && lectureIds.Contains(question.LectureId.Value)))
+            && (filter.UntaggedTag
+                ? string.IsNullOrWhiteSpace(question.ParagraphTag)
+                : string.IsNullOrWhiteSpace(filter.ParagraphTag) ? true : question.ParagraphTag == filter.ParagraphTag);
+    }
 
     /// <summary>Anchor pick: published exam of the subject whose composition covers most of the
     /// filtered set (tie → larger composition → earliest created → stable Id).</summary>
