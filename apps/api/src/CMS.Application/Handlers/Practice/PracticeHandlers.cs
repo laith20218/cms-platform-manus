@@ -314,9 +314,13 @@ public sealed class PracticeHandlers :
 
         // W16.2 (C3-2): the lens accepts multiple lectures (the union of the listed
         // lectures); the legacy single-lecture payload is the one-item special case.
+        // W16.2b (C3 exception): the exact-id form — the training builder's random draw —
+        // rides the same filter; non-empty QuestionIds narrows the eligible bank to
+        // exactly the drawn ids (ScopeToFilter), so the session set IS the draw.
         var filter = new PracticeCategoryFilter(
             req.LectureId, req.UntaggedLecture, req.ParagraphTag, req.UntaggedTag,
-            req.LectureIds?.ToList());
+            req.LectureIds?.ToList(),
+            req.QuestionIds?.ToList());
         var setIds = await ScopeToFilter(PracticeEligibleQuestions(req.SubjectId), filter)
             .Select(item => item.Id)
             .ToListAsync(ct);
@@ -382,9 +386,14 @@ public sealed class PracticeHandlers :
                 && (question.QuestionUsage == QuestionUsage.Practice || question.QuestionUsage == QuestionUsage.Both));
 
     /// <summary>Applies the (lecture, paragraphTag) lens; Untagged* restricts to the "غير مصنف" bucket.
-    /// W16.2 (C3-2): the lecture constraint is the UNION of the lectures in the lens.</summary>
+    /// W16.2 (C3-2): the lecture constraint is the UNION of the lectures in the lens.
+    /// W16.2b (C3 exception): a non-empty QuestionIds narrows the eligible set to EXACTLY
+    /// those ids (the random-draw lens) — foreign ids are dropped by the eligible-bank
+    /// intersection, never added.</summary>
     private static IQueryable<Question> ScopeToFilter(IQueryable<Question> questions, PracticeCategoryFilter filter)
     {
+        if (filter.QuestionIds is { Count: > 0 })
+            questions = questions.Where(question => filter.QuestionIds.Contains(question.Id));
         var lectureIds = EffectiveLectureIds(filter);
         if (filter.UntaggedLecture) questions = questions.Where(question => question.LectureId == null);
         else if (lectureIds is not null)
@@ -410,6 +419,7 @@ public sealed class PracticeHandlers :
             && question.Status == ContentStatus.Published
             && question.DeletedAt == null
             && (question.QuestionUsage == QuestionUsage.Practice || question.QuestionUsage == QuestionUsage.Both)
+            && (filter.QuestionIds is not { Count: > 0 } || filter.QuestionIds.Contains(question.Id))
             && (filter.UntaggedLecture
                 ? question.LectureId == null
                 : lectureIds is null || (question.LectureId.HasValue && lectureIds.Contains(question.LectureId.Value)))

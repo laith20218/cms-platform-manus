@@ -142,6 +142,28 @@ describe('W14.4 PracticePage (B.1, D13)', () => {
     expect(screen.getByText('الألم الضاغط عرض كلاسيكي.')).toBeTruthy();
   });
 
+  it('starts the exact-id training session from ?questionIds= and echoes the lens on answers (W16.2b C3)', async () => {
+    renderPractice('/practice/categorized/s1?questionIds=q1,q2');
+
+    // The drawn set renders in one round trip; the header labels it a training draw.
+    expect(await screen.findByTestId('practice-progress')).toBeTruthy();
+    expect(screen.getByText('ما هو العرض الكلاسيكي لاحتشاء العضلة القلبية؟')).toBeTruthy();
+    expect(screen.getByText(/اختبار تدريبي — 2 سؤالاً/)).toBeTruthy();
+
+    // The start POST pins the session to EXACTLY the drawn ids (C3 exception).
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith('/practice/categorized/s1/start', expect.objectContaining({ questionIds: ['q1', 'q2'] }), expect.anything());
+    });
+
+    // Answering echoes the exact-id lens back — the server re-verifies membership
+    // against the drawn set on every call.
+    fireEvent.click(screen.getByTestId('practice-option-o1'));
+    fireEvent.click(screen.getByTestId('practice-confirm-q1'));
+    await waitFor(() => {
+      expect(putMock).toHaveBeenCalledWith('/practice/ps1/answer', expect.objectContaining({ questionId: 'q1', questionIds: ['q1', 'q2'] }), expect.anything());
+    });
+  });
+
   it('withdraws a single answer (إعادة ضبط السؤال)', async () => {
     renderPractice('/practice/categorized/s1?lectureId=lec1');
 

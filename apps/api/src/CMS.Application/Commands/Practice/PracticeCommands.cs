@@ -44,6 +44,9 @@ public record GetPracticeProgressQuery(
 /// Wave 16.2 (C3-2): LectureIds is the multi-lecture form — the union of the listed
 /// lectures. A single-lecture payload defaults to the one-item list; both absent =
 /// no lecture constraint.
+/// Wave 16.2b (C3 exception): QuestionIds is the exact-id form — the training builder's
+/// random draw. Non-empty wins over the lecture/tag narrowings as the set authority,
+/// and membership is re-verified against it on every answer/progress echo.
 /// </summary>
 public record PracticeCategoryFilter(
     Guid? LectureId = null,
@@ -51,7 +54,9 @@ public record PracticeCategoryFilter(
     string? ParagraphTag = null,
     bool UntaggedTag = false,
     // W16.2 (C3-2): multi-lecture lens — union of the listed lectures.
-    IReadOnlyList<Guid>? LectureIds = null);
+    IReadOnlyList<Guid>? LectureIds = null,
+    // W16.2b (C3 exception): exact-id lens — the drawn question set.
+    IReadOnlyList<Guid>? QuestionIds = null);
 
 /// <summary>Tree of the subject's practice-eligible questions grouped Lecture → ParagraphTag.</summary>
 public record GetCategorizedPracticeTreeQuery(Guid StudentId, Guid SubjectId) : IRequest<CategorizedPracticeTreeDto>;
@@ -71,4 +76,8 @@ public record StartCategorizedPracticeCommand(
     bool UntaggedTag,
     // W16.2 (C3-2): multi-lecture start — the union lens; a single-lecture payload is
     // the one-item special case of the same code path.
-    IEnumerable<Guid>? LectureIds = null) : IRequest<StartCategorizedPracticeResultDto>;
+    IEnumerable<Guid>? LectureIds = null,
+    // W16.2b (C3 exception): exact-id start — the training builder pins the session
+    // to exactly its N randomly drawn questions (server-intersected with the
+    // practice-eligible bank; foreign/non-eligible ids are dropped, not smuggled in).
+    IEnumerable<Guid>? QuestionIds = null) : IRequest<StartCategorizedPracticeResultDto>;

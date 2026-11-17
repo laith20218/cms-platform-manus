@@ -35,12 +35,16 @@ export interface PracticeQuestion {
   images: PracticeImage[];
 }
 
-/** The (lecture, paragraphTag) lens — `untagged*` selects the "غير مصنف" bucket. */
+/** The (lecture, paragraphTag) lens — `untagged*` selects the "غير مصنف" bucket.
+ * W16.2b (C3 exception): `questionIds` is the exact-id form — the training
+ * builder's random draw; when present it pins the session (and every answer/progress
+ * echo) to exactly the drawn set. */
 export interface PracticeCategoryFilter {
   lectureId?: string | null;
   untaggedLecture?: boolean;
   paragraphTag?: string | null;
   untaggedTag?: boolean;
+  questionIds?: string[] | null;
 }
 
 function filterToParams(filter?: PracticeCategoryFilter): Record<string, string | boolean> {
@@ -50,12 +54,14 @@ function filterToParams(filter?: PracticeCategoryFilter): Record<string, string 
   if (filter.untaggedLecture) params.untaggedLecture = true;
   if (filter.paragraphTag) params.paragraphTag = filter.paragraphTag;
   if (filter.untaggedTag) params.untaggedTag = true;
+  // Comma-joined (single key) — the API's List<Guid> binder reads both forms.
+  if (filter.questionIds?.length) params.questionIds = filter.questionIds.join(',');
   return params;
 }
 
 function hasFilter(filter?: PracticeCategoryFilter): boolean {
   if (!filter) return false;
-  return Boolean(filter.lectureId || filter.untaggedLecture || filter.paragraphTag || filter.untaggedTag);
+  return Boolean(filter.lectureId || filter.untaggedLecture || filter.paragraphTag || filter.untaggedTag || filter.questionIds?.length);
 }
 
 export interface StartExamModelResult {
@@ -151,7 +157,9 @@ export const practiceApi = {
     return res.data;
   },
 
-  /** Starts (or resumes) a practice run over the filtered question set. */
+  /** Starts (or resumes) a practice session over the filtered question set.
+   * W16.2b (C3 exception): a `questionIds` lens pins the session to exactly the
+   * training builder's random draw. */
   startCategorized: async (subjectId: string, filter?: PracticeCategoryFilter): Promise<StartCategorizedResult> => {
     const res = await apiClient.post(
       `/practice/categorized/${subjectId}/start`,
@@ -160,6 +168,7 @@ export const practiceApi = {
         untaggedLecture: filter?.untaggedLecture ?? false,
         paragraphTag: filter?.paragraphTag ?? null,
         untaggedTag: filter?.untaggedTag ?? false,
+        questionIds: filter?.questionIds ?? null,
       },
       await entitlementRequestConfig()
     );
@@ -182,6 +191,7 @@ export const practiceApi = {
         untaggedLecture: filter?.untaggedLecture ?? false,
         paragraphTag: filter?.paragraphTag ?? null,
         untaggedTag: filter?.untaggedTag ?? false,
+        questionIds: filter?.questionIds ?? null,
       },
       await entitlementRequestConfig()
     );
