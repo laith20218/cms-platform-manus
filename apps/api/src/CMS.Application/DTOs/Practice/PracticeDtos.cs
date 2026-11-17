@@ -35,7 +35,10 @@ public record SubmitPracticeAnswerDto(
     string? ParagraphTag = null,
     bool UntaggedTag = false,
     // W16.2 (C3-2) — the multi-lecture form of the same lens (echoed per call).
-    List<Guid>? LectureIds = null);
+    List<Guid>? LectureIds = null,
+    // W16.2b (C3 exception) — the exact-id form of the same lens: the training
+    // builder's random draw rides here so the echoed lens re-verifies the drawn set.
+    List<Guid>? QuestionIds = null);
 
 /// <summary>W14.4 — query-param shape of the same lens for GET progress.</summary>
 public record PracticeProgressFilterDto(
@@ -44,7 +47,9 @@ public record PracticeProgressFilterDto(
     string? ParagraphTag = null,
     bool UntaggedTag = false,
     // W16.2 (C3-2) — the multi-lecture form of the same lens.
-    List<Guid>? LectureIds = null);
+    List<Guid>? LectureIds = null,
+    // W16.2b (C3 exception) — the exact-id form of the same lens (GET progress echo).
+    List<Guid>? QuestionIds = null);
 
 public record SubmitPracticeAnswerResultDto(
     Guid SessionId,
@@ -136,7 +141,12 @@ public record StartCategorizedPracticeDto(
     bool UntaggedTag = false,
     // W16.2 (C3-2): multi-lecture start — union of the listed lectures; the legacy
     // single-lecture field keeps working unchanged.
-    List<Guid>? LectureIds = null);
+    List<Guid>? LectureIds = null,
+    // W16.2b (C3 exception): exact-id start — the training builder draws N random
+    // questions (GET /questions/random) and pins the session to exactly that set.
+    // Intersected server-side with the practice-eligible bank (published, not
+    // deleted, usable) — a client cannot smuggle foreign or non-eligible ids in.
+    List<Guid>? QuestionIds = null);
 
 public record StartCategorizedPracticeResultDto(
     Guid SessionId,

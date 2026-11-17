@@ -9,7 +9,7 @@ import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { ProgressTab } from '../components/ProgressTab';
 import { LibraryTab } from '../components/LibraryTab';
 import { CoursesTab } from '../components/CoursesTab';
-import { ExamCoursesCatalog } from '@/features/exam-courses/components/ExamCoursesCatalog';
+import { QuestionBankTab } from '@/features/my-studies/components/QuestionBankTab';
 import ExamCourseDetailPage from '@/features/exam-courses/pages/ExamCourseDetailPage';
 
 /**
@@ -25,12 +25,12 @@ import ExamCourseDetailPage from '@/features/exam-courses/pages/ExamCourseDetail
  *                    forwarded (R1).
  *   - leaderboard → REMOVED from the hub — the standalone /leaderboard page
  *                    renders it. Legacy ?tab=leaderboard redirects there (R1).
- *   - bank         → the exam-courses storefront mounts here (W16.1b — D2-a):
- *                    ExamCoursesCatalog (years/categorized lenses) renders as
- *                    the panel, and a ?courseId= param swaps in the bundle
- *                    detail (ExamCourseDetailPage) instead. Legacy /exam-courses
- *                    routes redirect into this tab. The catalog's own header
- *                    is suppressed (hideHeader) — the hub owns the h1.
+ *   - bank         → the Question Bank tab (W16.2b): QuestionBankTab owns the
+ *                    cascade + the activation gate + the training builder and
+ *                    embeds the exam-courses storefront (its دورات سنوات /
+ *                    دورات مصنفة lenses) for active subjects; a ?courseId= param
+ *                    swaps in the bundle detail (ExamCourseDetailPage) instead.
+ *                    Legacy /exam-courses routes redirect into this tab.
  */
 const TABS = [
   { key: 'progress', label: 'تقدمي', icon: BarChart3 },
@@ -188,10 +188,11 @@ export function StudyPage() {
           </ErrorBoundary>
         )}
         {tab === 'bank' && (
-          <ErrorBoundary title="تعذّر تحميل الدورات الامتحانية">
-            {/* W16.1b (D2-a) — the storefront mounts in the bank tab: the catalog
-                by default, the bundle detail when ?courseId= rides in the URL. */}
-            {courseIdParam ? <ExamCourseDetailPage /> : <ExamCoursesCatalog hideHeader />}
+          <ErrorBoundary title="تعذّر تحميل بنك الأسئلة">
+            {/* W16.2b — the bank tab: QuestionBankTab (cascade + activation gate +
+                training builder + the embedded storefront lenses). The bundle detail
+                deep link (?courseId=) still swaps the panel — W16.1b (D2-a) contract. */}
+            {courseIdParam ? <ExamCourseDetailPage /> : <QuestionBankTab />}
           </ErrorBoundary>
         )}
         {tab === 'courses' && (

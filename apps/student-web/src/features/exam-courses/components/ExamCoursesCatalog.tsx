@@ -52,7 +52,13 @@ const TABS: { key: TabKey; label: string; icon: typeof CalendarDays }[] = [
  *  builds on main, which does not carry that API). */
 const CASCADE_STORAGE_KEY = 'cms-exam-courses-filters-v1';
 
-export function ExamCoursesCatalog({ hideHeader = false }: { hideHeader?: boolean }) {
+export function ExamCoursesCatalog({ hideHeader = false, hideCascade = false }: {
+  hideHeader?: boolean;
+  /** W16.2b (bank): the hosting QuestionBankTab owns the cascade — suppress this
+   *  catalog's own filter row (state, bootstrap and localStorage persistence keep
+   *  working: only the duplicated UI is hidden). */
+  hideCascade?: boolean;
+}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const mySubjects = useMySubjects();
@@ -216,15 +222,18 @@ export function ExamCoursesCatalog({ hideHeader = false }: { hideHeader?: boolea
           the subject level (A.1 ruling).
           W15.1 (B.1): the standalone subject-chips row is REMOVED — the cascade's
           5th select is the single subject control (the mobile sticky-bar summary
-          shows the active subject even when the semester list can't resolve it). */}
-      <CascadeFilters
-        value={cascade}
-        onChange={(next) => updateParams({ cascade: next })}
-        subjectId={subjectId}
-        onSelectSubject={(id) => updateParams({ subjectId: id })}
-        entitledSubjectIds={entitledSubjectIds}
-        subjectLabel={subject?.nameAr ?? null}
-      />
+          shows the active subject even when the semester list can't resolve it).
+          W16.2b (bank): hidden when the bank tab owns the cascade. */}
+      {!hideCascade && (
+        <CascadeFilters
+          value={cascade}
+          onChange={(next) => updateParams({ cascade: next })}
+          subjectId={subjectId}
+          onSelectSubject={(id) => updateParams({ subjectId: id })}
+          entitledSubjectIds={entitledSubjectIds}
+          subjectLabel={subject?.nameAr ?? null}
+        />
+      )}
 
       {/* Tabs */}
       <div className="fade-edges -mx-4 px-4 sm:mx-0 sm:px-0 mb-4" role="tablist" aria-label="أقسام الدورات الامتحانية">

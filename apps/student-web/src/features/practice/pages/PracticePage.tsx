@@ -82,8 +82,19 @@ function PracticePageInner() {
     const paragraphTag = searchParams.get('paragraphTag');
     const untaggedLecture = searchParams.get('untaggedLecture') === 'true';
     const untaggedTag = searchParams.get('untaggedTag') === 'true';
-    if (!lectureId && !paragraphTag && !untaggedLecture && !untaggedTag) return undefined;
-    return { lectureId: lectureId ?? null, untaggedLecture, paragraphTag: paragraphTag ?? null, untaggedTag };
+    // W16.2b (C3 exception): the exact-id lens — the training builder's random draw
+    // rides the URL as a comma-separated questionIds list; the session start pins
+    // to exactly that set and every answer/progress echo re-verifies it.
+    const questionIdsParam = searchParams.get('questionIds');
+    const questionIds = questionIdsParam ? questionIdsParam.split(',').map((id) => id.trim()).filter(Boolean) : null;
+    if (!lectureId && !paragraphTag && !untaggedLecture && !untaggedTag && !questionIds?.length) return undefined;
+    return {
+      lectureId: lectureId ?? null,
+      untaggedLecture,
+      paragraphTag: paragraphTag ?? null,
+      untaggedTag,
+      questionIds,
+    };
   }, [routeSubjectId, searchParams]);
 
   const [start, setStart] = useState<PracticeStart | null>(null);
@@ -125,6 +136,9 @@ function PracticePageInner() {
 
   const headerSubtitle = useMemo(() => {
     if (!isCategorized) return 'أسئلة النموذج كاملة مع تصحيح فوري';
+    // W16.2b: the exact-id lens is the training builder's random draw — labeled
+    // as such, never as the whole-subject bank.
+    if (filter?.questionIds?.length) return `اختبار تدريبي — ${filter.questionIds.length} سؤالاً سُحبت عشوائياً`;
     const lectureLabel = filter?.untaggedLecture
       ? 'غير مصنف'
       : (treeQuery.data?.lectures ?? []).find((l) => l.lectureId === filter?.lectureId)?.lectureTitle ?? null;

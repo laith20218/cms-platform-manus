@@ -58,7 +58,8 @@ export interface CascadeFiltersProps {
   /** Currently active subject id (cascade-chosen or deep-linked) for the 5th select's display. */
   subjectId: string | null;
   onSelectSubject: (subjectId: string) => void;
-  /** Entitled subject ids (useMySubjects) — non-entitled options render locked. */
+  /** Entitled subject ids (useMySubjects) — non-entitled options render locked
+   *  when `lockNonEntitled` is on (default — the storefront's A.1 ruling). */
   entitledSubjectIds: ReadonlySet<string>;
   /** W15.1 (B.2): the active subject's display name when the semester's subject
    *  list can't resolve it (e.g. subjectId deep-linked with no cascade) — feeds
@@ -68,6 +69,10 @@ export interface CascadeFiltersProps {
    *  grid (SubjectsPage) reuse the cascade for the four academic levels only.
    *  subjectId / onSelectSubject / subjectLabel are accepted but unused. */
   hideSubjectSelect?: boolean;
+  /** W16.2b (bank): keep every semester subject SELECTABLE — the bank tab lets the
+   *  student pick a non-entitled subject and answers it with the activation gate
+   *  instead of locking the option. Default true preserves the storefront ruling. */
+  lockNonEntitled?: boolean;
 }
 
 interface Option {
@@ -81,7 +86,7 @@ interface Option {
 // visual consistency with SubjectsPage. Post-14.1, these resolve
 // to the same value EXCEPT --800 (renders darker; owner confirms).
 export function CascadeFilters({
-  value, onChange, subjectId, onSelectSubject, entitledSubjectIds, subjectLabel: subjectLabelFallback, hideSubjectSelect = false,
+  value, onChange, subjectId, onSelectSubject, entitledSubjectIds, subjectLabel: subjectLabelFallback, hideSubjectSelect = false, lockNonEntitled = true,
 }: CascadeFiltersProps) {
   // <sm → sticky bar + bottom sheet; ≥sm → the classic inline row.
   const isDesktop = useMediaQuery('(min-width: 640px)');
@@ -131,7 +136,9 @@ export function CascadeFilters({
   const subjectOptions: Option[] = subjects.map((item) => ({
     id: item.id,
     label: item.nameAr,
-    disabled: !entitledSubjectIds.has(item.id),
+    // W16.2b (bank): non-entitled subjects stay selectable when the host opts out
+    // of locking — the gate (not the select) answers the inactive pick.
+    disabled: lockNonEntitled && !entitledSubjectIds.has(item.id),
     meta: `${item.totalQuestions}`,
   }));
 

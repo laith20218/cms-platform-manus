@@ -235,7 +235,7 @@ describe('W15.0 ExamCourses catalog — cascading filters', () => {
     await waitFor(() => expect(getMock).toHaveBeenCalledWith('/universities/u1/colleges'));
   });
 
-  it('locks non-entitled subjects in the cascade subject level (A.1 ruling)', async () => {
+  it('keeps non-entitled subjects selectable and gates them with the activation message (W16.2b)', async () => {
     renderApp('/study?tab=bank&universityId=u1&collegeId=c1&yearId=y1&semesterId=sem1&subjectId=s1');
 
     // Subject select enabled (semester chosen) and shows the selected entitled subject.
@@ -243,11 +243,29 @@ describe('W15.0 ExamCourses catalog — cascading filters', () => {
     await waitFor(() => expect(subjectSelect.textContent).toContain('الباطنة'));
     expect(subjectSelect.hasAttribute('disabled')).toBe(false);
 
-    // Opening the subject list: s9 (الجراحة — not entitled) renders disabled + locked.
+    // W16.2b (bank): s9 (الجراحة — not entitled) stays SELECTABLE — the bank's
+    // activation gate, not a locked option, answers the inactive pick (the
+    // storefront's A.1 lock ruling stays for its own cascade).
     fireEvent.click(subjectSelect);
-    const locked = await screen.findByTestId('cascade-select-subject-s9');
-    expect(locked.getAttribute('aria-disabled')).toBe('true');
-    expect(locked.querySelector('svg')).toBeTruthy(); // Lock icon
+    const option = await screen.findByTestId('cascade-select-subject-s9');
+    expect(option.getAttribute('aria-disabled')).not.toBe('true');
+    fireEvent.pointerUp(option);
+    fireEvent.click(option);
+
+    // The gate: the activation message + the shared activate-code CTA; the
+    // storefront lenses (and the catalog itself) do not render for s9.
+    expect(await screen.findByTestId('bank-activation-gate')).toBeTruthy();
+    expect(screen.getByText('هذه المادة غير مفعلة')).toBeTruthy();
+    expect(screen.getByTestId('activate-code-cta').getAttribute('href')).toBe('/activate-code');
+    expect(screen.queryByTestId('exam-courses-tab-years')).toBeNull();
+
+    // Back to the entitled subject: the gate lifts and the storefront lenses return.
+    fireEvent.click(screen.getByTestId('cascade-select-subject'));
+    const back = await screen.findByTestId('cascade-select-subject-s1');
+    fireEvent.pointerUp(back);
+    fireEvent.click(back);
+    expect(await screen.findByTestId('exam-courses-tab-years')).toBeTruthy();
+    expect(screen.queryByTestId('bank-activation-gate')).toBeNull();
   });
 
   it('changing the university level via the select writes the deep-linkable URL', async () => {
