@@ -148,16 +148,22 @@ describe('LibraryHub — category filter tabs', () => {
     expect(screen.getByText('ملخص المحاضرة الثالثة')).toBeInTheDocument();
   });
 
-  it('shows category badge, subject name and upload date on the cards', async () => {
+  it('shows category badge, subject name and upload date on the cards, opens the viewer on click', async () => {
     stubLibrary();
     renderWithProviders(['/study?tab=library'], <Routes><Route path="/study" element={<StudyPage />} /></Routes>);
 
     await waitFor(() => expect(screen.getAllByTestId('library-card').length).toBe(4));
     expect(screen.getAllByTestId('library-card-category').length).toBe(3); // f4 uncategorized → no badge
     expect(screen.getAllByText('تشريح مرضي').length).toBeGreaterThan(0);
-    // Link targets carry the subject SLUG (not the GUID) — Push 5 routing fix.
-    const firstCard = screen.getByText('منهاج التشريح الرسمي').closest('a');
-    expect(firstCard?.getAttribute('href')).toBe('/subjects/تشريح-مرضي/library');
+    // Wave 15.5.1a (A1): cards open the DocumentViewer directly — no more
+    // two-hop navigate through /subjects/:slug/library. (v3.1: the card is a
+    // div[role=button] now — nested <button> in <button> was invalid HTML.)
+    const firstCard = screen.getByText('منهاج التشريح الرسمي').closest('[data-testid="library-card"]');
+    expect(firstCard).not.toBeNull();
+    fireEvent.click(firstCard!);
+    await waitFor(() => {
+      expect(screen.getByTestId('library-file-viewer')).toBeInTheDocument();
+    });
   });
 });
 
