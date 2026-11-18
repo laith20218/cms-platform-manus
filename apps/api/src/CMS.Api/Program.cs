@@ -261,7 +261,7 @@ try
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
 
-            // === Wave 16.2d: repair the __EFMigrationsHistory desync before Migrate() ===
+            // === Wave 16.2d + 16.2e: repair __EFMigrationsHistory desyncs before Migrate() ===
             // Production crashed on 42701: column "enable_scripts" of relation
             // "library_files" already exists. Phase62AddHtmlPlayerFields was applied to
             // the production schema through the manual, supervisor-authorized deploy
@@ -284,11 +284,33 @@ try
         WHERE table_name = 'library_files' AND column_name = 'enable_scripts'
     );";
                 db.Database.ExecuteSqlRaw(historyPatchSql);
+
+                // === Wave 16.2e: second desync — DropQuestionExamId (W14.5 Phase B) ===
+                // After the 16.2d patch the boot progressed past Phase62 and crashed on
+                // 42704: constraint "fk_questions_exams_exam_id" of relation "questions"
+                // does not exist. The supervisor's manual deploy-gate SQL mirror
+                // (scripts/migrations/W14_5DropQuestionExamId.sql — "ALTER TABLE questions
+                // DROP COLUMN IF EXISTS exam_id") removed the column — and with it the FK —
+                // WITHOUT inserting the matching __EFMigrationsHistory row (unlike the
+                // Phase60/Wave14/W15.0 mirrors, which are history-guarded). The patch
+                // below inserts that missing row, idempotently, and ONLY when the
+                // constraint is already absent — i.e. exactly when the drop was already
+                // applied by hand. On a database where the constraint still exists the
+                // patch is a no-op and Migrate() performs the real drop itself.
+                var sqlDropQuestionExamId = @"
+    INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+    SELECT '20261117120000_DropQuestionExamId', '9.0.0'
+    WHERE NOT EXISTS (SELECT 1 FROM ""__EFMigrationsHistory"" WHERE ""MigrationId"" = '20261117120000_DropQuestionExamId')
+    AND NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_questions_exams_exam_id'
+    );";
+                db.Database.ExecuteSqlRaw(sqlDropQuestionExamId);
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex,
-                    "Wave 16.2d: __EFMigrationsHistory patch for 20261115120000_Phase62AddHtmlPlayerFields failed — continuing so Migrate() can still attempt the full chain.");
+                    "Wave 16.2d/16.2e: __EFMigrationsHistory patch (Phase62AddHtmlPlayerFields / DropQuestionExamId) failed — continuing so Migrate() can still attempt the full chain.");
             }
 
             try
