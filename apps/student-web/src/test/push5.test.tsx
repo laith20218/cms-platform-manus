@@ -214,7 +214,8 @@ describe('SubjectDetailPage — status-aware failure states', () => {
     renderWithProviders(['/subjects/تشريح-مرضي'], <Routes><Route path="/subjects/:subjectSlug" element={<SubjectDetailPage />} /></Routes>);
 
     await screen.findAllByText('تشريح مرضي');
-    expect(screen.getByText('الاختبارات')).toBeInTheDocument();
+    // W17.0 — the questions tab is the study bank now (label = destination).
+    expect(screen.getByText('بنك الأسئلة')).toBeInTheDocument();
     expect(screen.queryByText('المكتبة')).not.toBeInTheDocument();
     expect(screen.queryByText('الكورسات')).not.toBeInTheDocument();
     // Lectures section shows its own locked state.

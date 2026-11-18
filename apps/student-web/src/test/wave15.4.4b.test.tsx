@@ -96,7 +96,7 @@ describe('W15.4.4b — SubjectModal actions point at /study', () => {
     );
   }
 
-  it('الاختبارات navigates to /exams?subjectId=s1 (W16.1a — was /study?subjectId=s1&tab=exams)', async () => {
+  it('بنك الأسئلة navigates to /study?subjectId=s1&tab=bank (W17.0 — was /exams?subjectId=s1, before that ?tab=exams)', async () => {
     render(
       <MemoryRouter>
         <SubjectModalProvider>
@@ -110,8 +110,10 @@ describe('W15.4.4b — SubjectModal actions point at /study', () => {
 
     expect(await screen.findByTestId('subject-action-exams')).toHaveAttribute(
       'href',
-      '/exams?subjectId=s1',
+      '/study?subjectId=s1&tab=bank',
     );
+    // W17.0 — the action label matches its destination (the study bank).
+    expect(screen.getByTestId('subject-action-exams')).toHaveTextContent('بنك الأسئلة');
     // The sibling actions carry the same /study base (subjectId preserved).
     expect(screen.getByTestId('subject-action-library')).toHaveAttribute(
       'href',

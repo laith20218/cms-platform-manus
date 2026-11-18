@@ -156,6 +156,17 @@ export default function LoginPage() {
             </Link>
           </div>
         </div>
+
+        {/* W17.0 — legal footer: the same three admin-managed content pages
+            Register already links (terms / privacy / contact), one tap from the
+            login surface so legal content is reachable pre-auth. */}
+        <p className="mt-5 text-center text-xs text-[var(--c-text-faint)]" data-testid="login-legal-links">
+          <Link to="/terms" data-testid="login-legal-terms" className="hover:text-[var(--c-primary-700)] hover:underline">الشروط والأحكام</Link>
+          <span aria-hidden="true"> · </span>
+          <Link to="/privacy" data-testid="login-legal-privacy" className="hover:text-[var(--c-primary-700)] hover:underline">سياسة الخصوصية</Link>
+          <span aria-hidden="true"> · </span>
+          <Link to="/contact" data-testid="login-legal-contact" className="hover:text-[var(--c-primary-700)] hover:underline">تواصل معنا</Link>
+        </p>
       </motion.div>
     </div>
   );

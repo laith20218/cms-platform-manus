@@ -103,7 +103,7 @@ export default function SubjectDetailPage() {
             <div className="flex flex-wrap gap-4 text-sm text-[var(--c-text-muted)]">
               <span className="flex items-center gap-1.5"><FileText className="w-4 h-4" /> <strong className="text-[var(--c-text)]" lang="en">{subject.totalQuestions}</strong> سؤال</span>
               <span className="flex items-center gap-1.5"><BookOpen className="w-4 h-4" /> <strong className="text-[var(--c-text)]" lang="en">{subject.totalLectures}</strong> محاضرة</span>
-              <span className="flex items-center gap-1.5"><BarChart3 className="w-4 h-4" /> <strong className="text-[var(--c-text)]" lang="en">{subject.totalExams}</strong> دورة</span>
+              <span className="flex items-center gap-1.5"><BarChart3 className="w-4 h-4" /> <strong className="text-[var(--c-text)]" lang="en">{subject.totalExams}</strong> اختبار</span>
             </div>
           </div>
         </div>
@@ -133,7 +133,9 @@ export default function SubjectDetailPage() {
           </Link>
         )}
         {canQuestions && (
-          <Link to={`/exams?subjectId=${subject.id}`} role="tab" className="px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] whitespace-nowrap">الاختبارات</Link>
+          // W17.0 — renamed to match the SubjectModal action: the questions
+          // surface is the study bank (label = destination, no false labels).
+          <Link to={`/study?subjectId=${subject.id}&tab=bank`} role="tab" className="px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] whitespace-nowrap">بنك الأسئلة</Link>
         )}
         {!hasLibrary && !canQuestions && !canVideoAudio && (
           <span className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-[var(--c-text-faint)] whitespace-nowrap" data-testid="subject-no-extras">
