@@ -8,8 +8,13 @@ import { Navbar } from '@/components/layouts/Navbar';
 import { Sidebar } from '@/components/layouts/Sidebar';
 import { BottomNav } from '@/components/layouts/BottomNav';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
+// W16.4 — reconcile the account's font-size preference (server) with the
+// per-device localStorage mirror on every authenticated page load.
+import { useFontSizeSync } from '@/features/settings/useFontSize';
 
 export function AppShell() {
+  useFontSizeSync();
+
   return (
     <div data-testid="app-shell" className="min-h-screen bg-[var(--cms-ivory-100)]">
       <Navbar />
