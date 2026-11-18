@@ -242,15 +242,18 @@ function prettifyParam(value: string): string {
 }
 
 /** Resolve a subject label from existing query caches (no fetch): the
- * entitled list first, then a subject-detail cache, then a prettified
- * param — good enough for orientation, never a network call. */
+ * entitled list first, then subject-detail caches (both the 3-element keys
+ * the subject page writes and the 2-element key LibraryPage writes — GUID
+ * deep links from favorites/activation resolve through them), then a
+ * prettified param — good enough for orientation, never a network call. */
 function makeSubjectNameResolver(queryClient: QueryClient): (idOrSlug: string) => string {
   return (idOrSlug: string) => {
     const entitled = queryClient.getQueryData<{ id: string; slug: string; nameAr: string }[]>(['my-subjects-entitled']);
     const byList = entitled?.find((s) => s.id === idOrSlug || s.slug === idOrSlug);
     if (byList) return byList.nameAr;
     const detail = queryClient.getQueryData<{ nameAr: string }>(['subject', idOrSlug, 'slug'])
-      ?? queryClient.getQueryData<{ nameAr: string }>(['subject', idOrSlug, 'id']);
+      ?? queryClient.getQueryData<{ nameAr: string }>(['subject', idOrSlug, 'id'])
+      ?? queryClient.getQueryData<{ nameAr: string }>(['subject', idOrSlug]);
     if (detail?.nameAr) return detail.nameAr;
     return prettifyParam(idOrSlug);
   };

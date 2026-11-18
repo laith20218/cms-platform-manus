@@ -123,7 +123,8 @@ export default function SubjectDetailPage() {
           <Link to={`/subjects/${subject.slug}/library`} role="tab" className="px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] whitespace-nowrap">المكتبة</Link>
         )}
         {canVideoAudio && (
-          <Link to={`/my-studies?subjectId=${subject.id}&tab=courses`} role="tab" className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] whitespace-nowrap">
+          // W17.5 — direct /study deep link (was /my-studies — redirect hop).
+          <Link to={`/study?subjectId=${subject.id}&tab=courses`} role="tab" className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] whitespace-nowrap">
             <GraduationCap className="w-4 h-4" /> الكورسات
           </Link>
         )}
