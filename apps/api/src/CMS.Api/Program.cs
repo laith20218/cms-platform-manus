@@ -4,7 +4,10 @@ using CMS.Api.Middleware;
 using CMS.Application.DependencyInjection;
 using CMS.Application.Interfaces;
 using CMS.Infrastructure.DependencyInjection;
+using CMS.Infrastructure.Persistence;
 using CMS.Infrastructure.Services;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
 using Serilog;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -54,6 +57,16 @@ try
 
     // === Infrastructure Services ===
     builder.Services.AddInfrastructureServices(builder.Configuration);
+
+    // === Data Protection (Wave 16.2c) ===
+    // Render's ephemeral filesystem wiped the default Data Protection keys on every
+    // deploy, invalidating auth state and surfacing as 401 on token refresh. The key
+    // ring now persists in the same PostgreSQL database the API already depends on
+    // (durable on Render via Neon), and SetApplicationName pins the ring identity so
+    // every deployment/instance of this app reads and writes the SAME ring.
+    builder.Services.AddDataProtection()
+        .PersistKeysToDbContext<ApplicationDbContext>()
+        .SetApplicationName("CMS");
 
     // === W14.2 D.3: exam timeout sweeper (server-driven timer, D7) ===
     // Plain BackgroundService per the wave ruling — Hangfire stays unwired.
@@ -231,6 +244,33 @@ try
         .AddCheck<UpstashRedisHealthCheck>("redis", tags: new[] { "ready" });
 
     var app = builder.Build();
+
+    // === Wave 16.2c: apply pending EF Core migrations at startup ===
+    // Render deployments ship new code but nothing runs `dotnet ef database update`,
+    // so the production schema drifted behind the latest migrations (500s on new
+    // columns — the first symptom of this wave). Migrate() is idempotent: it applies
+    // ONLY the pending migrations listed in __EFMigrationsHistory and is a no-op on
+    // an up-to-date database. Skipped in the Testing environment, matching the
+    // HOTFIX 10.10 guard below: the Postgres integration fixtures build their
+    // throwaway schema themselves (PostgresFixture.InitializeAsync) before any
+    // request is served, and the HTTP factories never touch a real database.
+    if (!app.Environment.IsEnvironment("Testing"))
+    {
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            try
+            {
+                db.Database.Migrate();
+            }
+            catch (Exception ex)
+            {
+                var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+                logger.LogError(ex, "An error occurred while migrating the database.");
+                throw; // Fail fast if migration fails
+            }
+        }
+    }
 
     // === HOTFIX 10.10: apply the B2 bucket CORS policy at startup ===
     // The Backblaze web UI cannot express AllowedHeaders: ["*"] (wildcards) or
