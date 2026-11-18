@@ -4,10 +4,16 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Settings as SettingsIcon, Moon, Bell, Lock, Loader2, ShieldCheck } from 'lucide-react';
+import { Settings as SettingsIcon, Moon, Bell, Lock, Loader2, ShieldCheck, Type } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { getApiErrorMessage } from '@/utils/api-error';
 import LeaderboardSharingToggle from '@/features/stats/components/LeaderboardSharingToggle';
+// W16.4 — student preferences: font-size (persisted per-account via
+// /student/preferences + per-device localStorage boot) and the dynamic
+// platform version (GET /system/version, safe fallback "1.0.0").
+import { FONT_SIZE_STEPS } from './font-size';
+import { useFontSize } from './useFontSize';
+import { usePlatformVersion } from './usePlatformVersion';
 
 export default function SettingsPage() {
   // ThemeProvider persists the choice under 'cms-theme' — the key must match exactly
@@ -17,6 +23,9 @@ export default function SettingsPage() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // W16.4 — font-size control (server-persisted preference) + dynamic version.
+  const fontSize = useFontSize();
+  const { version } = usePlatformVersion();
 
   const toggleTheme = () => {
     const next = theme === 'light' ? 'dark' : 'light';
@@ -70,6 +79,44 @@ export default function SettingsPage() {
       </section>
 
       <section className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6">
+        <h2 className="text-base font-semibold mb-1 text-[var(--cms-text)] flex items-center gap-2"><Type className="w-4 h-4" /> حجم الخط</h2>
+        <p className="text-xs text-[var(--cms-text-muted)] mb-4">يُطبّق على الواجهة كاملة ويُحفظ في حسابك لجميع أجهزتك.</p>
+        <div role="radiogroup" aria-label="حجم الخط" data-testid="font-size-options" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {FONT_SIZE_STEPS.map(({ step, label, px }) => {
+            const active = fontSize.step === step;
+            return (
+              <button
+                key={step}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                data-testid={`font-size-${step}`}
+                onClick={() => fontSize.choose(step)}
+                disabled={fontSize.isSaving}
+                className={`press flex min-h-11 flex-col items-center justify-center gap-1 rounded-xl border px-3 py-2 transition-colors disabled:opacity-60 ${
+                  active
+                    ? 'border-[var(--cms-teal-600)] bg-[var(--cms-teal-50)] text-[var(--cms-teal-700)] font-bold'
+                    : 'border-[var(--cms-line)] bg-[var(--cms-surface-2)] text-[var(--cms-text-soft)] hover:border-[var(--cms-teal-100)]'
+                }`}
+              >
+                <span style={{ fontSize: `${px}px`, lineHeight: 1 }} aria-hidden="true">أ</span>
+                <span className="text-[11px]">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+        {fontSize.saveError && (
+          <p
+            role="alert"
+            data-testid="font-size-error"
+            className="mt-3 rounded-lg bg-[var(--cms-danger-50)] px-3 py-2 text-sm text-[var(--cms-danger)]"
+          >
+            {fontSize.saveError}
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6">
         <h2 className="text-base font-semibold mb-4 text-[var(--cms-text)] flex items-center gap-2"><Bell className="w-4 h-4" /> الإشعارات</h2>
         <div className="flex items-center justify-between">
           <span className="text-sm text-[var(--cms-text-soft)]">تلقّي الإشعارات</span>
@@ -99,7 +146,9 @@ export default function SettingsPage() {
       <section className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6">
         <h2 className="text-base font-semibold mb-2 text-[var(--cms-text)]">حول</h2>
         <div className="space-y-1 text-sm text-[var(--cms-text-muted)]">
-          <p>منصة CMS الطبية — الإصدار 1.0.0</p>
+          {/* W16.4 — dynamic version from GET /system/version (fallback "1.0.0"),
+              no longer a hardcoded string. */}
+          <p data-testid="platform-version">منصة CMS الطبية — الإصدار {version}</p>
           <p>تطبيق ويب تقدمي (PWA)</p>
           <p>© 2026 CMS</p>
         </div>
