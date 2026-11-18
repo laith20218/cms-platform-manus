@@ -34,7 +34,9 @@ export default function SettingsPage() {
       setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
     },
     onError: (error: unknown) => {
-      toast.error(getApiErrorMessage(error, 'فشل'));
+      // W16.3 — the fallback was a bare «فشل»; now it says WHAT failed and
+      // what to do, while the backend's Arabic `detail` still wins when present.
+      toast.error(getApiErrorMessage(error, 'تعذر تغيير كلمة المرور. تحقق من كلمة المرور الحالية ثم حاول مجدداً.'));
     },
   });
 
