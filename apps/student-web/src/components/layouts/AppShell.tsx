@@ -7,6 +7,7 @@ import { Outlet } from 'react-router-dom';
 import { Navbar } from '@/components/layouts/Navbar';
 import { Sidebar } from '@/components/layouts/Sidebar';
 import { BottomNav } from '@/components/layouts/BottomNav';
+import { PathTrail } from '@/components/layouts/PathTrail';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 // W16.4 — reconcile the account's font-size preference (server) with the
 // per-device localStorage mirror on every authenticated page load.
@@ -25,6 +26,11 @@ export function AppShell() {
           data-testid="app-main"
           className="flex-1 min-w-0 w-full max-w-[var(--cms-content-max)] mx-auto p-4 sm:p-6 md:p-8 pt-6 md:pt-10 pb-[calc(var(--cms-bottom-pb)+env(safe-area-inset-bottom))] lg:pb-8"
         >
+          {/* W17.2 — the global path trail: same slot, every authenticated
+              page. The student always knows WHERE they are and HOW to go up
+              (logical Back → parent segment), complementing — not fighting —
+              the Navbar/Sidebar. */}
+          <PathTrail />
           {/* A crash in one route must never blank the whole app. */}
           <ErrorBoundary>
             <Outlet />

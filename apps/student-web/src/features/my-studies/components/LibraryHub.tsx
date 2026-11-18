@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
-  BookMarked, Bookmark, CalendarDays, ChevronLeft, Eye, FileCode, FileSpreadsheet,
+  BookMarked, Bookmark, CalendarDays, Eye, FileCode, FileSpreadsheet,
   FileText, Image as ImageIcon, LoaderCircle, Music, Target, Video,
 } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
@@ -308,33 +308,13 @@ export function LibraryHub({
   return (
     <div>
       {/* Wave 15.5.1a — the /study context already owns the page h1 (دراستي);
-          the standalone /subjects/:slug/library route renders its own. */}
+          the standalone /subjects/:slug/library route renders its own.
+          W17.2 — the local breadcrumb is retired: the global PathTrail in
+          AppShell renders the trail on every authenticated page (study and
+          subject contexts alike). */}
       {!inStudyContext && (
         <h1 className="text-2xl font-bold">المكتبة الرقمية</h1>
       )}
-
-      {/* Breadcrumbs — context-aware; classNames carried over from the legacy LibraryPage. */}
-      <div className="flex items-center gap-2 text-xs text-[var(--c-text-muted)]" data-testid="library-breadcrumb">
-        {inStudyContext ? (
-          <>
-            <Link to="/study" className="hover:text-[var(--c-primary-700)]">دراستي</Link>
-            <ChevronLeft className="w-3 h-3" />
-            <span className="font-semibold text-[var(--c-text)]">المكتبة</span>
-          </>
-        ) : (
-          <>
-            <Link to="/dashboard" className="hover:text-[var(--c-primary-700)]">الرئيسية</Link>
-            <ChevronLeft className="w-3 h-3" />
-            {subjectSlug && (
-              <>
-                <Link to={`/subjects/${subjectSlug}`} className="hover:text-[var(--c-primary-700)]">المادة</Link>
-                <ChevronLeft className="w-3 h-3" />
-              </>
-            )}
-            <span className="font-semibold text-[var(--c-text)]">المكتبة</span>
-          </>
-        )}
-      </div>
 
       {/* Category filter chips (Row A) */}
       <div role="tablist" aria-label="تصنيفات المكتبة" className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-3 mt-5" data-testid="library-category-tabs">
