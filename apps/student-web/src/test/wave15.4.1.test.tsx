@@ -115,11 +115,12 @@ describe('StudyPage — 4-tab hub (15.4.1 → 16.1a)', () => {
     expect(screen.getByText('تشريح مرضي')).toBeInTheDocument();
   });
 
-  it('renders all four tabs with the correct labels (overview/exams/leaderboard retired)', () => {
+  it('renders all five tabs with the correct labels (W17.1: content added; overview/exams/leaderboard retired)', () => {
     renderStudyAt('/study');
 
     const expected: ReadonlyArray<readonly [string, string]> = [
       ['progress', 'تقدمي'],
+      ['content', 'المحتوى'],
       ['library', 'المكتبة'],
       ['bank', 'بنك الأسئلة'],
       ['courses', 'الكورسات'],
@@ -128,6 +129,13 @@ describe('StudyPage — 4-tab hub (15.4.1 → 16.1a)', () => {
       const tab = screen.getByTestId(`study-tab-${key}`);
       expect(tab).toBeInTheDocument();
       expect(tab.textContent).toContain(label);
+    }
+    // Tab order: progress | content | library | bank | courses (W17.1) — each
+    // tab button must follow the previous one in the DOM.
+    for (let i = 1; i < expected.length; i += 1) {
+      const prev = screen.getByTestId(`study-tab-${expected[i - 1][0]}`);
+      const curr = screen.getByTestId(`study-tab-${expected[i][0]}`);
+      expect(prev.compareDocumentPosition(curr) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     }
     // The retired hub tabs are gone; the practice sub-tab never leaked in.
     expect(screen.queryByTestId('study-tab-overview')).not.toBeInTheDocument();
@@ -158,15 +166,16 @@ describe('StudyPage — 4-tab hub (15.4.1 → 16.1a)', () => {
     expect(screen.getByTestId('exam-courses-tab-years').getAttribute('aria-selected')).toBe('true');
   });
 
-  it('shows the subject filter chip when ?subjectId= is present', async () => {
+  it('shows the subject scope bar (not the retired chip) when ?subjectId= is present (W17.1)', async () => {
     renderStudyAt('/study?subjectId=s1&tab=library');
 
-    const chip = await screen.findByTestId('study-subject-filter-chip');
+    const bar = await screen.findByTestId('study-scope-bar');
     await waitFor(() => {
-      expect(screen.getByTestId('study-subject-filter-name').textContent).toBe('تشريح مرضي');
+      expect(screen.getByTestId('study-scope-value').textContent).toBe('تشريح مرضي');
     });
-    expect(chip.textContent).toContain('تشريح مرضي');
-    expect(screen.getByTestId('study-subject-filter-clear')).toBeInTheDocument();
+    expect(bar).toBeInTheDocument();
+    // The old hub-wide chip is retired outside the bank tab.
+    expect(screen.queryByTestId('study-subject-filter-chip')).not.toBeInTheDocument();
   });
 });
 
