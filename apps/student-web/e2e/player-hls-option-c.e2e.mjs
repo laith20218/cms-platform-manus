@@ -217,6 +217,13 @@ async function newStudentContext(browser, viewport) {
   // student; the player page's own data is mocked independently below.
   await context.route('**/api/v1/subjects/my-subjects', (route) =>
     route.fulfill({ json: { items: [] } }));
+  // W16.4 — AppShell mounts useFontSizeSync() (the account font-size
+  // preference), so every authenticated page — this player route included —
+  // now fetches GET /student/preferences. Unmocked, the catch-all above
+  // aborts it and the console gate flags net::ERR_FAILED exactly like the
+  // /my-subjects case documented above. Empty object = default preferences.
+  await context.route('**/api/v1/student/preferences', (route) =>
+    route.fulfill({ json: {} }));
   await context.route('**/api/v1/entitlements/issue', (route) =>
     route.fulfill({ json: { token: ENTITLEMENT_TOKEN } }));
 
