@@ -1,8 +1,9 @@
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { motion } from 'framer-motion';
-import { ArrowUpDown, Check, ChevronDown, FileText, Film, ListChecks, LayoutGrid } from 'lucide-react';
+import { ArrowUpDown, BookOpen, Check, ChevronDown, FileText, Film, ListChecks, LayoutGrid } from 'lucide-react';
 import { cn } from '@/utils';
 import type { FavoriteSort, FavoriteTargetType } from '../types';
+import type { MySubjectEntry } from '@/features/my-studies/hooks/useMySubjects';
 
 /** Push 11.3 — type-filter tabs + sort dropdown. All state lives in the URL search
  *  params (shareable, back-button safe); the toolbar is a pure controlled surface.
@@ -29,9 +30,14 @@ export interface FavoritesToolbarProps {
   sort: FavoriteSort;
   onTypeChange: (type: FavoriteTargetType | 'all') => void;
   onSortChange: (sort: FavoriteSort) => void;
+  /** W17.4 — flat-mode subject scope (?subjectId=): null = كل المواد. */
+  subjectId: string | null;
+  subjects: MySubjectEntry[];
+  onSubjectChange: (subjectId: string | null) => void;
 }
 
-export function FavoritesToolbar({ type, sort, onTypeChange, onSortChange }: FavoritesToolbarProps) {
+export function FavoritesToolbar({ type, sort, onTypeChange, onSortChange, subjectId, subjects, onSubjectChange }: FavoritesToolbarProps) {
+  const selectedSubject = subjects.find((subject) => subject.id === subjectId) ?? null;
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div role="tablist" aria-label="تصفية المفضلة بالنوع" className="fade-edges -mx-4 px-4 sm:mx-0 sm:px-0">
@@ -67,7 +73,65 @@ export function FavoritesToolbar({ type, sort, onTypeChange, onSortChange }: Fav
         </div>
       </div>
 
-      <div className="shrink-0">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        {/* W17.4 — subject scope: same select recipe as the sort control;
+            server-side filter keeps counts + pagination honest. */}
+        <label className="sr-only" htmlFor="favorites-subject">تصفية المفضلة بالمادة</label>
+        <SelectPrimitive.Root value={subjectId ?? '__all__'} onValueChange={(value) => onSubjectChange(value === '__all__' ? null : value)}>
+          <SelectPrimitive.Trigger
+            id="favorites-subject"
+            aria-label="تصفية المفضلة بالمادة"
+            data-testid="favorites-subject-filter"
+            className={cn(
+              'inline-flex min-h-11 items-center justify-between gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-primary-500)]',
+              subjectId
+                ? 'border-[var(--c-primary-400)] bg-[var(--c-primary-50)] text-[var(--c-primary-800)]'
+                : 'border-[var(--c-border)] bg-[var(--c-surface)] text-[var(--c-text)] hover:bg-[var(--c-bg-hover)]',
+            )}
+          >
+            <span className="flex items-center gap-2">
+              <BookOpen className="h-4 w-4 text-[var(--c-text-muted)]" />
+              <span className="max-w-[9rem] truncate" data-testid="favorites-subject-value">{selectedSubject?.nameAr ?? 'كل المواد'}</span>
+            </span>
+            <SelectPrimitive.Icon>
+              <ChevronDown className="h-4 w-4 text-[var(--c-text-muted)]" />
+            </SelectPrimitive.Icon>
+          </SelectPrimitive.Trigger>
+          <SelectPrimitive.Portal>
+            <SelectPrimitive.Content
+              position="popper"
+              sideOffset={6}
+              className="z-50 min-w-[12rem] overflow-hidden rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] shadow-lg"
+            >
+              <SelectPrimitive.Viewport className="p-1.5">
+                <SelectPrimitive.Item
+                  value="__all__"
+                  data-testid="favorites-subject-option-all"
+                  className="flex min-h-11 cursor-pointer select-none items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm font-semibold text-[var(--c-text)] outline-none data-[highlighted]:bg-[var(--c-primary-50)] data-[highlighted]:text-[var(--c-primary-700)]"
+                >
+                  كل المواد
+                  <SelectPrimitive.ItemIndicator>
+                    <Check className="h-4 w-4 text-[var(--c-primary-700)]" />
+                  </SelectPrimitive.ItemIndicator>
+                </SelectPrimitive.Item>
+                {subjects.map((subject) => (
+                  <SelectPrimitive.Item
+                    key={subject.id}
+                    value={subject.id}
+                    data-testid={`favorites-subject-option-${subject.id}`}
+                    className="flex min-h-11 cursor-pointer select-none items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm font-medium text-[var(--c-text)] outline-none data-[highlighted]:bg-[var(--c-primary-50)] data-[highlighted]:text-[var(--c-primary-700)]"
+                  >
+                    <span className="min-w-0 truncate">{subject.nameAr}</span>
+                    <SelectPrimitive.ItemIndicator>
+                      <Check className="h-4 w-4 text-[var(--c-primary-700)]" />
+                    </SelectPrimitive.ItemIndicator>
+                  </SelectPrimitive.Item>
+                ))}
+              </SelectPrimitive.Viewport>
+            </SelectPrimitive.Content>
+          </SelectPrimitive.Portal>
+        </SelectPrimitive.Root>
+
         <label className="sr-only" htmlFor="favorites-sort">ترتيب المفضلة</label>
         <SelectPrimitive.Root value={sort} onValueChange={(value) => onSortChange(value as FavoriteSort)}>
           <SelectPrimitive.Trigger

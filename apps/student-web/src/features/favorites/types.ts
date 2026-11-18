@@ -43,6 +43,9 @@ export interface FavoriteListParams {
   sort: FavoriteSort;
   page: number;
   pageSize: number;
+  /** W17.4 — optional subject scope (?subjectId= on the favorites page);
+   * undefined = all subjects. Server-side filter (keeps pagination honest). */
+  subjectId?: string;
 }
 
 // ===== W15.0 — custom favorites lists (named question collections) =====

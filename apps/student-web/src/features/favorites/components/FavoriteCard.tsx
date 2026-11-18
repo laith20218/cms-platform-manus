@@ -148,8 +148,12 @@ export const FavoriteCard = memo(function FavoriteCard({ item, onDelete, deleteP
           </div>
         )}
 
-        {/* Actions — متابعة (episodes with progress, decision #3) + فتح. Questions have
-            no deep-linkable route in 11.3 (subject-slug based), so no open button. */}
+        {/* Actions — متابعة (episodes with progress, decision #3) + فتح.
+            W17.4 — every target is now openable IN CONTEXT via existing routes:
+            questions deep-link into the question view (the route accepts a GUID
+            subject segment — QuestionPage only consumes questionId), files
+            deep-link into the subject library with ?openFile= auto-opening the
+            DocumentViewer, episodes keep the precise player deep link. */}
         <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
           {item.targetType === 'episode' && item.courseId && (
             <button
@@ -166,15 +170,28 @@ export const FavoriteCard = memo(function FavoriteCard({ item, onDelete, deleteP
                 : <><Film className="h-4 w-4" /> فتح الحلقة</>}
             </button>
           )}
+          {item.targetType === 'question' && (
+            <Link
+              to={`/subjects/${item.subjectId}/questions/${item.targetId}`}
+              data-testid="favorite-open"
+              aria-label={`عرض ${item.title}`}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl px-4 py-1.5 text-sm font-bold text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-primary-500)]"
+              style={{ background: 'var(--c-primary-700)' }}
+            >
+              <ListChecks className="h-4 w-4" />
+              عرض السؤال
+            </Link>
+          )}
           {item.targetType === 'file' && (
             <Link
-              to="/my-studies?tab=library"
+              to={`/subjects/${item.subjectId}/library?openFile=${item.targetId}`}
               data-testid="favorite-open"
               aria-label={`فتح ${item.title} في المكتبة`}
-              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--c-border-strong)] px-4 py-1.5 text-sm font-semibold text-[var(--c-text-soft)] transition-colors hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-primary-500)]"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl px-4 py-1.5 text-sm font-bold text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-primary-500)]"
+              style={{ background: 'var(--c-primary-700)' }}
             >
               <FileText className="h-4 w-4" />
-              فتح في المكتبة
+              فتح الملف
             </Link>
           )}
         </div>

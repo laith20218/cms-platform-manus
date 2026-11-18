@@ -21,7 +21,11 @@ public sealed record GetFavoritesQuery(
     /// <summary>1-based; clamped to ≥ 1.</summary>
     int Page,
     /// <summary>Clamped to 1..100 (default 20).</summary>
-    int PageSize
+    int PageSize,
+    /// <summary>W17.4 — optional subject scope for the favorites page filter
+    (?subjectId=): null = all subjects. Applied AFTER entitlement visibility so
+    totals stay honest.</summary>
+    Guid? SubjectId = null
 ) : IRequest<PagedResult<FavoriteItemDto>>;
 
 // ===== Commands (Write) =====
