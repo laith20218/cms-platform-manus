@@ -389,7 +389,7 @@ describe('W14.4 ExamCourseDetailPage (in-hub mount — 16.1b D2-a)', () => {
   it('returns to the catalog at /study?tab=bank from the back button (D2-a)', async () => {
     renderApp('/study?tab=bank&courseId=ec1');
 
-    fireEvent.click(await screen.findByText('العودة إلى الدورات الامتحانية'));
+    fireEvent.click(await screen.findByText('العودة إلى بنك الأسئلة'));
 
     await waitFor(() => {
       const probe = screen.getByTestId('location-probe');

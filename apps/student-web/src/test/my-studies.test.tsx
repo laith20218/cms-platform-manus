@@ -217,7 +217,8 @@ describe('ExamsCatalog — W15.1 C: zero-exam filtering, auto-expand, empty CTA'
     const cta = screen.getByTestId('exams-empty-cta');
     // W16.1b (D2-a): the CTA points at the hub's bank tab (was /exam-courses).
     expect(cta.getAttribute('href')).toBe('/study?tab=bank');
-    expect(cta.textContent).toContain('الدورات الامتحانية');
+    // W17.0 — the CTA reads «بنك الأسئلة» (terminology pass).
+    expect(cta.textContent).toContain('بنك الأسئلة');
   });
 });
 

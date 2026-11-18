@@ -198,7 +198,7 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
           </div>
           <h3 className="mb-1.5 text-base font-bold text-[var(--c-text)]">لا توجد اختبارات منشورة لموادك بعد</h3>
           <p className="mx-auto mb-5 max-w-sm text-sm leading-relaxed text-[var(--c-text-muted)]">
-            الاختبارات الجديدة تظهر هنا بمجرد نشرها — في هذه الأثناء يمكنك التدرّب على نماذج الاختبارات من الدورات الامتحانية.
+            الاختبارات الجديدة تظهر هنا بمجرد نشرها — في هذه الأثناء يمكنك التدرّب على نماذج الاختبارات من بنك الأسئلة.
           </p>
           <Link
             to="/study?tab=bank"
@@ -207,7 +207,7 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
             style={{ background: 'var(--grad-primary)' }}
           >
             <LibraryBig className="h-4 w-4" aria-hidden="true" />
-            انتقل إلى الدورات الامتحانية
+            انتقل إلى بنك الأسئلة
           </Link>
         </motion.div>
       ) : (

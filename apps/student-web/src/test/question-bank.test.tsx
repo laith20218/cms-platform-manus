@@ -122,7 +122,8 @@ describe('QuestionBankTab — W16.2b', () => {
     // The gate: activation message + shared activate-code CTA.
     expect(await screen.findByTestId('bank-activation-gate')).toBeTruthy();
     expect(screen.getByText('هذه المادة غير مفعلة')).toBeTruthy();
-    expect(screen.getByText(/قم بتفعيلها للوصول لبنك الأسئلة/)).toBeTruthy();
+    // W17.0 — the gate hint names the lenses in questions terminology.
+    expect(screen.getByText(/قم بتفعيلها للوصول إلى بنك الأسئلة — أسئلة السنوات/)).toBeTruthy();
     expect(screen.getByTestId('activate-code-cta').getAttribute('href')).toBe('/activate-code');
 
     // The storefront lenses do NOT mount for an inactive subject…

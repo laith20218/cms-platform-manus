@@ -23,13 +23,17 @@ import { Accordion, type AccordionItemData } from '@cms/ui';
  * changed beyond the hub embedding:
  *
  * Two lenses over one subject:
- *  • دورات سنوات — published bundles (GET /exam-courses/subject/{id}), filtered by
+ *  • أسئلة السنوات — published bundles (GET /exam-courses/subject/{id}), filtered by
  *    year (default: latest round year) and semester. Year/Semester are calendar
  *    ints (2000-2100 / 1-3) per the admin ExamCourses form, so the default year is
  *    the newest round the subject actually has.
- *  • دورات مصنفة — the practice tree (GET /practice/categorized/{id}): Lecture →
+ *  • أسئلة مصنّفة — the practice tree (GET /practice/categorized/{id}): Lecture →
  *    ParagraphTag with "غير مصنف" buckets; a group click starts a filtered
  *    PracticeSession (A.4).
+ *
+ * W17.0 (terminology): the user-facing lens labels no longer say «دورات» — the
+ * Owner framing is questions/bank («أسئلة السنوات، الأسئلة المصنّفة، بنك
+ * الأسئلة»). Underlying API contracts and test ids are unchanged.
  *
  * W15.1 (A.2/URL): the internal lens moved from `?tab=` to `?examTab=` so it can
  * never clobber the hub's own `?tab=` param; the URL writer now EDITS the current
@@ -42,8 +46,8 @@ import { Accordion, type AccordionItemData } from '@cms/ui';
 type TabKey = 'years' | 'categorized';
 
 const TABS: { key: TabKey; label: string; icon: typeof CalendarDays }[] = [
-  { key: 'years', label: 'دورات سنوات', icon: CalendarDays },
-  { key: 'categorized', label: 'دورات مصنفة', icon: Layers },
+  { key: 'years', label: 'أسئلة السنوات', icon: CalendarDays },
+  { key: 'categorized', label: 'أسئلة مصنّفة', icon: Layers },
 ];
 
 /** W15.0 — persisted last-filter state (URL params remain the in-session source of
@@ -236,7 +240,7 @@ export function ExamCoursesCatalog({ hideHeader = false, hideCascade = false }: 
       )}
 
       {/* Tabs */}
-      <div className="fade-edges -mx-4 px-4 sm:mx-0 sm:px-0 mb-4" role="tablist" aria-label="أقسام الدورات الامتحانية">
+      <div className="fade-edges -mx-4 px-4 sm:mx-0 sm:px-0 mb-4" role="tablist" aria-label="أقسام بنك الأسئلة">
         <div className="flex w-full gap-1 overflow-x-auto no-scrollbar rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-1.5 sm:w-fit">
           {TABS.map(({ key, label, icon: Icon }) => {
             const active = tab === key;
@@ -271,7 +275,7 @@ export function ExamCoursesCatalog({ hideHeader = false, hideCascade = false }: 
 
       <div role="tabpanel" data-testid={`exam-courses-panel-${tab}`}>
         {tab === 'years' ? (
-          <ErrorBoundary title="تعذّر تحميل الدورات">
+          <ErrorBoundary title="تعذّر تحميل أسئلة السنوات">
             <YearsTab
               query={coursesQuery}
               years={years}
@@ -314,9 +318,9 @@ function CatalogHeader({ subjectName }: { subjectName?: string | null }) {
         <LibraryBig className="w-6 h-6" aria-hidden="true" />
       </div>
       <div className="min-w-0">
-        <h2 className="text-xl font-bold text-[var(--cms-text)]">الدورات الامتحانية</h2>
+        <h2 className="text-xl font-bold text-[var(--cms-text)]">الأسئلة الامتحانية</h2>
         <p className="text-sm text-[var(--cms-text-muted)] truncate">
-          {subjectName ? `دورات وتصنيفات مادة ${subjectName}` : 'دورات سنوات وتصنيفات التدريب لكل مادة'}
+          {subjectName ? `أسئلة وتصنيفات مادة ${subjectName}` : 'أسئلة السنوات وتصنيفات التدريب لكل مادة'}
         </p>
       </div>
     </header>
@@ -350,7 +354,7 @@ function YearsTab({
     return (
       <div className="flex flex-col items-center gap-3 py-16">
         <Loader2 className="w-8 h-8 animate-spin text-[var(--cms-teal-700)]" aria-hidden="true" />
-        <p className="text-sm text-[var(--cms-text-muted)]">جارٍ تحميل الدورات…</p>
+        <p className="text-sm text-[var(--cms-text-muted)]">جارٍ تحميل أسئلة السنوات…</p>
       </div>
     );
   }
@@ -359,15 +363,15 @@ function YearsTab({
     if (isEntitlementDenied(error)) {
       return <CatalogEntitlementErrorCard variant={variantForReason((error as { reason?: string }).reason)} onRetry={refetch} testId="exam-courses-denied" />;
     }
-    return <CatalogErrorCard onRetry={refetch} testId="exam-courses-error" title="تعذّر تحميل الدورات" body="حدث خطأ أثناء جلب الدورات الامتحانية. حاول مرة أخرى." />;
+    return <CatalogErrorCard onRetry={refetch} testId="exam-courses-error" title="تعذّر تحميل أسئلة السنوات" body="حدث خطأ أثناء جلب أسئلة السنوات. حاول مرة أخرى." />;
   }
 
   if ((query.data ?? []).length === 0) {
     return (
       <EmptyState
         icon={<CalendarDays className="w-8 h-8 text-[var(--cms-text-muted)]" aria-hidden="true" />}
-        title="لا توجد دورات منشورة بعد"
-        body="ستظهر هنا دورات هذه المادة فور نشرها من قبل الإدارة."
+        title="لا توجد أسئلة سنوات منشورة بعد"
+        body="ستظهر هنا أسئلة هذه المادة فور نشرها من قبل الإدارة."
       />
     );
   }
@@ -406,7 +410,7 @@ function YearsTab({
       {visibleCourses.length === 0 ? (
         <EmptyState
           icon={<CalendarDays className="w-8 h-8 text-[var(--cms-text-muted)]" aria-hidden="true" />}
-          title="لا توجد دورات ضمن هذا التصنيف"
+          title="لا توجد أسئلة ضمن هذا التصنيف"
           body="جرّب سنة أو فصلاً آخر من المرشحات أعلاه."
         />
       ) : (

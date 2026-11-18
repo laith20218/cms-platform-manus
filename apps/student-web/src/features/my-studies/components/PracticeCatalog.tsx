@@ -19,7 +19,7 @@ interface PracticeLecture extends LectureSummary {
 }
 
 /**
- * My Studies → الدورات tab (Push 6 Task 2): the question-practice surface.
+ * My Studies → التدريب subtab (Push 6 Task 2): the question-practice surface.
  * Lists every lecture that carries questions across the student's entitled
  * subjects (QuestionsExams scope) and links straight into the practice player
  * (`/subjects/:slug/lectures/:lectureId/questions` — the Push 2 question bank UI).
@@ -107,12 +107,12 @@ export function PracticeCatalog({ subjectId }: { subjectId?: string | null }) {
 
   // No active code at all → locked state with the activation CTA.
   if (allSubjects.length === 0) {
-    return <LockedEmptyState title="الدورات مُقفلة" hint="دورات الأسئلة التفاعلية لموادك تُفتح بعد تفعيل كود اشتراك يشمل الأسئلة والاختبارات." />;
+    return <LockedEmptyState title="أسئلة التدريب مُقفلة" hint="أسئلة التدريب التفاعلية لموادك تُفتح بعد تفعيل كود اشتراك يشمل الأسئلة والاختبارات." />;
   }
 
   // Has codes, but none covering questions → scope-specific lock.
   if (practiceSubjects.length === 0) {
-    return <LockedEmptyState title="الدورات غير مشمولة باشتراكك" hint="اشتراكك الحالي لا يشمل بنك الأسئلة — وسّع تفعيلك ليشمل الأسئلة والاختبارات لفتح الدورات." />;
+    return <LockedEmptyState title="أسئلة التدريب غير مشمولة باشتراكك" hint="اشتراكك الحالي لا يشمل بنك الأسئلة — وسّع تفعيلك ليشمل الأسئلة والاختبارات لفتح أسئلة التدريب." />;
   }
 
   // A subjectId deep link the student isn't entitled to (stale link).
@@ -120,8 +120,8 @@ export function PracticeCatalog({ subjectId }: { subjectId?: string | null }) {
     return (
       <div className="text-center py-14 rounded-2xl border border-dashed border-[var(--c-border)]" data-testid="practice-subject-locked">
         <Target className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" />
-        <p className="text-[var(--c-text-muted)]">لا يمكنك الوصول إلى دورات هذه المادة بعد</p>
-        <p className="text-xs text-[var(--c-text-faint)] mt-1">فعّل كوداً يشمل هذه المادة لفتح دوراتها</p>
+        <p className="text-[var(--c-text-muted)]">لا يمكنك الوصول إلى أسئلة هذه المادة بعد</p>
+        <p className="text-xs text-[var(--c-text-faint)] mt-1">فعّل كوداً يشمل هذه المادة لفتح أسئلتها</p>
       </div>
     );
   }
@@ -140,7 +140,7 @@ export function PracticeCatalog({ subjectId }: { subjectId?: string | null }) {
       <CatalogErrorCard
         onRetry={() => refetch()}
         testId="practice-catalog-error"
-        title="تعذّر تحميل دورات الأسئلة"
+        title="تعذّر تحميل أسئلة التدريب"
         body="حدث خطأ في الاتصال. تحقّق من الشبكة ثم أعد المحاولة."
       />
     );
@@ -150,8 +150,8 @@ export function PracticeCatalog({ subjectId }: { subjectId?: string | null }) {
     return (
       <div className="text-center py-14 rounded-2xl border border-dashed border-[var(--c-border)]" data-testid="practice-empty">
         <CircleHelp className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" />
-        <p className="text-[var(--c-text-muted)]">لا توجد دورات أسئلة متاحة بعد</p>
-        <p className="text-xs text-[var(--c-text-faint)] mt-1">تظهر الدورات هنا بمجرد إضافة أسئلة إلى محاضرات موادك</p>
+        <p className="text-[var(--c-text-muted)]">لا توجد أسئلة تدريب متاحة بعد</p>
+        <p className="text-xs text-[var(--c-text-faint)] mt-1">تظهر هنا بمجرد إضافة أسئلة إلى محاضرات موادك</p>
       </div>
     );
   }
@@ -162,7 +162,7 @@ export function PracticeCatalog({ subjectId }: { subjectId?: string | null }) {
     <div>
       <div className="flex items-center gap-2 mb-4 text-xs text-[var(--c-text-muted)]" data-testid="practice-summary">
         <span className="px-2.5 py-1 rounded-full bg-[var(--c-primary-50)] text-[var(--c-primary-700)] font-semibold">
-          {lectures.length} دورة
+          {lectures.length} محاضرة
         </span>
         <span className="px-2.5 py-1 rounded-full bg-[var(--c-bg-hover)] font-medium">
           {totalQuestions} سؤال

@@ -97,7 +97,7 @@ export function QuestionBankTab() {
           <div className="min-w-0">
             <h2 className="text-xl font-bold text-[var(--c-text)]">بنك الأسئلة</h2>
             <p className="truncate text-sm text-[var(--c-text-muted)]">
-              {subject ? `دورات وتصنيفات وأسئلة تدريب مادة ${subject.nameAr}` : 'اختر مادتك من التصفية للوصول إلى بنكها'}
+              {subject ? `أسئلة السنوات والتصنيفات والتدريب لمادة ${subject.nameAr}` : 'اختر مادتك من التصفية للوصول إلى بنكها'}
             </p>
           </div>
         </div>
@@ -139,12 +139,12 @@ export function QuestionBankTab() {
         >
           <LockedEmptyState
             title="هذه المادة غير مفعلة"
-            hint="قم بتفعيلها للوصول لبنك الأسئلة — الدورات والتصنيفات والتدريب لهذه المادة تُفتح بعد تفعيل كود اشتراك يشملها."
+            hint="قم بتفعيلها للوصول إلى بنك الأسئلة — أسئلة السنوات والتصنيفات والتدريب لهذه المادة تُفتح بعد تفعيل كود اشتراك يشملها."
           />
         </motion.div>
       ) : (
         /* Active subject → the two lenses: the storefront catalog (its own
-           دورات سنوات / دورات مصنفة tabs) mounts with hideHeader + hideCascade. */
+           أسئلة السنوات / أسئلة مصنّفة tabs) mounts with hideHeader + hideCascade. */
         <ExamCoursesCatalog hideHeader hideCascade />
       )}
 

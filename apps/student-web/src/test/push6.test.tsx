@@ -145,7 +145,7 @@ describe('Exams — التدريب practice sub-tab (16.1a standalone page)', ()
   it('shows the scope-specific lock when no grant covers questions', async () => {
     stubGet({ mySubjects: [{ id: 's2', slug: 'باطنة', nameAr: 'الباطنة', contentScopes: ['VideoAudio'] }] });
     renderApp('/exams?subtab=practice');
-    expect(await screen.findByText('الدورات غير مشمولة باشتراكك')).toBeInTheDocument();
+    expect(await screen.findByText('أسئلة التدريب غير مشمولة باشتراكك')).toBeInTheDocument();
   });
 });
 
@@ -215,17 +215,18 @@ describe('My Studies — subjectId query-param filtering', () => {
 // ================= Push 6 Task 3a: subject card click flow =================
 
 describe('SubjectsPage — card click flow (modal vs redirect)', () => {
-  it('routes an entitled subject card into the standalone exams page (16.1a)', async () => {
+  it('routes an entitled subject card into the study bank tab (W17.0 — was /exams?subjectId=)', async () => {
     renderSubjectsAt(FULL_CASCADE_PARAMS);
 
-    // s1 is entitled (QuestionsExams) → /exams?subjectId= deep link.
+    // s1 is entitled (QuestionsExams) → /study?subjectId=s1&tab=bank deep link
+    // (W17.0: the questions grant lands on the bank, matching the sheet action).
     fireEvent.click((await screen.findAllByTestId('subject-card-open'))[0]);
 
     await waitFor(() => {
-      expect(screen.getByTestId('location-probe').getAttribute('data-path')).toBe('/exams');
+      expect(screen.getByTestId('location-probe').getAttribute('data-path')).toBe('/study');
     });
-    expect(screen.getByTestId('location-probe').getAttribute('data-search')).toBe('?subjectId=s1');
-    expect(await screen.findByTestId('study-exams-tab')).toBeInTheDocument();
+    expect(screen.getByTestId('location-probe').getAttribute('data-search')).toBe('?subjectId=s1&tab=bank');
+    expect(await screen.findByTestId('study-panel-bank')).toBeInTheDocument();
   });
 
   it('opens the activation modal over the page for an unentitled subject (no navigation)', async () => {

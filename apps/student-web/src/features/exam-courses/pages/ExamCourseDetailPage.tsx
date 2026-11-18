@@ -35,7 +35,7 @@ export default function ExamCourseDetailPage() {
     return (
       <div className="flex flex-col items-center gap-3 py-20">
         <Loader2 className="w-8 h-8 animate-spin text-[var(--cms-teal-700)]" aria-hidden="true" />
-        <p className="text-sm text-[var(--cms-text-muted)]">جارٍ تحميل الدورة…</p>
+        <p className="text-sm text-[var(--cms-text-muted)]">جارٍ تحميل حزمة الأسئلة…</p>
       </div>
     );
   }
@@ -57,8 +57,8 @@ export default function ExamCourseDetailPage() {
         <CatalogErrorCard
           onRetry={() => void query.refetch()}
           testId="exam-course-detail-error"
-          title="تعذّر تحميل الدورة"
-          body="ربما حُذفت الدورة أو رابطها غير صحيح. حاول مرة أخرى أو عد إلى قائمة الدورات."
+          title="تعذّر تحميل حزمة الأسئلة"
+          body="ربما حُذفت حزمة الأسئلة أو رابطها غير صحيح. حاول مرة أخرى أو عد إلى بنك الأسئلة."
         />
       </div>
     );
@@ -74,7 +74,7 @@ export default function ExamCourseDetailPage() {
         className="press mb-4 inline-flex min-h-11 items-center gap-1.5 text-sm text-[var(--cms-text-muted)] hover:text-[var(--cms-teal-700)]"
       >
         <ChevronLeft className="w-4 h-4" aria-hidden="true" />
-        العودة إلى الدورات الامتحانية
+        العودة إلى بنك الأسئلة
       </button>
 
       <header className="rounded-3xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6 shadow-sm mb-5">
@@ -107,15 +107,15 @@ export default function ExamCourseDetailPage() {
 
       <h2 className="text-base font-bold text-[var(--cms-text)] mb-3 flex items-center gap-2">
         <ClipboardList className="w-4 h-4 text-[var(--cms-teal-700)]" aria-hidden="true" />
-        اختبارات الدورة
+        اختبارات هذه الحزمة
         <span className="text-xs font-medium text-[var(--cms-text-muted)]" lang="en">({course.exams.length})</span>
       </h2>
 
       {course.exams.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-[var(--cms-line-strong)] bg-[var(--cms-surface)] px-8 py-14 text-center">
           <PencilRuler className="w-8 h-8 text-[var(--cms-text-muted)]" aria-hidden="true" />
-          <h3 className="text-base font-bold text-[var(--cms-text)]">لا توجد اختبارات في هذه الدورة بعد</h3>
-          <p className="text-sm text-[var(--cms-text-muted)]">تُضاف الاختبارات إلى الدورة من قبل الإدارة.</p>
+          <h3 className="text-base font-bold text-[var(--cms-text)]">لا توجد اختبارات في هذه الحزمة بعد</h3>
+          <p className="text-sm text-[var(--cms-text-muted)]">تُضاف الاختبارات إلى الحزمة من قبل الإدارة.</p>
         </div>
       ) : (
         <ul className="space-y-3" data-testid="exam-course-exams">

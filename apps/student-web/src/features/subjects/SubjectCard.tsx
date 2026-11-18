@@ -38,19 +38,17 @@ export function SubjectCard({ subject, index, entitled, onLocked }: SubjectCardP
   const hasLibrary = canLectures || canVideoAudio;
 
   // Entitled cards land on the surface their grant actually covers.
-  const preferredTab = canQuestions ? 'exams' : canVideoAudio ? 'courses' : 'exams';
+  // W17.0 — the QuestionsExams grant lands on the study hub's BANK tab (was the
+  // standalone /exams page): the bank owns the questions storefront + training
+  // builder, and the subject sheet's «بنك الأسئلة» action points at the same
+  // place — one destination per grant, no divergence between surfaces.
+  const preferredTab = canQuestions ? 'bank' : canVideoAudio ? 'courses' : 'bank';
 
   const openSubject = () => {
     if (entitled) {
       // 15.4.4b: the subject-filtered hub deep link points at /study (was
       // /my-studies — that URL now redirects).
-      // W16.1a: the exams grant lands on the standalone /exams page directly
-      // (no redirect hop through the retired ?tab=exams).
-      if (preferredTab === 'exams') {
-        navigate(`/exams?subjectId=${subject.id}`);
-      } else {
-        navigate(`/study?subjectId=${subject.id}&tab=${preferredTab}`);
-      }
+      navigate(`/study?subjectId=${subject.id}&tab=${preferredTab}`);
     } else {
       onLocked({ id: subject.id, nameAr: subject.nameAr });
     }

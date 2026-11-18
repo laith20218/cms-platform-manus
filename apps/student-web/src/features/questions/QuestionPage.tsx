@@ -304,7 +304,7 @@ export default function QuestionPage() {
           style={{ background: 'var(--c-primary-700)' }}
         >
           <ChevronLeft className="h-4 w-4" />
-          العودة إلى الدورات
+          رجوع
         </button>
       </div>
     );

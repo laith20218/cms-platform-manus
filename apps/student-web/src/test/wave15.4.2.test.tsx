@@ -136,8 +136,9 @@ describe('Legacy /exam-courses routes redirect into the hub bank tab (16.1b D2-a
     expect(await screen.findByTestId('study-panel-bank')).toBeInTheDocument();
     expect(await screen.findByTestId('exam-courses-list')).toBeInTheDocument();
     expect(screen.getByTestId('exam-courses-tab-years').getAttribute('aria-selected')).toBe('true');
-    // The hub owns the page h1 — the catalog's own header stays hidden in it.
-    expect(screen.queryByRole('heading', { name: 'الدورات الامتحانية' })).toBeNull();
+    // The hub owns the page h1 — the catalog's own header stays hidden in it
+    // (W17.0: the header now reads «الأسئلة الامتحانية»).
+    expect(screen.queryByRole('heading', { name: 'الأسئلة الامتحانية' })).toBeNull();
 
     // The redirect preserves every other query param (cascade + subjectId).
     const probe = screen.getByTestId('location-probe');

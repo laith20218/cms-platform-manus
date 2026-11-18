@@ -2,9 +2,10 @@
  * SettingsPage — student account settings (WF-S14).
  */
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Settings as SettingsIcon, Moon, Bell, Lock, Loader2, ShieldCheck, Type } from 'lucide-react';
+import { Settings as SettingsIcon, Moon, Bell, Lock, Loader2, ShieldCheck, Type, Scale, ChevronLeft, FileText, Mail } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { getApiErrorMessage } from '@/utils/api-error';
 import LeaderboardSharingToggle from '@/features/stats/components/LeaderboardSharingToggle';
@@ -141,6 +142,34 @@ export default function SettingsPage() {
             {passwordMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />} تغيير
           </button>
         </form>
+      </section>
+
+      {/* W17.0 — legal pages entry points: Terms / Privacy / Contact are
+          admin-managed content pages (GET /content/{slug}). They were only
+          reachable from Register before; Settings now exposes them one tap in,
+          right under the privacy section so related concerns sit together. */}
+      <section className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6">
+        <h2 className="text-base font-semibold mb-4 text-[var(--cms-text)] flex items-center gap-2"><Scale className="w-4 h-4" /> قانوني</h2>
+        <ul className="divide-y divide-[var(--cms-line)]">
+          <li>
+            <Link to="/terms" data-testid="settings-legal-terms" className="flex min-h-11 w-full items-center justify-between gap-3 py-2 text-sm text-[var(--cms-text-soft)] transition-colors hover:text-[var(--cms-teal-700)]">
+              <span className="flex items-center gap-2.5"><FileText className="w-4 h-4 text-[var(--cms-text-muted)]" /> الشروط والأحكام</span>
+              <ChevronLeft className="w-4 h-4 text-[var(--cms-text-muted)]" aria-hidden="true" />
+            </Link>
+          </li>
+          <li>
+            <Link to="/privacy" data-testid="settings-legal-privacy" className="flex min-h-11 w-full items-center justify-between gap-3 py-2 text-sm text-[var(--cms-text-soft)] transition-colors hover:text-[var(--cms-teal-700)]">
+              <span className="flex items-center gap-2.5"><ShieldCheck className="w-4 h-4 text-[var(--cms-text-muted)]" /> سياسة الخصوصية</span>
+              <ChevronLeft className="w-4 h-4 text-[var(--cms-text-muted)]" aria-hidden="true" />
+            </Link>
+          </li>
+          <li>
+            <Link to="/contact" data-testid="settings-legal-contact" className="flex min-h-11 w-full items-center justify-between gap-3 py-2 text-sm text-[var(--cms-text-soft)] transition-colors hover:text-[var(--cms-teal-700)]">
+              <span className="flex items-center gap-2.5"><Mail className="w-4 h-4 text-[var(--cms-text-muted)]" /> تواصل معنا</span>
+              <ChevronLeft className="w-4 h-4 text-[var(--cms-text-muted)]" aria-hidden="true" />
+            </Link>
+          </li>
+        </ul>
       </section>
 
       <section className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6">
