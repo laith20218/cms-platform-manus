@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AlertCircle, BookOpen, CheckCircle2, KeyRound, Loader2, Lock, X } from 'lucide-react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { apiClient } from '@/services/api-client';
@@ -47,9 +47,11 @@ export function ActivationCodeModal({
       queryClient.invalidateQueries({ queryKey: ['subjects'] });
       setTimeout(() => {
         onClose();
-        // W16.1a — the exams surface is the standalone /exams page
-        // (was /my-studies?subjectId=…&tab=exams → redirect chain).
-        navigate(`/exams?subjectId=${subject.id}`);
+        // W17.3 — post-activation lands on the SUBJECT page (/subjects/{id}; the
+        // route accepts GUIDs): it renders only the surfaces the fresh grant
+        // actually covers, whatever its scope — safer than assuming a questions
+        // grant (was /exams?subjectId=, the W16.1a destination retired in W17.0).
+        navigate(`/subjects/${subject.id}`);
       }, 900);
     },
   });
@@ -155,6 +157,20 @@ export function ActivationCodeModal({
             <p className="text-center text-xs leading-relaxed text-[var(--c-text-faint)]">
               <BookOpen className="me-1 -mt-0.5 inline-block h-3.5 w-3.5" />
               الكود يُفعَّل لمرة واحدة ويرتبط بحسابك — يمكنك إدخال عدة أكواد لفتح مواد مختلفة.
+            </p>
+
+            {/* W17.3 — the explicit escape to the full activation page: students
+                without a code in hand get the Owner-mandated «الذهاب لتفعيل كود»
+                path; the inline field above stays the primary, fastest flow. */}
+            <p className="border-t border-[var(--c-border)] pt-3 text-center text-xs text-[var(--c-text-muted)]">
+              ليس لديك كود بعد؟{' '}
+              <Link
+                to="/activate-code"
+                data-testid="activation-modal-goto-page"
+                className="font-bold text-[var(--c-primary-700)] hover:underline"
+              >
+                الذهاب لتفعيل كود
+              </Link>
             </p>
           </form>
         </DialogPrimitive.Content>

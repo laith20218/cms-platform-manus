@@ -1,10 +1,11 @@
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  ArrowLeft, BookOpen, ChevronLeft, Clock3,
+  ArrowLeft, BookOpen, ChevronLeft, Clock3, KeyRound,
 } from 'lucide-react';
 import type { SubjectSummary } from './services/academic-api';
 import { useSubjectModal } from './SubjectModalContext';
+import { cn } from '@/utils';
 
 /**
  * A subject card: entitled cards route into the subject-filtered My Studies
@@ -20,6 +21,11 @@ import { useSubjectModal } from './SubjectModalContext';
  * (subject-card-action, entitled only) opening the shared scope-gated
  * SubjectModal — the same sheet MuwadiCard opens. The primary header click
  * (subject-card-open → /my-studies or the activation dialog) is unchanged.
+ *
+ * W17.3 — non-entitled cards read as clearly locked and stay actionable:
+ * dashed border + «مقفلة» badge + a dedicated secondary «تفعيل كود» button
+ * (subject-card-activate) opening the SAME inline ActivationCodeModal the
+ * header click opens — one coherent activation flow, no dead locked card.
  */
 export interface SubjectCardProps {
   subject: SubjectSummary;
@@ -57,7 +63,12 @@ export function SubjectCard({ subject, index, entitled, onLocked }: SubjectCardP
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.05, 0.4) }}>
       <div
-        className="flex h-full flex-col rounded-3xl border border-[var(--c-border)] bg-[var(--c-surface)] p-5 transition-all hover:border-[var(--c-primary-300)] hover:shadow-lg"
+        className={cn(
+          'flex h-full flex-col rounded-3xl border bg-[var(--c-surface)] p-5 transition-all',
+          entitled
+            ? 'border-[var(--c-border)] hover:border-[var(--c-primary-300)] hover:shadow-lg'
+            : 'border-dashed border-[var(--c-border-strong)]',
+        )}
         data-testid="subject-card"
       >
         <div className="mb-3 flex items-start gap-1">
@@ -104,8 +115,10 @@ export function SubjectCard({ subject, index, entitled, onLocked }: SubjectCardP
         )}
 
         {/* W15.3.4 — the consolidated action surface: entitled-only «فتح»
-            opening the shared scope-gated SubjectModal. */}
-        {entitled && (
+            opening the shared scope-gated SubjectModal.
+            W17.3 — locked cards get their own explicit secondary CTA into the
+            SAME inline activation flow (one coherent flow, never a dead end). */}
+        {entitled ? (
           <button
             type="button"
             data-testid="subject-card-action"
@@ -128,6 +141,20 @@ export function SubjectCard({ subject, index, entitled, onLocked }: SubjectCardP
           >
             فتح
             <ChevronLeft className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            data-testid="subject-card-activate"
+            onClick={(e) => {
+              e.stopPropagation();
+              onLocked({ id: subject.id, nameAr: subject.nameAr });
+            }}
+            aria-label={`تفعيل مادة ${subject.nameAr}`}
+            className="press mt-4 inline-flex w-full min-h-11 items-center justify-center gap-2 rounded-xl border border-[var(--c-primary-300)] bg-[var(--c-primary-50)] px-4 text-sm font-bold text-[var(--c-primary-700)] transition-colors hover:border-[var(--c-primary-500)] hover:bg-[var(--c-primary-100)]"
+          >
+            <KeyRound className="h-4 w-4" />
+            تفعيل كود
           </button>
         )}
 

@@ -93,7 +93,9 @@ describe('Dashboard — موادي (entitled subjects)', () => {
   it('renders the heading and one progress card per entitled subject', async () => {
     renderDashboard();
 
-    expect(await screen.findByRole('heading', { name: 'موادي' })).toBeInTheDocument();
+    // W17.3 — the section is explicitly titled «موادي المفعّلة» (entitled-only
+    // by design; the discovery row routes locked-subject browsing to /subjects).
+    expect(await screen.findByRole('heading', { name: 'موادي المفعّلة' })).toBeInTheDocument();
     expect(await screen.findByTestId('my-subject-card-s1')).toBeInTheDocument();
     expect(screen.getByTestId('my-subject-card-s2')).toBeInTheDocument();
     expect(screen.getByTestId('my-subject-card-s2')).toHaveTextContent('الباطنة');
