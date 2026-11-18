@@ -259,13 +259,44 @@ try
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+
+            // === Wave 16.2d: repair the __EFMigrationsHistory desync before Migrate() ===
+            // Production crashed on 42701: column "enable_scripts" of relation
+            // "library_files" already exists. Phase62AddHtmlPlayerFields was applied to
+            // the production schema through the manual, supervisor-authorized deploy
+            // gate (its migration file carries the "do NOT apply to prod as part of
+            // this branch" note), but the matching __EFMigrationsHistory row was never
+            // inserted. Migrate() therefore replays the migration and Postgres rejects
+            // the duplicate column. The patch below inserts the missing history row —
+            // idempotent, and ONLY when the physical column already exists, so a fresh
+            // database (no column) still receives the real migration from Migrate().
+            // Best-effort by design: a patch failure is logged, NOT fatal — Migrate()
+            // below still gets to run and surface whatever error remains.
+            try
+            {
+                var historyPatchSql = @"
+    INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+    SELECT '20261115120000_Phase62AddHtmlPlayerFields', '9.0.0'
+    WHERE NOT EXISTS (SELECT 1 FROM ""__EFMigrationsHistory"" WHERE ""MigrationId"" = '20261115120000_Phase62AddHtmlPlayerFields')
+    AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'library_files' AND column_name = 'enable_scripts'
+    );";
+                db.Database.ExecuteSqlRaw(historyPatchSql);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Wave 16.2d: __EFMigrationsHistory patch for 20261115120000_Phase62AddHtmlPlayerFields failed — continuing so Migrate() can still attempt the full chain.");
+            }
+
             try
             {
                 db.Database.Migrate();
             }
             catch (Exception ex)
             {
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
                 logger.LogError(ex, "An error occurred while migrating the database.");
                 throw; // Fail fast if migration fails
             }
