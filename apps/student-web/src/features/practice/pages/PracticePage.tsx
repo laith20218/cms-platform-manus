@@ -21,6 +21,10 @@ import {
 } from '../services/practice-api';
 import { isEntitlementDenied } from '@/features/my-studies/services/courses-api';
 import { CatalogEntitlementErrorCard } from '@/features/my-studies/components/CatalogErrorCards';
+// W16.6 error hardening — axios errors are `instanceof Error`, so the previous
+// `instanceof Error ? message : fallback` leaked raw axios text. Prefer the
+// backend's Arabic ProblemDetails `detail`, fall back to the Arabic sentence.
+import { getApiErrorMessage } from '@/utils/api-error';
 
 /**
  * W14.4 (B.1, D13) — the practice player over the W14.2 PracticeSession endpoints:
@@ -180,7 +184,7 @@ function PracticePageInner() {
       if (error instanceof Error && isEntitlementDenied(error)) {
         setLoadError('__ENTITLEMENT__');
       } else {
-        setLoadError(error instanceof Error ? error.message : 'تعذّر بدء جلسة التدريب.');
+        setLoadError(getApiErrorMessage(error, 'تعذّر بدء جلسة التدريب. تحقق من اتصالك ثم أعد المحاولة.'));
       }
       setPhase('error');
     }
@@ -239,7 +243,7 @@ function PracticePageInner() {
       });
       void refreshProgress();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذّر إرسال الإجابة. أعد المحاولة.');
+      toast.error(getApiErrorMessage(error, 'تعذّر إرسال الإجابة. تحقق من اتصالك وأعد المحاولة.'));
     } finally {
       setPending(null);
     }
@@ -265,7 +269,7 @@ function PracticePageInner() {
       void refreshProgress();
       toast.message('أُعيد ضبط السؤال — يمكنك المحاولة من جديد.');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذّر إعادة ضبط السؤال.');
+      toast.error(getApiErrorMessage(error, 'تعذّر إعادة ضبط السؤال. حاول مجدداً.'));
     } finally {
       setPending(null);
     }
@@ -317,7 +321,7 @@ function PracticePageInner() {
       void refreshProgress();
       toast.message('أُعيد ضبط الجلسة بالكامل.');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذّر إعادة ضبط الجلسة.');
+      toast.error(getApiErrorMessage(error, 'تعذّر إعادة ضبط الجلسة. حاول مجدداً.'));
     } finally {
       setResettingAll(false);
     }

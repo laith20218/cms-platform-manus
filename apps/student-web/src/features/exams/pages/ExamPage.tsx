@@ -5,6 +5,11 @@ import { toast } from 'sonner';
 import { AlertTriangle, Clock, Flag, Loader2, Target, TrendingUp, XCircle } from 'lucide-react';
 import { examApi, type ExamQuestion, type ExamResult, type ExamSession } from '../services/exam-api';
 import { QuestionRow } from '@/components/QuestionRow';
+// W16.6 error hardening — axios errors are `instanceof Error`, so the old
+// `instanceof Error ? message : fallback` leaked raw axios text ("Request failed
+// with status code 400"). getApiErrorMessage prefers the backend's Arabic
+// ProblemDetails `detail` and keeps the Arabic fallback otherwise.
+import { getApiErrorMessage } from '@/utils/api-error';
 
 type Phase = 'loading' | 'exam' | 'submitting' | 'results' | 'error';
 
@@ -59,7 +64,7 @@ export default function ExamPage() {
       else if (data.status === 'Cancelled') { sessionStorage.removeItem(sessionStorageKey(examId!)); navigate(-1); }
       else setPhase('exam');
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : 'تعذّر بدء الاختبار.'); setPhase('error');
+      setLoadError(getApiErrorMessage(error, 'تعذّر بدء الاختبار. تحقق من اتصالك ثم أعد المحاولة.')); setPhase('error');
     }
   }, [examId, hydrateSession, loadResult, navigate]);
 
@@ -89,7 +94,7 @@ export default function ExamPage() {
     setPhase('submitting');
     void examApi.submit(session.sessionId)
       .then(data => { setResult(data); setPhase('results'); })
-      .catch(error => { setLoadError(error instanceof Error ? error.message : 'تعذر تثبيت انتهاء الوقت.'); setPhase('error'); });
+      .catch(error => { setLoadError(getApiErrorMessage(error, 'تعذّر تثبيت انتهاء الوقت. تحقق من اتصالك ثم أعد المحاولة.')); setPhase('error'); });
   }, [phase, session, timeLeft]);
 
   const answeredCount = useMemo(() => Object.values(answers).filter(answer => answer.length > 0).length, [answers]);
@@ -102,7 +107,7 @@ export default function ExamPage() {
       setTimeLeft(remainingSeconds(response.expiresAt));
       if (response.status !== 'InProgress') await loadResult(session.sessionId);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر حفظ الإجابة. تحقق من اتصالك ثم أعد المحاولة.');
+      toast.error(getApiErrorMessage(error, 'تعذر حفظ الإجابة. تحقق من اتصالك ثم أعد المحاولة.'));
     } finally { setSavingQuestionId(null); }
   }, [loadResult, session]);
 
@@ -127,7 +132,7 @@ export default function ExamPage() {
       if (data.isResultVisible && data.passed) toast.success('تم تسليم الاختبار بنجاح.');
       else if (data.isResultVisible) toast.message('تم تسليم الاختبار. يمكنك متابعة الدراسة والمحاولة لاحقاً إن كانت متاحة.');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذّر تسليم الاختبار.'); setPhase('exam');
+      toast.error(getApiErrorMessage(error, 'تعذّر تسليم الاختبار. تحقق من اتصالك ثم أعد المحاولة.')); setPhase('exam');
     }
   }, [session]);
 
@@ -137,7 +142,7 @@ export default function ExamPage() {
       await examApi.cancel(session.sessionId);
       if (examId) sessionStorage.removeItem(sessionStorageKey(examId));
       toast.message('أُلغيت المحاولة ولم تُحتسب.'); navigate(-1);
-    } catch (error) { toast.error(error instanceof Error ? error.message : 'تعذر إلغاء المحاولة.'); }
+    } catch (error) { toast.error(getApiErrorMessage(error, 'تعذر إلغاء المحاولة. حاول مجدداً.')); }
   }, [answeredCount, examId, navigate, session]);
 
   if (phase === 'loading' || phase === 'submitting') return <div className="flex flex-col items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-[var(--c-primary-700)] mb-3" /><p className="text-sm text-[var(--c-text-muted)]">{phase === 'submitting' ? 'جارٍ تثبيت النتيجة من الخادم...' : 'جارٍ تحضير الاختبار من الخادم...'}</p></div>;
