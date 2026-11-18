@@ -6,6 +6,10 @@ import {
   Globe, Laptop, Loader2, MonitorSmartphone, ShieldCheck, Smartphone, Tablet,
 } from 'lucide-react';
 import { profileApi, type StudentSession } from './services/profile-api';
+// W16.3 error hardening — toasts/error card prefer the backend's Arabic
+// ProblemDetails `detail` over a generic sentence.
+import { getApiErrorMessage } from '@/utils/api-error';
+import { ApiErrorDetail } from '@/components/common/ApiErrorDetail';
 
 /**
  * Sessions & devices (Push 9 Task 3) — Google's account-security pattern:
@@ -63,7 +67,7 @@ export function SessionsSection() {
       toast.success('تم إنهاء الجلسة');
       invalidate();
     },
-    onError: () => toast.error('تعذّر إنهاء الجلسة. حاول مجدداً.'),
+    onError: (error: unknown) => toast.error(getApiErrorMessage(error, 'تعذّر إنهاء الجلسة. حاول مجدداً.')),
   });
 
   const revokeOthers = useMutation({
@@ -74,7 +78,7 @@ export function SessionsSection() {
       setConfirmingOthers(false);
       invalidate();
     },
-    onError: () => toast.error('تعذّر تنفيذ العملية. حاول مجدداً.'),
+    onError: (error: unknown) => toast.error(getApiErrorMessage(error, 'تعذّر تسجيل الخروج من الأجهزة الأخرى. حاول مجدداً.')),
   });
 
   const items = sessions.data ?? [];
@@ -154,6 +158,7 @@ export function SessionsSection() {
       ) : sessions.isError ? (
         <div className="mt-6 rounded-xl border border-dashed border-[var(--cms-line-strong)] bg-[var(--cms-surface-2)] p-8 text-center" data-testid="sessions-error">
           <p className="text-sm font-semibold text-[var(--cms-text)]">تعذّر تحميل الجلسات</p>
+          <ApiErrorDetail error={sessions.error} />
           <p className="mt-1 text-xs text-[var(--cms-text-muted)]">تحقّق من اتصالك ثم أعد المحاولة.</p>
           <button
             type="button"

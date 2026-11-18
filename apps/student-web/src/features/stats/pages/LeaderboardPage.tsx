@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Trophy, Medal, ChevronLeft, Loader2, Crown, RefreshCcw, type LucideIcon } from 'lucide-react';
 import { statsApi, type LeaderboardEntry } from '../services/stats-api';
 import { useLeaderboardSharing } from '../hooks/useLeaderboardSharing';
+import { ApiErrorDetail } from '@/components/common/ApiErrorDetail';
 import LeaderboardSubjectPicker from '../components/LeaderboardSubjectPicker';
 import LeaderboardSharingToggle from '../components/LeaderboardSharingToggle';
 
@@ -16,10 +17,10 @@ const rankConfig: RankConfig[] = [
 ];
 
 /**
- * `hideBreadcrumb` (W15.4.1): the /study hub mounts this page as its
- * «الصدارة» tab and owns the navigation context itself — the breadcrumb
- * trail (الرئيسية ← الإحصائيات) is suppressed there only; the standalone
- * /leaderboard route keeps it.
+ * W16.3 — the leaderboard is a fully standalone /leaderboard page: the
+ * /study hub no longer mounts it (16.1a sidebar reorg), so the
+ * `hideBreadcrumb` hub-tab prop is gone and the breadcrumb trail always
+ * renders (الرئيسية ← الإحصائيات ← المتصدرين).
  *
  * W15.4.4.0b state machine — the leaderboard is subject-scoped and
  * consent-gated (backend W15.4.4.0a):
@@ -29,8 +30,12 @@ const rankConfig: RankConfig[] = [
  *   (e) leaderboard loading → spinner
  *   (f) leaderboard error  → 403 «no entitlement» card | generic error
  *   (g) data               → ranked list
+ *
+ * W16.3 error hardening — (c)/(f) surface the backend's Arabic
+ * ProblemDetails `detail` (when present) under the heading via
+ * ApiErrorDetail, instead of a bare generic sentence.
  */
-export default function LeaderboardPage({ hideBreadcrumb = false }: { hideBreadcrumb?: boolean } = {}) {
+export default function LeaderboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const subjectId = searchParams.get('subjectId');
   const periodParam = searchParams.get('period');
@@ -75,6 +80,7 @@ export default function LeaderboardPage({ hideBreadcrumb = false }: { hideBreadc
     return (
       <div role="alert" className="mx-auto max-w-2xl rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center">
         <h2 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل حالة المشاركة</h2>
+        <ApiErrorDetail error={sharing.error} />
         <button
           onClick={() => sharing.refetch()}
           className="press mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"
@@ -135,6 +141,7 @@ export default function LeaderboardPage({ hideBreadcrumb = false }: { hideBreadc
     return (
       <div role="alert" className="mx-auto max-w-2xl rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center" data-testid="leaderboard-error">
         <h1 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل قائمة المتصدرين</h1>
+        <ApiErrorDetail error={leaderboard.error} />
         <button
           onClick={() => leaderboard.refetch()}
           className="press mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"
@@ -154,16 +161,14 @@ export default function LeaderboardPage({ hideBreadcrumb = false }: { hideBreadc
 
   return (
     <div className="space-y-5 max-w-[680px] mx-auto">
-      {/* Breadcrumbs */}
-      {!hideBreadcrumb && (
-        <div className="flex items-center gap-2 text-xs text-[var(--c-text-muted)]">
-          <Link to="/dashboard" className="hover:text-[var(--c-primary-700)]">الرئيسية</Link>
-          <ChevronLeft className="w-3 h-3" />
-          <Link to="/stats" className="hover:text-[var(--c-primary-700)]">الإحصائيات</Link>
-          <ChevronLeft className="w-3 h-3" />
-          <span className="font-semibold text-[var(--c-text)]">المتصدرين</span>
-        </div>
-      )}
+      {/* Breadcrumbs (W16.3 — always visible: standalone page only) */}
+      <div className="flex items-center gap-2 text-xs text-[var(--c-text-muted)]">
+        <Link to="/dashboard" className="hover:text-[var(--c-primary-700)]">الرئيسية</Link>
+        <ChevronLeft className="w-3 h-3" />
+        <Link to="/stats" className="hover:text-[var(--c-primary-700)]">الإحصائيات</Link>
+        <ChevronLeft className="w-3 h-3" />
+        <span className="font-semibold text-[var(--c-text)]">المتصدرين</span>
+      </div>
 
       {/* Title + Period + change-subject */}
       <div className="flex items-center justify-between">

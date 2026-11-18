@@ -9,6 +9,10 @@ import { authApi } from '@/features/auth/services/auth-api';
 import { profileApi } from './services/profile-api';
 import { SessionsSection } from './SessionsSection';
 import { ProfileEditModal } from './ProfileEditModal';
+// W16.3 error hardening — the catch blocks below keep their Arabic fallbacks
+// but now prefer the backend's Arabic ProblemDetails `detail` when present.
+import { getApiErrorMessage } from '@/utils/api-error';
+import { ApiErrorDetail } from '@/components/common/ApiErrorDetail';
 
 function dateLabel(value?: string | null) {
   return value ? new Date(value).toLocaleDateString('ar-SY', { year: 'numeric', month: 'long', day: 'numeric' }) : '—';
@@ -69,8 +73,8 @@ export default function ProfilePage() {
       setNewPassword('');
       setConfirmPassword('');
       setPasswordStatus({ kind: 'success', text: 'تم تغيير كلمة المرور بنجاح. احرص على حفظها في مكان آمن.' });
-    } catch {
-      setPasswordStatus({ kind: 'error', text: 'تعذر تغيير كلمة المرور. تحقق من كلمة المرور الحالية ثم حاول مجدداً.' });
+    } catch (error) {
+      setPasswordStatus({ kind: 'error', text: getApiErrorMessage(error, 'تعذر تغيير كلمة المرور. تحقق من كلمة المرور الحالية ثم حاول مجدداً.') });
     } finally {
       setPasswordBusy(false);
     }
@@ -91,6 +95,8 @@ export default function ProfilePage() {
         className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-8 text-center shadow-sm"
       >
         <h1 className="text-lg font-bold text-[var(--cms-text)]">تعذر تحميل الملف الشخصي</h1>
+        {/* W16.3 — the backend's Arabic detail (when present) explains why. */}
+        <ApiErrorDetail error={profile.error} />
         <button
           onClick={() => profile.refetch()}
           className="mt-4 rounded-lg bg-[var(--cms-teal-600)] px-4 py-2 text-sm font-semibold text-[var(--cms-text-inverse)] transition-colors hover:bg-[var(--cms-teal-700)]"
@@ -114,8 +120,8 @@ export default function ProfilePage() {
       // Instant feedback: the upload response carries a signed preview URL.
       if (result.previewUrl) setFreshAvatarUrl(result.previewUrl);
       await queryClient.invalidateQueries({ queryKey: ['student-profile'] });
-    } catch {
-      setAvatarStatus({ kind: 'error', text: 'تعذر رفع الصورة الشخصية. تحقق من الاتصال وحاول مجددًا.' });
+    } catch (error) {
+      setAvatarStatus({ kind: 'error', text: getApiErrorMessage(error, 'تعذر رفع الصورة الشخصية. تحقق من الاتصال وحاول مجددًا.') });
     } finally {
       setAvatarBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -130,9 +136,9 @@ export default function ProfilePage() {
       await queryClient.invalidateQueries({ queryKey: ['student-profile'] });
       setEmailEditing(false);
       setEmailStatus(null);
-    } catch {
+    } catch (error) {
       // Keep the editor open AND say why nothing happened.
-      setEmailStatus({ kind: 'error', text: 'تعذر حفظ البريد الإلكتروني. تحقق من الاتصال وحاول مجددًا.' });
+      setEmailStatus({ kind: 'error', text: getApiErrorMessage(error, 'تعذر حفظ البريد الإلكتروني. تحقق من الاتصال وحاول مجددًا.') });
     } finally {
       setEmailBusy(false);
     }

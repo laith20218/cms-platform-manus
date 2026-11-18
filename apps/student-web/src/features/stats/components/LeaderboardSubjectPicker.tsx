@@ -1,5 +1,6 @@
 import { useSearchParams } from 'react-router-dom';
 import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
+import { ApiErrorDetail } from '@/components/common/ApiErrorDetail';
 
 /**
  * W15.4.4.0b — the leaderboard is subject-scoped (backend W15.4.4.0a),
@@ -9,7 +10,7 @@ import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
  * the hub tab intact and makes the browser back button return here.
  */
 export default function LeaderboardSubjectPicker() {
-  const { data, isLoading, isError, refetch } = useMySubjects();
+  const { data, isLoading, isError, error, refetch } = useMySubjects();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const onPick = (id: string) => {
@@ -30,6 +31,8 @@ export default function LeaderboardSubjectPicker() {
       {isError ? (
         <div role="alert" className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center">
           <p className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل قائمة المواد</p>
+          {/* W16.3 — surface the backend's Arabic detail under the heading. */}
+          <ApiErrorDetail error={error} />
           <button
             type="button"
             onClick={() => refetch()}
