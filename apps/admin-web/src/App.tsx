@@ -26,6 +26,7 @@ import {
   Menu,
   Minus,
   Moon,
+  ScrollText,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
@@ -55,6 +56,8 @@ import { ExamsCenter } from './components/ExamsCenter';
 import { ExamCoursesCenter } from './components/ExamCoursesCenter';
 import { LibraryCenter } from './components/LibraryCenter';
 import { SettingsCenter } from './components/SettingsCenter';
+// W16.5 — admin editor for the site content pages (Terms / Privacy / Contact).
+import { ContentCenter } from './components/ContentCenter';
 import { NotificationCompose } from './components/NotificationCompose';
 
 const BRAND_MARK = '/brand/cms-admin-mark.png';
@@ -63,7 +66,7 @@ const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 
 type Locale = 'ar' | 'en';
 type Theme = 'light' | 'dark';
-type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'exam-courses' | 'library' | 'reports' | 'settings';
+type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'exam-courses' | 'library' | 'reports' | 'settings' | 'content';
 type Dialog =
   | { kind: 'create-admin' }
   | { kind: 'edit-admin'; admin: AdminRecord }
@@ -530,6 +533,7 @@ function App() {
         { key: 'roles', label: copy.roles, icon: KeyRound, superOnly: true },
         { key: 'audit', label: isArabic ? 'السجل الأمني' : 'Security Audit', icon: ShieldCheck, superOnly: true },
         { key: 'settings', label: isArabic ? 'إعدادات النظام' : 'System Settings', icon: Settings, superOnly: true },
+        { key: 'content', label: isArabic ? 'صفحات المحتوى' : 'Content Pages', icon: ScrollText, superOnly: true },
       ],
     },
   ];
@@ -539,6 +543,7 @@ function App() {
     : view === 'audit' ? (isArabic ? 'السجل الأمني' : 'Security Audit')
     : view === 'reports' ? (isArabic ? 'التقارير والتحليلات' : 'Reports & Analytics')
     : view === 'settings' ? (isArabic ? 'إعدادات النظام' : 'System Settings')
+    : view === 'content' ? (isArabic ? 'صفحات المحتوى' : 'Content Pages')
     : view === 'students' ? (isArabic ? 'الطلاب' : 'Students')
     : view === 'academic' ? (isArabic ? 'البنية الأكاديمية' : 'Academic Structure')
     : view === 'questions' ? (isArabic ? 'بنك الأسئلة' : 'Question Bank')
@@ -741,6 +746,10 @@ function App() {
               {view === 'settings' && isSuperAdmin && (can('view:settings')
                 ? <SettingsCenter token={token} isArabic={isArabic} isSuperAdmin={isSuperAdmin} onError={reportError} onNotice={notify} />
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {/* W16.5 — admin-managed site content pages. super_admin only (legal texts):
+                  no new UI-permission registry key; the API enforces the role. */}
+              {view === 'content' && isSuperAdmin && (
+                <ContentCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />)}
             </motion.div>
           </AnimatePresence>
         </div>

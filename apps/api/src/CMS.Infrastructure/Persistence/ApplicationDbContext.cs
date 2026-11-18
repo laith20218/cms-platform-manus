@@ -90,6 +90,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext, IDataProte
     // System configuration
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
 
+    // Wave 16.5: admin-managed site content pages (Terms / Privacy / Contact)
+    public DbSet<ContentPage> ContentPages => Set<ContentPage>();
+
     // Wave 16.2c: ASP.NET Core Data Protection key ring (PersistKeysToDbContext —
     // Program.cs wires it in). One row per generated key; durable in PostgreSQL so
     // Render redeploys cannot invalidate existing auth state.
@@ -211,6 +214,18 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext, IDataProte
             entity.Property(x => x.Description).HasMaxLength(500);
             entity.Property(x => x.Category).HasMaxLength(50);
             entity.HasOne(x => x.UpdatedByAdmin).WithMany().HasForeignKey(x => x.UpdatedBy).OnDelete(DeleteBehavior.SetNull);
+        });
+        // Wave 16.5 — admin-managed site content pages (Terms / Privacy / Contact).
+        // Slug-addressed (URL-facing), Arabic title + markdown-lite body, audited via
+        // UpdatedAt/UpdatedBy. No FK on UpdatedBy — legal content is never cascade-deleted
+        // with an admin account (SetNull semantics not worth the FK here).
+        modelBuilder.Entity<ContentPage>(entity =>
+        {
+            entity.HasIndex(x => x.Slug).IsUnique();
+            entity.Property(x => x.Slug).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.TitleAr).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.BodyAr).HasMaxLength(20_000).IsRequired();
+            entity.HasIndex(x => x.UpdatedAt);
         });
         modelBuilder.Entity<ExamQuestion>(entity =>
         {

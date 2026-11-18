@@ -251,6 +251,13 @@ export default function RegisterPage() {
               لديك حساب؟ <strong className="font-bold text-[var(--c-primary-700)]">سجّل دخولك</strong>
             </Link>
           </div>
+
+          {/* W16.5 — public contact page entry (admin-managed content). */}
+          <div className="text-center mt-3">
+            <Link to="/contact" className="text-xs text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] hover:underline">
+              تواصل معنا
+            </Link>
+          </div>
         </div>
       </motion.div>
     </div>
