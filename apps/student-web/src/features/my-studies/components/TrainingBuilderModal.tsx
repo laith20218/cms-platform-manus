@@ -7,6 +7,7 @@ import { CenteredDialog } from '@/components/ui/Overlays';
 import { practiceApi } from '@/features/practice/services/practice-api';
 import { questionApi } from '@/features/questions/services/question-api';
 import { isEntitlementDenied } from '@/features/my-studies/services/courses-api';
+import { getApiErrorMessage } from '@/utils/api-error';
 
 /**
  * W16.2b Phase 2 — "بناء اختبار تدريبي": the random-draw training builder.
@@ -104,10 +105,12 @@ export function TrainingBuilderModal({ open, onOpenChange, subjectId, subjectNam
       const questionIds = drawn.map((question) => question.id).join(',');
       navigate(`/practice/categorized/${subjectId}?questionIds=${questionIds}`);
     } catch (err) {
+      // W16.6 — prefer the backend's Arabic ProblemDetails `detail`; the raw
+      // JS/axios message never reaches the student anymore.
       setError(
         isEntitlementDenied(err)
           ? 'اشتراكك لا يغطي بنك أسئلة هذه المادة — فعّل كوداً يشملها ثم أعد المحاولة.'
-          : err instanceof Error ? err.message : 'تعذّر بناء الاختبار التدريبي. أعد المحاولة.'
+          : getApiErrorMessage(err, 'تعذّر بناء الاختبار التدريبي. تحقق من اتصالك وأعد المحاولة.')
       );
     } finally {
       setBuilding(false);

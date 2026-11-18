@@ -3,6 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, EyeOff, Loader2 } from 'lucide-react';
 import { examApi } from '../services/exam-api';
 import { QuestionRow } from '@/components/QuestionRow';
+// W16.6 error hardening — prefer the backend's Arabic ProblemDetails `detail`
+// over the raw JS/axios message.
+import { getApiErrorMessage } from '@/utils/api-error';
 
 /**
  * W15.0 (P4-C3) — the exam review now renders through the SAME shared <QuestionRow>
@@ -17,7 +20,7 @@ export default function ExamReviewPage() {
   const { data: review, isLoading, error } = useQuery({ queryKey: ['exam-review', sessionId], queryFn: () => examApi.getReview(sessionId!), enabled: !!sessionId });
 
   if (isLoading) return <div className="flex flex-col items-center gap-3 py-20"><Loader2 className="w-8 h-8 animate-spin text-[var(--c-primary-700)]" /><p className="text-sm text-[var(--c-text-muted)]">جارٍ تحميل المراجعة من سجل الاختبار...</p></div>;
-  if (error || !review) return <div className="max-w-lg mx-auto mt-12 rounded-2xl border border-[var(--c-danger-200)] bg-[var(--c-surface)] p-7 text-center"><EyeOff className="w-9 h-9 mx-auto mb-3 text-[var(--c-danger-500)]" /><h2 className="font-bold text-lg mb-2">المراجعة غير متاحة</h2><p className="text-sm text-[var(--c-text-muted)] mb-5">{error instanceof Error ? error.message : 'لا تسمح سياسة هذا الاختبار بالمراجعة حالياً.'}</p><button onClick={() => navigate(-1)} className="px-5 py-2.5 rounded-[10px] text-sm font-bold text-white" style={{ background: 'var(--grad-primary)' }}>العودة للنتائج</button></div>;
+  if (error || !review) return <div className="max-w-lg mx-auto mt-12 rounded-2xl border border-[var(--c-danger-200)] bg-[var(--c-surface)] p-7 text-center"><EyeOff className="w-9 h-9 mx-auto mb-3 text-[var(--c-danger-500)]" /><h2 className="font-bold text-lg mb-2">المراجعة غير متاحة</h2><p className="text-sm text-[var(--c-text-muted)] mb-5">{error ? getApiErrorMessage(error, 'لا تسمح سياسة هذا الاختبار بالمراجعة حالياً.') : 'لا تسمح سياسة هذا الاختبار بالمراجعة حالياً.'}</p><button onClick={() => navigate(-1)} className="px-5 py-2.5 rounded-[10px] text-sm font-bold text-white" style={{ background: 'var(--grad-primary)' }}>العودة للنتائج</button></div>;
 
   return <div className="space-y-4 max-w-[880px] mx-auto">
     <button onClick={() => navigate(-1)} className="flex items-center gap-1.5 text-sm text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]"><ChevronLeft className="w-4 h-4" /> العودة للنتائج</button>
