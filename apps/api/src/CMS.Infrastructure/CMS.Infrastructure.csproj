@@ -11,6 +11,11 @@
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
+    <!-- Wave 16.2c (C4 exception): persists the ASP.NET Core Data Protection key ring
+         in PostgreSQL via PersistKeysToDbContext (see Program.cs) so auth state survives
+         Render redeploys (the ephemeral filesystem wiped the default keys on every deploy,
+         producing 401s on refresh). -->
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="9.0.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
       <PrivateAssets>all</PrivateAssets>

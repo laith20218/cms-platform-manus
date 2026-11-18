@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using CMS.Application.Interfaces;
 using CMS.Domain.Common;
 using CMS.Domain.Entities;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 
 namespace CMS.Infrastructure.Persistence;
 
@@ -10,7 +11,7 @@ namespace CMS.Infrastructure.Persistence;
 /// Uses EF Core 9 + PostgreSQL 16.
 /// Applies snake_case naming convention automatically.
 /// </summary>
-public class ApplicationDbContext : DbContext, IApplicationDbContext
+public class ApplicationDbContext : DbContext, IApplicationDbContext, IDataProtectionKeyContext
 {
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options) { }
 
@@ -89,10 +90,25 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     // System configuration
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
 
+    // Wave 16.2c: ASP.NET Core Data Protection key ring (PersistKeysToDbContext —
+    // Program.cs wires it in). One row per generated key; durable in PostgreSQL so
+    // Render redeploys cannot invalidate existing auth state.
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Apply all IEntityTypeConfiguration from this assembly
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
+
+        // Wave 16.2c: Data Protection key ring table. Explicit snake_case table/column
+        // names keep the naming uniform with the rest of the schema (no global naming
+        // convention is registered, so every other table also names itself explicitly).
+        modelBuilder.Entity<DataProtectionKey>(entity =>
+        {
+            entity.ToTable("data_protection_keys");
+            entity.Property(x => x.FriendlyName).HasColumnName("friendly_name");
+            entity.Property(x => x.Xml).HasColumnName("xml");
+        });
 
         // Security and entitlement lookup constraints.
         modelBuilder.Entity<UserSession>(entity =>
