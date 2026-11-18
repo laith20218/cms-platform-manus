@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -109,7 +109,11 @@ export function LibraryHub({
   const queryClient = useQueryClient();
   const toggleFavoriteMutation = useMutation({
     mutationFn: (file: HubLibraryFile) => libraryApi.toggleFavorite(file.id, file.isFavorite),
-    onSuccess: () => {
+    onSuccess: (_result, file) => {
+      // W17.4 — orientation on every save: the student always learns WHAT
+      // happened and WHERE to find it (the favorites page), instead of a
+      // silent icon flip.
+      toast.success(file.isFavorite ? 'أُزيلت من المفضلة' : 'تمت الإضافة إلى المفضلة — تجدها في صفحة المفضلة');
       queryClient.invalidateQueries({ queryKey: ['library-hub'] });
       queryClient.invalidateQueries({ queryKey: ['favorites'] });
     },
@@ -189,6 +193,23 @@ export function LibraryHub({
 
   const fetchingRef = useRef(false);
   useEffect(() => { fetchingRef.current = isFetching; }, [isFetching]);
+
+  // W17.4 — ?openFile= deep link (favorites file cards): once the subject's
+  // files resolve, auto-open the DocumentViewer on the target file IN CONTEXT,
+  // then clear the param so closing the viewer never re-opens it. A missing
+  // target (deleted meanwhile) clears quietly — the grid below is the honest
+  // fallback, never a dead end.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openFileId = searchParams.get('openFile');
+  useEffect(() => {
+    if (!openFileId || files === undefined) return;
+    const target = files.find((file) => file.id === openFileId);
+    if (target) setSelectedFile(target);
+    const next = new URLSearchParams(searchParams);
+    next.delete('openFile');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot deep-link effect: runs only when the param or the loaded file set changes
+  }, [openFileId, files]);
   useEffect(() => {
     const onEntitlementError = (event: Event) => {
       if (fetchingRef.current) return;
