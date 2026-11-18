@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -136,24 +136,23 @@ describe('Wave 15.5.1a — unified library', () => {
     expect(screen.getByTestId('library-tab-Lecture').textContent).toContain('1');
   });
 
-  it('renders breadcrumb دراستي › المكتبة with no h1', async () => {
+  it('renders no local breadcrumb in the study context and no h1 (W17.2: trail is global)', async () => {
     renderStudyLibrary();
 
-    const breadcrumb = await screen.findByTestId('library-breadcrumb');
-    expect(within(breadcrumb).getByRole('link', { name: 'دراستي' })).toHaveAttribute('href', '/study');
-    expect(within(breadcrumb).queryByText('المكتبة')).toBeInTheDocument();
-    expect(within(breadcrumb).getByText('المكتبة').tagName).toBe('SPAN');
+    // W17.2 — the hub-level breadcrumb is retired: the global PathTrail in
+    // AppShell owns orientation on every authenticated page.
+    await screen.findAllByTestId('library-card');
+    expect(screen.queryByTestId('library-breadcrumb')).toBeNull();
     expect(screen.queryByRole('heading', { level: 1, name: 'المكتبة الرقمية' })).toBeNull();
   });
 
-  it('renders breadcrumb الرئيسية › المادة › المكتبة and h1', async () => {
+  it('renders the standalone h1 and no local breadcrumb (W17.2: trail is global)', async () => {
     renderSubjectLibrary();
 
-    const breadcrumb = await screen.findByTestId('library-breadcrumb');
-    expect(within(breadcrumb).getByRole('link', { name: 'الرئيسية' })).toHaveAttribute('href', '/dashboard');
-    expect(within(breadcrumb).getByRole('link', { name: 'المادة' })).toHaveAttribute('href', '/subjects/تشريح-مرضي');
-    expect(within(breadcrumb).queryByText('المكتبة')).toBeInTheDocument();
-    expect(within(breadcrumb).getByText('المكتبة').tagName).toBe('SPAN');
+    // W17.2 — the local breadcrumb is retired (global PathTrail); the
+    // standalone page keeps its own h1.
+    await screen.findAllByTestId('library-card');
+    expect(screen.queryByTestId('library-breadcrumb')).toBeNull();
     expect(screen.getByRole('heading', { level: 1, name: 'المكتبة الرقمية' })).toBeInTheDocument();
     expect(screen.getByTestId('library-tab-all')).toBeInTheDocument();
     expect(screen.getByTestId('library-format-all')).toBeInTheDocument();

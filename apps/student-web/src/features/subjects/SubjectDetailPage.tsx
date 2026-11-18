@@ -78,14 +78,9 @@ export default function SubjectDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumbs */}
-      <div className="flex items-center gap-2 text-xs text-[var(--c-text-muted)]">
-        <Link to="/dashboard" className="hover:text-[var(--c-primary-700)]">الرئيسية</Link>
-        <ChevronLeft className="w-3 h-3" />
-        <Link to="/subjects" className="hover:text-[var(--c-primary-700)]">المواد</Link>
-        <ChevronLeft className="w-3 h-3" />
-        <span className="font-semibold text-[var(--c-text)]">{subject.nameAr}</span>
-      </div>
+      {/* W17.2 — the local breadcrumb is retired: the global PathTrail in
+          AppShell renders الرئيسية › المواد › {subject} on this page (and
+          resolves the subject's real name from the query cache). */}
 
       {/* Subject Header */}
       <motion.div
