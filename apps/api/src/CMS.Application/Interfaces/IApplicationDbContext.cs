@@ -65,6 +65,9 @@ public interface IApplicationDbContext
     DbSet<UserSession> UserSessions { get; }
     DbSet<UserInstallation> UserInstallations { get; }
 
+    // Wave 16.5: admin-managed site content pages (Terms / Privacy / Contact)
+    DbSet<ContentPage> ContentPages { get; }
+
     // Push 2 / Track 2: admin activity monitor
     DbSet<AdminActivityLog> AdminActivityLogs { get; }
 

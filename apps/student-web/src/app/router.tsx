@@ -39,6 +39,8 @@ const StatsPage = lazy(() => import('@/features/stats/pages/StatsPage'));
 const LeaderboardPage = lazy(() => import('@/features/stats/pages/LeaderboardPage'));
 const TermsPage = lazy(() => import('@/features/legal/TermsPage'));
 const PrivacyPage = lazy(() => import('@/features/legal/PrivacyPage'));
+// W16.5 — admin-managed contact page (public route, like terms/privacy).
+const ContactPage = lazy(() => import('@/features/legal/ContactPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 const ActivateCodePage = lazy(() => import('@/features/subscriptions/ActivateCodePage'));
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage'));
@@ -61,6 +63,8 @@ export function AppRoutes() {
         {/* Legal pages */}
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
+        {/* W16.5 — admin-managed contact page (content store, anonymous). */}
+        <Route path="/contact" element={<ContactPage />} />
 
         {/* Protected Routes */}
         <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>

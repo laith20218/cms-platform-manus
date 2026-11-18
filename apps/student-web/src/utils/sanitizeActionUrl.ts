@@ -35,6 +35,8 @@
 // like '/my-studies/courses/:id' and '/practice/exam/:id'.
 // Wave 15.4.4a: added '/study' — the cutover makes it the primary hub
 // (old '/my-studies' actionUrls keep working via the redirect route).
+// Wave 16.5: added '/contact' — the admin-managed contact page joins the
+// public legal routes (terms/privacy).
 const ALLOWED_ACTION_PATHS = [
   '/',
   '/dashboard',
@@ -51,6 +53,7 @@ const ALLOWED_ACTION_PATHS = [
   '/settings',
   '/terms',
   '/privacy',
+  '/contact',
   '/my-studies',
   '/exam-courses',
   '/practice',
