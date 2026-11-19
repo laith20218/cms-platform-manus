@@ -12,6 +12,9 @@ import { FavoriteListPicker } from '@/features/favorites/components/FavoriteList
 import { LockedEmptyState } from '@/features/my-studies/components/LockedEmptyState';
 import { isEntitlementDenied } from '@/features/my-studies/services/courses-api';
 import { getHttpStatus } from '@/utils/api-error';
+// D-45 (Wave 18.3): the shared ReportQuestionDialog replaces this page's inline
+// inferior duplicate — one implementation, Radix-trapped (D-24).
+import { ReportQuestionDialog } from '@/components/ReportQuestionDialog';
 
 interface QuestionOption {
   id: string;
@@ -48,14 +51,6 @@ interface AnswerResult {
   updatedStats?: { questionsAnswered: number; correctAnswers: number; accuracy: number; currentStreak: number };
 }
 
-const REPORT_REASONS = [
-  { key: 'scientific', label: 'خطأ علمي' },
-  { key: 'typo', label: 'خطأ إملائي' },
-  { key: 'missing_option', label: 'خيار ناقص/خاطئ' },
-  { key: 'unclear_explanation', label: 'شرح غير واضح' },
-  { key: 'other', label: 'أخرى' },
-] as const;
-
 /** Normalizes the API's PascalCase enums ("Easy"/"Mcq") to UI-safe lowercase. */
 const normalizedType = (question: QuestionData | undefined) => (question?.type ?? '').toLowerCase();
 const normalizedDifficulty = (question: QuestionData | undefined) => (question?.difficulty ?? '').toLowerCase();
@@ -78,9 +73,9 @@ export default function QuestionPage() {
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [essayAnswer, setEssayAnswer] = useState('');
   const [answerResult, setAnswerResult] = useState<AnswerResult | null>(null);
+  // D-45 (Wave 18.3): the report flow delegates to the shared dialog — the
+  // inline duplicate (reason chips + textarea + mutation) is gone.
   const [showReport, setShowReport] = useState(false);
-  const [reportReason, setReportReason] = useState<string>('scientific');
-  const [reportDesc, setReportDesc] = useState('');
   const [questionStartTime, setQuestionStartTime] = useState(Date.now());
 
   // Fetch questions by lecture. NOTE (Push 9 root cause): the LIST payload is a
@@ -158,20 +153,6 @@ export default function QuestionPage() {
     onError: () => toast.error('حدث خطأ أثناء حفظ الإجابة'),
   });
 
-  // Report mutation
-  const reportMutation = useMutation({
-    mutationFn: ({ questionId, reason, desc }: { questionId: string; reason: string; desc: string }) =>
-      questionApi.report(questionId, reason, desc),
-    onSuccess: () => {
-      toast.success('تم إرسال البلاغ. شكراً لمساهمتك!');
-      setShowReport(false);
-      setReportDesc('');
-    },
-    // W14.5 (Phase B): react-query v5 swallows mutation errors unless handled — a
-    // failed report submission used to produce ZERO user feedback (silent swallow).
-    onError: () => toast.error('تعذر إرسال البلاغ. حاول مرة أخرى.'),
-  });
-
   // Push 11.3 — the favorite mutation, rebuilt as a proper optimistic citizen (the
   // 11.2-DIAG H1 root cause): onMutate flips every cached copy of this question + a
   // local override; onSuccess invalidates ['favorites'] so the favorites page reflects
@@ -242,15 +223,6 @@ export default function QuestionPage() {
       toast.success('أنهيت جميع أسئلة المحاضرة! 🎉');
       navigate(-1);
     }
-  };
-
-  const handleReport = () => {
-    if (!currentQuestion || !reportDesc.trim()) return;
-    reportMutation.mutate({
-      questionId: currentQuestion.id,
-      reason: reportReason,
-      desc: reportDesc,
-    });
   };
 
   // Push 11.3 — the effective favorite state (override → cached value).
@@ -370,8 +342,15 @@ export default function QuestionPage() {
         </div>
       </div>
 
-      {/* Progress bar */}
-      <div className="h-1.5 bg-[var(--c-bg-hover)] rounded-full overflow-hidden">
+      {/* Progress bar — D-45 (Wave 18.3): a real progressbar for assistive tech. */}
+      <div
+        className="h-1.5 bg-[var(--c-bg-hover)] rounded-full overflow-hidden"
+        role="progressbar"
+        aria-label="تقدم الأسئلة"
+        aria-valuemin={0}
+        aria-valuemax={questions.length}
+        aria-valuenow={currentIndex + 1}
+      >
         <motion.div
           className="h-full rounded-full"
           style={{ background: isAnswered ? (isCorrect ? 'var(--grad-success)' : 'var(--grad-danger)') : 'var(--grad-primary)' }}
@@ -635,65 +614,13 @@ export default function QuestionPage() {
         </div>
       </motion.div>
 
-      {/* Report Dialog — Radix-free lightweight panel, reason picker as chips
-          (no native <select>, per the design system rules). */}
-      <AnimatePresence>
-        {showReport && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            style={{ background: 'var(--c-overlay)' }}
-            onClick={() => setShowReport(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[var(--c-surface)] rounded-2xl p-6 max-w-md w-full"
-              onClick={(e) => e.stopPropagation()}
-              role="dialog"
-              aria-label="الإبلاغ عن خطأ"
-            >
-              <h3 className="text-lg font-bold mb-4 text-[var(--c-text)]">الإبلاغ عن خطأ</h3>
-              <div className="space-y-3">
-                <div role="radiogroup" aria-label="سبب البلاغ" className="flex flex-wrap gap-2" data-testid="report-reasons">
-                  {REPORT_REASONS.map((reason) => (
-                    <button
-                      key={reason.key}
-                      type="button"
-                      role="radio"
-                      aria-checked={reportReason === reason.key}
-                      onClick={() => setReportReason(reason.key)}
-                      className={`press min-h-11 rounded-xl border px-3.5 py-2 text-sm font-semibold transition-all ${
-                        reportReason === reason.key
-                          ? 'border-[var(--c-primary-500)] bg-[var(--c-primary-50)] text-[var(--c-primary-700)]'
-                          : 'border-[var(--c-border-strong)] text-[var(--c-text-soft)] hover:border-[var(--c-primary-300)]'
-                      }`}
-                    >
-                      {reason.label}
-                    </button>
-                  ))}
-                </div>
-                <textarea
-                  value={reportDesc}
-                  onChange={(e) => setReportDesc(e.target.value)}
-                  placeholder="اشرح الخطأ بالتفصيل..."
-                  rows={4}
-                  className="w-full p-3 rounded-lg border border-[var(--c-border-strong)] bg-[var(--c-surface)] text-sm text-[var(--c-text)] resize-none outline-none focus:border-[var(--c-primary-500)]"
-                />
-                <div className="flex gap-2 justify-end">
-                  <button onClick={() => setShowReport(false)} className="px-4 py-2 rounded-lg text-sm font-semibold text-[var(--c-text-muted)] hover:bg-[var(--c-bg-hover)]">إلغاء</button>
-                  <button
-                    onClick={handleReport}
-                    disabled={!reportDesc.trim() || reportMutation.isPending}
-                    className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-[var(--c-danger-500)] hover:bg-[var(--c-danger-600)] disabled:opacity-50"
-                  >
-                    {reportMutation.isPending ? 'جاري الإرسال...' : 'إرسال البلاغ'}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Report Dialog — the shared Radix-trapped component (D-45/D-24):
+          one implementation for every question surface. */}
+      <ReportQuestionDialog
+        questionId={currentQuestion?.id ?? null}
+        open={showReport}
+        onOpenChange={setShowReport}
+      />
 
       {/* Stats Bar */}
       {answerResult?.updatedStats && (

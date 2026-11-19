@@ -51,8 +51,8 @@ export default function LeaderboardSharingToggle() {
             style={{ background: isEnabled ? 'var(--c-primary-700)' : 'var(--c-border-strong)' }}
           >
             <span
-              className="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform"
-              style={{ transform: isEnabled ? 'translateX(2px)' : 'translateX(26px)' }}
+              className="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-[inset-inline-start] duration-200"
+              style={{ insetInlineStart: isEnabled ? '26px' : '2px' }}
             />
           </button>
         )}
