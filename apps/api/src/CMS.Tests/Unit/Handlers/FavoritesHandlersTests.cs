@@ -141,6 +141,7 @@ public class FavoritesHandlersTests
         var questionB = Question.Create("سؤال المادة الثانية", QuestionType.Mcq, subjectB.Id, lectureB.Id, Difficulty.Easy, new List<string>(), db.Admins.First().Id);
         questionB.AddOption("خيار صحيح", true);
         questionB.AddOption("خيار آخر", false);
+        questionB.UpdateExplanation("شرح سؤال المادة الثانية"); // Publish() requires a non-empty explanation.
         questionB.Publish();
         db.Questions.Add(questionB);
         await db.SaveChangesAsync();
