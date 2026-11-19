@@ -18,8 +18,8 @@ export function normalizeActivationCode(raw: string): string {
   return (cleaned.match(/.{1,4}/g) ?? []).join('-');
 }
 
-/** Significant (dash-stripped) length of a normalized code. */
-export function activationCodeLength(code: string): number {
+/** Significant (dash-stripped) length of a normalized code (internal). */
+function activationCodeLength(code: string): number {
   return code.replace(/-/g, '').length;
 }
 

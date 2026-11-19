@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -15,6 +15,8 @@ import { getHttpStatus } from '@/utils/api-error';
 // D-45 (Wave 18.3): the shared ReportQuestionDialog replaces this page's inline
 // inferior duplicate — one implementation, Radix-trapped (D-24).
 import { ReportQuestionDialog } from '@/components/ReportQuestionDialog';
+// D-30 (Wave 18.4): the shared optimistic favorite toggle (was a local copy).
+import { useQuestionFavoriteToggle } from './hooks/useQuestionFavoriteToggle';
 
 interface QuestionOption {
   id: string;
@@ -62,12 +64,6 @@ export default function QuestionPage() {
   const [searchParams] = useSearchParams();
   const focusQuestionId = searchParams.get('focus');
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-
-  // Push 11.3 — favorite view state. The override map holds the optimistic flip for
-  // the CURRENT session (survives even when no list cache exists yet); cached copies
-  // of the question are flipped in-place by the mutation below.
-  const [favoriteOverrides, setFavoriteOverrides] = useState<Record<string, boolean>>({});
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
@@ -153,49 +149,9 @@ export default function QuestionPage() {
     onError: () => toast.error('حدث خطأ أثناء حفظ الإجابة'),
   });
 
-  // Push 11.3 — the favorite mutation, rebuilt as a proper optimistic citizen (the
-  // 11.2-DIAG H1 root cause): onMutate flips every cached copy of this question + a
-  // local override; onSuccess invalidates ['favorites'] so the favorites page reflects
-  // the save on its next mount; onError rolls EVERYTHING back with a toast.
-  const favoriteMutation = useMutation({
-    mutationFn: ({ questionId: targetId, isFav }: { questionId: string; isFav: boolean }) =>
-      questionApi.toggleFavorite(targetId, isFav),
-    onMutate: async ({ questionId: targetId, isFav }) => {
-      const next = !isFav;
-      setFavoriteOverrides((prev) => ({ ...prev, [targetId]: next }));
-
-      const flip = (entry: unknown): unknown =>
-        entry && typeof entry === 'object' && 'id' in entry && (entry as { id?: string }).id === targetId
-          ? { ...entry, isFavorite: next }
-          : entry;
-
-      queryClient.setQueriesData({ queryKey: ['questions'] }, (data: unknown) => {
-        if (!data || typeof data !== 'object') return data;
-        if ('items' in data && Array.isArray((data as { items?: unknown[] }).items)) {
-          return { ...(data as object), items: ((data as { items: unknown[] }).items).map(flip) };
-        }
-        return flip(data);
-      });
-      queryClient.setQueryData(['question-detail', targetId], (data: unknown) => flip(data));
-
-      return { targetId };
-    },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['favorites'] });
-      toast.success(variables.isFav ? 'أُزيل السؤال من المفضلة' : 'أُضيف السؤال إلى المفضلة');
-    },
-    onError: (_error, { questionId: targetId }) => {
-      setFavoriteOverrides((prev) => {
-        const next = { ...prev };
-        delete next[targetId];
-        return next;
-      });
-      // Cache rollback: re-flip by refetching the question surfaces.
-      queryClient.invalidateQueries({ queryKey: ['questions'] });
-      queryClient.invalidateQueries({ queryKey: ['question-detail', targetId] });
-      toast.error('تعذّر تحديث المفضلة. تحقق من اتصالك واستحقاقك.');
-    },
-  });
+  // D-30 (Wave 18.4): the shared optimistic favorite toggle — one implementation
+  // for the question player and the practice rows (cache-flip mode enabled).
+  const { isFavorite: resolveFavorite, toggle: toggleFavorite, flatPending } = useQuestionFavoriteToggle({ flipQueryCaches: true });
 
   const handleSelectOption = useCallback((optionId: string) => {
     if (answerResult) return; // Can't change after answering
@@ -227,13 +183,8 @@ export default function QuestionPage() {
 
   // Push 11.3 — the effective favorite state (override → cached value).
   const isFavorite = currentQuestion
-    ? (favoriteOverrides[currentQuestion.id] ?? currentQuestion.isFavorite)
+    ? resolveFavorite(currentQuestion.id, currentQuestion.isFavorite)
     : false;
-
-  const toggleFavorite = () => {
-    if (!currentQuestion) return;
-    favoriteMutation.mutate({ questionId: currentQuestion.id, isFav: isFavorite });
-  };
 
   if (isLoading) {
     return (
@@ -575,8 +526,8 @@ export default function QuestionPage() {
               <FavoriteListPicker
                 questionId={currentQuestion.id}
                 isFavorite={isFavorite}
-                onToggleFlatFavorite={toggleFavorite}
-                flatPending={favoriteMutation.isPending}
+                onToggleFlatFavorite={() => { if (currentQuestion) toggleFavorite(currentQuestion.id, isFavorite); }}
+                flatPending={flatPending}
               />
             )}
             <button

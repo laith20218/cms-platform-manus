@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -10,7 +10,6 @@ import { cn } from '@/utils';
 import { SecurityWrapper } from '@/features/security/SecurityWrapper';
 import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
 import { examApi } from '@/features/exams/services/exam-api';
-import { questionApi } from '@/features/questions/services/question-api';
 import { QuestionRow } from '@/components/QuestionRow';
 import { ReportQuestionDialog } from '@/components/ReportQuestionDialog';
 import {
@@ -27,6 +26,8 @@ import { CatalogEntitlementErrorCard } from '@/features/my-studies/components/Ca
 // Wave 18.1 (D-13): the denial card variant is classified from the 403 reason
 // (getEntitlementReason → variantForReason) instead of hard-coding no-grants.
 import { getApiErrorMessage, getEntitlementReason } from '@/utils/api-error';
+// D-30 (Wave 18.4): the shared optimistic favorite toggle (was a local copy).
+import { useQuestionFavoriteToggle } from '@/features/questions/hooks/useQuestionFavoriteToggle';
 
 /**
  * W14.4 (B.1, D13) — the practice player over the W14.2 PracticeSession endpoints:
@@ -79,7 +80,6 @@ function PracticePageInner() {
   const { examModelId, subjectId: routeSubjectId } = useParams<{ examModelId?: string; subjectId?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const mySubjects = useMySubjects();
 
   const filter: PracticeCategoryFilter | undefined = useMemo(() => {
@@ -117,9 +117,9 @@ function PracticePageInner() {
   const [pending, setPending] = useState<string | null>(null);
   const [resettingAll, setResettingAll] = useState(false);
   const [showResetAllConfirm, setShowResetAllConfirm] = useState(false);
-  // W15.0 (P4-C4): per-question bookmark + report — the PracticeQuestion DTO carries no
-  // isFavorite flag, so the toggle starts from false and lives optimistically.
-  const [favoriteOverrides, setFavoriteOverrides] = useState<Record<string, boolean>>({});
+  // W15.0 (P4-C4) → D-30 (Wave 18.4): per-question bookmark via the shared toggle —
+  // the PracticeQuestion DTO carries no isFavorite flag, so each row seeds false.
+  const { favoriteOverrides, toggle: toggleQuestionFavorite, pendingQuestionId } = useQuestionFavoriteToggle();
   const [reportQuestionId, setReportQuestionId] = useState<string | null>(null);
 
   const isCategorized = Boolean(routeSubjectId);
@@ -294,28 +294,6 @@ function PracticePageInner() {
     });
   }, []);
 
-  // W15.0 (P4-C4): the flat-favorite toggle ported from QuestionPage (same endpoints,
-  // optimistic override + rollback + ['favorites'] invalidation).
-  const favoriteMutation = useMutation({
-    mutationFn: ({ questionId, isFav }: { questionId: string; isFav: boolean }) =>
-      questionApi.toggleFavorite(questionId, isFav),
-    onMutate: ({ questionId, isFav }) => {
-      setFavoriteOverrides((previous) => ({ ...previous, [questionId]: !isFav }));
-    },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['favorites'] });
-      toast.success(variables.isFav ? 'أُزيل السؤال من المفضلة' : 'أُضيف السؤال إلى المفضلة');
-    },
-    onError: (_error, variables) => {
-      setFavoriteOverrides((previous) => {
-        const next = { ...previous };
-        delete next[variables.questionId];
-        return next;
-      });
-      toast.error('تعذّر تحديث المفضلة. تحقق من اتصالك واستحقاقك.');
-    },
-  });
-
   const resetAll = useCallback(async () => {
     if (!start) return;
     setShowResetAllConfirm(false);
@@ -460,8 +438,8 @@ function PracticePageInner() {
             onEssayChange={(value) => setEssayDrafts((previous) => ({ ...previous, [question.id]: value }))}
             showBookmark
             isFavorite={favoriteOverrides[question.id] ?? false}
-            onToggleFavorite={() => favoriteMutation.mutate({ questionId: question.id, isFav: favoriteOverrides[question.id] ?? false })}
-            favoritePending={favoriteMutation.isPending && favoriteMutation.variables?.questionId === question.id}
+            onToggleFavorite={() => toggleQuestionFavorite(question.id, favoriteOverrides[question.id] ?? false)}
+            favoritePending={pendingQuestionId === question.id}
             onReport={() => setReportQuestionId(question.id)}
           />
         ))}
