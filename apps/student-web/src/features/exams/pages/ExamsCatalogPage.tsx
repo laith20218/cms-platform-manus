@@ -6,6 +6,7 @@ import { ClipboardCheck, Clock, ChevronLeft, LibraryBig, LoaderCircle, Target } 
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
 import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
+import { useEntitlementDeniedListener } from '@/features/my-studies/hooks/useEntitlementDeniedListener';
 import { LockedEmptyState } from '@/features/my-studies/components/LockedEmptyState';
 import { CatalogEntitlementErrorCard, CatalogErrorCard } from '@/features/my-studies/components/CatalogErrorCards';
 import { loadCatalogAcrossSubjects } from '@/features/my-studies/utils/catalog-load';
@@ -63,17 +64,12 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
 
   const fetchingRef = useRef(false);
   useEffect(() => { fetchingRef.current = isFetching; }, [isFetching]);
-  useEffect(() => {
-    const onEntitlementError = (event: Event) => {
-      if (fetchingRef.current) return;
-      const detail = (event as CustomEvent<{ url?: string; reason?: string }>).detail;
-      if (!detail?.url) return;
-      if (detail.url.includes('/entitlements/issue')) { setEntitlementDenied('no-grants'); return; }
-      if (detail.url.includes('/exams/')) setEntitlementDenied(variantForReason(detail.reason));
-    };
-    window.addEventListener('cms-entitlement-error', onEntitlementError);
-    return () => window.removeEventListener('cms-entitlement-error', onEntitlementError);
-  }, []);
+  // Wave 18.4 (D-30): the shared listener (was a local copy of the same block).
+  useEntitlementDeniedListener(
+    (url) => url.includes('/exams/'),
+    setEntitlementDenied,
+    { ignoreWhile: () => fetchingRef.current },
+  );
   useEffect(() => {
     if (subjectsWithExams !== undefined) setEntitlementDenied(null);
   }, [subjectsWithExams]);

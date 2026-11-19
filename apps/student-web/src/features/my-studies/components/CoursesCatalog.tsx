@@ -12,6 +12,7 @@ import {
 import { getEntitlementToken } from '@/features/entitlements/services/entitlement-api';
 import { hasScope, useMySubjects } from '../hooks/useMySubjects';
 import { LockedEmptyState } from './LockedEmptyState';
+import { useEntitlementDeniedListener } from '../hooks/useEntitlementDeniedListener';
 
 /** R69 §2.E — pull the ProblemDetails reason (detail, then title) out of an axios
  * rejection without assuming the body exists — /courses/ Forbid() bodies are EMPTY. */
@@ -130,24 +131,12 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
     fetchingRef.current = isFetching;
   }, [isFetching]);
 
-  useEffect(() => {
-    const onEntitlementError = (event: Event) => {
-      if (fetchingRef.current) return;
-      const detail = (event as CustomEvent<{ url?: string; reason?: string }>).detail;
-      if (!detail?.url) return;
-      // R69 §2.B/§2.D — a 403 from POST /entitlements/issue can ONLY mean the
-      // student holds no active grants → the no-subscription card.
-      if (detail.url.includes('/entitlements/issue')) {
-        setEntitlementDenied('no-grants');
-        return;
-      }
-      if (detail.url.includes('/courses/')) {
-        setEntitlementDenied(variantForReason(detail.reason));
-      }
-    };
-    window.addEventListener('cms-entitlement-error', onEntitlementError);
-    return () => window.removeEventListener('cms-entitlement-error', onEntitlementError);
-  }, []);
+  // Wave 18.4 (D-30): the shared listener (was a local copy of the same block).
+  useEntitlementDeniedListener(
+    (url) => url.includes('/courses/'),
+    setEntitlementDenied,
+    { ignoreWhile: () => fetchingRef.current },
+  );
 
   // A successful load invalidates any stale denial flag (self-heal path or retry).
   useEffect(() => {

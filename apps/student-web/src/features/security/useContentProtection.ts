@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { apiClient } from '@/services/api-client';
 
 type AllowedSecurityEvent = 'copy_attempt' | 'devtools_detected' | 'screenshot_attempt';
@@ -90,7 +90,3 @@ export function useContentProtection(options: { studentName?: string; studentPho
   useAntiCopy(antiCopy); useDevToolsDetection(devToolsDetection); useWatermark(studentName, studentPhone, watermark); useScreenshotDetection(screenshotDetection);
 }
 
-export function useSecurityReporting() {
-  const reportEvent = useCallback((eventType: AllowedSecurityEvent) => reportSecurityEvent(eventType), []);
-  return { reportEvent };
-}

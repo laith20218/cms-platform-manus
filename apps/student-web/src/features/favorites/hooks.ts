@@ -8,7 +8,6 @@ import type {
   FavoriteListQuestionsParams,
   FavoriteListSummary,
   PagedFavorites,
-  UpdateFavoriteListPayload,
 } from './types';
 
 /**
@@ -116,33 +115,6 @@ export function useCreateFavoriteList() {
     },
     onError: () => {
       toast.error('تعذّر إنشاء القائمة، حاول مجددًا');
-    },
-  });
-}
-
-export function useUpdateFavoriteList() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ listId, payload }: { listId: string; payload: UpdateFavoriteListPayload }) =>
-      favoriteListsApi.updateList(listId, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['favorites', 'lists'] });
-    },
-    onError: () => {
-      toast.error('تعذّر تحديث القائمة، حاول مجددًا');
-    },
-  });
-}
-
-export function useDeleteFavoriteList() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (listId: string) => favoriteListsApi.deleteList(listId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['favorites'] });
-    },
-    onError: () => {
-      toast.error('تعذّر حذف القائمة، حاول مجددًا');
     },
   });
 }

@@ -17,6 +17,7 @@ import { variantForReason, EntitlementDeniedError } from '../services/courses-ap
 import type { MySubjectEntry } from '../hooks/useMySubjects';
 import { LockedEmptyState } from './LockedEmptyState';
 import { CatalogEntitlementErrorCard, CatalogErrorCard } from './CatalogErrorCards';
+import { useEntitlementDeniedListener } from '@/features/my-studies/hooks/useEntitlementDeniedListener';
 
 /** Category tabs (Push 5 Task 3) — mirror the backend LibraryFileCategory enum. */
 const CATEGORIES = [
@@ -210,17 +211,12 @@ export function LibraryHub({
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot deep-link effect: runs only when the param or the loaded file set changes
   }, [openFileId, files]);
-  useEffect(() => {
-    const onEntitlementError = (event: Event) => {
-      if (fetchingRef.current) return;
-      const detail = (event as CustomEvent<{ url?: string; reason?: string }>).detail;
-      if (!detail?.url) return;
-      if (detail.url.includes('/entitlements/issue')) { setEntitlementDenied('no-grants'); return; }
-      if (detail.url.includes('/library/')) setEntitlementDenied(variantForReason(detail.reason));
-    };
-    window.addEventListener('cms-entitlement-error', onEntitlementError);
-    return () => window.removeEventListener('cms-entitlement-error', onEntitlementError);
-  }, []);
+  // Wave 18.4 (D-30): the shared listener (was a local copy of the same block).
+  useEntitlementDeniedListener(
+    (url) => url.includes('/library/'),
+    setEntitlementDenied,
+    { ignoreWhile: () => fetchingRef.current },
+  );
   useEffect(() => {
     if (files !== undefined) setEntitlementDenied(null);
   }, [files]);

@@ -9,6 +9,7 @@ import { academicApi, type LectureSummary } from '@/features/subjects/services/a
 import { useMySubjects, hasScope } from '../hooks/useMySubjects';
 import { LockedEmptyState } from './LockedEmptyState';
 import { CatalogEntitlementErrorCard, CatalogErrorCard } from './CatalogErrorCards';
+import { useEntitlementDeniedListener } from '@/features/my-studies/hooks/useEntitlementDeniedListener';
 import { loadCatalogAcrossSubjects } from '../utils/catalog-load';
 import { variantForReason, EntitlementDeniedError } from '../services/courses-api';
 
@@ -67,19 +68,12 @@ export function PracticeCatalog({ subjectId }: { subjectId?: string | null }) {
 
   const fetchingRef = useRef(false);
   useEffect(() => { fetchingRef.current = isFetching; }, [isFetching]);
-  useEffect(() => {
-    const onEntitlementError = (event: Event) => {
-      if (fetchingRef.current) return;
-      const detail = (event as CustomEvent<{ url?: string; reason?: string }>).detail;
-      if (!detail?.url) return;
-      if (detail.url.includes('/entitlements/issue')) { setEntitlementDenied('no-grants'); return; }
-      if (detail.url.includes('/lectures') || detail.url.includes('/subjects/')) {
-        setEntitlementDenied(variantForReason(detail.reason));
-      }
-    };
-    window.addEventListener('cms-entitlement-error', onEntitlementError);
-    return () => window.removeEventListener('cms-entitlement-error', onEntitlementError);
-  }, []);
+  // Wave 18.4 (D-30): the shared listener (was a local copy of the same block).
+  useEntitlementDeniedListener(
+    (url) => url.includes('/lectures') || url.includes('/subjects/'),
+    setEntitlementDenied,
+    { ignoreWhile: () => fetchingRef.current },
+  );
   useEffect(() => {
     if (lectures !== undefined) setEntitlementDenied(null);
   }, [lectures]);

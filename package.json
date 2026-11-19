@@ -2,7 +2,7 @@
   "name": "cms-platform",
   "version": "1.0.0",
   "private": true,
-  "description": "CMS - College Medical System - منصة تعليمية طبية متكاملة (v1.0.0-rc — NOT Production Ready, 8 P0 blockers open)",
+  "description": "CMS — College Medical System. Monorepo: student-web (React 19), admin-web, ASP.NET Core 9 API.",
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
