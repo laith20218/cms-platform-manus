@@ -4,7 +4,7 @@ import { useAuth } from '@/app/providers/useAuth';
 import { motion } from 'framer-motion';
 import { ShieldCheck, Loader2, ArrowRight } from 'lucide-react';
 import { authApi } from '../services/auth-api';
-import { getApiErrorMessage } from '@/utils/api-error';
+import { mapApiErrorToUi } from '@/utils/api-error';
 
 export default function VerifyOtpPage() {
   const navigate = useNavigate();
@@ -49,7 +49,7 @@ export default function VerifyOtpPage() {
       inputsRef.current[index + 1]?.focus();
     }
 
-    // Auto-submit when all 4 digits entered
+    // Auto-submit when all 6 digits are entered
     if (value && index === 5 && newOtp.every(d => d)) {
       handleSubmit(newOtp.join(''));
     }
@@ -86,7 +86,14 @@ export default function VerifyOtpPage() {
       completeAuthentication(result);
       navigate('/dashboard');
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err, 'رمز التحقق غير صحيح'));
+      // D-41 (Wave 18.2): an ACCURATE fallback — a network fault is a network
+      // fault, not a wrong-code claim; the backend's Arabic detail still wins.
+      setError(mapApiErrorToUi(err, {
+        network: 'تعذّر التحقق من الرمز. تحقّق من اتصالك ثم أعد المحاولة.',
+        forbidden: 'لا يمكنك التحقق من هذا الرمز حالياً.',
+        notFound: 'رمز التحقق غير موجود. أعد إرساله ثم حاول مجدداً.',
+        business: 'رمز التحقق غير صحيح أو انتهت صلاحيته.',
+      }).message);
       setOtp(['', '', '', '', '', '']);
       inputsRef.current[0]?.focus();
     } finally {
@@ -103,7 +110,12 @@ export default function VerifyOtpPage() {
       setOtp(['', '', '', '', '', '']);
       inputsRef.current[0]?.focus();
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err, 'تعذر إعادة إرسال الرمز'));
+      setError(mapApiErrorToUi(err, {
+        network: 'تعذّر إعادة إرسال الرمز. تحقّق من اتصالك ثم أعد المحاولة.',
+        forbidden: 'لا يمكنك إعادة إرسال الرمز حالياً.',
+        notFound: 'تعذّر إعادة إرسال الرمز. أعد المحاولة.',
+        business: 'تعذّر إعادة إرسال الرمز. انتظر قليلاً ثم حاول مجدداً.',
+      }).message);
       setCanResend(true);
     }
   };
@@ -133,51 +145,57 @@ export default function VerifyOtpPage() {
             </div>
           )}
 
-          {/* OTP Inputs */}
-          <div className="flex justify-center gap-3 mb-6" dir="ltr">
-            {otp.map((digit, index) => (
-              <input
-                key={index}
-                ref={(el) => { inputsRef.current[index] = el; }}
-                type="text"
-                inputMode="numeric"
-                maxLength={1}
-                value={digit}
-                onChange={(e) => handleOtpChange(index, e.target.value)}
-                onKeyDown={(e) => handleKeyDown(index, e)}
-                onPaste={handlePaste}
-                className="w-14 h-16 text-center text-2xl font-bold rounded-xl border-[2px] outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)]"
-              />
-            ))}
-          </div>
+          {/* OTP Inputs — D-19 (Wave 18.2): each cell is labelled for screen
+              readers, the group announces the one-time-code autofill, and the
+              surrounding form makes Enter submit. */}
+          <form onSubmit={(e) => { e.preventDefault(); void handleSubmit(); }}>
+            <div className="flex justify-center gap-3 mb-6" dir="ltr" role="group" aria-label="رمز التحقق المكوّن من 6 أرقام">
+              {otp.map((digit, index) => (
+                <input
+                  key={index}
+                  ref={(el) => { inputsRef.current[index] = el; }}
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={1}
+                  value={digit}
+                  aria-label={`الرقم ${index + 1} من 6`}
+                  autoComplete={index === 0 ? 'one-time-code' : 'off'}
+                  onChange={(e) => handleOtpChange(index, e.target.value)}
+                  onKeyDown={(e) => handleKeyDown(index, e)}
+                  onPaste={handlePaste}
+                  className="w-14 h-16 text-center text-2xl font-bold rounded-xl border-[2px] outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)]"
+                />
+              ))}
+            </div>
 
-          {/* Countdown / Resend */}
-          <div className="text-center mb-6">
-            {canResend ? (
-              <button onClick={handleResend} className="text-[13px] font-semibold text-[var(--c-primary-700)] hover:underline">
-                إعادة إرسال الرمز
-              </button>
-            ) : (
-              <p className="text-[13px] text-[var(--c-text-muted)]">
-                إعادة الإرسال خلال <span className="font-bold" lang="en">{countdown}</span> ثانية
-              </p>
-            )}
-          </div>
+            {/* Countdown / Resend */}
+            <div className="text-center mb-6">
+              {canResend ? (
+                <button type="button" onClick={handleResend} className="text-[13px] font-semibold text-[var(--c-primary-700)] hover:underline">
+                  إعادة إرسال الرمز
+                </button>
+              ) : (
+                <p className="text-[13px] text-[var(--c-text-muted)]">
+                  إعادة الإرسال خلال <span className="font-bold" lang="en">{countdown}</span> ثانية
+                </p>
+              )}
+            </div>
 
-          {/* Submit */}
-          <button
-            onClick={() => handleSubmit()}
-            disabled={loading || otp.some(d => !d)}
-            className="w-full h-12 rounded-xl font-bold text-[15px] text-white flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-            style={{ background: 'var(--grad-primary)', boxShadow: '0 6px 16px rgba(25,118,210,0.30)' }}
-          >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
-              <>
-                تأكيد
-                <ArrowRight className="w-[18px] h-[18px] rotate-180" />
-              </>
-            )}
-          </button>
+            {/* Submit — Enter anywhere in the form submits (D-19). */}
+            <button
+              type="submit"
+              disabled={loading || otp.some(d => !d)}
+              className="w-full h-12 rounded-xl font-bold text-[15px] text-white flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              style={{ background: 'var(--grad-primary)', boxShadow: '0 6px 16px rgba(25,118,210,0.30)' }}
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+                <>
+                  تأكيد
+                  <ArrowRight className="w-[18px] h-[18px] rotate-180" />
+                </>
+              )}
+            </button>
+          </form>
 
           <div className="text-center mt-5">
             <Link to="/register" className="text-[13px] text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]">

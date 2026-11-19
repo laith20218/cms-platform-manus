@@ -35,6 +35,19 @@ vi.mock('@/app/providers/useAuth', () => ({
 
 import LeaderboardPage from '@/features/stats/pages/LeaderboardPage';
 import SettingsPage from '@/features/settings/SettingsPage';
+import { ThemeProvider } from '@/app/providers/ThemeProvider';
+
+// jsdom lacks matchMedia — ThemeProvider (the SettingsPage D-08 harness) probes the color scheme.
+vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+})));
 
 // ---- fixtures ----
 const MY_SUBJECTS = [
@@ -96,7 +109,7 @@ function renderAt(path: string) {
           {/* W16.1a — the leaderboard is the standalone /leaderboard page
               (was: the /study?tab=leaderboard hub tab until the redirect). */}
           <Route path="/leaderboard" element={<><LeaderboardPage /><LocationProbe /></>} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings" element={<ThemeProvider><SettingsPage /></ThemeProvider>} />
           <Route path="*" element={<div data-testid="route-fallback" />} />
         </Routes>
       </MemoryRouter>
@@ -168,7 +181,9 @@ describe('Leaderboard subject picker + mutual-sharing opt-in (15.4.4.0b)', () =>
     renderAt('/settings');
 
     expect(await screen.findByTestId('leaderboard-sharing-toggle')).toBeInTheDocument();
-    const switchBtn = await screen.findByRole('switch');
+    // W18.2: the theme toggle is also a role=switch now — target the sharing
+    // switch by its testid instead of the ambiguous role query.
+    const switchBtn = await screen.findByRole('switch', { name: 'المشاركة في لوحة الصدارة' });
     await waitFor(() => {
       expect(switchBtn.getAttribute('aria-checked')).toBe('false');
     });
@@ -178,7 +193,8 @@ describe('Leaderboard subject picker + mutual-sharing opt-in (15.4.4.0b)', () =>
     mockConfig.sharing = false;
     renderAt('/settings');
 
-    const switchBtn = await screen.findByRole('switch');
+    // W18.2: the theme toggle is also a role=switch now — target by testid.
+    const switchBtn = await screen.findByRole('switch', { name: 'المشاركة في لوحة الصدارة' });
     fireEvent.click(switchBtn);
 
     await waitFor(() => {
@@ -186,7 +202,7 @@ describe('Leaderboard subject picker + mutual-sharing opt-in (15.4.4.0b)', () =>
     });
     // After the invalidation → refetch, the switch reflects the new state.
     await waitFor(() => {
-      expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true');
+      expect(screen.getByRole('switch', { name: 'المشاركة في لوحة الصدارة' }).getAttribute('aria-checked')).toBe('true');
     });
   });
 });

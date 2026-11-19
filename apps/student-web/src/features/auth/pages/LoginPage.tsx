@@ -1,17 +1,24 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Phone, Lock, Eye, EyeOff, LogIn, Loader2 } from 'lucide-react';
 import { useAuth } from '@/app/providers/useAuth';
 import { getApiErrorMessage } from '@/utils/api-error';
 
+/** D-17 (Wave 18.2): only same-app relative paths may ride the ?next= param —
+ *  an absolute/protocol-relative value is ignored (open-redirect guard). */
+function safeNextPath(value: string | null): string | null {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return null;
+  return value;
+}
+
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -22,7 +29,9 @@ export default function LoginPage() {
 
     try {
       await login(phone, password);
-      navigate('/dashboard');
+      // D-17 (Wave 18.2): ProtectedRoute parked the intended destination in
+      // ?next= — resume it after a successful login (guarded to internal paths).
+      navigate(safeNextPath(searchParams.get('next')) ?? '/dashboard');
     } catch (err: unknown) {
       setError(getApiErrorMessage(err, 'رقم الهاتف أو كلمة المرور غير صحيحة'));
     } finally {
@@ -116,14 +125,10 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <div className="flex justify-between items-center">
-              <label className="flex items-center gap-2 cursor-pointer text-[13px] text-[var(--c-text-soft)] font-medium">
-                <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="hidden" />
-                <span className={`w-[18px] h-[18px] rounded-[5px] border-[1.5px] flex items-center justify-center transition-all ${remember ? 'bg-[var(--c-primary-700)] border-[var(--c-primary-700)]' : 'border-[var(--c-border-strong)] bg-[var(--cms-surface-2)]'}`}>
-                  {remember && <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="w-3 h-3"><polyline points="20 6 9 17 4 12" /></svg>}
-                </span>
-                تذكّرني
-              </label>
+            {/* D-06 (Wave 18.2): the «تذكّرني» checkbox is REMOVED — the session
+                model has no persistent-login contract (sessionStorage + single-use
+                rotating refresh tokens), so the control was a silent fake. */}
+            <div className="flex justify-end items-center">
               <Link to="/forgot-password" className="text-[13px] font-semibold text-[var(--c-primary-700)] hover:underline">نسيت كلمة المرور؟</Link>
             </div>
 

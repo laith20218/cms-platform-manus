@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Lock, Loader2, ArrowRight } from 'lucide-react';
 import { authApi } from '../services/auth-api';
-import { getApiErrorMessage } from '@/utils/api-error';
+import { mapApiErrorToUi } from '@/utils/api-error';
 
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
@@ -42,7 +42,14 @@ export default function ResetPasswordPage() {
       await authApi.resetPassword(phone, otpCode, newPassword);
       navigate('/login');
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err, 'رمز التحقق غير صحيح'));
+      // D-41 (Wave 18.2): the old fallback claimed «رمز التحقق غير صحيح» even
+      // when the failure was the password or the network. Accurate taxonomy now.
+      setError(mapApiErrorToUi(err, {
+        network: 'تعذّر إعادة تعيين كلمة المرور. تحقّق من اتصالك ثم أعد المحاولة.',
+        forbidden: 'لا يمكنك إعادة تعيين كلمة المرور حالياً.',
+        notFound: 'انتهت صلاحية الرمز — أعد إرساله ثم حاول مجدداً.',
+        business: 'تعذّر إعادة تعيين كلمة المرور — تحقق من الرمز وكلمة المرور الجديدة.',
+      }).message);
     } finally {
       setLoading(false);
     }
@@ -74,9 +81,9 @@ export default function ResetPasswordPage() {
             {/* OTP */}
             <div>
               <label className="text-[13px] font-semibold text-[var(--c-text-soft)] mb-1.5 block">رمز التحقق</label>
-              <div className="flex justify-center gap-3" dir="ltr">
+              <div className="flex justify-center gap-3" dir="ltr" role="group" aria-label="رمز التحقق المكوّن من 6 أرقام">
                 {otp.map((digit, index) => (
-                  <input key={index} ref={(el) => { inputsRef.current[index] = el; }} type="text" inputMode="numeric" maxLength={1} value={digit} onChange={(e) => handleOtpChange(index, e.target.value)} className="w-14 h-14 text-center text-xl font-bold rounded-xl border-[2px] outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)]" />
+                  <input key={index} ref={(el) => { inputsRef.current[index] = el; }} type="text" inputMode="numeric" maxLength={1} value={digit} aria-label={`الرقم ${index + 1} من 6`} autoComplete={index === 0 ? 'one-time-code' : 'off'} onChange={(e) => handleOtpChange(index, e.target.value)} className="w-14 h-14 text-center text-xl font-bold rounded-xl border-[2px] outline-none transition-all bg-[var(--cms-surface-2)] text-[var(--c-text)] border-[var(--c-border-strong)] focus:border-[var(--c-primary-500)] focus:shadow-[var(--shadow-glow-primary)]" />
                 ))}
               </div>
             </div>
