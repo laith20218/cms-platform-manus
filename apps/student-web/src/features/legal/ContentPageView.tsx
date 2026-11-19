@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
+import { BookOpenCheck, ChevronRight, Loader2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { getContentPage } from './content-api';
 import { ApiErrorDetail } from '@/components/common/ApiErrorDetail';
 
@@ -13,6 +14,38 @@ import { ApiErrorDetail } from '@/components/common/ApiErrorDetail';
  * backend's `detail` when present (ApiErrorDetail) and a retry button — never
  * raw axios/status text.
  */
+/**
+ * D-15 (Wave 18.6) — minimal PUBLIC chrome for the legal pages: brand mark +
+ * a way back home (guests land on /login via the protected-route bounce,
+ * authed students on /dashboard). No content API changes.
+ */
+function LegalPageChrome() {
+  return (
+    <header className="mb-8 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2.5">
+        <span
+          className="flex h-10 w-10 items-center justify-center rounded-2xl text-white shadow-sm"
+          style={{ background: 'var(--grad-primary)' }}
+          aria-hidden="true"
+        >
+          <BookOpenCheck className="h-5 w-5" />
+        </span>
+        <span className="text-sm font-extrabold text-[var(--c-text)]">
+          CMS <span className="font-semibold text-[var(--c-text-muted)]">— المنصة الطبية التعليمية</span>
+        </span>
+      </div>
+      <Link
+        to="/"
+        data-testid="legal-back-home"
+        className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] px-3.5 text-xs font-bold text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-300)] hover:text-[var(--c-primary-700)]"
+      >
+        <ChevronRight className="h-4 w-4" aria-hidden="true" />
+        العودة للرئيسية
+      </Link>
+    </header>
+  );
+}
+
 export function ContentPageView({ slug, fallbackTitle }: { slug: string; fallbackTitle: string }) {
   const page = useQuery({
     queryKey: ['content-page', slug],
@@ -23,19 +56,24 @@ export function ContentPageView({ slug, fallbackTitle }: { slug: string; fallbac
 
   if (page.isLoading) {
     return (
-      <div className="flex justify-center py-20" data-testid={`content-page-${slug}-loading`}>
-        <Loader2 className="h-8 w-8 animate-spin text-[var(--c-primary-700)]" />
+      <div className="max-w-3xl mx-auto px-4 py-8" data-testid={`content-page-${slug}-loading-wrap`}>
+        <LegalPageChrome />
+        <div className="flex justify-center py-20" data-testid={`content-page-${slug}-loading`}>
+          <Loader2 className="h-8 w-8 animate-spin text-[var(--c-primary-700)]" />
+        </div>
       </div>
     );
   }
 
   if (page.isError) {
     return (
-      <div
-        role="alert"
-        data-testid={`content-page-${slug}-error`}
-        className="mx-auto max-w-2xl rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center"
-      >
+      <div className="max-w-3xl mx-auto px-4 py-8">
+        <LegalPageChrome />
+        <div
+          role="alert"
+          data-testid={`content-page-${slug}-error`}
+          className="mx-auto max-w-2xl rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center"
+        >
         <h1 className="text-lg font-bold text-[var(--c-text)]">تعذّر تحميل الصفحة</h1>
         <p className="mt-1 text-sm text-[var(--c-text-muted)]">
           تحقّق من اتصالك بالإنترنت ثم أعد المحاولة.
@@ -48,6 +86,7 @@ export function ContentPageView({ slug, fallbackTitle }: { slug: string; fallbac
         >
           إعادة المحاولة
         </button>
+        </div>
       </div>
     );
   }
@@ -58,17 +97,20 @@ export function ContentPageView({ slug, fallbackTitle }: { slug: string; fallbac
     : null;
 
   return (
-    <article className="max-w-3xl mx-auto py-8" data-testid={`content-page-${slug}`}>
-      <h1 className="text-2xl font-bold text-[var(--c-text)] mb-2">
-        {data?.titleAr || fallbackTitle}
-      </h1>
-      {updatedAtLabel && (
-        <p className="text-xs text-[var(--c-text-faint)] mb-6">آخر تحديث: {updatedAtLabel}</p>
-      )}
-      <div className="prose prose-sm max-w-none text-[var(--c-text-soft)] space-y-4">
-        {renderBody(data?.bodyAr ?? '')}
-      </div>
-    </article>
+    <div className="max-w-3xl mx-auto px-4 py-8">
+      <LegalPageChrome />
+      <article data-testid={`content-page-${slug}`}>
+        <h1 className="text-2xl font-bold text-[var(--c-text)] mb-2">
+          {data?.titleAr || fallbackTitle}
+        </h1>
+        {updatedAtLabel && (
+          <p className="text-xs text-[var(--c-text-faint)] mb-6">آخر تحديث: {updatedAtLabel}</p>
+        )}
+        <div className="prose prose-sm max-w-none text-[var(--c-text-soft)] space-y-4">
+          {renderBody(data?.bodyAr ?? '')}
+        </div>
+      </article>
+    </div>
   );
 }
 

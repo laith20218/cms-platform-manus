@@ -212,3 +212,38 @@ describe('Wave 18.5 — glossary lock (D-26)', () => {
     expect(questions.includes('مجاب:')).toBe(true);
   });
 });
+
+// =====================================================================
+// D-15 — legal pages public chrome (Wave 18.6)
+// =====================================================================
+describe('Wave 18.6 — legal pages public chrome (D-15)', () => {
+  it('terms renders the brand + back-home link in every state', async () => {
+    getMock.mockImplementation(async (url: string) => {
+      if (url.includes('/content/terms')) {
+        return { data: { slug: 'terms', titleAr: 'شروط الاستخدام', bodyAr: '## عام\nنص تجريبي.', updatedAt: '2026-01-01T00:00:00Z' } };
+      }
+      return { data: {} };
+    });
+    const { TermsPage } = await import('@/features/legal/TermsPage');
+    renderWithProviders(<TermsPage />);
+
+    expect(await screen.findByTestId('content-page-terms', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByTestId('legal-back-home')).toHaveAttribute('href', '/');
+    expect(screen.getByTestId('legal-back-home')).toHaveTextContent('العودة للرئيسية');
+    expect(screen.getByText('CMS', { exact: false })).toBeInTheDocument();
+  });
+
+  it('the error state keeps the chrome too (no dead end)', async () => {
+    getMock.mockImplementation(async (url: string) => {
+      if (url.includes('/content/privacy')) {
+        throw Object.assign(new Error('Network Error'), { isAxiosError: true, response: undefined });
+      }
+      return { data: {} };
+    });
+    const { PrivacyPage } = await import('@/features/legal/PrivacyPage');
+    renderWithProviders(<PrivacyPage />);
+
+    expect(await screen.findByTestId('content-page-privacy-error', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByTestId('legal-back-home')).toBeInTheDocument();
+  });
+});
