@@ -5,10 +5,13 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Settings as SettingsIcon, Moon, Bell, Lock, Loader2, ShieldCheck, Type, Scale, ChevronLeft, FileText, Mail } from 'lucide-react';
+import { Settings as SettingsIcon, Moon, Lock, Loader2, ShieldCheck, Type, Scale, ChevronLeft, FileText, Mail } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { getApiErrorMessage } from '@/utils/api-error';
 import LeaderboardSharingToggle from '@/features/stats/components/LeaderboardSharingToggle';
+// D-08 (Wave 18.2): the ThemeProvider context is the single source of truth —
+// Navbar and Settings now read/toggle the SAME state and can never desync.
+import { useTheme } from '@/app/providers/useTheme';
 // W16.4 — student preferences: font-size (persisted per-account via
 // /student/preferences + per-device localStorage boot) and the dynamic
 // platform version (GET /system/version, safe fallback "1.0.0").
@@ -17,23 +20,14 @@ import { useFontSize } from './useFontSize';
 import { usePlatformVersion } from './usePlatformVersion';
 
 export default function SettingsPage() {
-  // ThemeProvider persists the choice under 'cms-theme' — the key must match exactly
-  // or the selection is lost on the next full page load.
-  const [theme, setTheme] = useState(localStorage.getItem('cms-theme') || 'light');
-  const [notifEnabled, setNotifEnabled] = useState(true);
+  // D-08: provider state (no local useState/localStorage writes here).
+  const { theme, toggleTheme } = useTheme();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   // W16.4 — font-size control (server-persisted preference) + dynamic version.
   const fontSize = useFontSize();
   const { version } = usePlatformVersion();
-
-  const toggleTheme = () => {
-    const next = theme === 'light' ? 'dark' : 'light';
-    setTheme(next);
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem('cms-theme', next);
-  };
 
   const passwordMutation = useMutation({
     mutationFn: async () => {
@@ -73,7 +67,15 @@ export default function SettingsPage() {
         <h2 className="text-base font-semibold mb-4 text-[var(--cms-text)] flex items-center gap-2"><Moon className="w-4 h-4" /> المظهر</h2>
         <div className="flex items-center justify-between">
           <span className="text-sm text-[var(--cms-text-soft)]">الوضع الليلي</span>
-          <button onClick={toggleTheme} className="relative w-12 h-6 rounded-full transition-colors" style={{ background: theme === 'dark' ? 'var(--cms-teal-700)' : 'var(--cms-line-strong)' }}>
+          <button
+            onClick={toggleTheme}
+            role="switch"
+            aria-checked={theme === 'dark'}
+            aria-label="الوضع الليلي"
+            data-testid="settings-theme-toggle"
+            className="relative w-12 h-6 rounded-full transition-colors"
+            style={{ background: theme === 'dark' ? 'var(--cms-teal-700)' : 'var(--cms-line-strong)' }}
+          >
             <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform" style={{ transform: theme === 'dark' ? 'translateX(2px)' : 'translateX(26px)' }} />
           </button>
         </div>
@@ -117,15 +119,10 @@ export default function SettingsPage() {
         )}
       </section>
 
-      <section className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6">
-        <h2 className="text-base font-semibold mb-4 text-[var(--cms-text)] flex items-center gap-2"><Bell className="w-4 h-4" /> الإشعارات</h2>
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-[var(--cms-text-soft)]">تلقّي الإشعارات</span>
-          <button onClick={() => setNotifEnabled(!notifEnabled)} className="relative w-12 h-6 rounded-full transition-colors" style={{ background: notifEnabled ? 'var(--cms-teal-700)' : 'var(--cms-line-strong)' }}>
-            <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform" style={{ transform: notifEnabled ? 'translateX(2px)' : 'translateX(26px)' }} />
-          </button>
-        </div>
-      </section>
+      {/* D-07 (Wave 18.2): the notifications toggle is REMOVED — it was a
+          local-only control that pretended to change a preference no API
+          consumes (grep-proven: no notification-preference endpoint or reader
+          exists). No fake switches. */}
 
       <section className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6">
         <h2 className="text-base font-semibold mb-4 text-[var(--cms-text)] flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> الخصوصية</h2>

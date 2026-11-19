@@ -31,14 +31,29 @@ vi.mock('sonner', () => ({
 }));
 
 import SettingsPage from '@/features/settings/SettingsPage';
+import { ThemeProvider } from '@/app/providers/ThemeProvider';
 import { applyFontSizeStep, isFontSizeStep, readStoredFontSizeStep } from '@/features/settings/font-size';
+
+// jsdom lacks matchMedia — ThemeProvider (the SettingsPage D-08 harness) probes the color scheme.
+vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+})));
 
 function renderSettings() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <SettingsPage />
+        <ThemeProvider>
+          <SettingsPage />
+        </ThemeProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );

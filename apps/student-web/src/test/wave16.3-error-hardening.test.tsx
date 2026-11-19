@@ -54,6 +54,19 @@ import { getApiProblemDetail } from '@/utils/api-problem-detail';
 import LeaderboardSharingToggle from '@/features/stats/components/LeaderboardSharingToggle';
 import LeaderboardPage from '@/features/stats/pages/LeaderboardPage';
 import SettingsPage from '@/features/settings/SettingsPage';
+import { ThemeProvider } from '@/app/providers/ThemeProvider';
+
+// jsdom lacks matchMedia — ThemeProvider (the SettingsPage D-08 harness) probes the color scheme.
+vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+})));
 
 /** Minimal axios-shaped error — matches axios's own isAxiosError() check. */
 function axiosError(status: number, data: unknown) {
@@ -171,7 +184,7 @@ describe('SettingsPage password change failure (W16.3)', () => {
       axiosError(400, { title: 'Bad Request', detail: 'كلمة المرور الحالية غير صحيحة.' })
     );
 
-    renderWithProviders(<SettingsPage />, '/settings');
+    renderWithProviders(<ThemeProvider><SettingsPage /></ThemeProvider>, '/settings');
 
     const [current, next, confirm] = await Promise.all([
       screen.findByPlaceholderText('كلمة المرور الحالية'),
@@ -196,7 +209,7 @@ describe('SettingsPage password change failure (W16.3)', () => {
     });
     postMock.mockRejectedValue(axiosError(503, undefined));
 
-    renderWithProviders(<SettingsPage />, '/settings');
+    renderWithProviders(<ThemeProvider><SettingsPage /></ThemeProvider>, '/settings');
 
     const [current, next, confirm] = await Promise.all([
       screen.findByPlaceholderText('كلمة المرور الحالية'),

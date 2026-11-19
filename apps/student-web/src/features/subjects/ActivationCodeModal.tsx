@@ -5,17 +5,12 @@ import { AlertCircle, BookOpen, CheckCircle2, KeyRound, Loader2, Lock, X } from 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { apiClient } from '@/services/api-client';
 import { clearEntitlementToken } from '@/features/entitlements/services/entitlement-api';
-
-/**
- * Normalizes free-typed codes into 4-char dash groups. Accepts the standard
- * 16-char codes (XXXX-XXXX-XXXX-XXXX) AND prefixed admin codes (e.g.
- * PREFIX-XXXX-… = 22+ significant chars) — the backend redeem endpoint strips
- * dashes and matches any length, so the UI must not truncate.
- */
-function normalizeCode(raw: string): string {
-  const cleaned = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 32);
-  return (cleaned.match(/.{1,4}/g) ?? []).join('-');
-}
+// Wave 18.2 (D-03/D-04): the format rules + cache reset now live in ONE place —
+// utils/activation-code.ts and the page-aligned invalidation set below.
+import {
+  normalizeActivationCode,
+  activationCodeIsSubmittable,
+} from '@/utils/activation-code';
 
 /**
  * Activation-code modal (Push 6 flow, Push 8 Radix rebuild): an unentitled
@@ -41,9 +36,9 @@ export function ActivationCodeModal({
     },
     onSuccess: async () => {
       // The signed entitlement token and the entitled-subjects cache are stale now.
+      // Wave 18.2 (D-04): ['subscriptions'] removed — no query uses that key.
       clearEntitlementToken();
       await queryClient.invalidateQueries({ queryKey: ['my-subjects-entitled'] });
-      queryClient.invalidateQueries({ queryKey: ['subscriptions'] });
       queryClient.invalidateQueries({ queryKey: ['subjects'] });
       setTimeout(() => {
         onClose();
@@ -58,8 +53,9 @@ export function ActivationCodeModal({
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    // 12 = legacy no-dash codes, 16 = standard codes, 22+ = prefixed admin codes.
-    if (code.replace(/-/g, '').length < 12 || redeemMutation.isPending) return;
+    // 12 = legacy no-dash codes, 16 = standard codes, 22+ = prefixed admin codes
+    // (shared rule with the activation page — utils/activation-code.ts).
+    if (!activationCodeIsSubmittable(code) || redeemMutation.isPending) return;
     redeemMutation.mutate(code);
   };
 
@@ -113,9 +109,10 @@ export function ActivationCodeModal({
                   spellCheck={false}
                   dir="ltr"
                   value={code}
-                  onChange={(event) => setCode(normalizeCode(event.target.value))}
+                  onChange={(event) => setCode(normalizeActivationCode(event.target.value))}
                   placeholder="XXXX-XXXX-XXXX-XXXX"
                   disabled={redeemMutation.isPending || redeemMutation.isSuccess}
+                  aria-label="كود الاشتراك — 12 محرفاً على الأقل وقد يتضمن بادئة إضافية"
                   className="w-full rounded-2xl border-2 border-[var(--c-border)] bg-[var(--c-bg)] px-3 py-3.5 text-center text-lg font-bold tracking-wider transition-colors focus:border-[var(--c-primary-500)] focus:outline-none disabled:opacity-60 ps-10"
                   style={{ color: 'var(--c-text)' }}
                   data-testid="activation-code-input"
@@ -140,7 +137,7 @@ export function ActivationCodeModal({
 
             <button
               type="submit"
-              disabled={code.replace(/-/g, '').length < 12 || redeemMutation.isPending || redeemMutation.isSuccess}
+              disabled={!activationCodeIsSubmittable(code) || redeemMutation.isPending || redeemMutation.isSuccess}
               className="press inline-flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 font-bold text-white shadow-md disabled:opacity-50"
               style={{ background: 'var(--c-primary-700)' }}
               data-testid="activation-modal-submit"

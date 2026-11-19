@@ -42,7 +42,20 @@ vi.mock('@/app/providers/useAuth', () => ({
 
 import LoginPage from '@/features/auth/pages/LoginPage';
 import SettingsPage from '@/features/settings/SettingsPage';
+import { ThemeProvider } from '@/app/providers/ThemeProvider';
 import { StudyPage } from '@/features/study/pages/StudyPage';
+
+// jsdom lacks matchMedia — ThemeProvider (the SettingsPage D-08 harness) probes the color scheme.
+vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+})));
 
 function withQueryClient(ui: React.ReactNode, initialEntry = '/') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -84,7 +97,7 @@ describe('W17.0 — SettingsPage legal section', () => {
   });
 
   it('exposes the three legal pages one tap from Settings', () => {
-    withQueryClient(<SettingsPage />);
+    withQueryClient(<ThemeProvider><SettingsPage /></ThemeProvider>);
 
     expect(screen.getByTestId('settings-legal-terms')).toHaveAttribute('href', '/terms');
     expect(screen.getByTestId('settings-legal-privacy')).toHaveAttribute('href', '/privacy');

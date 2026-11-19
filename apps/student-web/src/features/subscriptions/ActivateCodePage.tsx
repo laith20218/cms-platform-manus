@@ -2,37 +2,23 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Link, useNavigate } from 'react-router-dom';
-import { Ticket, Loader2, CheckCircle2, AlertCircle, ChevronLeft } from 'lucide-react';
+import { Ticket, Loader2, CheckCircle2, AlertCircle, ChevronRight, KeyRound } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { getApiErrorMessage } from '@/utils/api-error';
+import { clearEntitlementToken } from '@/features/entitlements/services/entitlement-api';
+// Wave 18.2 (D-03): the SAME format contract as ActivationCodeModal — standard
+// 16-char codes AND prefixed admin codes (22+), 12 significant chars minimum.
+import {
+  normalizeActivationCode,
+  activationCodeIsSubmittable,
+  ACTIVATION_CODE_MIN_SIGNIFICANT,
+} from '@/utils/activation-code';
 
 export default function ActivateCodePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [code, setCode] = useState('');
-  const [codeParts, setCodeParts] = useState(['', '', '', '']);
-
-  const handleCodeChange = (value: string, index: number) => {
-    const cleaned = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
-    const newParts = [...codeParts];
-    newParts[index] = cleaned;
-    setCodeParts(newParts);
-    setCode(newParts.join('-'));
-    if (cleaned.length === 4 && index < 3) {
-      const next = document.getElementById(`code-part-${index + 1}`);
-      next?.focus();
-    }
-  };
-
-  const handlePaste = (e: React.ClipboardEvent) => {
-    e.preventDefault();
-    const pasted = e.clipboardData.getData('text').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (pasted.length >= 4) {
-      const parts = [pasted.slice(0,4), pasted.slice(4,8), pasted.slice(8,12), pasted.slice(12,16)];
-      setCodeParts(parts);
-      setCode(parts.join('-'));
-    }
-  };
+  const [formatError, setFormatError] = useState('');
 
   const redeemMutation = useMutation({
     mutationFn: async (codeStr: string) => {
@@ -41,7 +27,14 @@ export default function ActivateCodePage() {
     },
     onSuccess: () => {
       toast.success('تم تفعيل الكود بنجاح!');
-      queryClient.invalidateQueries({ queryKey: ['subscriptions'] });
+      // Wave 18.2 (D-04): the exact same cache reset as ActivationCodeModal —
+      // the signed entitlement token and the entitled-subjects caches are stale
+      // now. (The dead ['subscriptions'] invalidation is removed: no query in
+      // the app uses that key — grep-proven.)
+      clearEntitlementToken();
+      queryClient.invalidateQueries({ queryKey: ['my-subjects-entitled'] });
+      queryClient.invalidateQueries({ queryKey: ['subjects'] });
+      // ['stats'] is a prefix of the dashboard/progress key ['stats','me','all'].
       queryClient.invalidateQueries({ queryKey: ['stats'] });
       setTimeout(() => navigate('/dashboard'), 1500);
     },
@@ -52,11 +45,16 @@ export default function ActivateCodePage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (code.length < 16) return;
+    // D-03: reject codes shorter than the real format BEFORE hitting the API.
+    if (!activationCodeIsSubmittable(code)) {
+      setFormatError(`الكود أقصر من الصيغة المقبولة — أدخل ${ACTIVATION_CODE_MIN_SIGNIFICANT} محرفاً على الأقل (المعذّرة: الصيغة XXXX-XXXX-XXXX-XXXX وقد تتضمن بادئة إضافية).`);
+      return;
+    }
+    setFormatError('');
     redeemMutation.mutate(code);
   };
 
-  const inputBorder = (filled: boolean) => filled ? 'var(--cms-teal-500)' : 'var(--cms-line)';
+  const submittable = activationCodeIsSubmittable(code);
 
   return (
     <div className="max-w-md mx-auto py-8">
@@ -71,33 +69,50 @@ export default function ActivateCodePage() {
       </div>
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-6">
-          <label className="block text-sm font-semibold mb-4 text-[var(--cms-text)]">كود الاشتراك</label>
-          <div className="flex gap-2 justify-center" onPaste={handlePaste}>
-            {codeParts.map((part, i) => (
-              <input
-                key={i}
-                id={`code-part-${i}`}
-                type="text"
-                value={part}
-                onChange={(e) => handleCodeChange(e.target.value, i)}
-                className="w-16 h-16 text-center text-xl font-bold rounded-xl border-2 bg-[var(--cms-surface-2)] text-[var(--c-text)] border-[var(--c-border-strong)] focus:outline-none transition-colors"
-                style={{ borderColor: inputBorder(part.length === 4), color: 'var(--cms-text)' }}
-                placeholder="●●●●"
-                maxLength={4}
-                disabled={redeemMutation.isPending}
-              />
-            ))}
+          <label htmlFor="activate-code-input" className="block text-sm font-semibold mb-4 text-[var(--cms-text)]">كود الاشتراك</label>
+          {/* D-03: one flexible field (same as the modal) — the old fixed 4×4
+              boxes capped input at 16 chars and silently truncated prefixed
+              admin codes. */}
+          <div className="relative">
+            <KeyRound className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--cms-text-faint)]" />
+            <input
+              id="activate-code-input"
+              type="text"
+              inputMode="text"
+              autoComplete="off"
+              spellCheck={false}
+              dir="ltr"
+              value={code}
+              onChange={(e) => {
+                setCode(normalizeActivationCode(e.target.value));
+                setFormatError('');
+              }}
+              placeholder="XXXX-XXXX-XXXX-XXXX"
+              disabled={redeemMutation.isPending}
+              data-testid="activate-code-input"
+              aria-invalid={formatError ? true : undefined}
+              aria-describedby={formatError ? 'activate-code-format-error' : undefined}
+              className="w-full rounded-2xl border-2 border-[var(--c-border-strong)] bg-[var(--cms-surface-2)] px-3 py-3.5 text-center text-lg font-bold tracking-wider outline-none transition-colors focus:border-[var(--c-primary-500)] disabled:opacity-60 ps-10"
+              style={{ color: 'var(--cms-text)' }}
+            />
           </div>
-          <p className="text-xs text-center mt-3 text-[var(--cms-text-muted)]">الصيغة: XXXX-XXXX-XXXX-XXXX</p>
+          {formatError ? (
+            <p id="activate-code-format-error" role="alert" data-testid="activate-code-format-error" className="mt-3 text-xs font-semibold text-center" style={{ color: 'var(--cms-danger)' }}>
+              {formatError}
+            </p>
+          ) : (
+            <p className="text-xs text-center mt-3 text-[var(--cms-text-muted)]">الصيغة: XXXX-XXXX-XXXX-XXXX — وقد تتضمن الكودات بادئة إضافية</p>
+          )}
         </div>
         <button
           type="submit"
-          disabled={code.length < 16 || redeemMutation.isPending}
+          disabled={!submittable || redeemMutation.isPending}
+          data-testid="activate-code-submit"
           className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-[var(--cms-text-inverse)] transition-colors disabled:opacity-50"
           style={{ background: 'var(--cms-teal-700)' }}
         >
           {redeemMutation.isPending ? (
-            <><Loader2 className="w-5 h-5 animate-spin" /> جارٍ التفعيل...</>
+            <><Loader2 className="w-5 h-5 animate-spin" /> جارٍ التفعيل…</>
           ) : redeemMutation.isSuccess ? (
             <><CheckCircle2 className="w-5 h-5" /> تم التفعيل!</>
           ) : (
@@ -105,17 +120,18 @@ export default function ActivateCodePage() {
           )}
         </button>
         {redeemMutation.isError && (
-          <div className="flex items-start gap-2 p-4 rounded-xl border" style={{ background: 'var(--cms-danger-50)', borderColor: 'var(--cms-danger)' }}>
+          <div className="flex items-start gap-2 p-4 rounded-xl border" style={{ background: 'var(--cms-danger-50)', borderColor: 'var(--cms-danger)' }} role="alert">
             <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" style={{ color: 'var(--cms-danger)' }} />
             <div>
               <p className="text-sm font-medium" style={{ color: 'var(--cms-danger)' }}>فشل التفعيل</p>
-              <p className="text-xs mt-1 text-[var(--cms-text-muted)]">تأكد من أن الكود صحيح وغير منتهي وغير مستخدم.</p>
+              <p className="text-xs mt-1 text-[var(--cms-text-muted)]">{getApiErrorMessage(redeemMutation.error, 'تأكد من أن الكود صحيح وغير منتهي وغير مستخدم.')}</p>
             </div>
           </div>
         )}
       </form>
-      <Link to="/dashboard" className="flex items-center gap-1 mt-6 text-sm text-[var(--cms-text-muted)] hover:text-[var(--cms-teal-700)] transition-colors">
-        <ChevronLeft className="w-4 h-4" /> العودة للوحة التحكم
+      {/* D-44: ChevronRight = "back" in RTL (the W17.2 PathTrail convention). */}
+      <Link to="/dashboard" data-testid="activate-code-back" className="flex items-center gap-1 mt-6 text-sm text-[var(--cms-text-muted)] hover:text-[var(--cms-teal-700)] transition-colors">
+        <ChevronRight className="w-4 h-4" /> العودة للوحة التحكم
       </Link>
     </div>
   );

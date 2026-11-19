@@ -81,7 +81,10 @@ export default function NotificationsPage() {
           <ChevronLeft className="w-3 h-3" />
           <span className="font-semibold text-[var(--c-text)]">الإشعارات</span>
         </div>
-        {unreadCount && unreadCount > 0 && (
+        {/* D-05 (Wave 18.2): Boolean() guard — `{unreadCount && unreadCount > 0
+            && …}` renders a literal «0» when the count is zero (React renders
+            the number 0). */}
+        {Boolean(unreadCount && unreadCount > 0) && (
           <button
             onClick={() => markAllReadMutation.mutate()}
             disabled={markAllReadMutation.isPending}
@@ -108,7 +111,7 @@ export default function NotificationsPage() {
             className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1 ${filter === 'unread' ? 'bg-[var(--c-surface)] text-[var(--c-text)] shadow-sm' : 'text-[var(--c-text-muted)]'}`}
           >
             غير مقروء
-            {unreadCount && unreadCount > 0 && (
+            {Boolean(unreadCount && unreadCount > 0) && (
               <span className="bg-[var(--c-danger-500)] text-white text-[10px] px-1.5 py-0.5 rounded-full" lang="en">{unreadCount}</span>
             )}
           </button>

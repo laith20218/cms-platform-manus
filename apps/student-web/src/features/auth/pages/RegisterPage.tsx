@@ -8,6 +8,11 @@ import { getApiErrorMessage } from '@/utils/api-error';
 
 type AcademicOption = { id: string; nameAr: string };
 
+// P2-31 alignment (Wave 18.2, D-09): the /verify-otp ROUTE exists only when the
+// frontend build flag is on — the same expression the router uses. Navigating
+// there when the flag is off would land on the 404 page.
+const otpRouteEnabled = import.meta.env.VITE_OTP_ENABLED === 'true';
+
 export default function RegisterPage() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -102,7 +107,10 @@ export default function RegisterPage() {
         acceptTerms: formData.acceptTerms,
       });
 
-      if (registration.otpRequired) {
+      // D-09 (Wave 18.2): navigate to /verify-otp ONLY when the backend demands
+      // OTP AND this build actually ships the route. When the flag is off, the
+      // safe fallback is /login (registration itself already succeeded).
+      if (registration.otpRequired && otpRouteEnabled) {
         navigate('/verify-otp', { state: { phone: formData.phone } });
       } else {
         navigate('/login');
