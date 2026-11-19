@@ -45,6 +45,8 @@ public sealed class FavoritesController : ControllerBase
         [FromQuery] string? sort,
         [FromQuery] int? page,
         [FromQuery] int? pageSize,
+        // W17.4 — optional subject scope for the favorites page filter (?subjectId=).
+        [FromQuery] Guid? subjectId,
         CancellationToken ct)
     {
         var studentId = StudentId();
@@ -54,7 +56,7 @@ public sealed class FavoritesController : ControllerBase
         if (entitlement.Rejection is not null) return entitlement.Rejection;
 
         var result = await _mediator.Send(
-            new GetFavoritesQuery(studentId.Value, type, sort ?? "recent", page ?? 1, pageSize ?? 20), ct);
+            new GetFavoritesQuery(studentId.Value, type, sort ?? "recent", page ?? 1, pageSize ?? 20, subjectId), ct);
         return Ok(result);
     }
 

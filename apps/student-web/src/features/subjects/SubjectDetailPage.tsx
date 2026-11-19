@@ -78,14 +78,9 @@ export default function SubjectDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumbs */}
-      <div className="flex items-center gap-2 text-xs text-[var(--c-text-muted)]">
-        <Link to="/dashboard" className="hover:text-[var(--c-primary-700)]">الرئيسية</Link>
-        <ChevronLeft className="w-3 h-3" />
-        <Link to="/subjects" className="hover:text-[var(--c-primary-700)]">المواد</Link>
-        <ChevronLeft className="w-3 h-3" />
-        <span className="font-semibold text-[var(--c-text)]">{subject.nameAr}</span>
-      </div>
+      {/* W17.2 — the local breadcrumb is retired: the global PathTrail in
+          AppShell renders الرئيسية › المواد › {subject} on this page (and
+          resolves the subject's real name from the query cache). */}
 
       {/* Subject Header */}
       <motion.div
@@ -128,7 +123,8 @@ export default function SubjectDetailPage() {
           <Link to={`/subjects/${subject.slug}/library`} role="tab" className="px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] whitespace-nowrap">المكتبة</Link>
         )}
         {canVideoAudio && (
-          <Link to={`/my-studies?subjectId=${subject.id}&tab=courses`} role="tab" className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] whitespace-nowrap">
+          // W17.5 — direct /study deep link (was /my-studies — redirect hop).
+          <Link to={`/study?subjectId=${subject.id}&tab=courses`} role="tab" className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)] whitespace-nowrap">
             <GraduationCap className="w-4 h-4" /> الكورسات
           </Link>
         )}

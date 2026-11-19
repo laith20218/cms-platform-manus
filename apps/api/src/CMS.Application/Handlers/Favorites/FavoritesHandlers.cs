@@ -128,6 +128,11 @@ public sealed class FavoritesHandlers :
             .Where(candidate => accessible.TryGetValue(candidate.Scope, out var subjectIds)
                 && subjectIds.Contains(candidate.SubjectId))
             .ToList();
+        // W17.4 — optional subject scope (favorites page ?subjectId=): applied after
+        // the entitlement visibility filter so `total` counts only what the student
+        // can actually see within the chosen subject.
+        if (req.SubjectId is { } subjectFilter)
+            visible = visible.Where(candidate => candidate.SubjectId == subjectFilter).ToList();
         var total = visible.Count;
 
         // In-memory sort + pagination (uniform across all three sort modes — see above).

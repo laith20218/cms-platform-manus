@@ -27,6 +27,8 @@ export const favoritesApi = {
         sort: params.sort,
         page: params.page,
         pageSize: params.pageSize,
+        // W17.4 — optional subject scope (server-side; undefined = all).
+        subjectId: params.subjectId,
       },
     });
     return res.data;

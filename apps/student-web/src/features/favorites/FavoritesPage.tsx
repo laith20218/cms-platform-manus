@@ -1,13 +1,15 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
-import { Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { BookOpenCheck, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { FavoritesToolbar } from './components/FavoritesToolbar';
 import { FavoriteCard } from './components/FavoriteCard';
 import { FavoriteListChips } from './components/FavoriteListChips';
 import { FavoritesSkeleton } from './components/FavoritesSkeleton';
 import { FavoritesEmptyState } from './components/FavoritesEmptyState';
+import { ListReadingSheet } from './components/ListReadingSheet';
 import { useFavoritesList, useDeleteFavorite, useFavoriteLists, useQuestionsInFavoriteList, useRemoveQuestionFromFavoriteList } from './hooks';
+import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
 import type { FavoriteSort, FavoriteTargetType } from './types';
 
 /** Push 11.3 — the advanced favorites page. ALL list state (type tab, sort, page) lives in
@@ -18,7 +20,12 @@ import type { FavoriteSort, FavoriteTargetType } from './types';
  *
  *  W15.0 — custom lists: a chips row (?listId=) switches the page into LIST-SCOPED
  *  browse mode (only that list's questions, newest membership first; type tabs and
- *  sort hide — a list holds questions only). «الكل» returns to the flat view unchanged. */
+ *  sort hide — a list holds questions only). «الكل» returns to the flat view unchanged.
+ *
+ *  W17.4 — flat mode gains a SUBJECT filter (?subjectId=, server-side — the C3
+ *  param on GET /favorites) and list mode gains the reading-queue sheet
+ *  («قراءة متسلسلة»): the whole list on screen, same window, sequential
+ *  stepper + per-question deep links. */
 
 const VALID_TYPES = new Set<FavoriteTargetType>(['question', 'file', 'episode']);
 const VALID_SORTS = new Set<FavoriteSort>(['recent', 'oldest', 'alpha']);
@@ -41,11 +48,14 @@ function parsePageParam(raw: string | null): number {
 
 export default function FavoritesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const [readingOpen, setReadingOpen] = useState(false);
 
   const type = parseTypeParam(searchParams.get('type'));
   const sort = parseSortParam(searchParams.get('sort'));
   const page = parsePageParam(searchParams.get('page'));
   const rawListId = searchParams.get('listId');
+  // W17.4 — flat-mode subject scope (server-side filter; ?subjectId=).
+  const subjectIdParam = searchParams.get('subjectId');
 
   // W15.0 — the custom-lists chips row + list-scoped browse.
   const listsQuery = useFavoriteLists();
@@ -54,7 +64,14 @@ export default function FavoritesPage() {
   const activeListId = rawListId && (lists ?? []).some((list) => list.id === rawListId) ? rawListId : null;
   const activeList = activeListId ? lists?.find((list) => list.id === activeListId) ?? null : null;
 
-  const listParams = { type: type === 'all' ? undefined : type, sort, page, pageSize: PAGE_SIZE };
+  const listParams = {
+    type: type === 'all' ? undefined : type,
+    sort,
+    page,
+    pageSize: PAGE_SIZE,
+    // W17.4 — flat-mode subject scope rides the same query key (server-side filter).
+    subjectId: activeListId ? undefined : subjectIdParam ?? undefined,
+  };
   const favorites = useFavoritesList(listParams);
   const deleteFavorite = useDeleteFavorite();
 
@@ -62,6 +79,10 @@ export default function FavoritesPage() {
     activeListId ? { listId: activeListId, page, pageSize: PAGE_SIZE } : null,
   );
   const removeFromList = useRemoveQuestionFromFavoriteList();
+
+  // W17.4 — the subject filter's option list (entitled subjects; the same
+  // cache every study surface reads).
+  const mySubjects = useMySubjects();
 
   // The active surface in list mode is the list-questions query; in flat mode, the flat one.
   const activeQuery = activeListId ? listQuestions : favorites;
@@ -77,25 +98,29 @@ export default function FavoritesPage() {
     if (type !== 'all') next.set('type', type);
     if (sort !== 'recent') next.set('sort', sort);
     if (page !== 1) next.set('page', String(page));
+    // W17.4 — the subject scope is flat-mode state (hidden in list mode, like type/sort).
+    if (!canonicalListId && subjectIdParam) next.set('subjectId', subjectIdParam);
     const canonical = next.toString();
     if (canonical !== searchParams.toString()) setSearchParams(next, { replace: true });
-  }, [rawListId, listsQuery.isLoading, activeListId, type, sort, page, searchParams, setSearchParams]);
+  }, [rawListId, listsQuery.isLoading, activeListId, type, sort, page, subjectIdParam, searchParams, setSearchParams]);
 
   const data = activeQuery.data;
   const totalPages = data?.totalPages ?? 1;
   const canPrev = page > 1;
   const canNext = page < totalPages;
 
-  const updateParams = (patch: { listId?: string | null; type?: FavoriteTargetType | 'all'; sort?: FavoriteSort; page?: number }) => {
+  const updateParams = (patch: { listId?: string | null; type?: FavoriteTargetType | 'all'; sort?: FavoriteSort; page?: number; subjectId?: string | null }) => {
     const next = new URLSearchParams();
     const nextListId = patch.listId !== undefined ? patch.listId : activeListId;
     const nextType = patch.type ?? type;
     const nextSort = patch.sort ?? sort;
     const nextPage = patch.page ?? page;
+    const nextSubjectId = patch.subjectId !== undefined ? patch.subjectId : subjectIdParam;
     if (nextListId) next.set('listId', nextListId);
     if (nextType !== 'all') next.set('type', nextType);
     if (nextSort !== 'recent') next.set('sort', nextSort);
     if (nextPage !== 1) next.set('page', String(nextPage));
+    if (!nextListId && nextSubjectId) next.set('subjectId', nextSubjectId);
     setSearchParams(next);
   };
 
@@ -119,19 +144,32 @@ export default function FavoritesPage() {
       />
 
       {activeListId ? (
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[var(--c-text)]">
             <BookmarkCheck className="h-4 w-4 shrink-0 text-[var(--c-primary-700)]" />
             <span className="truncate">{activeList?.name ?? 'القائمة'}</span>
           </p>
-          <button
-            type="button"
-            onClick={() => updateParams({ listId: null, page: 1 })}
-            data-testid="favorites-back-to-all"
-            className="shrink-0 text-sm font-semibold text-[var(--c-primary-700)] underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-primary-500)] rounded-lg px-1 py-0.5"
-          >
-            عرض الكل
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* W17.4 — the reading queue: the whole list on screen, same window. */}
+            <button
+              type="button"
+              onClick={() => setReadingOpen(true)}
+              data-testid="favorites-reading-trigger"
+              aria-label={`قراءة متسلسلة لقائمة ${activeList?.name ?? ''}`}
+              className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--c-primary-300)] bg-[var(--c-primary-50)] px-3.5 text-sm font-bold text-[var(--c-primary-700)] transition-colors hover:border-[var(--c-primary-500)]"
+            >
+              <BookOpenCheck className="h-4 w-4" />
+              قراءة متسلسلة
+            </button>
+            <button
+              type="button"
+              onClick={() => updateParams({ listId: null, page: 1 })}
+              data-testid="favorites-back-to-all"
+              className="text-sm font-semibold text-[var(--c-primary-700)] underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-primary-500)] rounded-lg px-1 py-0.5"
+            >
+              عرض الكل
+            </button>
+          </div>
         </div>
       ) : (
         <FavoritesToolbar
@@ -139,6 +177,9 @@ export default function FavoritesPage() {
           sort={sort}
           onTypeChange={(nextType) => updateParams({ type: nextType, page: 1 })}
           onSortChange={(nextSort) => updateParams({ sort: nextSort, page: 1 })}
+          subjectId={subjectIdParam}
+          subjects={mySubjects.data ?? []}
+          onSubjectChange={(nextSubjectId) => updateParams({ subjectId: nextSubjectId, page: 1 })}
         />
       )}
 
@@ -230,6 +271,11 @@ export default function FavoritesPage() {
             </nav>
           )}
         </>
+      )}
+      {/* W17.4 — the list reading-queue sheet (kept outside the conditional so
+          closing it never unmounts mid-animation). */}
+      {activeListId && readingOpen && (
+        <ListReadingSheet listId={activeListId} listName={activeList?.name ?? 'القائمة'} onClose={() => setReadingOpen(false)} />
       )}
     </section>
   );

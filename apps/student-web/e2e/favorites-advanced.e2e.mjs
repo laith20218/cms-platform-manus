@@ -5,10 +5,12 @@
  * --disable-dev-shm-usage, scenarios in browser.newContext()s, browser closed
  * immediately. Ceiling 1.6GB — sampled at 400ms via ps.
  *
- * Covers: per-tab empty states, the populated enriched grid (20 cards, thumbnails,
- * type chips), type filtering, all three sorts, pagination, optimistic delete with
- * the API call verified, the متابعة visibility matrix (product decision #3), and the
- * «متابعة» → course player deep link (?episode=). Plus a 375px mobile screenshot.
+ * Covers: per-tab empty states with their W17.4 contextual CTAs, the populated
+ * enriched grid (20 cards, thumbnails, type chips), type filtering, all three sorts,
+ * pagination, optimistic delete with the API call verified, the متابعة visibility
+ * matrix (product decision #3), the W17.4 in-context opens (question cards deep-link
+ * into the question view), and the «متابعة» → course player deep link (?episode=).
+ * Plus a 375px mobile screenshot.
  *
  * Run (dev server on 127.0.0.1:5173):  node e2e/favorites-advanced.e2e.mjs
  */
@@ -221,22 +223,27 @@ try {
     check('empty state (all): «لا توجد عناصر محفوظة بعد»',
       (await page.getByText('لا توجد عناصر محفوظة بعد').isVisible()) === true);
 
+    // W17.4 P13 — the old generic «تصفح الدورات» CTA is gone: every tab's empty
+    // state now carries a contextual CTA into the matching browse surface
+    // («تصفح بنك الأسئلة» → /study?tab=bank etc. — unit-locked since W17.4).
     const tabs = [
-      ['favorites-tab-question', 'لا توجد أسئلة محفوظة'],
-      ['favorites-tab-file', 'لا توجد ملفات محفوظة'],
-      ['favorites-tab-episode', 'لا توجد حلقات محفوظة'],
+      ['favorites-tab-question', 'لا توجد أسئلة محفوظة', 'تصفح بنك الأسئلة', '/study?tab=bank'],
+      ['favorites-tab-file', 'لا توجد ملفات محفوظة', 'تصفح المكتبة', '/study?tab=library'],
+      ['favorites-tab-episode', 'لا توجد حلقات محفوظة', 'تصفح الكورسات', '/study?tab=courses'],
     ];
-    for (const [tab, copy] of tabs) {
+    for (const [tab, copy, ctaText, ctaTo] of tabs) {
       await page.getByTestId(tab).click();
       // Wait for the SPECIFIC copy — placeholderData renders the previous tab's copy
       // for a frame while the new key fetches.
       await page.getByText(copy).waitFor({ state: 'visible', timeout: 10_000 });
       check(`empty state per tab: ${copy}`, true);
-    }
 
-    // Per-tab empty CTA present and focusable.
-    const cta = page.getByRole('link', { name: 'تصفح الدورات' });
-    check('per-tab empty state carries a CTA button', await cta.isVisible());
+      // Per-tab empty CTA present, focusable, and aimed at the right surface.
+      const cta = page.getByRole('link', { name: ctaText });
+      const ctaHref = await cta.getAttribute('href');
+      check(`per-tab empty CTA: ${ctaText}`, await cta.isVisible());
+      check(`per-tab empty CTA href: ${ctaTo}`, ctaHref === ctaTo, `href=${ctaHref}`);
+    }
 
     await context.close();
   }
@@ -273,9 +280,20 @@ try {
     check('متابعة visible ONLY on episodes with progress (2 of 6)', await continueButtons.count() === 2, `count=${await continueButtons.count()}`);
     const fileOpens = page.locator('[data-testid="favorite-card-file"] [data-testid="favorite-open"]');
     check('file cards open in library (no متابعة)', await fileOpens.count() === 8);
+    // W17.4 P13 — every favorite card opens IN CONTEXT now: question cards carry a
+    // «عرض السؤال» deep link into /subjects/:subjectId/questions/:questionId
+    // (unit-locked in src/test/wave17.4.test.tsx). Page 1 shows 6 of the 8 questions.
     const questionCards = page.locator('[data-testid="favorite-card-question"]');
-    const questionActions = questionCards.locator('[data-testid="favorite-open"], [data-testid="favorite-continue"]');
-    check('question cards carry NO open/continue action', await questionActions.count() === 0);
+    const questionOpens = questionCards.locator('[data-testid="favorite-open"]');
+    const questionOpenCount = await questionOpens.count();
+    const questionHrefs = await questionOpens.evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+    check('question cards open in-context «عرض السؤال» (W17.4)',
+      questionOpenCount === 6 && questionHrefs.every((href) => /^\/subjects\/s-e2e\/questions\/question-\d+$/.test(href ?? '')),
+      `opens=${questionOpenCount} hrefs=${questionHrefs.join('|')}`);
+    const questionLabels = await questionOpens.allTextContents();
+    check('question open CTA copy is «عرض السؤال»',
+      questionLabels.length > 0 && questionLabels.every((t) => t.includes('عرض السؤال')),
+      `labels=${questionLabels.join('|')}`);
 
     // Non-Ready episode card: متابعة/فتح disabled + «قيد المعالجة» badge.
     const pendingCard = page.locator('[data-testid="favorite-card-episode"]').filter({ hasText: 'قيد المعالجة' });

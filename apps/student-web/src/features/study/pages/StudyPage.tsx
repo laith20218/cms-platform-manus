@@ -1,21 +1,32 @@
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  BarChart3, BookOpen, BookOpenCheck, ClipboardList, Filter, GraduationCap, X,
+  BarChart3, BookMarked, BookOpen, BookOpenCheck, ClipboardList, Filter, GraduationCap, X,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { ProgressTab } from '../components/ProgressTab';
+import { ContentTab } from '../components/ContentTab';
+import { SubjectScopeBar } from '../components/SubjectScopeBar';
 import { LibraryTab } from '../components/LibraryTab';
 import { CoursesTab } from '../components/CoursesTab';
 import { QuestionBankTab } from '@/features/my-studies/components/QuestionBankTab';
 import ExamCourseDetailPage from '@/features/exam-courses/pages/ExamCourseDetailPage';
 
 /**
- * "/study" hub (Wave 15.4.1 → Wave 16.1a). The 4-tab home for study
- * resources: progress, library, bank, courses.
+ * "/study" hub (Wave 15.4.1 → Wave 16.1a → W17.1). The 5-tab home for study
+ * resources: progress, content, library, bank, courses.
  *
+ * W17.1:
+ *   - content      → NEW tab «المحتوى»: the subject's lecture/content cards
+ *                    inside the hub (ContentTab — same LectureSummary data
+ *                    model as /subjects/:slug, richer counts header).
+ *   - Subject scope → the content/library/courses tabs get the shared
+ *                    SubjectScopeBar (كل موادي ↔ one subject) in a stable slot
+ *                    above the panel; the bank tab keeps its cascade + the
+ *                    hub chip (the cascade's subject level is semester-driven).
+ *                    Tab order: progress | content | library | bank | courses.
  * W16.1a reshape:
  *   - overview    → REMOVED. progress replaces it as the DEFAULT tab; the
  *                    retired ?tab=overview redirects to ?tab=progress (O1).
@@ -34,6 +45,7 @@ import ExamCourseDetailPage from '@/features/exam-courses/pages/ExamCourseDetail
  */
 const TABS = [
   { key: 'progress', label: 'تقدمي', icon: BarChart3 },
+  { key: 'content', label: 'المحتوى', icon: BookMarked },
   { key: 'library', label: 'المكتبة', icon: BookOpen },
   { key: 'bank', label: 'بنك الأسئلة', icon: ClipboardList },
   { key: 'courses', label: 'الكورسات', icon: GraduationCap },
@@ -98,12 +110,16 @@ export function StudyPage() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-[var(--c-text)]">دراستي</h1>
-          <p className="text-sm text-[var(--c-text-muted)]">تقدمك ومكتبتك وبنك أسئلتك وكورساتك في مكان واحد</p>
+          <p className="text-sm text-[var(--c-text-muted)]">تقدمك ومحتواك ومكتبتك وبنك أسئلتك وكورساتك في مكان واحد</p>
         </div>
       </div>
 
-      {/* Subject filter chip: deep links arrive as /study?subjectId=…&tab=… */}
-      {subjectId && (
+      {/* Subject filter chip — BANK tab only (W17.1): the bank owns its own
+          cascade (semester-driven subject select), and this chip is the hub-level
+          context + one-tap clear next to it. The content/library/courses tabs use
+          the SubjectScopeBar below instead (visible, switchable scope); progress
+          ignores subjectId entirely, so no subject UI renders there. */}
+      {subjectId && tab === 'bank' && (
         <motion.div
           initial={{ opacity: 0, y: -6 }}
           animate={{ opacity: 1, y: 0 }}
@@ -173,6 +189,14 @@ export function StudyPage() {
         </div>
       </div>
 
+      {/* W17.1 — the shared subject scope control for the per-subject tabs.
+          Stable slot directly under the tab row: the student always sees WHICH
+          subject (or «كل موادي») the panel below is scoped to, and can switch
+          without leaving the tab. The content tab has no all-subjects mode. */}
+      {(tab === 'content' || tab === 'library' || tab === 'courses') && (
+        <SubjectScopeBar allowAll={tab !== 'content'} />
+      )}
+
       {/* Tab panels — every surface receives the optional subject filter.
           Each panel gets its own error boundary: one failing API call must
           show a Retry card, never a blank hub. */}
@@ -180,6 +204,11 @@ export function StudyPage() {
         {tab === 'progress' && (
           <ErrorBoundary title="تعذّر تحميل التقدم">
             <ProgressTab />
+          </ErrorBoundary>
+        )}
+        {tab === 'content' && (
+          <ErrorBoundary title="تعذّر تحميل المحتوى">
+            <ContentTab subjectId={subjectId} />
           </ErrorBoundary>
         )}
         {tab === 'library' && (

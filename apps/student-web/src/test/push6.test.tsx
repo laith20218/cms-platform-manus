@@ -152,32 +152,34 @@ describe('Exams — التدريب practice sub-tab (16.1a standalone page)', ()
 // ================= Push 6 Task 3b: subjectId filtering in My Studies =================
 
 describe('My Studies — subjectId query-param filtering', () => {
-  it('shows the subject filter chip and narrows the courses tab to that subject', async () => {
+  it('shows the subject scope bar and narrows the courses tab to that subject (W17.1)', async () => {
     renderApp('/study?subjectId=s1&tab=courses');
 
-    // The chip resolves the subject's name once my-subjects loads.
+    // The scope select resolves the subject's name once my-subjects loads.
     await waitFor(() => {
-      expect(screen.getByTestId('study-subject-filter-name').textContent).toBe('تشريح مرضي');
+      expect(screen.getByTestId('study-scope-value').textContent).toBe('تشريح مرضي');
     });
-    const chip = screen.getByTestId('study-subject-filter-chip');
-    expect(chip.textContent).toContain('تشريح مرضي');
     // Only s1's course is listed.
     expect(await screen.findByText('كورس التشريح')).toBeInTheDocument();
     expect(screen.queryByText('كورس الباطنة')).not.toBeInTheDocument();
     expect(getMock.mock.calls.some(([url]) => String(url).includes('/courses/subject/s2'))).toBe(false);
   });
 
-  it('clearing the filter drops the subjectId param', async () => {
+  it('clearing the scope to «كل موادي» drops the subjectId param (W17.1)', async () => {
     renderApp('/study?subjectId=s1&tab=courses');
 
     await screen.findByText('كورس التشريح');
-    fireEvent.click(screen.getByTestId('study-subject-filter-clear'));
+    fireEvent.click(screen.getByTestId('study-scope-select'));
+    const allOption = await screen.findByTestId('study-scope-option-all');
+    fireEvent.pointerUp(allOption);
+    fireEvent.click(allOption);
 
-    await waitFor(() => {
-      expect(screen.queryByTestId('study-subject-filter-chip')).not.toBeInTheDocument();
+    const probe = await waitFor(() => {
+      const p = screen.getByTestId('location-probe');
+      expect(p.getAttribute('data-search')).toBe('?tab=courses');
+      return p;
     });
-    const probe = screen.getByTestId('location-probe');
-    expect(probe.getAttribute('data-search')).toBe('?tab=courses');
+    expect(probe).toBeInTheDocument();
     // Both subjects' courses return after clearing.
     expect(await screen.findByText('كورس الباطنة')).toBeInTheDocument();
   });

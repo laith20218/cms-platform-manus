@@ -124,6 +124,42 @@ public class FavoritesHandlersTests
 
     // ===== GetFavoritesQuery: filter =====
 
+    /// <summary>W17.4 — the optional ?subjectId= scope on GET /favorites.</summary>
+    [Fact]
+    public async Task List_SubjectFilter_ReturnsOnlyTheScopedSubject()
+    {
+        await using var db = TestDbHelper.CreateInMemoryContext();
+        var student = TestDbHelper.GetTestStudent(db);
+        var subjectA = TestDbHelper.GetTestSubject(db);
+        var subjectB = Subject.Create(subjectA.SemesterId, "مادة ثانية", "w174-subject-b");
+        db.Subjects.Add(subjectB);
+        var lectureB = Lecture.Create(subjectB.Id, "محاضرة المادة الثانية", "w174-lecture-b", 1);
+        db.Lectures.Add(lectureB);
+        await db.SaveChangesAsync();
+
+        var questionA = TestDbHelper.GetTestQuestion(db); // belongs to subjectA's lecture
+        var questionB = Question.Create("سؤال المادة الثانية", QuestionType.Mcq, subjectB.Id, lectureB.Id, Difficulty.Easy, new List<string>(), db.Admins.First().Id);
+        questionB.AddOption("خيار صحيح", true);
+        questionB.AddOption("خيار آخر", false);
+        questionB.UpdateExplanation("شرح سؤال المادة الثانية"); // Publish() requires a non-empty explanation.
+        questionB.Publish();
+        db.Questions.Add(questionB);
+        await db.SaveChangesAsync();
+
+        AddFavorite(db, student.Id, questionId: questionA.Id);
+        AddFavorite(db, student.Id, questionId: questionB.Id);
+        var (handler, _, _) = Create(db);
+
+        // No scope → both favorites.
+        var all = await handler.Handle(new GetFavoritesQuery(student.Id, "question", "recent", 1, 20), CancellationToken.None);
+        all.Total.Should().Be(2);
+
+        // Scoped to subjectB → only its question, honest total.
+        var scoped = await handler.Handle(new GetFavoritesQuery(student.Id, "question", "recent", 1, 20, subjectB.Id), CancellationToken.None);
+        scoped.Total.Should().Be(1);
+        scoped.Items.Single().TargetId.Should().Be(questionB.Id);
+    }
+
     [Fact]
     public async Task List_MixedFavorites_ReturnsAllThreeTypes()
     {
