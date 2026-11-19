@@ -55,7 +55,7 @@ export function ProgressTab() {
               <div key={s.subjectId}>
                 <div className="flex justify-between text-sm mb-1">
                   <span className="font-medium text-[var(--c-text)]">{s.subjectName}</span>
-                  <span className="text-xs text-[var(--c-text-muted)]" lang="en">{s.questionsAnswered} سؤال • {s.accuracy.toFixed(0)}%</span>
+                  <span className="text-xs text-[var(--c-text-muted)]"><span lang="en">{s.questionsAnswered}</span> سؤال • <span lang="en">{s.accuracy.toFixed(0)}%</span></span>
                 </div>
                 <div className="h-2 bg-[var(--c-neutral-200)] rounded-full overflow-hidden">
                   <motion.div initial={{ width: 0 }} animate={{ width: `${s.accuracy}%` }} transition={{ duration: 0.5 }}
@@ -79,7 +79,7 @@ export function ProgressTab() {
             <div key={d.label} className="text-center p-3 rounded-xl bg-[var(--c-neutral-50)]">
               <div className="text-xs text-[var(--c-text-muted)] mb-1">{d.label}</div>
               <div className="text-2xl font-extrabold mb-1" style={{ color: d.color }} lang="en">{d.data.accuracy.toFixed(0)}%</div>
-              <div className="text-xs text-[var(--c-text-muted)]" lang="en">{d.data.answered} سؤال</div>
+              <div className="text-xs text-[var(--c-text-muted)]"><span lang="en">{d.data.answered}</span> سؤال</div>
             </div>
           ))}
         </div>

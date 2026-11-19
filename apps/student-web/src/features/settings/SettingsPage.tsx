@@ -76,7 +76,7 @@ export default function SettingsPage() {
             className="relative w-12 h-6 rounded-full transition-colors"
             style={{ background: theme === 'dark' ? 'var(--cms-teal-700)' : 'var(--cms-line-strong)' }}
           >
-            <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform" style={{ transform: theme === 'dark' ? 'translateX(2px)' : 'translateX(26px)' }} />
+            <span className="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-[inset-inline-start] duration-200" style={{ insetInlineStart: theme === 'dark' ? '26px' : '2px' }} />
           </button>
         </div>
       </section>

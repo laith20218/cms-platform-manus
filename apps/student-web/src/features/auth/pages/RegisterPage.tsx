@@ -233,10 +233,12 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Terms */}
+            {/* Terms — D-16 (Wave 18.3): the checkbox is sr-only (focusable via
+                keyboard — Tailwind's sr-only keeps it in the a11y tree, unlike the
+                old `hidden`), and the visual square shows the focus ring. */}
             <label className="flex items-center gap-2 cursor-pointer text-[13px] text-[var(--c-text-soft)] font-medium">
-              <input type="checkbox" checked={formData.acceptTerms} onChange={(e) => setFormData({ ...formData, acceptTerms: e.target.checked })} className="hidden" />
-              <span className={`w-[18px] h-[18px] rounded-[5px] border-[1.5px] flex items-center justify-center transition-all ${formData.acceptTerms ? 'bg-[var(--c-primary-700)] border-[var(--c-primary-700)]' : 'border-[var(--c-border-strong)] bg-[var(--cms-surface-2)]'}`}>
+              <input type="checkbox" checked={formData.acceptTerms} onChange={(e) => setFormData({ ...formData, acceptTerms: e.target.checked })} className="sr-only peer" />
+              <span className={`w-[18px] h-[18px] rounded-[5px] border-[1.5px] flex items-center justify-center transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--c-primary-500)] peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-[var(--c-bg)] ${formData.acceptTerms ? 'bg-[var(--c-primary-700)] border-[var(--c-primary-700)]' : 'border-[var(--c-border-strong)] bg-[var(--cms-surface-2)]'}`}>
                 {formData.acceptTerms && <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="w-3 h-3"><polyline points="20 6 9 17 4 12" /></svg>}
               </span>
               أوافق على <a href="/terms" className="text-[var(--c-primary-700)] font-semibold hover:underline">الشروط</a> و<a href="/privacy" className="text-[var(--c-primary-700)] font-semibold hover:underline">سياسة الخصوصية</a>

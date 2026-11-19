@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { notificationApi, type Notification } from '../services/notification-api';
 import { formatRelativeTime, sanitizeActionUrl } from '@/utils';
+
+const PAGE_SIZE = 20;
 
 const typeConfig: Record<string, { icon: typeof Bell; color: string; bg: string }> = {
   announcement: { icon: Megaphone, color: 'var(--c-primary-700)', bg: 'var(--c-primary-50)' },
@@ -23,9 +25,24 @@ export default function NotificationsPage() {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  // D-14 (Wave 18.3): page/pageSize ride the API it already supports — a
+  // load-more button appends pages instead of silently capping at 20.
+  const {
+    data,
+    isLoading,
+    isError,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ['notifications', filter],
-    queryFn: () => notificationApi.getNotifications(filter === 'unread'),
+    queryFn: ({ pageParam }) => notificationApi.getNotifications(filter === 'unread', pageParam, PAGE_SIZE),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) => {
+      const items = (lastPage as { items?: unknown[] } | undefined)?.items ?? [];
+      return items.length === PAGE_SIZE ? allPages.length + 1 : undefined;
+    },
   });
 
   const { data: unreadCount } = useQuery({
@@ -59,7 +76,7 @@ export default function NotificationsPage() {
     },
   });
 
-  const notifications: Notification[] = data?.items || [];
+  const notifications: Notification[] = data?.pages.flatMap((page) => (page as { items?: Notification[] }).items ?? []) ?? [];
 
   const handleNotificationClick = (notif: Notification, safeActionUrl: string | null) => {
     if (!notif.isRead) {
@@ -88,9 +105,10 @@ export default function NotificationsPage() {
           <button
             onClick={() => markAllReadMutation.mutate()}
             disabled={markAllReadMutation.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-[var(--c-primary-700)] hover:bg-[var(--c-primary-50)] transition-colors"
+            /* D-20 (Wave 18.3): a 44px target (was px-3 py-1.5 ≈ 28px). */
+            className="press flex min-h-11 items-center gap-1.5 px-3 rounded-lg text-xs font-semibold text-[var(--c-primary-700)] hover:bg-[var(--c-primary-50)] transition-colors"
           >
-            <CheckCheck className="w-3.5 h-3.5" />
+            <CheckCheck className="w-3.5 h-3.5" aria-hidden="true" />
             تعليم الكل كمقروء
           </button>
         )}
@@ -102,13 +120,15 @@ export default function NotificationsPage() {
         <div className="flex gap-1 p-1 rounded-lg bg-[var(--c-neutral-100)]">
           <button
             onClick={() => setFilter('all')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${filter === 'all' ? 'bg-[var(--c-surface)] text-[var(--c-text)] shadow-sm' : 'text-[var(--c-text-muted)]'}`}
+            aria-pressed={filter === 'all'}
+            className={`press min-h-11 px-4 rounded-md text-xs font-semibold transition-all ${filter === 'all' ? 'bg-[var(--c-surface)] text-[var(--c-text)] shadow-sm' : 'text-[var(--c-text-muted)]'}`}
           >
             الكل
           </button>
           <button
             onClick={() => setFilter('unread')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1 ${filter === 'unread' ? 'bg-[var(--c-surface)] text-[var(--c-text)] shadow-sm' : 'text-[var(--c-text-muted)]'}`}
+            aria-pressed={filter === 'unread'}
+            className={`press min-h-11 px-4 rounded-md text-xs font-semibold transition-all flex items-center gap-1 ${filter === 'unread' ? 'bg-[var(--c-surface)] text-[var(--c-text)] shadow-sm' : 'text-[var(--c-text-muted)]'}`}
           >
             غير مقروء
             {Boolean(unreadCount && unreadCount > 0) && (
@@ -147,15 +167,19 @@ export default function NotificationsPage() {
             // to gate the "View" affordance, so a rejected URL shows no chevron.
             const safeActionUrl = sanitizeActionUrl(notif.actionUrl);
             return (
-              <motion.div
+              // D-14 (Wave 18.3): a real <button> — keyboard focusable, Enter/Space
+              // activate (was a motion.div with only onClick).
+              <motion.button
                 key={notif.id}
+                type="button"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.03 }}
                 onClick={() => handleNotificationClick(notif, safeActionUrl)}
-                className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
+                data-testid={`notification-row-${notif.id}`}
+                className={`w-full text-right flex items-start gap-3 p-4 rounded-xl border transition-all ${
                   notif.isRead
-                    ? 'bg-[var(--c-surface)] border-[var(--c-border)]'
+                    ? 'bg-[var(--c-surface)] border-[var(--c-border)] hover:bg-[var(--c-bg-hover)]'
                     : 'bg-[var(--c-primary-50)] border-[rgba(25,118,210,0.15)] hover:shadow-md'
                 }`}
               >
@@ -181,9 +205,23 @@ export default function NotificationsPage() {
                     )}
                   </div>
                 </div>
-              </motion.div>
+              </motion.button>
             );
           })}
+          {/* D-14 (Wave 18.3): append the next page — the API already paginates. */}
+          {hasNextPage && (
+            <button
+              type="button"
+              onClick={() => void fetchNextPage()}
+              disabled={isFetchingNextPage}
+              data-testid="notifications-load-more"
+              className="press flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--c-border-strong)] bg-[var(--c-surface)] px-4 text-sm font-semibold text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-300)] hover:text-[var(--c-primary-700)] disabled:opacity-60"
+            >
+              {isFetchingNextPage
+                ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> جارٍ التحميل…</>
+                : 'تحميل المزيد'}
+            </button>
+          )}
         </div>
       )}
     </div>
