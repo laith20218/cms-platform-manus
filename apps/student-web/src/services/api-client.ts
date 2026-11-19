@@ -1,6 +1,9 @@
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 import { getOrCreateInstallationId } from '@/utils';
 import { notifySessionExpired } from '@/services/session-expiry';
+// Wave 18.1 — the 403 reason extraction lives in one place (utils/api-error) so
+// the broadcast here and the feature denial cards can never drift apart.
+import { getEntitlementReason } from '@/utils/api-error';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 type RetriableRequestConfig = InternalAxiosRequestConfig & { _retry?: boolean };
@@ -96,18 +99,11 @@ apiClient.interceptors.response.use(
     // header (if the API opts in), then defaults to 'unknown' so the UI can fall
     // back to a generic access-denied message. The error still rejects below.
     if (error.response?.status === 403) {
-      const problem = error.response?.data as { detail?: string; title?: string } | undefined;
-      const headerReason = (error.response?.headers as Record<string, unknown> | undefined)?.['x-entitlement-error'];
-      const reason =
-        (typeof problem?.detail === 'string' && problem.detail) ||
-        (typeof problem?.title === 'string' && problem.title) ||
-        (typeof headerReason === 'string' && headerReason) ||
-        'unknown';
       window.dispatchEvent(
         new CustomEvent('cms-entitlement-error', {
           detail: {
             url: typeof originalRequest?.url === 'string' ? originalRequest.url : '',
-            reason,
+            reason: getEntitlementReason(error),
           },
         })
       );
