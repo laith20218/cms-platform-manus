@@ -19,12 +19,14 @@ import {
   type PracticeQuestion,
   type SubmitAnswerResult,
 } from '../services/practice-api';
-import { isEntitlementDenied } from '@/features/my-studies/services/courses-api';
+import { isEntitlementDenied, variantForReason, type DenialVariant } from '@/features/my-studies/services/courses-api';
 import { CatalogEntitlementErrorCard } from '@/features/my-studies/components/CatalogErrorCards';
 // W16.6 error hardening — axios errors are `instanceof Error`, so the previous
 // `instanceof Error ? message : fallback` leaked raw axios text. Prefer the
 // backend's Arabic ProblemDetails `detail`, fall back to the Arabic sentence.
-import { getApiErrorMessage } from '@/utils/api-error';
+// Wave 18.1 (D-13): the denial card variant is classified from the 403 reason
+// (getEntitlementReason → variantForReason) instead of hard-coding no-grants.
+import { getApiErrorMessage, getEntitlementReason } from '@/utils/api-error';
 
 /**
  * W14.4 (B.1, D13) — the practice player over the W14.2 PracticeSession endpoints:
@@ -104,6 +106,10 @@ function PracticePageInner() {
   const [start, setStart] = useState<PracticeStart | null>(null);
   const [phase, setPhase] = useState<'loading' | 'running' | 'error'>('loading');
   const [loadError, setLoadError] = useState('');
+  // Wave 18.1 (D-13): a 403 keeps its REASON — device/session denials render the
+  // device card (login CTA), subscription gaps the no-grants card. Never a
+  // blanket no-grants claim for every denial.
+  const [denialVariant, setDenialVariant] = useState<DenialVariant | null>(null);
   const [selections, setSelections] = useState<Record<string, string[]>>({});
   const [feedback, setFeedback] = useState<Record<string, SubmitAnswerResult>>({});
   const [restored, setRestored] = useState<Record<string, RestoredState>>({});
@@ -157,6 +163,7 @@ function PracticePageInner() {
     if (isCategorized ? !routeSubjectId : !examModelId) return;
     setPhase('loading');
     setLoadError('');
+    setDenialVariant(null);
     try {
       const data = isCategorized
         ? await practiceApi.startCategorized(routeSubjectId!, filter)
@@ -181,8 +188,9 @@ function PracticePageInner() {
       setFeedback({});
       setPhase('running');
     } catch (error) {
-      if (error instanceof Error && isEntitlementDenied(error)) {
-        setLoadError('__ENTITLEMENT__');
+      if (isEntitlementDenied(error)) {
+        // D-13 (Wave 18.1): classify the denial reason — the honest variant card.
+        setDenialVariant(variantForReason(getEntitlementReason(error)));
       } else {
         setLoadError(getApiErrorMessage(error, 'تعذّر بدء جلسة التدريب. تحقق من اتصالك ثم أعد المحاولة.'));
       }
@@ -338,8 +346,8 @@ function PracticePageInner() {
   }
 
   if (phase === 'error') {
-    if (loadError === '__ENTITLEMENT__') {
-      return <CatalogEntitlementErrorCard variant="no-grants" onRetry={() => void bootstrap()} testId="practice-denied" />;
+    if (denialVariant) {
+      return <CatalogEntitlementErrorCard variant={denialVariant} onRetry={() => void bootstrap()} testId="practice-denied" />;
     }
     return (
       <div className="max-w-lg mx-auto mt-12 rounded-2xl border border-[var(--cms-line-strong)] bg-[var(--cms-surface)] p-7 text-center" role="alert">

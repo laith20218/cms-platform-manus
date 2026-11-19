@@ -1,14 +1,17 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
   ChevronLeft, Flag, Check, X, Loader2,
-  BookOpen, Clock, BarChart3, ArrowRight, ListChecks,
+  BookOpen, Clock, BarChart3, ArrowRight, ListChecks, FileQuestion,
 } from 'lucide-react';
 import { questionApi } from './services/question-api';
 import { FavoriteListPicker } from '@/features/favorites/components/FavoriteListPicker';
+import { LockedEmptyState } from '@/features/my-studies/components/LockedEmptyState';
+import { isEntitlementDenied } from '@/features/my-studies/services/courses-api';
+import { getHttpStatus } from '@/utils/api-error';
 
 interface QuestionOption {
   id: string;
@@ -85,7 +88,7 @@ export default function QuestionPage() {
   // alone used to throw `options.map is not a function` and blank the page
   // behind the route ErrorBoundary. The current question is hydrated with the
   // FULL payload (GET /questions/{id}) below before it can render.
-  const { data: questionsData, isLoading, isError, refetch } = useQuery({
+  const { data: questionsData, isLoading, isError, error: listError, refetch } = useQuery({
     queryKey: questionId ? ['questions', 'focus', questionId] : ['questions', 'lecture', lectureId],
     queryFn: () => questionId ? questionApi.getById(questionId) : questionApi.getByLecture(lectureId!),
     enabled: !!lectureId || !!questionId,
@@ -105,7 +108,7 @@ export default function QuestionPage() {
     && normalizedType(listedQuestion) !== 'essay'
     && !listedQuestion.options;
 
-  const { data: hydrated, isLoading: hydrating } = useQuery({
+  const { data: hydrated, isLoading: hydrating, isError: hydrationFailed, error: hydrationError, refetch: refetchHydration } = useQuery({
     queryKey: ['question-detail', listedQuestion?.id],
     queryFn: () => questionApi.getById(listedQuestion!.id),
     enabled: needsHydration,
@@ -270,7 +273,35 @@ export default function QuestionPage() {
 
   // Wave 12.5.A (Group 4) — a failed fetch used to fall into the "no questions"
   // empty state. Honest error card instead.
+  // Wave 18.1 (D-01): the error taxonomy — 403 renders the activation/locked
+  // pattern (NOT a generic error), 404 a not-found card, network faults keep the
+  // connection + retry card. Only a genuine empty dataset keeps the empty state.
   if (isError) {
+    if (isEntitlementDenied(listError)) {
+      return (
+        <div className="mx-auto max-w-md py-8" data-testid="questions-locked">
+          <LockedEmptyState
+            title="أسئلة هذه المحاضرة مُقفلة"
+            hint="تفعيل كود الاشتراك الذي يشمل هذه المادة يفتح أسئلتها فوراً."
+          />
+        </div>
+      );
+    }
+    if (getHttpStatus(listError) === 404) {
+      return (
+        <div role="alert" className="mx-auto max-w-md rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center" data-testid="questions-not-found">
+          <FileQuestion className="w-10 h-10 mx-auto mb-3 text-[var(--c-text-muted)]" />
+          <h2 className="text-lg font-bold text-[var(--c-text)]">الأسئلة غير موجودة</h2>
+          <p className="mt-2 text-sm text-[var(--c-text-muted)]">قد يكون الرابط قديماً أو أزيلت المحاضرة/الأسئلة.</p>
+          <button
+            onClick={() => navigate(-1)}
+            className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"
+          >
+            رجوع
+          </button>
+        </div>
+      );
+    }
     return (
       <div role="alert" className="mx-auto max-w-md rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center" data-testid="questions-error">
         <h2 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل الأسئلة</h2>
@@ -321,6 +352,10 @@ export default function QuestionPage() {
   // An Mcq whose full payload hasn't arrived yet (or arrived option-less) shows
   // its skeleton instead of crashing — the Push 9 guarantee.
   const awaitingOptions = !isEssay && !currentQuestion.options && hydrating;
+  // Wave 18.1 (D-02): a FAILED hydration is a load error, never the "options not
+  // published" empty copy — that claim stays reserved for a confirmed-empty full
+  // payload (options.length === 0 on a successful fetch).
+  const optionsLoadFailed = !isEssay && !currentQuestion.options && !hydrating && hydrationFailed;
 
   return (
     <div className="space-y-4 max-w-[880px] mx-auto">
@@ -420,6 +455,33 @@ export default function QuestionPage() {
               {[0, 1, 2, 3].map((row) => (
                 <div key={row} className="player-skeleton h-[62px] rounded-xl border-[1.5px] border-[var(--c-border)]" />
               ))}
+            </div>
+          ) : optionsLoadFailed ? (
+            // Wave 18.1 (D-02): the options fetch failed — connection/retry (or
+            // activation for 403), never the "غير منشورة" false-empty claim.
+            <div
+              role="alert"
+              data-testid="question-options-error"
+              className="rounded-xl border border-[var(--c-danger-200)] bg-[var(--c-danger-50)] p-5 text-center text-sm"
+            >
+              {isEntitlementDenied(hydrationError) ? (
+                <p className="font-semibold text-[var(--cms-danger-700)]">
+                  هذا السؤال داخل نطاق اشتراك غير مفعّل.
+                  <Link to="/activate-code" className="mx-1 underline font-bold">فعّل كوداً</Link>
+                  يشمل المادة ثم أعد المحاولة.
+                </p>
+              ) : (
+                <>
+                  <p className="font-semibold text-[var(--cms-danger-700)]">تعذّر تحميل خيارات هذا السؤال — تحقّق من اتصالك ثم أعد المحاولة.</p>
+                  <button
+                    type="button"
+                    onClick={() => refetchHydration()}
+                    className="press mt-3 inline-flex min-h-11 items-center rounded-xl border border-[var(--c-border-strong)] bg-[var(--c-surface)] px-5 text-sm font-bold text-[var(--c-text)]"
+                  >
+                    إعادة المحاولة
+                  </button>
+                </>
+              )}
             </div>
           ) : options.length === 0 ? (
             // Full payload arrived but the question has no options published —
@@ -552,7 +614,7 @@ export default function QuestionPage() {
             {!isAnswered ? (
               <button
                 onClick={handleConfirmAnswer}
-                disabled={(isEssay ? !essayAnswer.trim() : !selectedOption) || answerMutation.isPending || awaitingOptions}
+                disabled={(isEssay ? !essayAnswer.trim() : !selectedOption) || answerMutation.isPending || awaitingOptions || optionsLoadFailed}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-[10px] font-bold text-sm text-white transition-all disabled:opacity-50"
                 style={{ background: 'var(--grad-primary)', boxShadow: '0 4px 12px rgba(25,118,210,0.25)' }}
               >

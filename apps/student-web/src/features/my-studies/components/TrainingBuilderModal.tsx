@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { BookMarked, Loader2, Sparkles, Tag } from 'lucide-react';
+import { BookMarked, Loader2, RotateCcw, Sparkles, Tag } from 'lucide-react';
 import { cn } from '@/utils';
 import { CenteredDialog } from '@/components/ui/Overlays';
 import { practiceApi } from '@/features/practice/services/practice-api';
@@ -195,6 +195,35 @@ export function TrainingBuilderModal({ open, onOpenChange, subjectId, subjectNam
             <div className="flex items-center gap-2 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] px-4 py-3 text-sm text-[var(--c-text-muted)]" data-testid="training-lectures-loading">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               جارٍ تحميل محاضرات المادة…
+            </div>
+          ) : treeQuery.isError ? (
+            // Wave 18.1 (D-11): a failed tree fetch is an error state with a retry —
+            // NEVER the "no categorized lectures" empty copy. 403 keeps the same
+            // activation copy as the draw failure below.
+            <div
+              role="alert"
+              data-testid="training-lectures-error"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--c-danger-200,rgba(220,38,38,0.25))] bg-[var(--c-danger-50,rgba(254,226,226,0.6))] px-4 py-3 text-sm font-semibold text-[var(--c-danger-700,#b91c1c)]"
+            >
+              <span>
+                {isEntitlementDenied(treeQuery.error)
+                  ? 'اشتراكك لا يغطي بنك أسئلة هذه المادة — فعّل كوداً يشملها ثم أعد المحاولة.'
+                  : 'تعذّر تحميل محاضرات المادة. تحقّق من اتصالك ثم أعد المحاولة.'}
+              </span>
+              {isEntitlementDenied(treeQuery.error) ? (
+                <Link to="/activate-code" className="press inline-flex min-h-9 items-center rounded-lg bg-white px-3 text-xs font-bold text-[var(--c-danger-700,#b91c1c)]">
+                  تفعيل كود
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void treeQuery.refetch()}
+                  className="press inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-white px-3 text-xs font-bold text-[var(--c-danger-700,#b91c1c)]"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                  إعادة المحاولة
+                </button>
+              )}
             </div>
           ) : lectures.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-[var(--c-border-strong)] bg-[var(--c-surface)] px-4 py-3 text-sm text-[var(--c-text-muted)]" data-testid="training-lectures-empty">
