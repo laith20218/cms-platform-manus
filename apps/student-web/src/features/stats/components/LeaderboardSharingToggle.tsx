@@ -20,7 +20,7 @@ export default function LeaderboardSharingToggle() {
     >
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <p className="font-semibold text-[var(--c-text)]">المشاركة في لوحة الصدارة</p>
+          <p className="font-semibold text-[var(--c-text)]">المشاركة في لوحة المتصدرين</p>
           <p className="mt-1 text-xs text-[var(--c-text-muted)]">
             عند التفعيل، تظهر بياناتك (الاسم، الصورة، عدد الأسئلة، الدقة) للطلاب المشاركين الآخرين، وترى بياناتهم في المقابل.
           </p>
@@ -30,7 +30,7 @@ export default function LeaderboardSharingToggle() {
           <span className="h-6 w-12 shrink-0 animate-pulse rounded-full bg-[var(--c-bg-hover)]" aria-hidden="true" />
         ) : isError ? (
           <div className="flex shrink-0 flex-col items-end gap-2">
-            <span className="text-xs font-medium text-[var(--c-danger-500)]">تعذر تحميل حالة المشاركة</span>
+            <span className="text-xs font-medium text-[var(--c-danger-500)]">تعذّر تحميل حالة المشاركة</span>
             <button
               type="button"
               onClick={() => refetch()}
@@ -44,7 +44,7 @@ export default function LeaderboardSharingToggle() {
             type="button"
             role="switch"
             aria-checked={isEnabled}
-            aria-label="المشاركة في لوحة الصدارة"
+            aria-label="المشاركة في لوحة المتصدرين"
             disabled={isToggling}
             onClick={() => toggle(!isEnabled)}
             className="relative h-6 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60"

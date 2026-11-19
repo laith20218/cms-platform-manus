@@ -33,7 +33,7 @@ export function ProgressTab() {
         role="alert"
         className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center"
       >
-        <h2 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل التقدم</h2>
+        <h2 className="text-lg font-bold text-[var(--c-text)]">تعذّر تحميل التقدم</h2>
         <button
           onClick={() => refetch()}
           className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"

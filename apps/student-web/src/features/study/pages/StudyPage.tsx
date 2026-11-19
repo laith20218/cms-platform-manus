@@ -117,8 +117,10 @@ export function StudyPage() {
       {/* Subject filter chip — BANK tab only (W17.1): the bank owns its own
           cascade (semester-driven subject select), and this chip is the hub-level
           context + one-tap clear next to it. The content/library/courses tabs use
-          the SubjectScopeBar below instead (visible, switchable scope); progress
-          ignores subjectId entirely, so no subject UI renders there. */}
+          the SubjectScopeBar below instead (visible, switchable scope).
+          D-48 (Wave 18.5): the progress tab IGNORES subjectId (all-subjects
+          stats) — instead of silently implying a filter, an honest scope hint
+          chips the truth with the same one-tap clear. */}
       {subjectId && tab === 'bank' && (
         <motion.div
           initial={{ opacity: 0, y: -6 }}
@@ -146,6 +148,34 @@ export function StudyPage() {
             aria-label="إزالة تصفية المادة"
           >
             <X className="w-3.5 h-3.5" /> عرض الكل
+          </button>
+        </motion.div>
+      )}
+
+      {/* D-48 (Wave 18.5): progress-tab honesty — a riding ?subjectId does NOT
+          filter the progress stats; say so + offer the same one-tap clear. */}
+      {subjectId && tab === 'progress' && (
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center justify-between gap-3 mb-4 rounded-2xl border px-4 py-2.5 shadow-sm"
+          style={{ background: 'var(--c-primary-50)', borderColor: 'var(--c-primary-200)' }}
+          data-testid="study-progress-scope-hint"
+        >
+          <div className="flex items-center gap-2 text-sm min-w-0">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--c-primary-100)] text-[var(--c-primary-700)]">
+              <BarChart3 className="w-4 h-4" />
+            </span>
+            <span className="text-[var(--c-text-muted)]">تقدمك يعرض إحصائيات <strong className="text-[var(--c-primary-700)]">كل موادك</strong> — تصفية المادة تعمل في المحتوى والمكتبة وبنك الأسئلة</span>
+          </div>
+          <button
+            type="button"
+            onClick={clearSubjectFilter}
+            className="press inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl border border-[var(--c-primary-200)] bg-[var(--c-surface)] px-3 text-xs font-semibold text-[var(--c-text-muted)] transition-colors hover:border-[var(--c-primary-400)] hover:text-[var(--c-text)]"
+            data-testid="study-progress-scope-clear"
+            aria-label="إزالة تصفية المادة"
+          >
+            <X className="w-3.5 h-3.5" /> إزالة التصفية
           </button>
         </motion.div>
       )}

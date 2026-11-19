@@ -47,7 +47,7 @@ function processingBadge(item: FavoriteItem): { label: string; className: string
   if (status === 'pending' || status?.startsWith('transcoding'))
     return { label: 'قيد المعالجة', className: 'bg-[var(--c-warning-50)] text-[var(--c-warning-500)]' };
   if (status === 'failed')
-    return { label: 'تعذر المعالجة', className: 'bg-[var(--c-danger-50)] text-[var(--c-danger-500)]' };
+    return { label: 'تعذّر المعالجة', className: 'bg-[var(--c-danger-50)] text-[var(--c-danger-500)]' };
   return null;
 }
 

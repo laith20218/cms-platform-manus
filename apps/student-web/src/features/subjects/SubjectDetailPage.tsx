@@ -148,7 +148,7 @@ export default function SubjectDetailPage() {
           // Wave 12.5.A (Group 4) — a failed lectures fetch used to render an
           // empty list with no explanation.
           <div role="alert" className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-6 text-center" data-testid="subject-lectures-error">
-            <p className="font-bold text-[var(--c-text)]">تعذر تحميل محاضرات هذه المادة</p>
+            <p className="font-bold text-[var(--c-text)]">تعذّر تحميل محاضرات هذه المادة</p>
             <button
               onClick={() => refetchLectures()}
               className="mt-3 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"

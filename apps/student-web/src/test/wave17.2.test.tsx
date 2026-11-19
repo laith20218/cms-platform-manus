@@ -82,7 +82,7 @@ describe('W17.2 — buildTrail map', () => {
     expect(buildTrail('/study', '?tab=library', client).map((s) => s.label))
       .toEqual(['الرئيسية', 'دراستي', 'المكتبة']);
     expect(buildTrail('/study', '?tab=bank&courseId=ec1', client).map((s) => s.label))
-      .toEqual(['الرئيسية', 'دراستي', 'بنك الأسئلة', 'حزمة الأسئلة']);
+      .toEqual(['الرئيسية', 'دراستي', 'بنك الأسئلة', 'أسئلة السنوات']);
     // The bundle's parent Back target is the bank tab.
     const bank = buildTrail('/study', '?tab=bank&courseId=ec1', client);
     expect(bank[2].to).toBe('/study?tab=bank');

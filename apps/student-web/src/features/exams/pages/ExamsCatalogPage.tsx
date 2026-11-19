@@ -131,6 +131,18 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
     return 'bg-[var(--c-bg-hover)] text-[var(--c-text-soft)] border-transparent';
   };
 
+  // D-18 (Wave 18.5): the student never sees the raw English enum — the badge
+  // carries the Arabic label; unknown types fall back to the raw value (Latin).
+  const EXAM_TYPE_LABELS: Record<string, string> = {
+    final: 'نهائي',
+    midterm: 'نصفي',
+    quiz: 'اختبار قصير',
+  };
+  const examTypeLabel = (type: string) => {
+    const t = (type || '').toLowerCase();
+    return EXAM_TYPE_LABELS[t] ?? type;
+  };
+
   if (mySubjects.isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -237,7 +249,7 @@ export function ExamsCatalogPage({ subjectId }: { subjectId?: string | null }) {
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-sm font-medium text-[var(--c-text)] truncate">{exam.titleAr}</span>
                           <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${examTypeBadge(exam.examType)}`}>
-                            {exam.examType}
+                            {examTypeLabel(exam.examType)}
                           </span>
                         </div>
                         <div className="flex items-center gap-3 text-xs text-[var(--c-text-muted)]">

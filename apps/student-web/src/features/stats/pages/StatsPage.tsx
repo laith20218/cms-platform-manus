@@ -24,7 +24,7 @@ export default function StatsPage() {
   if (isError || !stats) {
     return (
       <div role="alert" className="mx-auto max-w-2xl rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center" data-testid="stats-error">
-        <h1 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل الإحصائيات</h1>
+        <h1 className="text-lg font-bold text-[var(--c-text)]">تعذّر تحميل الإحصائيات</h1>
         <button
           onClick={() => refetch()}
           className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"

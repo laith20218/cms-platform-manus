@@ -227,7 +227,7 @@ export default function QuestionPage() {
     }
     return (
       <div role="alert" className="mx-auto max-w-md rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center" data-testid="questions-error">
-        <h2 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل الأسئلة</h2>
+        <h2 className="text-lg font-bold text-[var(--c-text)]">تعذّر تحميل الأسئلة</h2>
         <p className="mt-2 text-sm text-[var(--c-text-muted)]">حدث خطأ في الاتصال. تحقّق من الشبكة ثم أعد المحاولة.</p>
         <button
           onClick={() => refetch()}
@@ -578,7 +578,7 @@ export default function QuestionPage() {
         <div className="flex items-center justify-center gap-6 text-xs text-[var(--c-text-muted)]">
           <span className="flex items-center gap-1">
             <BarChart3 className="w-3.5 h-3.5" />
-            مجابة: <strong className="text-[var(--c-text)]" lang="en">{answerResult.updatedStats.questionsAnswered}</strong>
+            مجاب: <strong className="text-[var(--c-text)]" lang="en">{answerResult.updatedStats.questionsAnswered}</strong>
           </span>
           <span className="flex items-center gap-1">
             <Check className="w-3.5 h-3.5 text-[var(--c-success-500)]" />

@@ -71,7 +71,7 @@ export function MySubjectsSection({ bySubject }: { bySubject: StudentStats['bySu
         </div>
       ) : mySubjects.isError ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-4">
-          <p className="text-sm text-[var(--c-text-muted)]">تعذر تحميل موادك</p>
+          <p className="text-sm text-[var(--c-text-muted)]">تعذّر تحميل موادك</p>
           <button
             type="button"
             onClick={() => mySubjects.refetch()}

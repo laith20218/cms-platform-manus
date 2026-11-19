@@ -112,7 +112,7 @@ export default function ExamPage() {
       setTimeLeft(remainingSeconds(response.expiresAt));
       if (response.status !== 'InProgress') await loadResult(session.sessionId);
     } catch (error) {
-      toast.error(getApiErrorMessage(error, 'تعذر حفظ الإجابة. تحقق من اتصالك ثم أعد المحاولة.'));
+      toast.error(getApiErrorMessage(error, 'تعذّر حفظ الإجابة. تحقق من اتصالك ثم أعد المحاولة.'));
     } finally { setSavingQuestionId(null); }
   }, [loadResult, session]);
 
@@ -147,10 +147,10 @@ export default function ExamPage() {
       await examApi.cancel(session.sessionId);
       if (examId) sessionStorage.removeItem(sessionStorageKey(examId));
       toast.message('أُلغيت المحاولة ولم تُحتسب.'); navigate(-1);
-    } catch (error) { toast.error(getApiErrorMessage(error, 'تعذر إلغاء المحاولة. حاول مجدداً.')); }
+    } catch (error) { toast.error(getApiErrorMessage(error, 'تعذّر إلغاء المحاولة. حاول مجدداً.')); }
   }, [examId, navigate, session]);
 
-  if (phase === 'loading' || phase === 'submitting') return <div className="flex flex-col items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-[var(--c-primary-700)] mb-3" /><p className="text-sm text-[var(--c-text-muted)]">{phase === 'submitting' ? 'جارٍ تثبيت النتيجة من الخادم...' : 'جارٍ تحضير الاختبار من الخادم...'}</p></div>;
+  if (phase === 'loading' || phase === 'submitting') return <div className="flex flex-col items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-[var(--c-primary-700)] mb-3" /><p className="text-sm text-[var(--c-text-muted)]">{phase === 'submitting' ? 'جارٍ تثبيت النتيجة من الخادم…' : 'جارٍ تحضير الاختبار من الخادم…'}</p></div>;
   if (phase === 'error') return <div className="max-w-lg mx-auto mt-12 rounded-2xl border border-[var(--c-danger-200)] bg-[var(--c-surface)] p-7 text-center"><XCircle className="w-9 h-9 mx-auto mb-3 text-[var(--c-danger-500)]" /><h2 className="font-bold text-lg mb-2">تعذّر فتح الاختبار</h2><p className="text-sm text-[var(--c-text-muted)] mb-5">{loadError}</p><button onClick={() => navigate(-1)} className="px-5 py-2.5 rounded-[10px] text-sm font-bold text-white" style={{ background: 'var(--grad-primary)' }}>العودة للمادة</button></div>;
   if (phase === 'results' && result) return <ExamResults result={result} onBack={() => { if (examId) sessionStorage.removeItem(sessionStorageKey(examId)); navigate(-1); }} onReview={() => navigate(`/exams/${result.sessionId}/review`)} onRetake={() => void retakeAttempt()} />;
   if (!session || session.questions.length === 0) return null;
@@ -159,7 +159,7 @@ export default function ExamPage() {
   const seconds = timeLeft % 60;
   const isTimeLow = timeLeft < 300;
 
-  return <div className="space-y-4 max-w-[900px] mx-auto">
+  return <div className="space-y-4 max-w-[880px] mx-auto">
     <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border backdrop-blur-xl" style={{ background: 'var(--c-glass)', borderColor: 'var(--c-border-glass)' }}>
       <div className="flex-1"><h2 className="text-sm font-bold text-[var(--c-text)] truncate">{session.examTitle}</h2><div className="text-xs text-[var(--c-text-muted)] mt-0.5">مجاب: <span className="font-bold text-[var(--c-primary-700)]" lang="en">{answeredCount}</span> من <span lang="en">{session.totalQuestions}</span></div></div>
       <div className="flex items-center gap-2">

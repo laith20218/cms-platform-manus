@@ -12,7 +12,7 @@ export function LoadingScreen() {
           </svg>
         </div>
         <div className="w-8 h-8 border-3 border-[var(--c-primary-200)] border-t-[var(--c-primary-700)] rounded-full animate-spin" />
-        <p className="text-sm text-[var(--c-text-muted)] font-medium">جاري التحميل...</p>
+        <p className="text-sm text-[var(--c-text-muted)] font-medium">جارٍ التحميل…</p>
       </div>
     </div>
   );

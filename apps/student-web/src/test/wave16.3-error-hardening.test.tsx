@@ -165,7 +165,7 @@ describe('LeaderboardPage error card (W16.3)', () => {
     renderWithProviders(<LeaderboardPage />, '/leaderboard?subjectId=s1');
 
     const errorCard = await screen.findByTestId('leaderboard-error');
-    expect(errorCard).toHaveTextContent('تعذر تحميل قائمة المتصدرين');
+    expect(errorCard).toHaveTextContent('تعذّر تحميل قائمة المتصدرين');
     const detail = await screen.findByTestId('api-error-detail');
     expect(detail).toHaveTextContent('حدث خطأ في الخادم أثناء جلب المتصدرين.');
     expect(document.body.textContent).not.toContain('Request failed with status code');
@@ -223,7 +223,7 @@ describe('SettingsPage password change failure (W16.3)', () => {
 
     await waitFor(() => {
       expect(toastErrorMock).toHaveBeenCalledWith(
-        'تعذر تغيير كلمة المرور. تحقق من كلمة المرور الحالية ثم حاول مجدداً.'
+        'تعذّر تغيير كلمة المرور. تحقق من كلمة المرور الحالية ثم حاول مجدداً.'
       );
     });
   });

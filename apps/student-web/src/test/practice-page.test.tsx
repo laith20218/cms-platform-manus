@@ -125,7 +125,7 @@ describe('W14.4 PracticePage (B.1, D13)', () => {
 
     // Session header + first question + zero progress.
     expect(await screen.findByTestId('practice-progress')).toBeTruthy();
-    expect(screen.getByTestId('practice-progress').textContent).toContain('أجبت');
+    expect(screen.getByTestId('practice-progress').textContent).toContain('مجاب:');
     expect(screen.getByTestId('practice-progress').textContent).toContain('0');
     expect(screen.getByText('ما هو العرض الكلاسيكي لاحتشاء العضلة القلبية؟')).toBeTruthy();
     expect(screen.getByTestId('practice-confirm-q1')).toBeTruthy();

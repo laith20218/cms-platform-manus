@@ -59,7 +59,7 @@ export default function NotificationsPage() {
     },
     // Wave 12.5.A (Group 4) — mark-as-read failures were silent before.
     onError: () => {
-      toast.error('تعذر تعليم الإشعار كمقروء. حاول مجددًا.');
+      toast.error('تعذّر تعليم الإشعار كمقروء. حاول مجددًا.');
     },
   });
 
@@ -72,7 +72,7 @@ export default function NotificationsPage() {
     },
     // Wave 12.5.A (Group 4) — mark-all failures were silent before.
     onError: () => {
-      toast.error('تعذر تعليم جميع الإشعارات كمقروءة. حاول مجددًا.');
+      toast.error('تعذّر تعليم جميع الإشعارات كمقروءة. حاول مجددًا.');
     },
   });
 
@@ -145,7 +145,7 @@ export default function NotificationsPage() {
         // Wave 12.5.A (Group 4) — a failed load used to render the "no notifications"
         // empty state (a lie when the API is down). Honest error card instead.
         <div role="alert" className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center" data-testid="notifications-error">
-          <p className="font-bold text-[var(--c-text)]">تعذر تحميل الإشعارات</p>
+          <p className="font-bold text-[var(--c-text)]">تعذّر تحميل الإشعارات</p>
           <button
             onClick={() => refetch()}
             className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"

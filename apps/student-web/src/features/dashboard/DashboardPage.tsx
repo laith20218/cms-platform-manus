@@ -26,7 +26,7 @@ export function DashboardPage() {
       <Skeleton className="w-full h-64" />
     </div>
   );
-  if (stats.isError || !stats.data) return <section className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center"><h1 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل لوحة التحكم</h1><button onClick={() => stats.refetch()} className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white">إعادة المحاولة</button></section>;
+  if (stats.isError || !stats.data) return <section className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center"><h1 className="text-lg font-bold text-[var(--c-text)]">تعذّر تحميل لوحة التحكم</h1><button onClick={() => stats.refetch()} className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white">إعادة المحاولة</button></section>;
 
   const data = stats.data;
   const cards = [

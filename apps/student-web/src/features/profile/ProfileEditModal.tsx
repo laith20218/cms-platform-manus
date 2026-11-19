@@ -165,7 +165,7 @@ export function ProfileEditModal({
               // Wave 12.5.A (Group 4) — the list failed wholesale; say so + retry
               // instead of a silent empty dropdown.
               <div role="alert" className="flex min-h-11 flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--cms-line-strong)] bg-[var(--cms-surface-2)] px-3 py-2" data-testid="edit-colleges-error">
-                <span className="text-xs font-semibold text-[var(--cms-text-soft)]">تعذر تحميل قائمة الكليات.</span>
+                <span className="text-xs font-semibold text-[var(--cms-text-soft)]">تعذّر تحميل قائمة الكليات.</span>
                 <button
                   type="button"
                   onClick={() => colleges.refetch()}

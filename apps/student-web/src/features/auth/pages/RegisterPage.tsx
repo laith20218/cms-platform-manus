@@ -36,7 +36,7 @@ export default function RegisterPage() {
   useEffect(() => {
     academicApi.getUniversities()
       .then((result) => setUniversities(result.items ?? []))
-      .catch(() => setError('تعذر تحميل البيانات الأكاديمية. حاول لاحقاً.'));
+      .catch(() => setError('تعذّر تحميل البيانات الأكاديمية. حاول لاحقاً.'));
   }, []);
 
   const selectUniversity = async (universityId: string) => {
@@ -47,7 +47,7 @@ export default function RegisterPage() {
     try {
       setColleges(await academicApi.getColleges(universityId));
     } catch {
-      setError('تعذر تحميل الكليات. حاول لاحقاً.');
+      setError('تعذّر تحميل الكليات. حاول لاحقاً.');
     }
   };
 
@@ -58,7 +58,7 @@ export default function RegisterPage() {
     try {
       setYears(await academicApi.getYears(collegeId));
     } catch {
-      setError('تعذر تحميل السنوات الدراسية. حاول لاحقاً.');
+      setError('تعذّر تحميل السنوات الدراسية. حاول لاحقاً.');
     }
   };
 

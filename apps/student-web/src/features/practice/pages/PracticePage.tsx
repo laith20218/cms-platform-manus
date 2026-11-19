@@ -31,7 +31,7 @@ import { useQuestionFavoriteToggle } from '@/features/questions/hooks/useQuestio
 
 /**
  * W14.4 (B.1, D13) — the practice player over the W14.2 PracticeSession endpoints:
- * immediate feedback per answer, progress «أجبت X من Y», and the two reset actions
+ * immediate feedback per answer, progress «مجاب: X من Y», and the two reset actions
  * (per-question withdraw + full session wipe). Two entry modes:
  *  • /practice/exam/:examModelId — a composition run over one exam model
  *  • /practice/categorized/:subjectId?lectureId&untaggedLecture&paragraphTag&untaggedTag
@@ -360,7 +360,7 @@ function PracticePageInner() {
   const isCompleted = start.status === 'Completed';
 
   return (
-    <div className="max-w-[900px] mx-auto space-y-4">
+    <div className="max-w-[880px] mx-auto space-y-4">
       {/* Session header — title, progress, score, resets. */}
       <div className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -392,11 +392,11 @@ function PracticePageInner() {
           </div>
         </div>
 
-        {/* Progress: أجبت X من Y + bar + counts. */}
+        {/* Progress: مجاب: X من Y + bar + counts. */}
         <div className="mt-3" data-testid="practice-progress">
           <div className="flex items-center justify-between text-xs mb-1.5">
             <span className="font-semibold text-[var(--cms-text-soft)]">
-              أجبت <strong className="text-[var(--cms-teal-700)]" lang="en">{answeredCount}</strong> من <strong lang="en">{start.totalQuestions}</strong>
+              مجاب: <strong className="text-[var(--cms-teal-700)]" lang="en">{answeredCount}</strong> من <strong lang="en">{start.totalQuestions}</strong>
             </span>
             <span className="text-[var(--cms-text-muted)]" lang="en">{Math.round((answeredCount / Math.max(1, start.totalQuestions)) * 100)}%</span>
           </div>
