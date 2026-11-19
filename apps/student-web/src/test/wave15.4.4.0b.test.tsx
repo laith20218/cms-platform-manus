@@ -183,7 +183,7 @@ describe('Leaderboard subject picker + mutual-sharing opt-in (15.4.4.0b)', () =>
     expect(await screen.findByTestId('leaderboard-sharing-toggle')).toBeInTheDocument();
     // W18.2: the theme toggle is also a role=switch now — target the sharing
     // switch by its testid instead of the ambiguous role query.
-    const switchBtn = await screen.findByRole('switch', { name: 'المشاركة في لوحة الصدارة' });
+    const switchBtn = await screen.findByRole('switch', { name: 'المشاركة في لوحة المتصدرين' });
     await waitFor(() => {
       expect(switchBtn.getAttribute('aria-checked')).toBe('false');
     });
@@ -194,7 +194,7 @@ describe('Leaderboard subject picker + mutual-sharing opt-in (15.4.4.0b)', () =>
     renderAt('/settings');
 
     // W18.2: the theme toggle is also a role=switch now — target by testid.
-    const switchBtn = await screen.findByRole('switch', { name: 'المشاركة في لوحة الصدارة' });
+    const switchBtn = await screen.findByRole('switch', { name: 'المشاركة في لوحة المتصدرين' });
     fireEvent.click(switchBtn);
 
     await waitFor(() => {
@@ -202,7 +202,7 @@ describe('Leaderboard subject picker + mutual-sharing opt-in (15.4.4.0b)', () =>
     });
     // After the invalidation → refetch, the switch reflects the new state.
     await waitFor(() => {
-      expect(screen.getByRole('switch', { name: 'المشاركة في لوحة الصدارة' }).getAttribute('aria-checked')).toBe('true');
+      expect(screen.getByRole('switch', { name: 'المشاركة في لوحة المتصدرين' }).getAttribute('aria-checked')).toBe('true');
     });
   });
 });

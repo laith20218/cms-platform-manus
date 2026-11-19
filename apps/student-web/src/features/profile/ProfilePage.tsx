@@ -22,6 +22,19 @@ function scopeLabel(scope: string) {
   return ({ university: 'جامعة', college: 'كلية', year: 'سنة', semester: 'فصل', subject: 'مادة' } as Record<string, string>)[scope.toLowerCase()] ?? scope;
 }
 
+// D-37 (Wave 18.5): the account status never leaks the raw English enum —
+// mapped to Arabic, unknown values fall back to the raw text (honest).
+const ACCOUNT_STATUS_LABELS: Record<string, string> = {
+  Active: 'نشط',
+  Inactive: 'غير نشط',
+  Suspended: 'موقوف',
+  Banned: 'محظور',
+  Pending: 'قيد التفعيل',
+};
+function accountStatusLabel(status: string) {
+  return ACCOUNT_STATUS_LABELS[status] ?? status;
+}
+
 const fadeUp = {
   initial: { opacity: 0, y: 8 },
   animate: { opacity: 1, y: 0 },
@@ -74,7 +87,7 @@ export default function ProfilePage() {
       setConfirmPassword('');
       setPasswordStatus({ kind: 'success', text: 'تم تغيير كلمة المرور بنجاح. احرص على حفظها في مكان آمن.' });
     } catch (error) {
-      setPasswordStatus({ kind: 'error', text: getApiErrorMessage(error, 'تعذر تغيير كلمة المرور. تحقق من كلمة المرور الحالية ثم حاول مجدداً.') });
+      setPasswordStatus({ kind: 'error', text: getApiErrorMessage(error, 'تعذّر تغيير كلمة المرور. تحقق من كلمة المرور الحالية ثم حاول مجدداً.') });
     } finally {
       setPasswordBusy(false);
     }
@@ -94,7 +107,7 @@ export default function ProfilePage() {
         {...fadeUp}
         className="rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-8 text-center shadow-sm"
       >
-        <h1 className="text-lg font-bold text-[var(--cms-text)]">تعذر تحميل الملف الشخصي</h1>
+        <h1 className="text-lg font-bold text-[var(--cms-text)]">تعذّر تحميل الملف الشخصي</h1>
         {/* W16.3 — the backend's Arabic detail (when present) explains why. */}
         <ApiErrorDetail error={profile.error} />
         <button
@@ -121,7 +134,7 @@ export default function ProfilePage() {
       if (result.previewUrl) setFreshAvatarUrl(result.previewUrl);
       await queryClient.invalidateQueries({ queryKey: ['student-profile'] });
     } catch (error) {
-      setAvatarStatus({ kind: 'error', text: getApiErrorMessage(error, 'تعذر رفع الصورة الشخصية. تحقق من الاتصال وحاول مجددًا.') });
+      setAvatarStatus({ kind: 'error', text: getApiErrorMessage(error, 'تعذّر رفع الصورة الشخصية. تحقق من الاتصال وحاول مجددًا.') });
     } finally {
       setAvatarBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -138,7 +151,7 @@ export default function ProfilePage() {
       setEmailStatus(null);
     } catch (error) {
       // Keep the editor open AND say why nothing happened.
-      setEmailStatus({ kind: 'error', text: getApiErrorMessage(error, 'تعذر حفظ البريد الإلكتروني. تحقق من الاتصال وحاول مجددًا.') });
+      setEmailStatus({ kind: 'error', text: getApiErrorMessage(error, 'تعذّر حفظ البريد الإلكتروني. تحقق من الاتصال وحاول مجددًا.') });
     } finally {
       setEmailBusy(false);
     }
@@ -226,7 +239,7 @@ export default function ProfilePage() {
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${isActive ? 'bg-[var(--cms-success)]' : 'bg-[var(--cms-text-muted)]'}`}
                 />
-                {isActive ? 'نشط' : data.status}
+                {isActive ? 'نشط' : accountStatusLabel(data.status)}
               </span>
             </div>
           </div>
@@ -267,7 +280,7 @@ export default function ProfilePage() {
           </span>
           <span className="min-w-0">
             <span className="block text-base font-bold text-[var(--cms-text)]">الإعدادات</span>
-            <span className="mt-0.5 block text-sm text-[var(--cms-text-muted)]">المظهر والإشعارات ومشاركة لوحة الصدارة وكلمة المرور</span>
+            <span className="mt-0.5 block text-sm text-[var(--cms-text-muted)]">المظهر والإشعارات ومشاركة لوحة المتصدرين وكلمة المرور</span>
           </span>
         </Link>
       </section>
@@ -318,7 +331,8 @@ export default function ProfilePage() {
                 </dd>
               ) : (
                 <dd className="mt-1 flex items-center justify-between">
-                  <span className="font-bold text-[var(--cms-text)]">{data.email || 'غير مضاف'}</span>
+                  {/* D-37 (Wave 18.5): emails are LTR even inside the RTL page. */}
+                  <span className="font-bold text-[var(--cms-text)]" dir={data.email ? 'ltr' : undefined}>{data.email || 'غير مضاف'}</span>
                   <button
                     type="button"
                     onClick={startEmailEdit}
@@ -379,7 +393,7 @@ export default function ProfilePage() {
           <div className="mt-5 flex items-center gap-2 text-sm">
             <ShieldCheck className="h-4 w-4 text-[var(--cms-success)]" />
             <span className="text-[var(--cms-text-soft)]">
-              الحالة: <span className="font-semibold text-[var(--cms-success)]">{isActive ? 'نشط' : data.status}</span>
+              الحالة: <span className="font-semibold text-[var(--cms-success)]">{isActive ? 'نشط' : accountStatusLabel(data.status)}</span>
             </span>
           </div>
         </section>

@@ -191,7 +191,7 @@ export default function FavoritesPage() {
           data-testid="favorites-error"
           className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center"
         >
-          <h2 className="text-base font-bold text-[var(--c-text)]">تعذر تحميل المفضلة</h2>
+          <h2 className="text-base font-bold text-[var(--c-text)]">تعذّر تحميل المفضلة</h2>
           <p className="mt-1.5 text-sm text-[var(--c-text-muted)]">
             تتطلب المفضلة جلسة واستحقاقًا صالحين للمحتوى — تحقق من اتصالك ثم أعد المحاولة.
           </p>

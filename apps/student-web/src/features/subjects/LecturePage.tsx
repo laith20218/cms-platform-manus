@@ -28,7 +28,7 @@ export default function LecturePage() {
         queryClient.invalidateQueries({ queryKey: ['my-stats'] }),
       ]);
     },
-    onError: () => toast.error('تعذر تسجيل إتمام المحاضرة الآن.'),
+    onError: () => toast.error('تعذّر تسجيل إتمام المحاضرة الآن.'),
   });
 
   if (lectureQuery.isLoading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-[var(--c-primary-700)]" /></div>;

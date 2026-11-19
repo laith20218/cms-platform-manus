@@ -36,7 +36,7 @@ export function ContentPageView({ slug, fallbackTitle }: { slug: string; fallbac
         data-testid={`content-page-${slug}-error`}
         className="mx-auto max-w-2xl rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center"
       >
-        <h1 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل الصفحة</h1>
+        <h1 className="text-lg font-bold text-[var(--c-text)]">تعذّر تحميل الصفحة</h1>
         <p className="mt-1 text-sm text-[var(--c-text-muted)]">
           تحقّق من اتصالك بالإنترنت ثم أعد المحاولة.
         </p>

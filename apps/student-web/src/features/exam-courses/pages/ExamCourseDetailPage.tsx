@@ -57,8 +57,8 @@ export default function ExamCourseDetailPage() {
         <CatalogErrorCard
           onRetry={() => void query.refetch()}
           testId="exam-course-detail-error"
-          title="تعذّر تحميل حزمة الأسئلة"
-          body="ربما حُذفت حزمة الأسئلة أو رابطها غير صحيح. حاول مرة أخرى أو عد إلى بنك الأسئلة."
+          title="تعذّر تحميل أسئلة السنوات"
+          body="ربما حُذفت هذه المجموعة أو رابطها غير صحيح. حاول مرة أخرى أو عد إلى بنك الأسئلة."
         />
       </div>
     );
@@ -107,15 +107,15 @@ export default function ExamCourseDetailPage() {
 
       <h2 className="text-base font-bold text-[var(--cms-text)] mb-3 flex items-center gap-2">
         <ClipboardList className="w-4 h-4 text-[var(--cms-teal-700)]" aria-hidden="true" />
-        اختبارات هذه الحزمة
+        اختبارات هذه المجموعة
         <span className="text-xs font-medium text-[var(--cms-text-muted)]" lang="en">({course.exams.length})</span>
       </h2>
 
       {course.exams.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-[var(--cms-line-strong)] bg-[var(--cms-surface)] px-8 py-14 text-center">
           <PencilRuler className="w-8 h-8 text-[var(--cms-text-muted)]" aria-hidden="true" />
-          <h3 className="text-base font-bold text-[var(--cms-text)]">لا توجد اختبارات في هذه الحزمة بعد</h3>
-          <p className="text-sm text-[var(--cms-text-muted)]">تُضاف الاختبارات إلى الحزمة من قبل الإدارة.</p>
+          <h3 className="text-base font-bold text-[var(--cms-text)]">لا توجد اختبارات في هذه المجموعة بعد</h3>
+          <p className="text-sm text-[var(--cms-text-muted)]">تُضاف الاختبارات إلى هذه المجموعة من قبل الإدارة.</p>
         </div>
       ) : (
         <ul className="space-y-3" data-testid="exam-course-exams">

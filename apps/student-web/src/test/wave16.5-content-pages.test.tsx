@@ -68,7 +68,7 @@ describe('TermsPage from the content store (W16.5)', () => {
     renderPage(<TermsPage />);
 
     const errorCard = await screen.findByTestId('content-page-terms-error', {}, { timeout: 5000 });
-    expect(errorCard).toHaveTextContent('تعذر تحميل الصفحة');
+    expect(errorCard).toHaveTextContent('تعذّر تحميل الصفحة');
     expect(errorCard).toHaveTextContent('لم يتم العثور على هذه الصفحة.');
     expect(errorCard).toHaveTextContent('إعادة المحاولة');
     expect(document.body.textContent).not.toContain('Request failed with status code');

@@ -97,8 +97,8 @@ export function useFontSize() {
         // Revert the optimistic apply and explain in Arabic (prefer the
         // backend's Arabic ProblemDetails detail when present).
         setStep(previous);
-        setSaveError(getApiErrorMessage(error, 'تعذر حفظ تفضيل حجم الخط. تحقق من اتصالك وحاول مجدداً.'));
-        toast.error(getApiErrorMessage(error, 'تعذر حفظ تفضيل حجم الخط. تحقق من اتصالك وحاول مجدداً.'));
+        setSaveError(getApiErrorMessage(error, 'تعذّر حفظ تفضيل حجم الخط. تحقق من اتصالك وحاول مجدداً.'));
+        toast.error(getApiErrorMessage(error, 'تعذّر حفظ تفضيل حجم الخط. تحقق من اتصالك وحاول مجدداً.'));
       },
     });
   };

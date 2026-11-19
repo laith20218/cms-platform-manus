@@ -30,7 +30,7 @@ export default function LeaderboardSubjectPicker() {
 
       {isError ? (
         <div role="alert" className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center">
-          <p className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل قائمة المواد</p>
+          <p className="text-lg font-bold text-[var(--c-text)]">تعذّر تحميل قائمة المواد</p>
           {/* W16.3 — surface the backend's Arabic detail under the heading. */}
           <ApiErrorDetail error={error} />
           <button

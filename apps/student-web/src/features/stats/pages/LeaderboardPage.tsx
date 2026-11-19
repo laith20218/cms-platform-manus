@@ -79,7 +79,7 @@ export default function LeaderboardPage() {
   if (sharing.isError) {
     return (
       <div role="alert" className="mx-auto max-w-2xl rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center">
-        <h2 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل حالة المشاركة</h2>
+        <h2 className="text-lg font-bold text-[var(--c-text)]">تعذّر تحميل حالة المشاركة</h2>
         <ApiErrorDetail error={sharing.error} />
         <button
           onClick={() => sharing.refetch()}
@@ -101,7 +101,7 @@ export default function LeaderboardPage() {
         className="mx-auto max-w-2xl space-y-4 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8"
       >
         <h2 className="text-lg font-bold text-[var(--c-text)]">
-          شارك في لوحة الصدارة لرؤية ترتيب زملائك
+          شارك في لوحة المتصدرين لرؤية ترتيب زملائك
         </h2>
         <p className="text-sm text-[var(--c-text-muted)]">
           لرؤية لوحة متصدري هذه المادة، فعّل المشاركة. عند التفعيل، تظهر بياناتك للطلاب المشاركين الآخرين وترى بياناتهم.
@@ -140,7 +140,7 @@ export default function LeaderboardPage() {
     }
     return (
       <div role="alert" className="mx-auto max-w-2xl rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center" data-testid="leaderboard-error">
-        <h1 className="text-lg font-bold text-[var(--c-text)]">تعذر تحميل قائمة المتصدرين</h1>
+        <h1 className="text-lg font-bold text-[var(--c-text)]">تعذّر تحميل قائمة المتصدرين</h1>
         <ApiErrorDetail error={leaderboard.error} />
         <button
           onClick={() => leaderboard.refetch()}

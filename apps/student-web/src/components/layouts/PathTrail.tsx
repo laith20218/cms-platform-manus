@@ -66,8 +66,9 @@ const TRAIL_RULES: ReadonlyArray<{
       const courseId = searchParams.get('courseId');
       const subjectId = searchParams.get('subjectId');
       // The hub root is the parent of everything below it — link it as soon
-      // as any tab/course/subject context deepens the trail.
-      const hubIsParent = !!tab || !!courseId;
+      // as any tab/course/subject context deepens the trail (D-47, Wave 18.5:
+      // a subjectId-only URL makes «دراستي» a real parent link too).
+      const hubIsParent = !!tab || !!courseId || !!subjectId;
       segments.push(hubIsParent ? { label: 'دراستي', to: '/study' } : { label: 'دراستي' });
       if (tab && STUDY_TAB_LABELS[tab]) {
         segments.push(courseId
@@ -75,7 +76,7 @@ const TRAIL_RULES: ReadonlyArray<{
           : { label: STUDY_TAB_LABELS[tab] });
       }
       if (courseId) {
-        segments.push({ label: 'حزمة الأسئلة' });
+        segments.push({ label: 'أسئلة السنوات' });
       }
       if (subjectId && !courseId) {
         // A subject filter is context, not a page — surface it as the leaf

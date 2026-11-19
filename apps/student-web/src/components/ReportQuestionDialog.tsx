@@ -110,7 +110,7 @@ export function ReportQuestionDialog({ questionId, open, onOpenChange }: ReportQ
             data-testid="report-submit"
             className="min-h-11 rounded-xl px-4 py-2 text-sm font-bold text-white bg-[var(--cms-danger)] hover:opacity-90 disabled:opacity-50"
           >
-            {reportMutation.isPending ? 'جاري الإرسال…' : 'إرسال البلاغ'}
+            {reportMutation.isPending ? 'جارٍ الإرسال…' : 'إرسال البلاغ'}
           </button>
         </div>
       </div>

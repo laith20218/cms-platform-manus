@@ -5,7 +5,7 @@ export function FavoritesSkeleton() {
     <div
       role="status"
       aria-busy="true"
-      aria-label="جاري تحميل المفضلة"
+      aria-label="جارٍ تحميل المفضلة"
       data-testid="favorites-skeleton"
       className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
     >
@@ -23,7 +23,7 @@ export function FavoritesSkeleton() {
           </div>
         </div>
       ))}
-      <span className="sr-only">جاري تحميل المفضلة…</span>
+      <span className="sr-only">جارٍ تحميل المفضلة…</span>
     </div>
   );
 }

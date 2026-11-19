@@ -25,7 +25,7 @@ export function MuwadiTab() {
         </div>
       ) : mySubjects.isError ? (
         <div className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center">
-          <p className="text-sm text-[var(--c-text-muted)]">تعذر تحميل موادك</p>
+          <p className="text-sm text-[var(--c-text-muted)]">تعذّر تحميل موادك</p>
           <button
             type="button"
             onClick={() => mySubjects.refetch()}
