@@ -5,6 +5,7 @@ using System.Net;
 using CMS.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -14,7 +15,7 @@ namespace CMS.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
     [Migration("20261123120000_AddPublicCodes")]
-    partial class AddPublicCodes : ModelSnapshot
+    partial class AddPublicCodes
     {
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
