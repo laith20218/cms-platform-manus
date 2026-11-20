@@ -3,10 +3,11 @@ import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { isAxiosError } from 'axios';
 import {
-  BarChart3, BookOpen, ChevronLeft, Clock, FileText, GraduationCap,
+  BarChart3, BookOpen, ChevronLeft, FileText, GraduationCap,
   Loader2, Lock, PackageOpen,
 } from 'lucide-react';
 import { academicApi } from './services/academic-api';
+import { LectureCard } from './LectureCard';
 import { LockedEmptyState } from '@/features/my-studies/components/LockedEmptyState';
 
 const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -159,37 +160,12 @@ export default function SubjectDetailPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {(lectures || []).map((lec, i) => (
-              <motion.div key={lec.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-                <Link to={`/subjects/${subject.slug}/lectures/${lec.id}`}
-                  className="block p-5 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] hover:border-[var(--c-primary-200)] hover:shadow-md transition-all">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white" style={{ background: 'var(--grad-primary)' }} lang="en">
-                        {lec.lectureNumber}
-                      </div>
-                      <div>
-                        <div className="font-semibold text-[var(--c-text)]">{lec.titleAr}</div>
-                        <div className="text-xs text-[var(--c-text-muted)] flex items-center gap-2">
-                          <span lang="en">{lec.questionsCount} سؤال</span>
-                          {lec.durationMinutes && <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {lec.durationMinutes}د</span>}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  {lec.isCompleted ? (
-                    <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--c-success-50)] px-2.5 py-1 text-xs font-bold text-[var(--c-success-700)]"><BookOpen className="h-3.5 w-3.5" />مكتملة</div>
-                  ) : lec.userProgress !== undefined && lec.questionsCount > 0 && (
-                    <div>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-[var(--c-text-muted)]">تقدّمك</span>
-                        <span className="font-semibold text-[var(--c-primary-700)]" lang="en">{lec.userProgress.toFixed(0)}%</span>
-                      </div>
-                      <div className="h-1.5 bg-[var(--c-bg)] rounded-full overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: `${lec.userProgress}%`, background: 'var(--grad-primary)' }} />
-                      </div>
-                    </div>
-                  )}
-                </Link>
+              <motion.div key={lec.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i * 0.05, 0.4) }}>
+                <LectureCard
+                  lecture={lec}
+                  href={`/subjects/${subject.slug}/lectures/${lec.id}`}
+                  testId={`subject-lecture-card-${lec.id}`}
+                />
               </motion.div>
             ))}
           </div>
