@@ -379,7 +379,7 @@ export function QuestionRow({
                 </div>
               )}
               {feedback.explanation && (
-                <div className="mt-2 rounded-xl border border-[var(--cms-line)] p-3.5">
+                <div className="mt-2 rounded-xl border border-[var(--cms-line)] p-3.5" data-testid={`${prefix}-explanation-${question.id}`}>
                   <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--cms-teal-800)] mb-1.5">
                     <BookOpen className="w-3.5 h-3.5" aria-hidden="true" /> الشرح
                   </div>

@@ -160,6 +160,12 @@ export default function QuestionPage() {
 
   const isEssay = normalizedType(currentQuestion) === 'essay';
 
+  // W20.2 (owner decision 4) — the explanation auto-opens with the reveal (no
+  // second click), and a payload WITHOUT explanation text must NOT paint an
+  // empty «الشرح» box. Whitespace-only strings count as empty; a lone
+  // reference still earns the box (it is review content, not a dead panel).
+  const hasExplanation = !!answerResult?.explanation?.trim();
+
   const handleConfirmAnswer = () => {
     if (!currentQuestion) return;
     if (isEssay) {
@@ -483,9 +489,11 @@ export default function QuestionPage() {
             </div>
           )}
 
-          {/* Explanation (after answering) */}
+          {/* Explanation (after answering) — W20.2: auto-opens together with
+              the correctness reveal; renders ONLY when the API actually sent
+              explanation text (or at least a reference) — never an empty box. */}
           <AnimatePresence>
-            {answerResult && (
+            {answerResult && (hasExplanation || answerResult.reference) && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -494,6 +502,7 @@ export default function QuestionPage() {
                   background: 'var(--c-tint-primary)',
                   borderColor: 'var(--c-primary-100)',
                 }}
+                data-testid="question-explanation"
               >
                 <div className="flex items-center gap-2 mb-3 pb-3 border-b" style={{ borderColor: 'var(--c-primary-100)' }}>
                   <div className="w-8 h-8 rounded-[8px] flex items-center justify-center" style={{ background: 'var(--grad-primary)' }}>
@@ -501,9 +510,11 @@ export default function QuestionPage() {
                   </div>
                   <span className="font-bold text-[15px] text-[var(--c-primary-800)]">الشرح</span>
                 </div>
-                <div className="text-[14px] leading-relaxed text-[var(--c-text-soft)] whitespace-pre-wrap">
-                  {answerResult.explanation}
-                </div>
+                {hasExplanation && (
+                  <div className="text-[14px] leading-relaxed text-[var(--c-text-soft)] whitespace-pre-wrap">
+                    {answerResult.explanation}
+                  </div>
+                )}
                 {answerResult.reference && (
                   <div className="mt-3 pt-3 border-t flex items-center gap-1.5 text-xs text-[var(--c-text-muted)]" style={{ borderColor: 'var(--c-primary-100)' }}>
                     <BookOpen className="w-3.5 h-3.5" />
