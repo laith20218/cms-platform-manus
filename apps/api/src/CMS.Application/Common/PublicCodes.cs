@@ -18,10 +18,14 @@ public static class PublicCodes
     /// <summary>
     /// Normalizes a student-typed search term into the zero-padded code form:
     /// "1234" → "001234". Returns null for terms that cannot be a code
-    /// (non-digits, or longer than six digits) — those keep name-only matching.
+    /// (empty, non-digits, or longer than six digits) — those keep name-only
+    /// matching. ("" must NOT become "000000": All() over an empty sequence is
+    /// vacuously true, so the emptiness guard is explicit.)
     /// </summary>
     public static string? NormalizeSearchTerm(string term) =>
-        term.Length <= Length && term.All(char.IsDigit) ? term.PadLeft(Length, '0') : null;
+        !string.IsNullOrEmpty(term) && term.Length <= Length && term.All(char.IsDigit)
+            ? term.PadLeft(Length, '0')
+            : null;
 
     /// <summary>
     /// Generates a code guaranteed free per <paramref name="existsAsync"/>.
