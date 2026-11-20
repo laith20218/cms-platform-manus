@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, ListChecks, Loader2 } from 'lucide-react';
 import { BottomSheet } from '@/components/ui/Overlays';
-import { useQuestionsInFavoriteList } from '../hooks';
+import { useListReadingQueue } from '../hooks';
 import type { FavoriteItem } from '../types';
 
 /**
@@ -13,8 +13,13 @@ import type { FavoriteItem } from '../types';
  * scrolls to the current question, and an «عرض السؤال» deep link per row
  * (the existing question route — no new viewer invented).
  *
- * Data: the same listQuestionsInList endpoint the grid reads, one large page
- * (100) — study lists are human-curated; a load-more covers the rare tail.
+ * W19.2 (D-32) — pages now ACCUMULATE via useListReadingQueue (the old
+ * per-page query replaced each page: past 100 rows the numbering restarted,
+ * the stepper index pointed into the wrong page, and the remaining-count
+ * math broke). ONE position counter (index+1 / total, aria-live); the old
+ * duplicate «index / loaded» span is gone. At the loaded boundary a single
+ * «التالي» tap advances immediately AND fetches the next page — no more
+ * double-tap.
  */
 export function ListReadingSheet({
   listId,
@@ -25,24 +30,33 @@ export function ListReadingSheet({
   listName: string;
   onClose: () => void;
 }) {
-  const [page, setPage] = useState(1);
   const [index, setIndex] = useState(0);
   const rowsRef = useRef<(HTMLLIElement | null)[]>([]);
 
-  const query = useQuestionsInFavoriteList({ listId, page, pageSize: 100 });
-  const items: FavoriteItem[] = query.data?.items ?? [];
-  const total = query.data?.total ?? 0;
-  const hasMore = page * 100 < total;
+  const query = useListReadingQueue(listId);
+  const items: FavoriteItem[] = query.data?.pages.flatMap((page) => page.items) ?? [];
+  const total = query.data?.pages[0]?.total ?? 0;
+  const hasMore = query.hasNextPage === true;
 
   // Keep the current question in view as the stepper moves (smooth scroll).
+  // Also keyed on items.length: a boundary tap advances optimistically before
+  // the row exists — this re-scrolls once the fetched page appends it.
   useEffect(() => {
     rowsRef.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [index]);
+  }, [index, items.length]);
 
   const goPrev = () => setIndex((current) => Math.max(0, current - 1));
+  // D-32: one tap at the loaded boundary advances AND fetches — the position
+  // moves immediately (the aria-live counter announces it) and the row
+  // appears when the fetch lands. If the fetch fails the counter stays
+  // honest (position N+1 of total) and «التالي»/«تحميل المزيد» retry.
   const goNext = () => {
-    if (index < items.length - 1) setIndex((current) => current + 1);
-    else if (hasMore && !query.isFetching) setPage((current) => current + 1);
+    if (index < items.length - 1) {
+      setIndex((current) => current + 1);
+    } else if (hasMore && !query.isFetchingNextPage) {
+      setIndex((current) => current + 1);
+      void query.fetchNextPage();
+    }
   };
 
   return (
@@ -51,6 +65,22 @@ export function ListReadingSheet({
         <div className="flex items-center justify-center gap-2 py-12" role="status">
           <Loader2 className="h-6 w-6 animate-spin text-[var(--c-primary-700)]" />
           <p className="text-sm text-[var(--c-text-muted)]">جارٍ تحميل أسئلة القائمة…</p>
+        </div>
+      ) : query.isError ? (
+        /* W19.2 — error ≠ empty: a failed queue load must never render the
+           «لا توجد أسئلة» empty message. */
+        <div
+          data-testid="reading-sheet-error"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-4"
+        >
+          <p className="text-sm text-[var(--c-text-muted)]">تعذّر تحميل أسئلة القائمة</p>
+          <button
+            type="button"
+            onClick={() => void query.refetch()}
+            className="press min-h-11 rounded-xl bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white transition-colors"
+          >
+            إعادة المحاولة
+          </button>
         </div>
       ) : items.length === 0 ? (
         <p className="py-10 text-center text-sm text-[var(--c-text-muted)]">لا توجد أسئلة في هذه القائمة بعد.</p>
@@ -99,12 +129,12 @@ export function ListReadingSheet({
               <li className="pt-1 text-center">
                 <button
                   type="button"
-                  onClick={() => setPage((current) => current + 1)}
-                  disabled={query.isFetching}
+                  onClick={() => void query.fetchNextPage()}
+                  disabled={query.isFetchingNextPage}
                   data-testid="reading-sheet-load-more"
                   className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--c-border)] px-4 text-sm font-semibold text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-400)] disabled:opacity-50"
                 >
-                  {query.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronLeft className="h-4 w-4" />}
+                  {query.isFetchingNextPage ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronLeft className="h-4 w-4" />}
                   تحميل المزيد ({total - items.length} متبقية)
                 </button>
               </li>
@@ -112,7 +142,9 @@ export function ListReadingSheet({
           </ol>
 
           {/* The stepper — optional by spec; included because scanning a long
-              queue benefits: one tap advances + scrolls to the next question. */}
+              queue benefits: one tap advances + scrolls to the next question.
+              W19.2 (D-32): the duplicate «index / loaded» counter is gone —
+              the aria-live position above is the single position source. */}
           <div className="mt-3 flex items-center justify-between gap-3 border-t border-[var(--c-border)] pt-3">
             <button
               type="button"
@@ -125,9 +157,6 @@ export function ListReadingSheet({
               <ChevronRight className="h-4 w-4" />
               السابق
             </button>
-            <span className="text-xs font-semibold text-[var(--c-text-muted)]" dir="ltr" aria-hidden="true">
-              {index + 1} / {items.length}
-            </span>
             <button
               type="button"
               onClick={goNext}
