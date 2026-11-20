@@ -108,8 +108,9 @@ export function useQuestionsInFavoriteList(params: FavoriteListQuestionsParams |
 
 // ===== W19.2 (D-32) — the reading-queue sheet's accumulate-on-demand pages =====
 
-/** The reading sheet fetches list questions in 100-row pages and accumulates. */
-export const READING_QUEUE_PAGE_SIZE = 100;
+/** The reading sheet fetches list questions in 100-row pages and accumulates.
+ *  W19.5: module-local — no external consumer (grep-proven); was an unused export. */
+const READING_QUEUE_PAGE_SIZE = 100;
 
 /**
  * The old sheet rode the per-page ['favorites','list-questions'] query whose

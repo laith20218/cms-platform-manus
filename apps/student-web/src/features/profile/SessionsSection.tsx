@@ -132,6 +132,10 @@ export function SessionsSection() {
               type="button"
               onClick={() => revokeOthers.mutate()}
               disabled={revokeOthers.isPending}
+              // W19.5 (D-38): the confirm takes focus when it appears — a
+              // keyboard user must land on the destructive action, not stay
+              // on the toggle that opened the dialog.
+              autoFocus
               className="press inline-flex min-h-11 items-center gap-2 rounded-lg bg-[var(--cms-danger)] px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
               data-testid="revoke-others-confirm-button"
             >
@@ -224,7 +228,10 @@ export function SessionsSection() {
                   <button
                     type="button"
                     onClick={() => revokeOne.mutate(session.id)}
-                    disabled={revokeOne.isPending}
+                    // W19.5 (D-38): per-row pending — only THIS row's button
+                    // disables while its own revoke is in flight (the shared
+                    // mutation used to freeze every row at once).
+                    disabled={revokeOne.isPending && revokeOne.variables === session.id}
                     className="press inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[var(--cms-danger)] px-4 py-2 text-xs font-bold text-[var(--cms-danger)] transition-colors hover:bg-[var(--cms-danger-50)] disabled:opacity-60"
                     data-testid="session-revoke"
                     aria-label={`إنهاء جلسة ${deviceLabel(session)}`}
