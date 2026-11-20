@@ -118,7 +118,7 @@ public sealed class PublicCodeW203Tests
             .Select(file => file.PublicCode)
             .ToListAsync();
         codes.Should().HaveCount(2);
-        codes.Should().OnlyContain(code => code is not null && SixDigitCode.IsMatch(code));
+        codes.Should().OnlyContain(code => code != null && SixDigitCode.IsMatch(code));
         codes[0].Should().NotBe(codes[1], "the generated codes must be unique per table");
     }
 
