@@ -1,9 +1,10 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
   AudioLines, FileCode, FileText, Film, HelpCircle, Image as ImageIcon,
-  ListChecks, Loader2, Play, Trash2, Video,
+  ListChecks, Loader2, Play, RefreshCw, Trash2, Video,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import type { FavoriteItem } from '../types';
@@ -41,13 +42,13 @@ function formatDuration(totalSeconds: number | null): string | null {
   return hours > 0 ? `${hours}:${two(minutes)}:${two(seconds)}` : `${two(minutes)}:${two(seconds)}`;
 }
 
-function processingBadge(item: FavoriteItem): { label: string; className: string } | null {
+function processingBadge(item: FavoriteItem): { kind: 'processing' | 'failed'; label: string; className: string } | null {
   const status = item.processingStatus?.toLowerCase();
   if (item.targetType !== 'episode' && item.targetType !== 'file') return null;
   if (status === 'pending' || status?.startsWith('transcoding'))
-    return { label: 'قيد المعالجة', className: 'bg-[var(--c-warning-50)] text-[var(--c-warning-500)]' };
+    return { kind: 'processing', label: 'قيد المعالجة', className: 'bg-[var(--c-warning-50)] text-[var(--c-warning-500)]' };
   if (status === 'failed')
-    return { label: 'تعذّر المعالجة', className: 'bg-[var(--c-danger-50)] text-[var(--c-danger-500)]' };
+    return { kind: 'failed', label: 'تعذّر المعالجة', className: 'bg-[var(--c-danger-50)] text-[var(--c-danger-500)]' };
   return null;
 }
 
@@ -59,12 +60,28 @@ export interface FavoriteCardProps {
 
 export const FavoriteCard = memo(function FavoriteCard({ item, onDelete, deletePending }: FavoriteCardProps) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [rechecking, setRechecking] = useState(false);
   const chip = typeChip(item);
   const ChipIcon = chip.icon;
   const duration = formatDuration(item.durationSeconds);
   const badge = processingBadge(item);
   const canContinue = item.targetType === 'episode' && item.progress !== null && item.courseId !== null;
   const progressPercent = item.progress?.completionPercent ?? null;
+
+  // W19.2 (D-31): a terminally-failed badge must not be a permanent dead end.
+  // «إعادة التحقق» refetches the favorites queries — if the pipeline recovered
+  // server-side the badge clears and the open action unblocks; if it is still
+  // failed the card keeps saying so honestly. (Pending/transcoding keeps its
+  // disabled open — the media genuinely is not ready yet.)
+  const recheck = async () => {
+    setRechecking(true);
+    try {
+      await queryClient.invalidateQueries({ queryKey: ['favorites'] });
+    } finally {
+      setRechecking(false);
+    }
+  };
 
   const openEpisode = () => {
     if (item.courseId) navigate(`/my-studies/courses/${item.courseId}?episode=${item.targetId}`);
@@ -155,6 +172,19 @@ export const FavoriteCard = memo(function FavoriteCard({ item, onDelete, deleteP
             deep-link into the subject library with ?openFile= auto-opening the
             DocumentViewer, episodes keep the precise player deep link. */}
         <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
+          {badge?.kind === 'failed' && (
+            <button
+              type="button"
+              onClick={recheck}
+              disabled={rechecking}
+              data-testid="favorite-recheck"
+              aria-label={`إعادة التحقق من حالة معالجة ${item.title}`}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] px-4 py-1.5 text-sm font-bold text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-400)] hover:text-[var(--c-primary-700)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-primary-500)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RefreshCw className={rechecking ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+              {rechecking ? 'جارٍ التحقق…' : 'إعادة التحقق'}
+            </button>
+          )}
           {item.targetType === 'episode' && item.courseId && (
             <button
               type="button"

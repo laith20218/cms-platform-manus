@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { favoriteListsApi, favoritesApi } from './api';
 import type {
@@ -103,6 +103,35 @@ export function useQuestionsInFavoriteList(params: FavoriteListQuestionsParams |
     queryFn: () => favoriteListsApi.listQuestionsInList(params!),
     enabled: params !== null,
     placeholderData: (previous) => previous, // keeps the grid mounted across page transitions
+  });
+}
+
+// ===== W19.2 (D-32) — the reading-queue sheet's accumulate-on-demand pages =====
+
+/** The reading sheet fetches list questions in 100-row pages and accumulates. */
+export const READING_QUEUE_PAGE_SIZE = 100;
+
+/**
+ * The old sheet rode the per-page ['favorites','list-questions'] query whose
+ * data REPLACES each page: past 100 rows the numbering restarted, the stepper
+ * index pointed into the wrong page, and the remaining-count math broke. This
+ * infinite query accumulates pages into one flat sequentially-numbered queue.
+ *
+ * Keyed ['favorites','reading-queue', listId] — deliberately OUTSIDE
+ * 'list-questions' so useRemoveQuestionFromFavoriteList's optimistic patch
+ * (which writes the paged PagedFavorites shape) can never corrupt the
+ * InfiniteData shape; both stay under the ['favorites'] prefix every
+ * mutation invalidates on settle.
+ */
+export function useListReadingQueue(listId: string) {
+  return useInfiniteQuery({
+    queryKey: ['favorites', 'reading-queue', listId],
+    queryFn: ({ pageParam }) =>
+      favoriteListsApi.listQuestionsInList({ listId, page: pageParam, pageSize: READING_QUEUE_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) =>
+      allPages.length < lastPage.totalPages ? allPages.length + 1 : undefined,
+    staleTime: 60_000,
   });
 }
 
