@@ -31,6 +31,17 @@ export function Navbar() {
       </div>
 
       <div className="flex items-center gap-2 ms-auto">
+        {/* W19.3 (D-34): mobile search entry — the desktop input is md+ only;
+            below md this icon routes to /search, whose input auto-focuses.
+            D-35: the control carries a full Arabic aria-label. */}
+        <Link
+          to="/search"
+          data-testid="navbar-search-mobile"
+          aria-label="البحث في المحتوى"
+          className="md:hidden w-10 h-10 rounded-[10px] flex items-center justify-center text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] transition-colors"
+        >
+          <Search className="w-5 h-5" />
+        </Link>
         <button onClick={toggleTheme} data-testid="navbar-theme-toggle" className="w-10 h-10 rounded-[10px] flex items-center justify-center text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] transition-colors" aria-label="تبديل الوضع الليلي">{theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}</button>
         <Link to="/notifications" data-testid="navbar-bell" aria-label="الإشعارات" className="w-10 h-10 rounded-[10px] flex items-center justify-center text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] transition-colors"><Bell className="w-5 h-5" /></Link>
         <Link to="/profile" data-testid="navbar-avatar" aria-label="فتح الملف الشخصي" className="flex items-center gap-2.5 py-1 ps-3 pe-1 rounded-3xl border backdrop-blur-md transition-all hover:bg-[var(--c-glass-strong)]" style={{ background: 'var(--c-glass)', borderColor: 'var(--c-border-glass)' }}><div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-[13px]" style={{ background: 'var(--grad-primary)' }}>{user?.fullName?.charAt(0) || 'ط'}</div><span className="hidden sm:block text-[13px] font-semibold text-[var(--c-text-soft)]">{user?.fullName?.split(' ')[0] || 'طالب'}</span></Link>

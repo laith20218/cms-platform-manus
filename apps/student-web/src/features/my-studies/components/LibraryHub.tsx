@@ -4,7 +4,7 @@ import { useLocation, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
-  BookMarked, Bookmark, CalendarDays, Eye, FileCode, FileSpreadsheet,
+  BookMarked, Bookmark, CalendarDays, ChevronDown, Eye, FileCode, FileSpreadsheet,
   FileText, Image as ImageIcon, LoaderCircle, Music, Target, Video,
 } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
@@ -64,6 +64,10 @@ const FORMATS: ReadonlyArray<{ key: FormatKey; label: string }> = [
   { key: 'Paragraph', label: TYPE_META.Paragraph.label },
 ];
 
+/** W19.3 (D-23): per-subject page size. The backend PagedResult carries
+ *  total/totalPages, so the hub can page past the old single-100 cap. */
+const LIBRARY_PAGE_SIZE = 100;
+
 interface HubLibraryFile {
   id: string;
   type: string;
@@ -102,6 +106,10 @@ export function LibraryHub({
   const [activeCategory, setActiveCategory] = useState<CategoryKey>('all');
   const [activeFormat, setActiveFormat] = useState<FormatKey>('all');
   const [selectedFile, setSelectedFile] = useState<HubLibraryFile | null>(null);
+  // W19.3 (D-23): how many per-subject pages are loaded. «تحميل المزيد» bumps
+  // it; the query refetches pages 1..N per subject (bounded in practice —
+  // 100 files/page makes deep paging rare).
+  const [pagesLoaded, setPagesLoaded] = useState(1);
 
   // Wave 15.5.1a — the same context flag drives the h1 + breadcrumb branches.
   const location = useLocation();
@@ -170,27 +178,49 @@ export function LibraryHub({
 
   // Wave 12.5.A (Group 1) — R69 taxonomy: per-subject failures surface, never
   // a silent empty list.
+  // W19.3 (D-23): the catalog query now pages per subject (pages 1..pagesLoaded)
+  // and carries the summed backend total, so «تحميل المزيد» can honestly show
+  // «تم تحميل X من Y ملفاً» instead of silently capping at the first 100.
   const [entitlementDenied, setEntitlementDenied] = useState<ReturnType<typeof variantForReason> | null>(null);
-  const { data: files, isLoading, isError, isFetching, error, refetch } = useQuery({
-    queryKey: ['library-hub', subjects.map((s) => s.id).join(',')],
+  const { data: catalog, isLoading, isError, isFetching, error, refetch } = useQuery({
+    queryKey: ['library-hub', subjects.map((s) => s.id).join(','), pagesLoaded],
     enabled: subjects.length > 0,
     retry: (failureCount, failure) => !(failure instanceof EntitlementDeniedError) && failureCount < 1,
-    queryFn: async (): Promise<HubLibraryFile[]> =>
-      loadCatalogAcrossSubjects(subjects.map((s) => s.id), async (subjectId) => {
-        const res = await apiClient.get(`/library/subject/${subjectId}`, {
-          ...(await entitlementRequestConfig()),
-          params: { page: 1, pageSize: 100 },
-        });
-        const subject = subjects.find((s) => s.id === subjectId);
-        const items = res.data?.items ?? [];
-        return items.map((f: Omit<HubLibraryFile, 'subjectId' | 'subjectSlug' | 'subjectName'>) => ({
-          ...f,
-          subjectId,
-          subjectSlug: subject?.slug ?? '',
-          subjectName: subject?.nameAr ?? '',
-        }));
-      }),
+    queryFn: async (): Promise<{ files: HubLibraryFile[]; totalFiles: number }> => {
+      const pages = await loadCatalogAcrossSubjects(
+        subjects.map((s) => s.id),
+        // fetchOne returns T[] (one entry per subject); the wrapper carries the
+        // subject's files AND its backend total through the aggregator.
+        async (subjectId): Promise<{ files: HubLibraryFile[]; total: number }[]> => {
+          const subject = subjects.find((s) => s.id === subjectId);
+          const files: HubLibraryFile[] = [];
+          let total = 0;
+          for (let page = 1; page <= pagesLoaded; page++) {
+            const res = await apiClient.get(`/library/subject/${subjectId}`, {
+              ...(await entitlementRequestConfig()),
+              params: { page, pageSize: LIBRARY_PAGE_SIZE },
+            });
+            total = res.data?.total ?? total;
+            const items = res.data?.items ?? [];
+            files.push(...items.map((f: Omit<HubLibraryFile, 'subjectId' | 'subjectSlug' | 'subjectName'>) => ({
+              ...f,
+              subjectId,
+              subjectSlug: subject?.slug ?? '',
+              subjectName: subject?.nameAr ?? '',
+            })));
+          }
+          return [{ files, total }];
+        },
+      );
+      return {
+        files: pages.flatMap((p) => p.files),
+        totalFiles: pages.reduce((sum, p) => sum + p.total, 0),
+      };
+    },
   });
+  const files = catalog?.files;
+  const totalFiles = catalog?.totalFiles ?? 0;
+  const hasMoreFiles = (files?.length ?? 0) < totalFiles;
 
   const fetchingRef = useRef(false);
   useEffect(() => { fetchingRef.current = isFetching; }, [isFetching]);
@@ -484,6 +514,28 @@ export function LibraryHub({
               </motion.div>
             );
           })}
+        </div>
+      )}
+
+      {/* W19.3 (D-23): past-the-cap affordance — honest «تم تحميل X من Y ملفاً»
+          against the summed backend totals + «تحميل المزيد». Hidden when the
+          whole catalog is loaded (nothing is hidden then — no honesty gap).
+          X counts CATALOG files (pre-filter) on purpose: the row is about
+          loading, not about the active category/format chips. */}
+      {hasMoreFiles && (
+        <div className="mt-5 flex flex-col items-center gap-2" data-testid="library-load-more">
+          <p className="text-xs text-[var(--c-text-muted)]">
+            تم تحميل <span lang="en">{allFiles.length}</span> من <span lang="en">{totalFiles}</span> ملفاً
+          </p>
+          <button
+            type="button"
+            onClick={() => setPagesLoaded((current) => current + 1)}
+            disabled={isFetching}
+            className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] px-5 text-sm font-semibold text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-400)] hover:text-[var(--c-primary-700)] disabled:opacity-50"
+          >
+            {isFetching ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ChevronDown className="h-4 w-4" />}
+            تحميل المزيد
+          </button>
         </div>
       )}
 
