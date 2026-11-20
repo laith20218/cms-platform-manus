@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useMySubjects } from '@/features/my-studies/hooks/useMySubjects';
 import { MuwadiCard } from './MuwadiCard';
 
@@ -8,9 +9,10 @@ import { MuwadiCard } from './MuwadiCard';
  * selection needed; the entitlement catalog (useMySubjects) is the whole data
  * source. Owns its loading / error / empty states:
  * - error offers an inline retry (refetch), no dead end;
- * - empty points back to the «الهيكل الأكاديمي» tab — deliberately WITHOUT a
- *   /activate-code CTA: the structure tab's semester empty state already owns
- *   that action, so the page never shows two competing activation CTAs.
+ * - empty points to the «الهيكل الأكاديمي» tab via a real link (W19.4 D-40 —
+ *   was text-only) — still deliberately WITHOUT a /activate-code CTA: the
+ *   structure tab's semester empty state already owns that action, so the
+ *   page never shows two competing activation CTAs.
  */
 export function MuwadiTab() {
   const mySubjects = useMySubjects();
@@ -45,7 +47,16 @@ export function MuwadiTab() {
           data-testid="muwadi-empty"
           className="rounded-2xl border border-dashed border-[var(--c-border-strong)] bg-[var(--c-surface)] p-8 text-center text-sm text-[var(--c-text-muted)]"
         >
-          لم تفعّل أي مادة بعد — تصفح الهيكل الأكاديمي لتفعيل مادة.
+          <p>لم تفعّل أي مادة بعد</p>
+          {/* W19.4 (D-40): the pointer is a real link — /subjects without
+              ?tab=muwadi IS the structure tab (the default view). */}
+          <Link
+            to="/subjects"
+            data-testid="muwadi-empty-cta"
+            className="press mt-3 inline-flex min-h-11 items-center rounded-xl border border-[var(--c-primary-300)] bg-[var(--c-primary-50)] px-4 py-2 text-sm font-bold text-[var(--c-primary-700)] transition-colors hover:border-[var(--c-primary-500)]"
+          >
+            تصفح الهيكل الأكاديمي لتفعيل مادة
+          </Link>
         </div>
       )}
     </section>

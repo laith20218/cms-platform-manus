@@ -110,7 +110,7 @@ function CoursePlayerContent() {
         <p className="mb-1 font-bold text-[var(--c-text)]">{courseError ?? 'الكورس غير متاح'}</p>
         <p className="mb-6 text-sm text-[var(--c-text-muted)]">قد يكون الرابط قديماً أو أن الجلسة انتهت</p>
         <Link
-          to="/my-studies?tab=courses"
+          to="/study?tab=courses"
           className="press inline-flex min-h-11 items-center gap-2 rounded-2xl border border-[var(--c-primary-200)] bg-[var(--c-primary-50)] px-5 py-2.5 text-sm font-bold text-[var(--c-primary-700)]"
         >
           <ArrowRight className="w-4 h-4" /> العودة إلى الكورسات
@@ -125,7 +125,7 @@ function CoursePlayerContent() {
     <div className="max-w-5xl mx-auto">
       {/* Breadcrumb + header */}
       <div className="flex items-center gap-2 mb-4 text-sm text-[var(--c-text-muted)]">
-        <Link to="/my-studies?tab=courses" className="press inline-flex items-center gap-1 rounded-lg px-1 py-1 transition-colors hover:text-[var(--c-primary-700)]">
+        <Link to="/study?tab=courses" className="press inline-flex items-center gap-1 rounded-lg px-1 py-1 transition-colors hover:text-[var(--c-primary-700)]">
           <ChevronLeft className="w-4 h-4" /> دراستي
         </Link>
         <span>/</span>

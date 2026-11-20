@@ -32,12 +32,42 @@ export default function RegisterPage() {
   const [universities, setUniversities] = useState<AcademicOption[]>([]);
   const [colleges, setColleges] = useState<AcademicOption[]>([]);
   const [years, setYears] = useState<AcademicOption[]>([]);
+  // W19.4 (D-33): academic-load errors live SEPARATELY from form/registration
+  // errors — they render inline next to the academic selects with their own
+  // retry, and every later load SUCCESS clears them (no stale error text).
+  const [academicError, setAcademicError] = useState<string | null>(null);
+
+  const loadUniversities = () => {
+    academicApi.getUniversities()
+      .then((result) => {
+        setUniversities(result.items ?? []);
+        setAcademicError(null);
+      })
+      .catch(() => setAcademicError('تعذّر تحميل البيانات الأكاديمية. حاول لاحقاً.'));
+  };
 
   useEffect(() => {
-    academicApi.getUniversities()
-      .then((result) => setUniversities(result.items ?? []))
-      .catch(() => setError('تعذّر تحميل البيانات الأكاديمية. حاول لاحقاً.'));
+    loadUniversities();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only initial academic load
   }, []);
+
+  // D-33: one affordance re-runs the academic cascade as far as the student
+  // has already selected — universities, then the chosen college's list, then
+  // the chosen year's list.
+  const retryAcademicLoad = async () => {
+    setAcademicError(null);
+    try {
+      setUniversities((await academicApi.getUniversities()).items ?? []);
+      if (formData.universityId) {
+        setColleges(await academicApi.getColleges(formData.universityId));
+        if (formData.collegeId) {
+          setYears(await academicApi.getYears(formData.collegeId));
+        }
+      }
+    } catch {
+      setAcademicError('تعذّر تحميل البيانات الأكاديمية. حاول لاحقاً.');
+    }
+  };
 
   const selectUniversity = async (universityId: string) => {
     setFormData((current) => ({ ...current, universityId, collegeId: '', academicYearId: '' }));
@@ -46,8 +76,9 @@ export default function RegisterPage() {
     if (!universityId) return;
     try {
       setColleges(await academicApi.getColleges(universityId));
+      setAcademicError(null);
     } catch {
-      setError('تعذّر تحميل الكليات. حاول لاحقاً.');
+      setAcademicError('تعذّر تحميل الكليات. حاول لاحقاً.');
     }
   };
 
@@ -57,8 +88,9 @@ export default function RegisterPage() {
     if (!collegeId) return;
     try {
       setYears(await academicApi.getYears(collegeId));
+      setAcademicError(null);
     } catch {
-      setError('تعذّر تحميل السنوات الدراسية. حاول لاحقاً.');
+      setAcademicError('تعذّر تحميل السنوات الدراسية. حاول لاحقاً.');
     }
   };
 
@@ -223,6 +255,27 @@ export default function RegisterPage() {
                 </select>
               </label>
             </div>
+
+            {/* W19.4 (D-33): inline academic-load error + retry — clears on the
+                next successful load, never pollutes the form error banner. */}
+            {academicError && (
+              <div
+                role="alert"
+                data-testid="register-academic-error"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] p-3 text-sm font-medium"
+                style={{ background: 'rgba(255,82,82,0.08)', border: '1px solid rgba(255,82,82,0.20)', color: 'var(--c-danger-500)' }}
+              >
+                <span>{academicError}</span>
+                <button
+                  type="button"
+                  onClick={() => void retryAcademicLoad()}
+                  data-testid="register-academic-retry"
+                  className="press min-h-9 rounded-lg bg-[var(--c-danger-500)] px-3 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90"
+                >
+                  إعادة المحاولة
+                </button>
+              </div>
+            )}
 
             {/* Confirm Password */}
             <div>
