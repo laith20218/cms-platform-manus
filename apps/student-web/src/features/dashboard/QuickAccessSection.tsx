@@ -52,6 +52,27 @@ export function QuickAccessSection() {
     );
   }
 
+  // W19.1 (D-28): a my-subjects failure shows an inline error + retry —
+  // never a silent null. (The `!mySubjects.data` return below stays the
+  // POLICY hide for a successfully-loaded empty entitled list.)
+  if (mySubjects.isError) {
+    return (
+      <section data-testid="quick-access-error">
+        <h2 className="text-lg font-bold text-[var(--c-text)] mb-3">وصول سريع</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-4">
+          <p className="text-sm text-[var(--c-text-muted)]">تعذّر تحميل موادك</p>
+          <button
+            type="button"
+            onClick={() => mySubjects.refetch()}
+            className="press min-h-11 rounded-xl bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white transition-colors"
+          >
+            إعادة المحاولة
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   if (!mySubjects.data || mySubjects.data.length === 0) return null;
 
   return (

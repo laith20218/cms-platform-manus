@@ -26,6 +26,28 @@ export function ContinueCard({ bySubject }: { bySubject: StudentStats['bySubject
     return <div className="h-32 rounded-2xl animate-pulse bg-[var(--c-bg-hover)]" />;
   }
 
+  // W19.1 (D-28): a my-subjects failure is surfaced here instead of the old
+  // silent null. (An empty [] after a successful load is the POLICY hide and
+  // stays one — see the `!candidate` return below.) The card owns its error
+  // + retry exactly like MySubjectsSection.
+  if (mySubjects.isError) {
+    return (
+      <div
+        data-testid="dashboard-continue-error"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-4"
+      >
+        <p className="text-sm text-[var(--c-text-muted)]">تعذّر تحميل موادك</p>
+        <button
+          type="button"
+          onClick={() => mySubjects.refetch()}
+          className="press min-h-11 rounded-xl bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white transition-colors"
+        >
+          إعادة المحاولة
+        </button>
+      </div>
+    );
+  }
+
   const entitled = bySubject.filter((row) => mySubjects.data?.some((m) => m.id === row.subjectId));
 
   let candidate: { subject: MySubjectEntry; progress?: SubjectProgress } | null = null;

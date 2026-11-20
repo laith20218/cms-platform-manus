@@ -26,15 +26,19 @@ export function DashboardPage() {
       <Skeleton className="w-full h-64" />
     </div>
   );
-  if (stats.isError || !stats.data) return <section className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-8 text-center"><h1 className="text-lg font-bold text-[var(--c-text)]">تعذّر تحميل لوحة التحكم</h1><button onClick={() => stats.refetch()} className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white">إعادة المحاولة</button></section>;
 
+  // W19.1 (D-27): a stats failure no longer blocks the whole dashboard.
+  // MySubjects + QuickAccess ride their own ['my-subjects-entitled'] query
+  // and stay usable below; only the stats-dependent slots degrade. Stale
+  // last-good data (failed background refetch) still renders — it is real
+  // data, never a false empty.
   const data = stats.data;
-  const cards = [
+  const cards = data ? [
     { key: 'questions', label: 'أسئلة مجابة', value: data.totalQuestions, icon: BookOpen },
     { key: 'accuracy', label: 'نسبة الدقة', value: `${data.accuracy.toFixed(0)}%`, icon: Target },
     { key: 'time', label: 'وقت الدراسة', value: formatStudyTime(data.studyTimeMinutes), icon: Clock },
     { key: 'exams', label: 'اختبارات مكتملة', value: data.examsCompleted, icon: Trophy },
-  ];
+  ] : [];
 
   return <main className="space-y-6">
     {/* 15.2 (D6): plain greeting block — was the glass hero card. Streak and
@@ -44,24 +48,43 @@ export function DashboardPage() {
         <h1 className="text-2xl sm:text-3xl font-extrabold text-[var(--c-text)]">أهلاً، {user?.fullName?.split(' ')[0] || 'طالب'} 👋</h1>
         <p className="mt-1 text-sm text-[var(--c-text-soft)]">هذه الإحصاءات تُحسب من محاولاتك واختباراتك المسجلة في المنصة.</p>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-3 py-1.5 text-sm font-medium">🔥 السلسلة: <strong lang="en">{data.currentStreak}</strong> يوم</span>
-        <Link to="/favorites" className="inline-flex items-center gap-1.5 rounded-full bg-[var(--c-bg-hover)] text-[var(--c-text-muted)] px-3 py-1.5 text-sm hover:text-[var(--c-text)] transition-colors">
-          <Bookmark className="h-3.5 w-3.5" />
-          المفضلة: <strong lang="en">{data.favoriteCount}</strong>
-        </Link>
-      </div>
+      {data && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-3 py-1.5 text-sm font-medium">🔥 السلسلة: <strong lang="en">{data.currentStreak}</strong> يوم</span>
+          <Link to="/favorites" className="inline-flex items-center gap-1.5 rounded-full bg-[var(--c-bg-hover)] text-[var(--c-text-muted)] px-3 py-1.5 text-sm hover:text-[var(--c-text)] transition-colors">
+            <Bookmark className="h-3.5 w-3.5" />
+            المفضلة: <strong lang="en">{data.favoriteCount}</strong>
+          </Link>
+        </div>
+      )}
     </div>
 
-    {/* 15.2 (D3): gradient continue card. */}
-    <ContinueCard bySubject={data.bySubject} />
+    {/* 15.2 (D3): gradient continue card. W19.1 (D-27): hidden while stats
+        are unavailable — a «تابع من حيث توقفت» claim without progress data
+        would be a false statement; the stats error card explains why. */}
+    {data && <ContinueCard bySubject={data.bySubject} />}
 
-    <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">{cards.map(card => <article key={card.key} data-testid={`stat-card-${card.key}`} className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-5"><card.icon className="h-5 w-5 text-[var(--c-primary-700)]" /><div className="mt-3 text-2xl font-extrabold text-[var(--c-text)]" lang="en">{card.value}</div><div className="mt-1 text-[13px] text-[var(--c-text-muted)]">{card.label}</div></article>)}</section>
+    {data ? (
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">{cards.map(card => <article key={card.key} data-testid={`stat-card-${card.key}`} className="rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-5"><card.icon className="h-5 w-5 text-[var(--c-primary-700)]" /><div className="mt-3 text-2xl font-extrabold text-[var(--c-text)]" lang="en">{card.value}</div><div className="mt-1 text-[13px] text-[var(--c-text-muted)]">{card.label}</div></article>)}</section>
+    ) : (
+      <section data-testid="dashboard-stats-error" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-4">
+        <p className="text-sm text-[var(--c-text-muted)]">تعذّر تحميل الإحصاءات</p>
+        <button
+          type="button"
+          onClick={() => stats.refetch()}
+          className="press min-h-11 rounded-xl bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white transition-colors"
+        >
+          إعادة المحاولة
+        </button>
+      </section>
+    )}
 
     {/* Wave 14.3 PR #2 — entitled subjects first: visible even with zero attempts. */}
     {/* 15.2 (D1/D5): progress rows merged into «موادي»; the separate
-        «التقدّم حسب المادة» grid was deleted. */}
-    <MySubjectsSection bySubject={data.bySubject} />
+        «التقدّم حسب المادة» grid was deleted. W19.1 (D-27): with stats down
+        the merge degrades to subject cards with no progress overlay — the
+        section keeps its own error/empty/policy states either way. */}
+    <MySubjectsSection bySubject={data?.bySubject ?? []} />
 
     {/* 15.2 (D2): quick access with per-subject filter chips. */}
     <QuickAccessSection />
