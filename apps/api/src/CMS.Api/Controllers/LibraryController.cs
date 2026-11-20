@@ -43,11 +43,14 @@ public class LibraryController : ControllerBase
 
     /// <summary>
     /// Get library files for a subject (with type filter).
+    /// W20.3 — the optional `search` query param matches by name OR six-digit
+    /// public code (digit-only terms are zero-padded: "1234" finds "001234").
     /// </summary>
     [HttpGet("subject/{subjectId:guid}")]
     [Authorize]
     public async Task<IActionResult> GetFiles(
         Guid subjectId, [FromQuery] string? type, [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null,
         CancellationToken ct = default)
     {
         var studentId = GetStudentId();
@@ -55,7 +58,7 @@ public class LibraryController : ControllerBase
         var rejection = await EntitlementRejectionAsync(studentId.Value, subjectId, ct);
         if (rejection is not null) return rejection;
 
-        var result = await _mediator.Send(new GetLibraryFilesQuery(studentId.Value, subjectId, type, page, pageSize), ct);
+        var result = await _mediator.Send(new GetLibraryFilesQuery(studentId.Value, subjectId, type, page, pageSize, search), ct);
         return Ok(result);
     }
 

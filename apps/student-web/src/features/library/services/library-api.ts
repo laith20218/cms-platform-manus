@@ -34,6 +34,9 @@ export interface LibraryFile {
   /** Curricular category (Curriculum / Lecture / Summary / GoldenIdeas) — null = uncategorized. */
   category?: string | null;
   createdAt?: string | null;
+  /** W20.3 — the six-digit public code (additive server key; always shown next
+   * to the title, searchable by name OR code). Absent on legacy payloads. */
+  publicCode?: string | null;
 }
 
 /** Full file detail (GET /library/{id}) — carries the physical MIME (fileFormat). */

@@ -10,7 +10,9 @@ public record GetLibraryFilesQuery(
     Guid SubjectId,
     string? Type,
     int Page = 1,
-    int PageSize = 20
+    int PageSize = 20,
+    // W20.3 — name OR public-code search term (client filter, additive).
+    string? Search = null
 ) : IRequest<PagedResult<LibraryFileListItemDto>>;
 
 public record GetLectureTextFilesQuery(

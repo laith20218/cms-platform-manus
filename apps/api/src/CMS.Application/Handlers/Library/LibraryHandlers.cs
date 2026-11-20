@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using CMS.Application.BackgroundJobs;
 using CMS.Application.Commands.Library;
+using CMS.Application.Common;
 using CMS.Application.DTOs.Library;
 using CMS.Application.DTOs.Media;
 using CMS.Application.Interfaces;
@@ -88,6 +89,15 @@ public class LibraryHandlers :
         if (!string.IsNullOrEmpty(req.Type))
             query = query.Where(f => f.Type == Enum.Parse<LibraryFileType>(req.Type, true));
 
+        // W20.3 — name OR code search: a digit-only term (≤ 6 digits) also matches
+        // its zero-padded code form ("1234" finds "001234").
+        if (!string.IsNullOrWhiteSpace(req.Search))
+        {
+            var term = req.Search.Trim();
+            var codeTerm = PublicCodes.NormalizeSearchTerm(term);
+            query = query.Where(f => f.Title.Contains(term) || (codeTerm != null && f.PublicCode == codeTerm));
+        }
+
         var files = await query
             .OrderByDescending(f => f.CreatedAt)
             .ToListAsync(ct);
@@ -115,7 +125,8 @@ public class LibraryHandlers :
             f.Id, f.Type.ToString(), f.Title, f.Description,
             f.FileSize, f.DurationSeconds, f.PagesCount, f.ThumbnailUrl,
             f.ViewsCount, favoriteFileIds.Contains(f.Id),
-            f.Category?.ToString(), f.CreatedAt
+            f.Category?.ToString(), f.CreatedAt,
+            f.PublicCode
         )).ToList();
 
         return new PagedResult<LibraryFileListItemDto>(items, total, req.Page, req.PageSize, (int)Math.Ceiling(total / (double)req.PageSize));
@@ -155,7 +166,8 @@ public class LibraryHandlers :
         var items = files.Select(file => new LibraryFileListItemDto(
             file.Id, file.Type.ToString(), file.Title, file.Description,
             file.FileSize, file.DurationSeconds, file.PagesCount, file.ThumbnailUrl,
-            file.ViewsCount, favoriteFileIds.Contains(file.Id))).ToList();
+            file.ViewsCount, favoriteFileIds.Contains(file.Id),
+            PublicCode: file.PublicCode)).ToList();
         return new PagedResult<LibraryFileListItemDto>(items, total, req.Page, req.PageSize, (int)Math.Ceiling(total / (double)req.PageSize));
     }
 
@@ -357,6 +369,10 @@ public class LibraryHandlers :
             EnableScripts = req.EnableScripts
                 && string.Equals(req.ContentType?.Trim(), "text/html", StringComparison.OrdinalIgnoreCase)
         };
+        // W20.3 (owner decision 1) — auto-assign the unique six-digit public code
+        // at creation (searchable by name OR code; always shown next to the title).
+        file.AssignPublicCode(await PublicCodes.GenerateUniqueAsync(
+            code => _db.LibraryFiles.AsNoTracking().AnyAsync(f => f.PublicCode == code, ct), ct));
 
         typeof(LibraryFile).GetProperty("CreatedBy")?.SetValue(file, req.CreatedBy);
 
@@ -655,6 +671,7 @@ public class LibraryHandlers :
         PdfHealthStatus.Classify(f.PdfProcessingStatus, f.PdfProcessingStatus == null ? null : f.ProcessingError),
         // Wave 13 (F3) — HTML player pipeline exposure (additive DTO keys).
         f.ContentProcessingStatus,
-        f.EnableScripts
+        f.EnableScripts,
+        f.PublicCode
     );
 }

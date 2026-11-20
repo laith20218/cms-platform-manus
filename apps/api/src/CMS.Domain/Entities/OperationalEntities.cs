@@ -82,6 +82,16 @@ public class LibraryFile : AuditableEntity
     /// <summary>Institutional content category (منهاج/محاضرة/تلخيص/أفكار ذهبية). NULL on legacy rows.</summary>
     public LibraryFileCategory? Category { get; set; }
     public string Title { get; set; } = string.Empty;
+
+    /// <summary>Wave 20.3 (owner decision 1) — the student-facing six-digit public code
+    /// ("000000"–"999999", zero-padded). Auto-assigned at row creation, unique per table,
+    /// always rendered next to the title, searchable by name OR code. NULL only on rows
+    /// that predate the backfill migration (the migration fills every existing row).</summary>
+    public string? PublicCode { get; private set; }
+
+    /// <summary>W20.3 — assigns the (collision-checked) generated code once, at creation.</summary>
+    public void AssignPublicCode(string code) => PublicCode = code;
+
     public string? Description { get; set; }
     public string FileUrl { get; set; } = string.Empty;
     public long FileSize { get; set; }

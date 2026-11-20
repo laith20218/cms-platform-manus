@@ -7,7 +7,9 @@ namespace CMS.Application.Commands.Courses;
 // ===== Student queries =====
 public record GetSubjectCoursesQuery(
     Guid StudentId,
-    Guid SubjectId
+    Guid SubjectId,
+    // W20.3 — name OR public-code search term (client filter, additive).
+    string? Search = null
 ) : IRequest<List<CourseListItemDto>>;
 
 public record GetCourseByIdQuery(

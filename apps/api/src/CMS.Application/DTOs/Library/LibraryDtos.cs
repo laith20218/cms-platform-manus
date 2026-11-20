@@ -56,7 +56,10 @@ public record LibraryFileDto(
     // Null ContentProcessingStatus = pipeline never applied (non-HTML / legacy rows).
     ContentProcessingStatus? ContentProcessingStatus = null,
     // The trusted-lesson flag — drives the student player's sandbox policy.
-    bool EnableScripts = false
+    bool EnableScripts = false,
+    // W20.3 — the student-facing six-digit public code (additive key; null only
+    // on rows that predate the backfill). Always rendered next to the title.
+    string? PublicCode = null
 );
 
 /// <summary>
@@ -97,7 +100,9 @@ public record LibraryFileListItemDto(
     bool IsFavorite,
     // Curricular classification (Curriculum / Lecture / Summary / GoldenIdeas) — null = uncategorized.
     string? Category = null,
-    DateTime CreatedAt = default
+    DateTime CreatedAt = default,
+    // W20.3 — the six-digit public code (additive key; searchable by name OR code).
+    string? PublicCode = null
 );
 
 // ===== Access (Signed URL) =====

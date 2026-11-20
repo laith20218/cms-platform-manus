@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   AlertTriangle, BookOpen, Clock, Eye, GraduationCap, KeyRound, LogIn, MonitorPlay, PlayCircle,
-  RotateCcw, ShieldAlert, Target,
+  RotateCcw, Search, ShieldAlert, Target, X,
 } from 'lucide-react';
 import {
   coursesApi, DenialVariant, EntitlementDeniedError, isEntitlementDenied, variantForReason,
@@ -22,6 +22,12 @@ function extractProblemDetail(error: unknown): string | null {
   if (typeof body.detail === 'string' && body.detail) return body.detail;
   if (typeof body.title === 'string' && body.title) return body.title;
   return null;
+}
+
+/** W20.3 — digit-only terms (≤ 6 digits) match their zero-padded code form
+ * ("1234" finds "001234"); everything else keeps name-only matching. */
+function normalizeCodeTerm(term: string): string | null {
+  return /^\d{1,6}$/.test(term) ? term.padStart(6, '0') : null;
 }
 
 /**
@@ -51,6 +57,13 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
   // issued entitlement (§2.C). The variant picks the truthful card (subscription
   // vs session/device). Cleared whenever a load succeeds.
   const [entitlementDenied, setEntitlementDenied] = useState<DenialVariant | null>(null);
+
+  // W20.3 — name OR code search over the (complete, unpaginated) catalog.
+  // Client-side is exact here: every entitled subject's whole course list is
+  // already in memory, and digit-only terms match the zero-padded code form
+  // ("1234" finds "001234").
+  const [searchInput, setSearchInput] = useState('');
+  const searchTerm = searchInput.trim().toLowerCase();
 
   const {
     data: courses, isLoading, isError, isFetching, error, refetch,
@@ -142,6 +155,18 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
   useEffect(() => {
     if (courses !== undefined) setEntitlementDenied(null);
   }, [courses]);
+
+  // W20.3 — the search filter (applies after the catalog loads; title,
+  // description, or the zero-padded six-digit code).
+  const visibleCourses = useMemo(() => {
+    if (!courses) return [];
+    if (!searchTerm) return courses;
+    const codeTerm = normalizeCodeTerm(searchTerm);
+    return courses.filter((course) =>
+      course.title.toLowerCase().includes(searchTerm)
+      || (course.description ?? '').toLowerCase().includes(searchTerm)
+      || (codeTerm !== null && course.publicCode === codeTerm));
+  }, [courses, searchTerm]);
 
   // R62 §2.B.2 + R69 §2.D — the truthful denial card (subscription vs session/device).
   const queryDenied = isError && error instanceof EntitlementDeniedError
@@ -250,44 +275,101 @@ export function CoursesCatalog({ subjectId }: { subjectId?: string | null }) {
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="courses-grid">
-      {courses.map((course, index) => (
-        <motion.div key={course.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.04, 0.3) }}>
-          <Link
-            to={`/my-studies/courses/${course.id}`}
-            className="lift flex items-start gap-3 rounded-3xl border border-[var(--c-border)] bg-[var(--c-surface)] p-4 transition-all group hover:border-[var(--c-primary-300)]"
-            data-testid="course-card"
+    <div>
+      {/* W20.3 — name OR code search over the whole (loaded) catalog. */}
+      <div className="mb-4" data-testid="courses-search-row">
+        <label htmlFor="courses-catalog-search" className="sr-only">ابحث في الكورسات بالاسم أو الرمز</label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--c-text-faint)]" aria-hidden="true" />
+          <input
+            id="courses-catalog-search"
+            type="search"
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="ابحث بالاسم أو برمز الكورس المكوّن من ٦ أرقام"
+            data-testid="courses-search-input"
+            className="w-full min-h-11 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] py-2.5 pe-10 ps-4 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] transition-colors focus:border-[var(--c-primary-400)] focus:outline-none focus:ring-2 focus:ring-[var(--c-primary-100)]"
+          />
+          {searchInput && (
+            <button
+              type="button"
+              onClick={() => setSearchInput('')}
+              aria-label="مسح البحث"
+              data-testid="courses-search-clear"
+              className="absolute start-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-[var(--c-text-faint)] transition-colors hover:text-[var(--c-text)]"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {visibleCourses.length === 0 ? (
+        <div className="text-center py-14 rounded-3xl border border-dashed border-[var(--c-border)]" data-testid="courses-search-empty">
+          <MonitorPlay className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" aria-hidden="true" />
+          <p className="text-[var(--c-text-muted)]">لا توجد كورسات تطابق البحث</p>
+          <button
+            type="button"
+            onClick={() => setSearchInput('')}
+            className="press mt-3 inline-flex min-h-11 items-center rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] px-4 text-sm font-semibold text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-400)] hover:text-[var(--c-primary-700)]"
+            data-testid="courses-search-empty-clear"
           >
-            {course.coverImageUrl ? (
-              <img
-                src={course.coverImageUrl}
-                alt={course.title}
-                className="w-12 h-12 rounded-2xl object-cover shrink-0"
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'var(--c-primary-50)', color: 'var(--c-primary-700)' }}>
-                <GraduationCap className="w-6 h-6" />
-              </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <span className="block text-sm font-semibold text-[var(--c-text)] truncate group-hover:text-[var(--c-primary-700)] transition-colors">
-                {course.title}
-              </span>
-              <p className="text-xs text-[var(--c-text-muted)] line-clamp-2 mt-0.5">{course.description || course.subjectNameAr}</p>
-              <div className="flex flex-wrap items-center gap-2.5 text-xs text-[var(--c-text-muted)] mt-1.5">
-                <span className="px-2 py-0.5 rounded-full bg-[var(--c-bg-hover)] font-medium inline-flex items-center gap-1">
-                  <BookOpen className="w-3 h-3" />{course.subjectNameAr}
-                </span>
-                <span className="inline-flex items-center gap-1"><PlayCircle className="w-3.5 h-3.5" />{course.episodesCount} حلقة</span>
-                {course.totalDurationSeconds > 0 && (
-                  <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{formatDuration(course.totalDurationSeconds)}</span>
+            مسح البحث وعرض كل الكورسات
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="courses-grid">
+          {visibleCourses.map((course, index) => (
+            <motion.div key={course.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.04, 0.3) }}>
+              <Link
+                to={`/my-studies/courses/${course.id}`}
+                className="lift flex items-start gap-3 rounded-3xl border border-[var(--c-border)] bg-[var(--c-surface)] p-4 transition-all group hover:border-[var(--c-primary-300)]"
+                data-testid="course-card"
+              >
+                {course.coverImageUrl ? (
+                  <img
+                    src={course.coverImageUrl}
+                    alt={course.title}
+                    className="w-12 h-12 rounded-2xl object-cover shrink-0"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'var(--c-primary-50)', color: 'var(--c-primary-700)' }}>
+                    <GraduationCap className="w-6 h-6" />
+                  </div>
                 )}
-                <span className="inline-flex items-center gap-1"><Eye className="w-3.5 h-3.5" />{course.totalViewsCount}</span>
-              </div>
-            </div>
-          </Link>
-        </motion.div>
-      ))}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-[var(--c-text)] truncate group-hover:text-[var(--c-primary-700)] transition-colors">
+                      {course.title}
+                    </span>
+                    {course.publicCode && (
+                      <span
+                        className="shrink-0 rounded-md bg-[var(--c-bg-hover)] px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-[var(--c-text-muted)]"
+                        lang="en"
+                        data-testid="course-card-code"
+                        title="رمز الكورس"
+                      >
+                        {course.publicCode}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-[var(--c-text-muted)] line-clamp-2 mt-0.5">{course.description || course.subjectNameAr}</p>
+                  <div className="flex flex-wrap items-center gap-2.5 text-xs text-[var(--c-text-muted)] mt-1.5">
+                    <span className="px-2 py-0.5 rounded-full bg-[var(--c-bg-hover)] font-medium inline-flex items-center gap-1">
+                      <BookOpen className="w-3 h-3" />{course.subjectNameAr}
+                    </span>
+                    <span className="inline-flex items-center gap-1"><PlayCircle className="w-3.5 h-3.5" />{course.episodesCount} حلقة</span>
+                    {course.totalDurationSeconds > 0 && (
+                      <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{formatDuration(course.totalDurationSeconds)}</span>
+                    )}
+                    <span className="inline-flex items-center gap-1"><Eye className="w-3.5 h-3.5" />{course.totalViewsCount}</span>
+                  </div>
+                </div>
+              </Link>
+            </motion.div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

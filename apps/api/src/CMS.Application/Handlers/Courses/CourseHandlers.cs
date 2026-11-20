@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using CMS.Application.BackgroundJobs;
 using CMS.Application.Commands.Courses;
+using CMS.Application.Common;
 using CMS.Application.DTOs.Courses;
 using CMS.Application.DTOs.Media;
 using CMS.Application.Interfaces;
@@ -128,10 +129,23 @@ public class CourseHandlers :
         if (!await _entitlements.CanAccessSubjectContentAsync(req.StudentId, req.SubjectId, SubscriptionContentScope.VideoAudio, ct))
             return [];
 
-        var courses = await _db.Courses.AsNoTracking()
+        var coursesQuery = _db.Courses.AsNoTracking()
             .Where(course => course.SubjectId == req.SubjectId
                 && course.Status == ContentStatus.Published
-                && course.DeletedAt == null)
+                && course.DeletedAt == null);
+
+        // W20.3 — name OR code search: a digit-only term (≤ 6 digits) also matches
+        // its zero-padded code form ("1234" finds "001234").
+        if (!string.IsNullOrWhiteSpace(req.Search))
+        {
+            var term = req.Search.Trim();
+            var codeTerm = PublicCodes.NormalizeSearchTerm(term);
+            coursesQuery = coursesQuery.Where(course => course.Title.Contains(term)
+                || (course.Description != null && course.Description.Contains(term))
+                || (codeTerm != null && course.PublicCode == codeTerm));
+        }
+
+        var courses = await coursesQuery
             .OrderByDescending(course => course.CreatedAt)
             .Select(course => new CourseListItemDto(
                 course.Id,
@@ -142,7 +156,9 @@ public class CourseHandlers :
                 course.CoverImageUrl,
                 course.Episodes.Count(episode => episode.DeletedAt == null),
                 course.Episodes.Where(episode => episode.DeletedAt == null).Sum(episode => episode.DurationSeconds ?? 0),
-                course.Episodes.Where(episode => episode.DeletedAt == null).Sum(episode => episode.ViewsCount)))
+                course.Episodes.Where(episode => episode.DeletedAt == null).Sum(episode => episode.ViewsCount),
+                course.PublicCode
+            ))
             .ToListAsync(ct);
 
         return courses;
@@ -245,6 +261,10 @@ public class CourseHandlers :
             CoverImageUrl = req.CoverImageUrl,
             Status = ContentStatus.Draft
         };
+        // W20.3 (owner decision 1) — auto-assign the unique six-digit public code
+        // at creation (the COURSE as a whole; episodes never carry their own codes).
+        course.AssignPublicCode(await PublicCodes.GenerateUniqueAsync(
+            code => _db.Courses.AsNoTracking().AnyAsync(c => c.PublicCode == code, ct), ct));
         typeof(Course).GetProperty("CreatedBy")?.SetValue(course, req.CreatedBy);
 
         await _db.Courses.AddAsync(course, ct);
@@ -903,7 +923,8 @@ public class CourseHandlers :
             .Where(episode => episode.DeletedAt == null)
             .OrderBy(episode => episode.EpisodeNumber)
             .Select(MapToEpisodeDto)
-            .ToList());
+            .ToList(),
+        course.PublicCode);
 
     private static CourseEpisodeDto MapToEpisodeDto(CourseEpisode episode) => new(
         episode.Id, episode.CourseId, episode.Title, episode.EpisodeNumber, episode.DurationSeconds,
