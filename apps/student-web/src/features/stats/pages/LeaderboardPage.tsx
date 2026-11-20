@@ -233,7 +233,8 @@ export default function LeaderboardPage() {
             <div className="flex-1 min-w-0">
               <div className="font-medium text-[var(--c-text)] truncate">
                 {entry.studentName}
-                {entry.isYou && <span className="text-xs text-[var(--c-primary-700)] mr-1">(أنت)</span>}
+                {/* W19.4 (D-36): ms-1 (logical) — was a physical margin-right, wrong side in RTL. */}
+                {entry.isYou && <span className="text-xs text-[var(--c-primary-700)] ms-1">(أنت)</span>}
               </div>
               <div className="text-xs text-[var(--c-text-muted)]" lang="en">{entry.questionsAnswered} سؤال</div>
             </div>
@@ -268,6 +269,9 @@ function PodiumCard({ entry, rank, config, height }: { entry: LeaderboardEntry; 
         {entry.studentName.charAt(0)}
       </div>
       <div className="text-xs font-medium text-[var(--c-text)] truncate max-w-[80px] text-center mb-1">{entry.studentName}</div>
+      {/* W19.4 (D-36): the podium marks «أنت» too — being ranked 1-3 must not
+          lose the self-marker the list rows and the outside-top-3 card have. */}
+      {entry.isYou && <div className="text-[10px] font-semibold text-[var(--c-primary-700)] mb-1" data-testid="podium-is-you">(أنت)</div>}
       <div className="text-[10px] text-[var(--c-text-muted)] mb-2" lang="en">{entry.accuracy.toFixed(0)}%</div>
       {/* Podium */}
       <div className={`w-full ${height} rounded-t-xl flex flex-col items-center justify-center`}
