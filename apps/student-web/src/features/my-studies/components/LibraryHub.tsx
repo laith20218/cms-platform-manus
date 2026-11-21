@@ -109,12 +109,12 @@ export function LibraryHub({
   const [activeFormat, setActiveFormat] = useState<FormatKey>('all');
   const [selectedFile, setSelectedFile] = useState<HubLibraryFile | null>(null);
   // W20.4 (owner decision 2) — the file-open loading LAYER: a % progress
-  // overlay between the card click and the viewer. Streaming kinds (video/
-  // audio) hand off directly — their players own buffering, and a byte-% would
-  // misrepresent streaming; every other kind runs a wrapper-level progress
-  // fetch of the SAME /library/{id}/content channel the viewers read (C2 rule:
-  // progress comes from fetch/XHR in non-frozen code, never from inside the
-  // frozen player cores).
+  // overlay between the card click and the viewer. Video/audio stream and
+  // html reads its own token-gated channel (R51) — those three hand off
+  // directly; every other kind runs a wrapper-level progress fetch of the
+  // SAME /library/{id}/content channel the viewers read (C2 rule: progress
+  // comes from fetch/XHR in non-frozen code, never from inside the frozen
+  // player cores).
   const [opening, setOpening] = useState<{
     file: HubLibraryFile;
     /** 0-100 when the server reports Content-Length; null = indeterminate. */
@@ -256,8 +256,13 @@ export function LibraryHub({
   // المحاولة) — a failure never leaves a silent blank.
   const openFile = useCallback(async (file: HubLibraryFile) => {
     const rawType = (file.type ?? '').trim().toLowerCase();
-    if (rawType === 'video' || rawType === 'audio') {
-      // Streaming kinds: the player streams progressively; hand off directly.
+    // Direct handoff (no byte-% layer):
+    //  - video/audio: streamed progressively by their players — a byte-% would
+    //    misrepresent streaming;
+    //  - html: the HtmlPlayer owns its own «جارٍ تجهيز الدرس التفاعلي…» state and
+    //    reads the token-gated /html-view channel (R51) — it never touches the
+    //    /content channel this layer measures.
+    if (rawType === 'video' || rawType === 'audio' || rawType === 'html') {
       setSelectedFile(file);
       return;
     }

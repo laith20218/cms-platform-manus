@@ -110,14 +110,14 @@ describe('W20.4 — the file-open loading layer', () => {
   it('a non-streaming card opens the LAYER (bar + percent + cancel), then hands off to the viewer', async () => {
     // Hold the content fetch open until the layer assertions ran — the mock
     // resolving instantly would flash the layer away before it can be locked.
-    let releaseContent: (() => void) | null = null;
+    const gate: { release: () => void } = { release: () => {} };
     getMock.mockImplementation(async (url: string) => {
       if (url.includes('/subjects/my-subjects')) return { data: MY_SUBJECTS };
       if (url.includes('/library/subject/s1')) {
         return { data: { items: [PDF, VIDEO], total: 2, page: 1, pageSize: 100, totalPages: 1 } };
       }
       if (url.includes('/library/file-1/content')) {
-        await new Promise<void>((resolve) => { releaseContent = resolve; });
+        await new Promise<void>((resolve) => { gate.release = resolve; });
         return { data: new Blob(['pdf-bytes']) };
       }
       return { data: [] };
@@ -143,7 +143,7 @@ describe('W20.4 — the file-open loading layer', () => {
 
     // Release the fetch → handoff: the layer clears and the unchanged
     // DocumentViewer mounts.
-    releaseContent?.();
+    gate.release();
     await waitFor(() => expect(screen.queryByTestId('file-open-layer')).toBeNull(), { timeout: 4000 });
     expect(screen.getByTestId('document-viewer-stub').textContent).toBe('ملف القلب');
   });
@@ -208,17 +208,31 @@ describe('W20.4 — the file-open loading layer', () => {
     expect(screen.getAllByTestId('library-card').length).toBe(1);
   });
 
-  it('a streaming kind (video) hands off directly — no byte-% layer', async () => {
-    stubLibrary();
+  it('streaming (video) and token-gated (html) kinds hand off directly — no byte-% layer', async () => {
+    const HTML = file('file-3', 'Html', 'درس تفاعلي');
+    getMock.mockImplementation(async (url: string) => {
+      if (url.includes('/subjects/my-subjects')) return { data: MY_SUBJECTS };
+      if (url.includes('/library/subject/s1')) {
+        return { data: { items: [VIDEO, HTML], total: 2, page: 1, pageSize: 100, totalPages: 1 } };
+      }
+      return { data: [] };
+    });
     renderHub();
 
     await waitFor(() => expect(screen.getAllByTestId('library-card').length).toBe(2), { timeout: 4000 });
+
+    // Video — streamed by its player.
     const videoCard = screen.getAllByTestId('library-card').find((card) => card.textContent?.includes('فيديو القلب'));
     fireEvent.click(videoCard!);
-
-    // Direct handoff: the viewer mounts with NO layer in between.
     await waitFor(() => expect(screen.getByTestId('document-viewer-stub').textContent).toBe('فيديو القلب'), { timeout: 4000 });
     expect(screen.queryByTestId('file-open-layer')).toBeNull();
-    expect(getMock.mock.calls.some(([url]) => String(url).includes('/library/file-2/content'))).toBe(false);
+
+    // HTML — the HtmlPlayer owns its loading state and reads the token-gated
+    // /html-view channel (R51); the /content channel is never fetched for it.
+    const htmlCard = screen.getAllByTestId('library-card').find((card) => card.textContent?.includes('درس تفاعلي'));
+    fireEvent.click(htmlCard!);
+    await waitFor(() => expect(screen.getByTestId('document-viewer-stub').textContent).toBe('درس تفاعلي'), { timeout: 4000 });
+    expect(screen.queryByTestId('file-open-layer')).toBeNull();
+    expect(getMock.mock.calls.some(([url]) => String(url).includes('/content'))).toBe(false);
   });
 });
