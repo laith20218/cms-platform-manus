@@ -3,6 +3,28 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// ---------------------------------------------------------------------------
+// Hybrid shell endpoints (Batch 0). Public configuration only — never secrets.
+// Both values must be absolute HTTPS URLs and are overridable per build via
+// gradle properties, e.g.:
+//   ./gradlew :app:assembleDebug -PSTUDENT_WEB_BASE_URL=https://app.cms.example.com
+// ---------------------------------------------------------------------------
+fun requireHttpsUrl(name: String, value: String) {
+    if (!value.startsWith("https://") || value.drop("https://".length).isBlank()) {
+        throw GradleException("$name must be an absolute HTTPS URL (got: '$value')")
+    }
+    if ('"' in value || '\\' in value) {
+        throw GradleException("$name must not contain quotes or backslashes")
+    }
+}
+
+val studentWebBaseUrl = providers.gradleProperty("STUDENT_WEB_BASE_URL")
+    .orElse("https://app.cms.example.com").get().trim()
+    .also { requireHttpsUrl("STUDENT_WEB_BASE_URL", it) }
+val apiBaseUrl = providers.gradleProperty("API_BASE_URL")
+    .orElse("https://api.cms.example.com").get().trim()
+    .also { requireHttpsUrl("API_BASE_URL", it) }
+
 android {
     namespace = "com.cms.student"
     compileSdk = 35
@@ -19,6 +41,11 @@ android {
         buildConfigField("String", "OFFLINE_API_BASE_URL", "\"\"")
         buildConfigField("String", "OFFLINE_MANIFEST_SIGNING_PUBLIC_KEY_SPKI_BASE64", "\"\"")
         buildConfigField("String", "OFFLINE_KEYSTORE_ALIAS", "\"cms.offline.package.key\"")
+        // Hybrid WebView shell (Batch 0): HTTPS-only student web + API endpoints.
+        // Defaults are the documented placeholder domains in deploy/; release or local
+        // builds override them with -PSTUDENT_WEB_BASE_URL=... / -PAPI_BASE_URL=...
+        buildConfigField("String", "STUDENT_WEB_BASE_URL", "\"$studentWebBaseUrl\"")
+        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
     buildTypes {
