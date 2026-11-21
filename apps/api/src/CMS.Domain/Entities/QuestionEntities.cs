@@ -124,7 +124,7 @@ public class Question : AuditableEntity
     public void UpdateExplanation(string explanation)
     {
         if (string.IsNullOrWhiteSpace(explanation))
-            throw new DomainException("Explanation is required");
+            throw new BusinessRuleViolationException("الشرح مطلوب"); // W23.2 (A3): Arabic product-consistent domain message, project-standard exception type.
         Explanation = explanation;
         UpdatedAt = DateTime.UtcNow;
     }
