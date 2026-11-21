@@ -1,6 +1,8 @@
 using System.Text.Json;
 using CMS.Application.Commands.Exams;
+using CMS.Application.Common;
 using CMS.Application.DTOs.Exams;
+using CMS.Application.DTOs.Questions;
 using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
 using CMS.Domain.Enums;
@@ -431,6 +433,20 @@ public sealed class ExamSessionHandlers :
                     answers.GetValueOrDefault(question.Id)?.SelectedAnswer is { } selected && AnswerContainsOption(selected, option.Id)))
                 .ToList();
             var answer = answers.GetValueOrDefault(question.Id);
+            // W20.5 — the matching surface for the review UI: prompts + targets whenever
+            // the snapshot row is Matching; the correct pairs only behind the reveal flag.
+            MatchingStudentDto? matchingSurface = null;
+            List<MatchingPairDto>? correctPairs = null;
+            if (question.QuestionType == QuestionType.Matching && question.MatchingJson is not null)
+            {
+                var matchingPayload = CMS.Domain.ValueObjects.MatchingPayload.Deserialize(question.MatchingJson);
+                matchingSurface = MatchingMapper.ToStudentDto(matchingPayload);
+                if (session.ShowCorrectAnswersSnapshot)
+                {
+                    correctPairs = matchingPayload.Pairs
+                        .Select(pair => new MatchingPairDto(pair.PromptId, pair.TargetId)).ToList();
+                }
+            }
             return new ReviewQuestionDto(
                 question.Id,
                 question.SourceQuestionId ?? Guid.Empty,
@@ -441,7 +457,9 @@ public sealed class ExamSessionHandlers :
                 answer?.SelectedAnswer,
                 session.ShowCorrectAnswersSnapshot ? CorrectAnswerDisplay(question) : null,
                 session.ShowCorrectAnswersSnapshot ? answer?.IsCorrect : null,
-                session.ShowExplanationsSnapshot ? question.Explanation : null);
+                session.ShowExplanationsSnapshot ? question.Explanation : null,
+                matchingSurface,
+                correctPairs);
         }).ToList();
 
         return new ExamReviewDto(session.Id, session.ShowCorrectAnswersSnapshot, session.ShowExplanationsSnapshot, questions);
@@ -851,7 +869,10 @@ public sealed class ExamSessionHandlers :
             ExplanationHtml = question.ExplanationHtml,
             Reference = question.Reference,
             TagsJson = JsonSerializer.Serialize(question.Tags, ExamQueryHandlers.SerializerOptions),
-            ImagesJson = JsonSerializer.Serialize(imageSnapshots, ExamQueryHandlers.SerializerOptions)
+            ImagesJson = JsonSerializer.Serialize(imageSnapshots, ExamQueryHandlers.SerializerOptions),
+            // W20.5 — the matching payload snapshotted verbatim (prompts + targets +
+            // pairs); NULL for every non-Matching snapshot row.
+            MatchingJson = question.MatchingJson
         };
     }
 
@@ -872,6 +893,15 @@ public sealed class ExamSessionHandlers :
                 throw new BusinessRuleViolationException("كل سؤال في اختبار المحاضرة يجب أن ينتمي إلى المحاضرة المحددة");
             if (question.Status != ContentStatus.Published || question.DeletedAt.HasValue)
                 throw new BusinessRuleViolationException("يمكن استخدام الأسئلة المنشورة وغير المحذوفة فقط");
+            if (question.Type == QuestionType.Matching)
+            {
+                // W20.5 — matching questions validate through their payload instead of
+                // options (Publish already gated it; re-check here for composed legacy rows).
+                if (question.GetMatchingPayload() is not { } matching)
+                    throw new BusinessRuleViolationException("سؤال الوصل المحدد لا يملك حمولة مطابقة صالحة");
+                matching.Validate();
+                continue;
+            }
             if (question.Type is not (QuestionType.Mcq or QuestionType.TrueFalse or QuestionType.MultipleSelect))
                 throw new BusinessRuleViolationException("الأسئلة التحريرية والأنواع غير الآلية لا تدخل الاختبارات المصححة آلياً حالياً");
             if (!question.Options.Any(option => option.IsCorrect) || question.Options.Count < 2)
@@ -909,6 +939,20 @@ public sealed class ExamSessionHandlers :
 
     private static void ValidateAnswerShape(ExamSessionQuestion snapshot, string answer)
     {
+        // W20.5 — matching answers are a JSON array of {promptId, targetId} pairs;
+        // every id must exist in the snapshotted payload (its own shape contract).
+        if (snapshot.QuestionType == QuestionType.Matching)
+        {
+            var payload = CMS.Domain.ValueObjects.MatchingPayload.Deserialize(
+                snapshot.MatchingJson ?? throw new DomainException("سؤال الوصل بلا حمولة مطابقة"));
+            var promptIds = payload.Prompts.Select(item => item.Id).ToHashSet();
+            var targetIds = payload.Targets.Select(item => item.Id).ToHashSet();
+            var pairs = MatchingMapper.ParseSubmittedPairs(answer);
+            if (pairs.Count == 0
+                || pairs.Any(pair => !promptIds.Contains(pair.PromptId) || !targetIds.Contains(pair.TargetId)))
+                throw new DomainException("الإجابة لا تنتمي إلى عناصر سؤال الوصل");
+            return;
+        }
         if (snapshot.QuestionType is not (QuestionType.Mcq or QuestionType.TrueFalse or QuestionType.MultipleSelect))
             throw new BusinessRuleViolationException("لا يدعم هذا الاختبار نوع السؤال المحدد للتصحيح الآلي");
         var optionIds = ExamQueryHandlers.Deserialize<List<ExamQueryHandlers.SnapshotOption>>(snapshot.OptionsJson).Select(option => option.Id).ToHashSet();
@@ -922,6 +966,14 @@ public sealed class ExamSessionHandlers :
     private static bool IsAnswerCorrect(ExamSessionQuestion snapshot, string? answer)
     {
         if (string.IsNullOrWhiteSpace(answer)) return false;
+        // W20.5 — matching: all-or-nothing bijection against the snapshotted pairs
+        // (the MultipleSelect exact-set precedent).
+        if (snapshot.QuestionType == QuestionType.Matching)
+        {
+            var payload = CMS.Domain.ValueObjects.MatchingPayload.Deserialize(
+                snapshot.MatchingJson ?? throw new DomainException("سؤال الوصل بلا حمولة مطابقة"));
+            return payload.Grade(MatchingMapper.ParseSubmittedPairs(answer)).IsCorrect;
+        }
         var options = ExamQueryHandlers.Deserialize<List<ExamQueryHandlers.SnapshotOption>>(snapshot.OptionsJson);
         var expected = options.Where(option => option.IsCorrect).Select(option => option.Id).OrderBy(id => id).ToArray();
         var selected = ParseSelectedOptionIds(answer).OrderBy(id => id).ToArray();
@@ -952,6 +1004,16 @@ public sealed class ExamSessionHandlers :
     {
         if (snapshot.QuestionType == QuestionType.Essay)
             return snapshot.CorrectAnswer;
+        // W20.5 — matching: «prompt ← target» rows (sorted by prompt order).
+        if (snapshot.QuestionType == QuestionType.Matching)
+        {
+            var payload = CMS.Domain.ValueObjects.MatchingPayload.Deserialize(
+                snapshot.MatchingJson ?? throw new DomainException("سؤال الوصل بلا حمولة مطابقة"));
+            var promptText = payload.Prompts.ToDictionary(item => item.Id, item => item.Text);
+            var targetText = payload.Targets.ToDictionary(item => item.Id, item => item.Text);
+            return string.Join(" | ", payload.Pairs
+                .Select(pair => $"{promptText.GetValueOrDefault(pair.PromptId, "?")} ← {targetText.GetValueOrDefault(pair.TargetId, "?")}"));
+        }
         var correct = ExamQueryHandlers.Deserialize<List<ExamQueryHandlers.SnapshotOption>>(snapshot.OptionsJson)
             .Where(option => option.IsCorrect)
             .OrderBy(option => option.SortOrder)

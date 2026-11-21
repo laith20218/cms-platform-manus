@@ -225,7 +225,8 @@ public class QuestionsController : ControllerBase
             dto.Difficulty, dto.Tags, dto.Options, dto.CorrectOptionId, dto.CorrectAnswer,
             dto.Explanation, dto.Reference, dto.Year, GetAdminId(),
             dto.ParagraphTag, GetSessionId(),
-            dto.SemesterCourseId // Wave 16.2 (C3-3)
+            dto.SemesterCourseId, // Wave 16.2 (C3-3)
+            dto.Matching // W20.5 — the وصل payload rides the existing create command
         ), ct);
         return CreatedAtAction(nameof(GetQuestion), new { id = result.Id }, result);
     }
@@ -242,7 +243,8 @@ public class QuestionsController : ControllerBase
         var result = await _mediator.Send(new UpdateQuestionCommand(
             id, dto.Text, dto.Difficulty, dto.Tags, dto.Explanation, dto.Reference, dto.Options, dto.CorrectAnswer,
             dto.Year, dto.ParagraphTag,
-            dto.SemesterCourseId // Wave 16.2 (C3-3)
+            dto.SemesterCourseId, // Wave 16.2 (C3-3)
+            dto.Matching // W20.5 — replaces the stored payload when provided
         ), ct);
         return Ok(result);
     }

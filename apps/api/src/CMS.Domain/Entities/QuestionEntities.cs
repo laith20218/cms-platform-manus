@@ -37,6 +37,13 @@ public class Question : AuditableEntity
     public string CorrectAnswer { get; private set; } = string.Empty;
     public string Explanation { get; private set; } = string.Empty;
     public string? ExplanationHtml { get; private set; }
+    /// <summary>
+    /// Wave 20.5 (owner decision 3) — the Matching (وصل) payload: two sets of
+    /// items (prompts + targets) with stable ids + the correct pairs map, serialized
+    /// as JSON. NULL on every non-Matching row (and Matching rows not yet authored).
+    /// Snapshot verbatim onto ExamSessionQuestion.MatchingJson by the exam engine.
+    /// </summary>
+    public string? MatchingJson { get; private set; }
 
     // Metadata
     public List<string> Tags { get; private set; } = new();
@@ -137,6 +144,24 @@ public class Question : AuditableEntity
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Wave 20.5 — stores the Matching (وصل) payload after full invariant validation
+    /// (equal counts, bijective pairs — see MatchingPayload.Validate). Only legal on
+    /// Matching-type questions; other types keep NULL.
+    /// </summary>
+    public void SetMatchingPayload(CMS.Domain.ValueObjects.MatchingPayload payload)
+    {
+        if (Type != QuestionType.Matching)
+            throw new DomainException("حمولة الوصل تُخزَّن على أسئلة الوصل فقط");
+        payload.Validate();
+        MatchingJson = payload.Serialize();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>W20.5 — parses the stored payload; null when the row carries none.</summary>
+    public CMS.Domain.ValueObjects.MatchingPayload? GetMatchingPayload() =>
+        MatchingJson is null ? null : CMS.Domain.ValueObjects.MatchingPayload.Deserialize(MatchingJson);
+
     /// <summary>Wave 16.2 (C3-3): sets or clears the exam-course ("دورة") anchor — a nullable
     /// scope annotation, never ownership: clearing it returns the question to bank-wide.</summary>
     public void SetSemesterCourse(Guid? semesterCourseId)
@@ -151,6 +176,15 @@ public class Question : AuditableEntity
         {
             if (string.IsNullOrWhiteSpace(CorrectAnswer))
                 throw new BusinessRuleViolationException("Cannot publish essay question without a model answer");
+        }
+        else if (Type == QuestionType.Matching)
+        {
+            // W20.5 — matching questions carry their payload instead of options;
+            // SetMatchingPayload already validated the invariants at write time,
+            // re-validate at the gate (defense against legacy/edited rows).
+            var payload = GetMatchingPayload()
+                ?? throw new BusinessRuleViolationException("لا يمكن نشر سؤال وصل بلا حمولة مطابقة");
+            payload.Validate();
         }
         else
         {

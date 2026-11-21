@@ -18,7 +18,13 @@ public record QuestionDto(
     bool IsFavorite,
     QuestionStatsDto? Stats,
     // Wave 16.2 (C3-3): the exam-course ("دورة") anchor — NULL = bank-wide question.
-    Guid? SemesterCourseId = null
+    Guid? SemesterCourseId = null,
+    // W20.5 — the FULL matching payload (admin authoring surface: carries the pairs).
+    // ONLY the admin create/update responses populate it; student reads never do.
+    MatchingPayloadDto? Matching = null,
+    // W20.5 — the STUDENT matching surface (prompts + targets, NO pairs). Populated
+    // by the student question read so the player can render وصل questions.
+    MatchingStudentDto? MatchingItems = null
 );
 
 public record QuestionListItemDto(
@@ -77,7 +83,9 @@ public record CreateQuestionDto(
     int? Year,
     string? ParagraphTag = null,
     // Wave 16.2 (C3-3): optional exam-course ("دورة") anchor.
-    Guid? SemesterCourseId = null
+    Guid? SemesterCourseId = null,
+    // W20.5 — Matching (وصل) payload; REQUIRED for type=Matching, ignored otherwise.
+    MatchingPayloadDto? Matching = null
 );
 
 public record CreateOptionDto(
@@ -97,7 +105,10 @@ public record UpdateQuestionDto(
     int? Year = null,
     string? ParagraphTag = null,
     // Wave 16.2 (C3-3): optional exam-course ("دورة") anchor.
-    Guid? SemesterCourseId = null
+    Guid? SemesterCourseId = null,
+    // W20.5 — Matching (وصل) payload; when provided on a Matching row it REPLACES
+    // the stored payload (full revalidation); null keeps the stored one.
+    MatchingPayloadDto? Matching = null
 );
 
 public record UpdateOptionDto(
@@ -125,7 +136,9 @@ public record AnswerResultDto(
     bool IsFirstAttempt,
     List<AchievementDto>? NewAchievements,
     UpdatedStatsDto? UpdatedStats,
-    string? CorrectAnswerText
+    string? CorrectAnswerText,
+    // W20.5 — matching per-pair correctness + the correct map (null on non-Matching).
+    MatchingResultDto? MatchingResult = null
 );
 
 public record AchievementDto(
@@ -241,7 +254,10 @@ public record AdminQuestionDetailDto(
     DateTime? UpdatedAt,
     string? ParagraphTag = null,
     // Wave 16.2 (C3-3): the exam-course ("دورة") anchor — NULL = bank-wide question.
-    Guid? SemesterCourseId = null
+    Guid? SemesterCourseId = null,
+    // W20.5 — the FULL matching payload (prompts + targets + pairs) for the admin
+    // editor; NULL on every non-Matching row.
+    MatchingPayloadDto? Matching = null
 );
 
 // ===== W14.2 B.4 (D12) — admin triage of question reports =====
