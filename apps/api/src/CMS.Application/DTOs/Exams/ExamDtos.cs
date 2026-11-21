@@ -74,7 +74,10 @@ public record ExamQuestionDto(
     string? TextHtml,
     List<ExamOptionDto> Options,
     List<ExamImageDto> Images,
-    string? SavedAnswer
+    string? SavedAnswer,
+    // W20.6 — the student matching surface (prompts + targets, NO pairs) for وصل
+    // snapshot rows; NULL on every non-Matching question.
+    MatchingStudentDto? Matching = null
 );
 
 public record ExamOptionDto(Guid Id, string Letter, string Text, string? TextHtml = null, string? ImageUrl = null);

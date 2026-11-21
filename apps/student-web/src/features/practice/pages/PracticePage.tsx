@@ -26,6 +26,11 @@ import { CatalogEntitlementErrorCard } from '@/features/my-studies/components/Ca
 // Wave 18.1 (D-13): the denial card variant is classified from the 403 reason
 // (getEntitlementReason → variantForReason) instead of hard-coding no-grants.
 import { getApiErrorMessage, getEntitlementReason } from '@/utils/api-error';
+import {
+  isMatchingType,
+  parseMatchingAnswer,
+  serializeMatchingAnswer,
+} from '@/features/questions/services/matching';
 // D-30 (Wave 18.4): the shared optimistic favorite toggle (was a local copy).
 import { useQuestionFavoriteToggle } from '@/features/questions/hooks/useQuestionFavoriteToggle';
 
@@ -114,6 +119,9 @@ function PracticePageInner() {
   const [feedback, setFeedback] = useState<Record<string, SubmitAnswerResult>>({});
   const [restored, setRestored] = useState<Record<string, RestoredState>>({});
   const [essayDrafts, setEssayDrafts] = useState<Record<string, string>>({});
+  // W20.6 — per-question وصل pairing maps (promptId → targetId), the matching
+  // counterpart of `selections`; restored from a resumed session's recorded answers.
+  const [matchingPairs, setMatchingPairs] = useState<Record<string, Record<string, string>>>({});
   const [pending, setPending] = useState<string | null>(null);
   const [resettingAll, setResettingAll] = useState(false);
   const [showResetAllConfirm, setShowResetAllConfirm] = useState(false);
@@ -169,7 +177,18 @@ function PracticePageInner() {
         ? await practiceApi.startCategorized(routeSubjectId!, filter)
         : await practiceApi.startExamModel(examModelId!);
       const restoredMap: Record<string, RestoredState> = {};
+      const restoredMatching: Record<string, Record<string, string>> = {};
+      const matchingIds = new Set(
+        (data.questions ?? []).filter((question) => isMatchingType(question.type)).map((question) => question.id),
+      );
       for (const answer of data.answers ?? []) {
+        // W20.6 — a وصل answer restores as its pairing map (never through the
+        // string[] parser, which would mangle the {promptId,targetId} JSON).
+        if (matchingIds.has(answer.questionId)) {
+          restoredMatching[answer.questionId] = parseMatchingAnswer(answer.selectedAnswer);
+          restoredMap[answer.questionId] = { selected: [], isCorrect: answer.isCorrect ?? null };
+          continue;
+        }
         restoredMap[answer.questionId] = {
           selected: parseSelectedAnswer(answer.selectedAnswer),
           isCorrect: answer.isCorrect ?? null,
@@ -185,6 +204,7 @@ function PracticePageInner() {
       });
       setRestored(restoredMap);
       setSelections(Object.fromEntries(Object.entries(restoredMap).map(([id, state]) => [id, state.selected])));
+      setMatchingPairs(restoredMatching);
       setFeedback({});
       setPhase('running');
     } catch (error) {
@@ -229,19 +249,29 @@ function PracticePageInner() {
   const submitAnswer = useCallback(async (question: PracticeQuestion) => {
     if (!start) return;
     const isEssay = question.type.toLowerCase() === 'essay';
+    const isMatching = isMatchingType(question.type);
     const selected = selections[question.id] ?? [];
     const essayText = (essayDrafts[question.id] ?? '').trim();
-    if (isEssay ? !essayText : selected.length === 0) {
-      toast.message(isEssay ? 'اكتب إجابتك أولاً.' : 'اختر إجابة أولاً.');
+    const pairs = matchingPairs[question.id] ?? {};
+    // W20.6 — the وصل submit gate: EVERY prompt paired before تصحيح.
+    const matchingComplete = isMatching
+      && Boolean(question.matching)
+      && question.matching!.prompts.every((prompt) => Boolean(pairs[prompt.id]));
+    if (isMatching ? !matchingComplete : isEssay ? !essayText : selected.length === 0) {
+      toast.message(isMatching
+        ? 'اربط كل العناصر أولاً.'
+        : isEssay ? 'اكتب إجابتك أولاً.' : 'اختر إجابة أولاً.');
       return;
     }
     setPending(question.id);
     try {
-      const payload = isEssay
-        ? essayText
-        : question.type === 'MultipleSelect'
-          ? JSON.stringify(selected)
-          : selected[0];
+      const payload = isMatching
+        ? serializeMatchingAnswer(pairs)
+        : isEssay
+          ? essayText
+          : question.type === 'MultipleSelect'
+            ? JSON.stringify(selected)
+            : selected[0];
       const result = await practiceApi.submitAnswer(start.sessionId, question.id, payload, filter);
       setFeedback((previous) => ({ ...previous, [question.id]: result }));
       setRestored((previous) => {
@@ -255,7 +285,7 @@ function PracticePageInner() {
     } finally {
       setPending(null);
     }
-  }, [essayDrafts, filter, refreshProgress, selections, start]);
+  }, [essayDrafts, filter, matchingPairs, refreshProgress, selections, start]);
 
   const resetQuestion = useCallback(async (question: PracticeQuestion) => {
     if (!start) return;
@@ -274,6 +304,12 @@ function PracticePageInner() {
       });
       setSelections((previous) => ({ ...previous, [question.id]: [] }));
       setEssayDrafts((previous) => ({ ...previous, [question.id]: '' }));
+      setMatchingPairs((previous) => {
+        if (!(question.id in previous)) return previous;
+        const next = { ...previous };
+        delete next[question.id];
+        return next;
+      });
       void refreshProgress();
       toast.message('أُعيد ضبط السؤال — يمكنك المحاولة من جديد.');
     } catch (error) {
@@ -304,6 +340,7 @@ function PracticePageInner() {
       setRestored({});
       setSelections({});
       setEssayDrafts({});
+      setMatchingPairs({});
       void refreshProgress();
       toast.message('أُعيد ضبط الجلسة بالكامل.');
     } catch (error) {
@@ -436,6 +473,8 @@ function PracticePageInner() {
             resetPending={pending === `reset:${question.id}`}
             essayDraft={essayDrafts[question.id] ?? ''}
             onEssayChange={(value) => setEssayDrafts((previous) => ({ ...previous, [question.id]: value }))}
+            matchingPairs={matchingPairs[question.id] ?? {}}
+            onMatchingPairsChange={(pairs) => setMatchingPairs((previous) => ({ ...previous, [question.id]: pairs }))}
             showBookmark
             isFavorite={favoriteOverrides[question.id] ?? false}
             onToggleFavorite={() => toggleQuestionFavorite(question.id, favoriteOverrides[question.id] ?? false)}

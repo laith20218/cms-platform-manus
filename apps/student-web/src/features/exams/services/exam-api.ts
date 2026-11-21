@@ -1,5 +1,6 @@
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
+import type { MatchingPair, MatchingStudentPayload } from '@/features/questions/services/matching';
 
 export interface ExamOption { id: string; letter: string; text: string; textHtml?: string | null; imageUrl?: string | null }
 export interface ExamImage { id: string; imageUrl: string; altText?: string | null; caption?: string | null; sortOrder: number }
@@ -13,6 +14,8 @@ export interface ExamQuestion {
   options: ExamOption[];
   images: ExamImage[];
   savedAnswer?: string | null;
+  /** W20.6 — the وصل surface (prompts + targets, NO pairs); null on non-Matching. */
+  matching?: MatchingStudentPayload | null;
 }
 export interface ExamSession {
   sessionId: string;
@@ -59,7 +62,22 @@ export interface ExamResult {
   attempts?: ExamAttemptHistory[] | null;
 }
 export interface ExamReviewOption { id: string; letter: string; text: string; isCorrect: boolean; isUserAnswer: boolean }
-export interface ExamReviewQuestion { id: string; sourceQuestionId: string; number: number; type: string; text: string; options: ExamReviewOption[]; userAnswer?: string | null; correctAnswer?: string | null; isCorrect?: boolean | null; explanation?: string | null }
+export interface ExamReviewQuestion {
+  id: string;
+  sourceQuestionId: string;
+  number: number;
+  type: string;
+  text: string;
+  options: ExamReviewOption[];
+  userAnswer?: string | null;
+  correctAnswer?: string | null;
+  isCorrect?: boolean | null;
+  explanation?: string | null;
+  /** W20.6 — the وصل surface (prompts + targets) for review rendering. */
+  matching?: MatchingStudentPayload | null;
+  /** W20.6 — the reveal-gated correct pairs (only when showCorrectAnswers). */
+  correctPairs?: MatchingPair[] | null;
+}
 export interface ExamReview { sessionId: string; showCorrectAnswers: boolean; showExplanations: boolean; questions: ExamReviewQuestion[] }
 
 function idempotencyKey() {

@@ -8,7 +8,14 @@ import {
   BookOpen, Clock, BarChart3, ArrowRight, ListChecks, FileQuestion,
 } from 'lucide-react';
 import { questionApi } from './services/question-api';
+import {
+  isMatchingType,
+  serializeMatchingAnswer,
+  type MatchingResult,
+  type MatchingStudentPayload,
+} from './services/matching';
 import { FavoriteListPicker } from '@/features/favorites/components/FavoriteListPicker';
+import { MatchingQuestion } from '@/components/MatchingQuestion';
 import { LockedEmptyState } from '@/features/my-studies/components/LockedEmptyState';
 import { isEntitlementDenied } from '@/features/my-studies/services/courses-api';
 import { getHttpStatus } from '@/utils/api-error';
@@ -37,6 +44,8 @@ interface QuestionData {
   /** Present only on the FULL question payload (GET /questions/{id}).
    *  The lecture LIST endpoint returns a light DTO without options — Push 9. */
   options?: QuestionOption[];
+  /** W20.6 — the وصل surface (prompts + targets, NO pairs); full payload only. */
+  matchingItems?: MatchingStudentPayload | null;
   userAnswer?: { selectedOptionId: string; isCorrect: boolean; isFirstAttempt: boolean; answeredAt: string } | null;
   isFavorite: boolean;
   stats?: { attemptsCount: number; correctRate: number };
@@ -51,6 +60,8 @@ interface AnswerResult {
   reference?: string;
   isFirstAttempt: boolean;
   updatedStats?: { questionsAnswered: number; correctAnswers: number; accuracy: number; currentStreak: number };
+  /** W20.6 — matching per-pair correctness + the correct map. */
+  matchingResult?: MatchingResult | null;
 }
 
 /** Normalizes the API's PascalCase enums ("Easy"/"Mcq") to UI-safe lowercase. */
@@ -68,6 +79,8 @@ export default function QuestionPage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [essayAnswer, setEssayAnswer] = useState('');
+  // W20.6 — the وصل pairing map for the CURRENT question (promptId → targetId).
+  const [matchingPairs, setMatchingPairs] = useState<Record<string, string>>({});
   const [answerResult, setAnswerResult] = useState<AnswerResult | null>(null);
   // D-45 (Wave 18.3): the report flow delegates to the shared dialog — the
   // inline duplicate (reason chips + textarea + mutation) is gone.
@@ -125,6 +138,7 @@ export default function QuestionPage() {
   useEffect(() => {
     setSelectedOption(null);
     setEssayAnswer('');
+    setMatchingPairs({});
     setAnswerResult(null);
     setShowReport(false);
     setQuestionStartTime(Date.now());
@@ -159,6 +173,11 @@ export default function QuestionPage() {
   }, [answerResult]);
 
   const isEssay = normalizedType(currentQuestion) === 'essay';
+  // W20.6 — a وصل question renders the shared MatchingQuestion board instead of
+  // options; the light list item carries neither options NOR matchingItems, so the
+  // Push 9 hydration path drives this surface too (skeleton → full payload).
+  const isMatching = isMatchingType(currentQuestion?.type);
+  const matchingPayload = currentQuestion?.matchingItems ?? null;
 
   // W20.2 (owner decision 4) — the explanation auto-opens with the reveal (no
   // second click), and a payload WITHOUT explanation text must NOT paint an
@@ -171,6 +190,13 @@ export default function QuestionPage() {
     if (isEssay) {
       if (!essayAnswer.trim()) return;
       answerMutation.mutate({ questionId: currentQuestion.id, answerText: essayAnswer.trim() });
+      return;
+    }
+    if (isMatching) {
+      // Submit gate: EVERY prompt paired (the brief's «all paired → تصحيح»). The
+      // answer rides selectedOptionId as the W20.5 wire JSON.
+      if (!matchingPayload || !matchingPayload.prompts.every((prompt) => matchingPairs[prompt.id])) return;
+      answerMutation.mutate({ questionId: currentQuestion.id, optionId: serializeMatchingAnswer(matchingPairs) });
       return;
     }
     if (!selectedOption) return;
@@ -370,7 +396,7 @@ export default function QuestionPage() {
             {currentQuestion.text}
           </p>
 
-          {/* Options or typed answer */}
+          {/* Options, typed answer, or the وصل board (W20.6) */}
           {isEssay ? (
             <div className="space-y-2">
               <label htmlFor="essay-answer" className="block text-sm font-bold text-[var(--c-text-soft)]">اكتب إجابتك</label>
@@ -408,7 +434,11 @@ export default function QuestionPage() {
                 </p>
               ) : (
                 <>
-                  <p className="font-semibold text-[var(--cms-danger-700)]">تعذّر تحميل خيارات هذا السؤال — تحقّق من اتصالك ثم أعد المحاولة.</p>
+                  <p className="font-semibold text-[var(--cms-danger-700)]">
+                    {isMatching
+                      ? 'تعذّر تحميل عناصر سؤال الوصل — تحقّق من اتصالك ثم أعد المحاولة.'
+                      : 'تعذّر تحميل خيارات هذا السؤال — تحقّق من اتصالك ثم أعد المحاولة.'}
+                  </p>
                   <button
                     type="button"
                     onClick={() => refetchHydration()}
@@ -419,6 +449,27 @@ export default function QuestionPage() {
                 </>
               )}
             </div>
+          ) : isMatching ? (
+            matchingPayload ? (
+              <MatchingQuestion
+                payload={matchingPayload}
+                pairs={matchingPairs}
+                onPairsChange={isAnswered || answerMutation.isPending ? undefined : setMatchingPairs}
+                locked={isAnswered || answerMutation.isPending}
+                result={answerResult?.matchingResult ?? null}
+                testIdPrefix="question"
+                questionId={currentQuestion.id}
+              />
+            ) : (
+              // Full payload arrived but carries NO وصل surface — honest calm
+              // state (Wave 18.1: only after a confirmed-empty full fetch).
+              <div
+                className="rounded-xl border border-dashed border-[var(--c-border-strong)] bg-[var(--c-bg-hover)] p-5 text-center text-sm text-[var(--c-text-muted)]"
+                data-testid="question-matching-unavailable"
+              >
+                عناصر سؤال الوصل غير متوفرة بعد — سيصبح متاحاً فور اكتمال نشره.
+              </div>
+            )
           ) : options.length === 0 ? (
             // Full payload arrived but the question has no options published —
             // honest calm state instead of a broken card.
@@ -555,12 +606,17 @@ export default function QuestionPage() {
             {!isAnswered ? (
               <button
                 onClick={handleConfirmAnswer}
-                disabled={(isEssay ? !essayAnswer.trim() : !selectedOption) || answerMutation.isPending || awaitingOptions || optionsLoadFailed}
+                disabled={
+                  (isMatching
+                    ? !matchingPayload || !matchingPayload.prompts.every((prompt) => matchingPairs[prompt.id])
+                    : isEssay ? !essayAnswer.trim() : !selectedOption)
+                  || answerMutation.isPending || awaitingOptions || optionsLoadFailed
+                }
                 className="flex items-center gap-2 px-5 py-2.5 rounded-[10px] font-bold text-sm text-white transition-all disabled:opacity-50"
                 style={{ background: 'var(--grad-primary)', boxShadow: '0 4px 12px rgba(25,118,210,0.25)' }}
               >
                 {answerMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                {isEssay ? 'تصحيح الإجابة' : 'تأكيد الإجابة'}
+                {isMatching || isEssay ? 'تصحيح الإجابة' : 'تأكيد الإجابة'}
               </button>
             ) : (
               <button

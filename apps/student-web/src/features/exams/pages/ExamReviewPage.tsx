@@ -9,6 +9,7 @@ import { QuestionRow } from '@/components/QuestionRow';
 // copy, never the policy-forbids claim; a REAL policy denial arrives as a 403
 // whose Arabic ProblemDetails `detail` is shown verbatim.
 import { mapApiErrorToUi } from '@/utils/api-error';
+import { isMatchingType, parseMatchingAnswer } from '@/features/questions/services/matching';
 
 /**
  * W15.0 (P4-C3) — the exam review now renders through the SAME shared <QuestionRow>
@@ -85,6 +86,14 @@ export default function ExamReviewPage() {
             correctAnswerText: question.correctAnswer ?? null,
             explanation: question.explanation ?? null,
           }}
+          reviewMatching={
+            isMatchingType(question.type) && question.matching
+              ? {
+                  userPairs: parseMatchingAnswer(question.userAnswer),
+                  correctPairs: review.showCorrectAnswers ? question.correctPairs ?? null : null,
+                }
+              : null
+          }
         />
       ))}
     </div>

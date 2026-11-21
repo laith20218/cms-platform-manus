@@ -1,5 +1,12 @@
 import { BookOpen, Check, Flag, ListChecks, Loader2, RotateCcw, Star, Tag, X } from 'lucide-react';
 import { cn } from '@/utils';
+import { MatchingQuestion } from '@/components/MatchingQuestion';
+import {
+  isMatchingType,
+  type MatchingPair,
+  type MatchingResult,
+  type MatchingStudentPayload,
+} from '@/features/questions/services/matching';
 
 /**
  * W15.0 (P4) — the ONE shared inline question row. Replaces the per-feature "one card
@@ -32,11 +39,13 @@ export interface QuestionRowData {
   id: string;
   number?: number | null;
   text: string;
-  /** 'Mcq' | 'MultipleSelect' | 'TrueFalse' | 'Essay' (case-insensitive essay check). */
+  /** 'Mcq' | 'MultipleSelect' | 'TrueFalse' | 'Essay' | 'Matching' (case-insensitive). */
   type: string;
   paragraphTag?: string | null;
   options: QuestionRowOptionData[];
   images?: { id: string; imageUrl: string; altText?: string | null }[];
+  /** W20.6 — the وصل surface (prompts + targets, NO pairs); null on non-Matching. */
+  matching?: MatchingStudentPayload | null;
 }
 
 export interface QuestionRowFeedback {
@@ -47,6 +56,8 @@ export interface QuestionRowFeedback {
   correctAnswerText?: string | null;
   explanation?: string | null;
   reference?: string | null;
+  /** W20.6 — matching per-pair correctness + the correct map (the reveal). */
+  matchingResult?: MatchingResult | null;
 }
 
 export interface QuestionRowProps {
@@ -71,6 +82,13 @@ export interface QuestionRowProps {
   // ===== essay =====
   essayDraft?: string;
   onEssayChange?: (value: string) => void;
+
+  // ===== matching (W20.6) =====
+  /** promptId → targetId for THIS question (controlled, like `selected`). */
+  matchingPairs?: Record<string, string>;
+  onMatchingPairsChange?: (pairs: Record<string, string>) => void;
+  /** Review mode: the recorded وصل answer + the reveal-gated correct map. */
+  reviewMatching?: { userPairs: Record<string, string>; correctPairs: MatchingPair[] | null } | null;
 
   // ===== review (read-only mode) =====
   readOnly?: boolean;
@@ -106,6 +124,9 @@ export function QuestionRow({
   resetPending,
   essayDraft,
   onEssayChange,
+  matchingPairs,
+  onMatchingPairsChange,
+  reviewMatching,
   readOnly,
   reviewOptions,
   showCorrectAnswers,
@@ -120,9 +141,16 @@ export function QuestionRow({
   const prefix = testIdPrefix;
   const isEssay = question.type.toLowerCase() === 'essay';
   const isMultiple = question.type === 'MultipleSelect';
+  const isMatching = isMatchingType(question.type) && Boolean(question.matching);
   const hasOptions = question.options.length > 0;
   const answered = isAnswered || readOnly === true;
   const canInteract = !readOnly && !answered && !pending;
+  // W20.6 — the وصل submit gate: EVERY prompt must carry a target (the brief's
+  // «Submit/تصحيح enabled when all paired»), mirroring selected.length for choices.
+  const matchingComplete = isMatching
+    ? Boolean(question.matching) && question.matching!.prompts.every((prompt) => Boolean(matchingPairs?.[prompt.id]))
+    : false;
+  const canConfirm = isMatching ? matchingComplete : isEssay ? Boolean(essayDraft?.trim()) : selected.length > 0;
 
   const optionState = (optionId: string, optionIndex: number): 'correct' | 'wrong' | 'selected' | 'idle' => {
     const isSelected = selected.includes(optionId);
@@ -257,8 +285,20 @@ export function QuestionRow({
         </div>
       )}
 
-      {/* Essay: textarea (interactive) or recorded answer (review). */}
-      {isEssay ? (
+      {/* Matching (W20.6): the وصل board REPLACES the options list. Interactive →
+          controlled pairing; post-answer → per-pair reveal; review → recorded answer. */}
+      {isMatching ? (
+        <MatchingQuestion
+          payload={question.matching!}
+          pairs={matchingPairs ?? {}}
+          onPairsChange={canInteract ? onMatchingPairsChange : undefined}
+          locked={answered || pending === true}
+          result={feedback?.matchingResult ?? null}
+          review={readOnly && reviewMatching ? reviewMatching : null}
+          testIdPrefix={prefix}
+          questionId={question.id}
+        />
+      ) : isEssay ? (
         readOnly ? (
           <div className="rounded-xl border border-[var(--cms-line)] p-3 text-sm text-[var(--cms-text-soft)]">
             <strong className="text-[var(--cms-text)]">إجابتك:</strong> {userAnswerText || 'لم تُسجل إجابة.'}
@@ -370,7 +410,10 @@ export function QuestionRow({
                 )}
               >
                 {feedback.isCorrect === true && <><Check className="w-4 h-4" aria-hidden="true" />إجابة صحيحة</>}
-                {feedback.isCorrect === false && <><X className="w-4 h-4" aria-hidden="true" />إجابة خاطئة — الخيار الصحيح مظلل بالأخضر</>}
+                {feedback.isCorrect === false && <>
+                  <X className="w-4 h-4" aria-hidden="true" />
+                  {isMatching ? 'إجابة خاطئة — الربط الصحيح ظاهر بجانب كل عنصر' : 'إجابة خاطئة — الخيار الصحيح مظلل بالأخضر'}
+                </>}
                 {feedback.isCorrect == null && <><ListChecks className="w-4 h-4" aria-hidden="true" />سُجلت إجابتك — قارنها بالإجابة النموذجية</>}
               </div>
               {feedback.isCorrect == null && feedback.correctAnswerText && (
@@ -410,13 +453,13 @@ export function QuestionRow({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={pending || (isEssay ? !essayDraft?.trim() : selected.length === 0)}
+            disabled={pending || !canConfirm}
             data-testid={`${prefix}-confirm-${question.id}`}
             className="press inline-flex min-h-11 items-center gap-2 rounded-xl px-5 text-sm font-bold text-[var(--cms-text-inverse)] shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cms-teal-700)] disabled:opacity-50"
             style={{ background: 'var(--cms-teal-700)' }}
           >
             {pending ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : <Check className="w-4 h-4" aria-hidden="true" />}
-            {isEssay ? 'تسجيل الإجابة' : 'تأكيد الإجابة'}
+            {isMatching ? 'تصحيح الإجابة' : isEssay ? 'تسجيل الإجابة' : 'تأكيد الإجابة'}
           </button>
         </div>
       )}
