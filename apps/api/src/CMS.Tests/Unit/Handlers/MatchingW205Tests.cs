@@ -216,7 +216,19 @@ public sealed class MatchingW205Tests
     }
 
     [Fact]
-    public async Task Publish_MatchingWithoutPayload_Rejected_WithPayload_Succeeds()
+    public void Publish_MatchingWithoutPayload_Rejected()
+    {
+        // A Matching row authored directly (no payload) must never publish —
+        // the gate re-validates instead of trusting the write path.
+        var question = Question.Create(
+            "صل كل عضلة بعصبها", QuestionType.Matching, Guid.NewGuid(), null,
+            Difficulty.Medium, new List<string>(), Guid.NewGuid());
+        var act = () => question.Publish();
+        act.Should().Throw<BusinessRuleViolationException>();
+    }
+
+    [Fact]
+    public async Task Publish_MatchingWithPayload_Succeeds()
     {
         var (handler, db) = CreateCommandHandler();
         var subject = db.Subjects.First();

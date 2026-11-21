@@ -254,7 +254,10 @@ public record AdminQuestionDetailDto(
     DateTime? UpdatedAt,
     string? ParagraphTag = null,
     // Wave 16.2 (C3-3): the exam-course ("دورة") anchor — NULL = bank-wide question.
-    Guid? SemesterCourseId = null
+    Guid? SemesterCourseId = null,
+    // W20.5 — the FULL matching payload (prompts + targets + pairs) for the admin
+    // editor; NULL on every non-Matching row.
+    MatchingPayloadDto? Matching = null
 );
 
 // ===== W14.2 B.4 (D12) — admin triage of question reports =====

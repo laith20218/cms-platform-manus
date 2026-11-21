@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using CMS.Api.Authorization;
 using CMS.Application.Commands.Questions;
+using CMS.Application.Common;
 using CMS.Application.DTOs.Questions;
 using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
@@ -254,6 +255,13 @@ public sealed class AdminQuestionsController : ControllerBase
         {
             copy.SetCorrectAnswer(source.CorrectAnswer);
         }
+        else if (source.Type == QuestionType.Matching)
+        {
+            // W20.5 — duplicate carries the وصل payload verbatim (re-validated by
+            // the entity); without it the copy could never publish.
+            var payload = source.GetMatchingPayload();
+            if (payload is not null) copy.SetMatchingPayload(payload);
+        }
         else
         {
             foreach (var option in source.Options.OrderBy(option => option.SortOrder))
@@ -397,5 +405,6 @@ public sealed class AdminQuestionsController : ControllerBase
         question.CreatedAt,
         question.UpdatedAt,
         question.ParagraphTag,
-        question.SemesterCourseId); // Wave 16.2 (C3-3): الدورة anchor
+        question.SemesterCourseId, // Wave 16.2 (C3-3): الدورة anchor
+        question.GetMatchingPayload() is { } matching ? MatchingMapper.ToDto(matching) : null); // W20.5
 }

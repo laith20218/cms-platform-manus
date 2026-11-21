@@ -101,8 +101,10 @@ public record MatchingPayload
         var results = new List<PairGrade>();
         foreach (var prompt in Prompts.OrderBy(item => item.SortOrder))
         {
-            var correctTarget = correctByPrompt[prompt.Id];
-            var submittedTarget = submittedByPrompt.GetValueOrDefault(prompt.Id);
+            // Defensive: write paths run Validate(), so every prompt has exactly
+            // one correct pair — but never throw a 500 out of grading.
+            var correctTarget = correctByPrompt.TryGetValue(prompt.Id, out var correct) ? correct : Guid.Empty;
+            Guid? submittedTarget = submittedByPrompt.TryGetValue(prompt.Id, out var value) ? value : null;
             var promptCorrect = submittedTarget.HasValue && submittedTarget.Value == correctTarget;
             results.Add(new PairGrade(prompt.Id, submittedTarget, correctTarget, promptCorrect));
         }
