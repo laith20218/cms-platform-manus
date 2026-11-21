@@ -25,6 +25,23 @@ val apiBaseUrl = providers.gradleProperty("API_BASE_URL")
     .orElse("https://api.cms.example.com").get().trim()
     .also { requireHttpsUrl("API_BASE_URL", it) }
 
+// Batch 2: optional HTTPS certificate pinning for the native offline clients.
+// SPKI SHA-256 pins, comma-separated, each optionally prefixed with sha256/.
+// EMPTY (default) = pinning disabled (debug builds against placeholder domains keep
+// working); non-empty = enforced fail-closed. Pins are public hashes, never secrets.
+fun requirePinList(name: String, value: String) {
+    if (value.isEmpty()) return
+    value.split(',').forEach { entry ->
+        val normalized = entry.trim().removePrefix("sha256/")
+        if (normalized.isEmpty() || normalized.any { it !in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=" }) {
+            throw GradleException("$name entries must be base64 SPKI SHA-256 pins, optionally prefixed with sha256/ (got: '$entry')")
+        }
+    }
+}
+val apiSpkiPinsBase64 = providers.gradleProperty("OFFLINE_API_SPKI_PINS_BASE64")
+    .orElse("").get().trim()
+    .also { requirePinList("OFFLINE_API_SPKI_PINS_BASE64", it) }
+
 android {
     namespace = "com.cms.student"
     compileSdk = 35
@@ -46,6 +63,8 @@ android {
         // builds override them with -PSTUDENT_WEB_BASE_URL=... / -PAPI_BASE_URL=...
         buildConfigField("String", "STUDENT_WEB_BASE_URL", "\"$studentWebBaseUrl\"")
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+        // Batch 2: optional SPKI SHA-256 pin set for the native offline clients (empty = off).
+        buildConfigField("String", "OFFLINE_API_SPKI_PINS_BASE64", "\"$apiSpkiPinsBase64\"")
     }
 
     buildTypes {

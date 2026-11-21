@@ -9,4 +9,28 @@
     <string name="shell_error_network_title">تعذّر الاتصال</string>
     <string name="shell_error_network_message">تعذّر الوصول إلى خدمة الطالب. تحقّق من اتصالك بالإنترنت ثم أعد المحاولة.</string>
     <string name="shell_retry">إعادة المحاولة</string>
+    <!-- Batch 2: native login / session lifecycle (honest states, no fake offline). -->
+    <string name="login_prompt">سجّل الدخول للوصول إلى المحتوى المحمي.</string>
+    <string name="login_phone_hint">رقم الهاتف</string>
+    <string name="login_password_hint">كلمة المرور</string>
+    <string name="login_submit">تسجيل الدخول</string>
+    <string name="login_in_progress">جارٍ تسجيل الدخول…</string>
+    <string name="login_failed_generic">تعذر تسجيل الدخول أو لا توجد تهيئة API صالحة.</string>
+    <string name="login_failed_credentials">رقم الهاتف أو كلمة المرور غير صحيحة.</string>
+    <string name="session_ready">تم إنشاء جلسة الطالب.</string>
+    <string name="session_verifying">جارٍ التحقق من الجلسة السابقة…</string>
+    <string name="session_restored">تم استعادة الجلسة السابقة.</string>
+    <string name="session_restored_unverified">تمت استعادة الجلسة المحفوظة دون تحقق من الخادم.</string>
+    <string name="session_expired">انتهت صلاحية الجلسة، سجّل الدخول من جديد.</string>
+    <string name="session_expired_signed_out">انتهت صلاحية الجلسة أثناء العملية؛ تم تسجيل الخروج.</string>
+    <string name="logout">تسجيل الخروج</string>
+    <string name="logged_out">تم تسجيل الخروج.</string>
+    <string name="offline_disabled">Offline الموثوق معطّل في هذا البناء؛ يبقى المحتوى غير متاح Offline.</string>
+    <string name="offline_subject_hint">Subject UUID</string>
+    <string name="offline_exam_hint">Exam UUID اختياري</string>
+    <string name="offline_download">تنزيل حزمة الامتحان المشفرة</string>
+    <string name="offline_requesting">جارٍ طلب حزمة مشفرة والتحقق منها…</string>
+    <string name="offline_invalid_ids">معرف المادة أو الامتحان غير صالح.</string>
+    <string name="offline_rejected">رُفضت الحزمة أو تعذر التحقق منها.</string>
+    <string name="offline_authorized_only">اطلب فقط package IDs من شاشة المحتوى المصرح بها.</string>
 </resources>

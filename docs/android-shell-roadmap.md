@@ -1,4 +1,4 @@
-# Android Shell Roadmap — Batch 0 & Batch 1
+# Android Shell Roadmap — Batch 0, Batch 1 & Batch 2
 
 Hybrid WebView shell for the student experience. Kotlin stays the platform:
 `apps/android` owns device security, while `apps/student-web` owns the UI it hosts.
@@ -26,21 +26,25 @@ Hybrid WebView shell for the student experience. Kotlin stays the platform:
 | BuildConfig key | Default | Purpose |
 |---|---|---|
 | `STUDENT_WEB_BASE_URL` | `https://app.cms.example.com` | HTTPS origin the shell WebView loads (Batch 1). Placeholder documented domain (see `deploy/`) until DNS go-live. |
-| `API_BASE_URL` | `https://api.cms.example.com` | Reserved for later online flows; not consumed by client code yet. |
-| `OFFLINE_API_BASE_URL` | `""` (unchanged) | Existing offline transport base; release pipeline injects. |
+| `API_BASE_URL` | `https://api.cms.example.com` | Consumed since Batch 2: base URL for the native login/refresh/offline clients whenever `OFFLINE_API_BASE_URL` is not injected (release pipeline). |
+| `OFFLINE_API_BASE_URL` | `""` (unchanged) | Release-pipeline offline transport base; when blank the native clients fall back to `API_BASE_URL`. |
 | `OFFLINE_TRUSTED_CLIENT_IMPLEMENTED` | `false` (unchanged) | Trusted offline stays disabled without release injection. |
 | `OFFLINE_MANIFEST_SIGNING_PUBLIC_KEY_SPKI_BASE64` | `""` (unchanged) | Public verification key; never a private key in-repo. |
 | `OFFLINE_KEYSTORE_ALIAS` | `cms.offline.package.key` (unchanged) | Android Keystore alias for the offline package key. |
+| `OFFLINE_API_SPKI_PINS_BASE64` | `""` (Batch 2) | Optional SPKI SHA-256 pin set for the native clients, comma-separated, `sha256/` prefix optional. Empty = pinning off (debug friendly); non-empty = enforced fail-closed. |
 
 Per-build override:
 
 ```bash
 ./gradlew :app:assembleDebug -PSTUDENT_WEB_BASE_URL=https://<student-web-host> -PAPI_BASE_URL=https://<api-host>
+# Optional certificate pinning for release/ops builds:
+./gradlew :app:assembleRelease -POFFLINE_API_SPKI_PINS_BASE64="sha256/AAAA...,sha256/BBBB..."
 ```
 
-Both properties are validated at configuration time: absolute HTTPS only, no
-quotes/backslashes. The build fails fast on anything else, so a non-HTTPS shell
-URL cannot be produced by accident.
+Both URL properties are validated at configuration time: absolute HTTPS only, no
+quotes/backslashes. Pin entries are validated as base64 (with optional `sha256/`
+prefix). The build fails fast on anything else, so a non-HTTPS shell URL or a
+garbage pin cannot be produced by accident.
 
 ## Batch 0 — done criteria (status: DONE)
 
@@ -64,6 +68,69 @@ Notes: `android:label="CMS"` added to the application (matches the student-web P
 
 ### Out of scope (later batches)
 
-- Batch 2+: session token wiring into requests, optional certificate pinning.
 - Batch 3: JS bridge (`@JavascriptInterface`) for native ↔ web calls.
 - Later: encrypted media cache, FCM push, Play Integrity activation, Matching UI.
+
+## Batch 2 — session + installation identity (status: DONE)
+
+Delivered in `feat/android-batch-2-session-headers`:
+
+- [x] **WebView session strategy: D1 (no token injection into the WebView).** Recon
+  showed student-web keeps its tokens in `sessionStorage` (`cms-access-token` /
+  `cms-refresh-token`) and injects them via its axios interceptor — there is no HttpOnly
+  cookie to set, a query string would leak secrets (forbidden), and pushing tokens into
+  JS would require `evaluateJavascript` (a de-facto bridge — Batch 3 scope). So the shell
+  keeps loading the plain HTTPS student-web URL where the student logs in inside the
+  WebView as today; the installation id stays invisible to JS. Batch 2 value = the native
+  path (offline console) hardened: encrypted TokenStore + header injection + restore.
+- [x] **TokenStore** (`session/TokenStore.kt`): access + refresh tokens persisted only
+  after a successful login/refresh, in `EncryptedSharedPreferences` (own file
+  `cms_native_session`, same security-crypto stack as the installation id). Never
+  plaintext, never the password, redacted `toString` on every token-bearing model
+  (`StoredNativeSession`, `OfflineSession`, `OfflineLoginResult`, `OfflineTokenPair`).
+  `clear()` on logout, wrong-credentials login (401), and any offline-client 401.
+- [x] **Header injection single place** (`security/OfflineRequestHeaders.kt`): every
+  native request now mirrors the student-web interceptor — `X-Installation-Id` +
+  `X-Device-Fingerprint` (compat; `/auth/refresh` reads the latter, most controllers
+  read `X-Installation-Id ?? X-Device-Fingerprint`, and the rate limiter keys on the
+  pair) and `Authorization: Bearer` on authenticated calls. Header matrix:
+
+  | Endpoint | Authorization | X-Installation-Id | X-Device-Fingerprint | Extra |
+  |---|---|---|---|---|
+  | `POST /auth/login` | – | ✔ | ✔ | body: `deviceFingerprint`, `deviceName` |
+  | `POST /auth/refresh` | – | ✔ | ✔ (required) | body: `refreshToken` |
+  | `POST /entitlements/issue` | Bearer | ✔ | ✔ | – |
+  | `POST /offline/download` | Bearer | ✔ | ✔ | `X-Entitlement`, `X-Idempotency-Key`, `X-Offline-Package-Public-Key` |
+  | `POST /offline/sync` | Bearer | ✔ | ✔ | `X-Idempotency-Key` |
+  | `GET /offline/packages/{id}/status` | Bearer | ✔ | ✔ | – |
+
+- [x] **Session lifecycle** (`session/NativeSessionManager.kt` + `CmsApplication`):
+  login saves tokens; process death restores them (`MainActivity` verifies the stored
+  refresh token once, rotating the pair — a 401 wipes the store with an honest Arabic
+  message; a transient network failure restores unverified and keeps the tokens);
+  logout button + wrong-credentials login + offline-call 401 all wipe tokens;
+  `HttpsOfflinePackageClient.refresh` implements `/auth/refresh`.
+- [x] **API base URL wiring**: the native clients now use `OFFLINE_API_BASE_URL` when
+  injected by the release pipeline, falling back to `API_BASE_URL` (HTTPS-validated in
+  Batch 0) — previously the native login was unreachable in every build because
+  `OFFLINE_API_BASE_URL` defaults to empty.
+- [x] **Certificate pinning hook** (`security/OfflineCertificatePinning.kt`): SPKI
+  SHA-256 pins via `OFFLINE_API_SPKI_PINS_BASE64`; empty (default) = off so debug
+  builds against placeholder domains work, non-empty = enforced on top of normal
+  system CA validation (fail-closed). Production pins are ops-supplied public hashes
+  — see the command above; **pins not configured** today, so pinning is currently OFF
+  by design rather than hard-failing debug builds.
+- [x] **Tests (JVM)**: 53 total (27 pre-existing untouched + 26 new) — `TokenStoreTest` (3),
+  `NativeSessionManagerTest` (8), `OfflineRequestHeadersTest` (5), `OfflineSessionModelsTest` (3),
+  `OfflineCertificatePinningTest` (7). No Robolectric; `EncryptedSharedPreferences` stays
+  covered on-device by the existing instrumentation suites.
+- [x] **Non-goals respected**: no `@JavascriptInterface`, no media cache, no FCM, no Play
+  Integrity activation (stub untouched), no student-web redesign, no passwords stored
+  anywhere, no tokens in WebView URLs.
+
+## Batch 3 — next (JS bridge)
+
+Minimal, audited `@JavascriptInterface` surface so native can share session/installation
+identity with student-web inside the hardened WebView: enumerate the exact methods,
+annotate `@JavascriptInterface`, keep `WebViewHost` allowlist + `FLAG_SECURE` semantics,
+add contract tests, and document the threat model for each exposed method.

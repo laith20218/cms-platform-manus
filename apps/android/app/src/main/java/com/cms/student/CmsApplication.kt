@@ -9,10 +9,16 @@ import com.cms.student.security.HttpsOfflinePackageClient
 import com.cms.student.security.OfflineKeystoreKeyManager
 import com.cms.student.security.OfflineRuntimeCoordinator
 import com.cms.student.security.OfflineSession
+import com.cms.student.security.OfflineTransportException
 import com.cms.student.security.OfflineTrustConfiguration
+import com.cms.student.security.OfflineCertificatePinning
 import com.cms.student.security.TrustedOfflineVerifierFactory
 import com.cms.student.session.EncryptedInstallationIdStore
+import com.cms.student.session.EncryptedTokenStore
 import com.cms.student.session.InstallationIdProvider
+import com.cms.student.session.NativeSessionManager
+import com.cms.student.session.StoredNativeSession
+import com.cms.student.session.TokenStore
 import java.util.UUID
 
 class CmsApplication : Application() {
@@ -26,8 +32,17 @@ class CmsApplication : Application() {
     private var runtime: OfflineRuntimeCoordinator? = null
     /** Session-scope identity (Batch 1): stable UUID per install, encrypted at rest. */
     private val installationIdProvider by lazy { InstallationIdProvider(EncryptedInstallationIdStore(this)) }
+    /** Batch 2: native login tokens (access + refresh) encrypted at rest, never plaintext, never logged. */
+    private val tokenStore: TokenStore by lazy { EncryptedTokenStore(this) }
+    private val sessionManager by lazy { NativeSessionManager(tokenStore) }
+    @Volatile private var sessionVerifiedThisProcess = false
     private val apiClient: HttpsOfflinePackageClient? by lazy {
-        AndroidOfflineBuildConfiguration.apiBaseUrl().takeIf(String::isNotBlank)?.let(::HttpsOfflinePackageClient)
+        AndroidOfflineBuildConfiguration.apiBaseUrl().takeIf(String::isNotBlank)?.let { baseUrl ->
+            HttpsOfflinePackageClient(
+                baseUrl,
+                OfflineCertificatePinning.parsePins(BuildConfig.OFFLINE_API_SPKI_PINS_BASE64)
+            )
+        }
     }
 
     override fun onCreate() {
@@ -37,11 +52,21 @@ class CmsApplication : Application() {
     }
 
     /** Establishes an authenticated in-memory session from the backend login contract. */
-    @Throws(com.cms.student.security.OfflineTransportException::class)
+    @Throws(OfflineTransportException::class)
     fun loginStudent(phone: String, password: String, deviceName: String? = null): Boolean {
-        val session = apiClient?.login(phone, password, installationId, deviceName)
-            ?: return false
-        return bindAuthenticatedStudent(session.studentId, session.accessToken)
+        val client = apiClient ?: return false
+        val result = try {
+            client.login(phone, password, installationId, deviceName)
+        } catch (error: OfflineTransportException) {
+            // Wrong credentials (401) must not leave a previous account's tokens behind.
+            if (error.statusCode == 401) sessionManager.onAuthRejected()
+            throw error
+        }
+        sessionManager.onLoginSucceeded(
+            StoredNativeSession(result.studentId, result.accessToken, result.refreshToken)
+        )
+        sessionVerifiedThisProcess = true
+        return bindAuthenticatedStudent(result.studentId, result.accessToken)
     }
 
     /** Login code must call this only after the backend returns an authenticated student access token. */
@@ -54,6 +79,43 @@ class CmsApplication : Application() {
     /** Logout, password reset, or device revoke must remove the in-memory Offline authorisation context. */
     fun clearAuthenticatedStudent() {
         activeSession = null
+        sessionVerifiedThisProcess = false
+        sessionManager.onLoggedOut()
+    }
+
+    /** A 401 from any offline/API client means the stored tokens are dead; wipe them too. */
+    fun onNativeAuthRejected() {
+        activeSession = null
+        sessionVerifiedThisProcess = false
+        sessionManager.onAuthRejected()
+    }
+
+    /** Local encrypted read only — safe on the main thread; used to decide whether to attempt a restore. */
+    fun hasStoredNativeSession(): Boolean = tokenStore.read() != null
+
+    /**
+     * Rehydrates the native session after process death (Batch 2). Must run off the
+     * main thread. On success the caller can use [authenticatedOfflineRuntime] without
+     * a fresh login; on auth rejection the store is wiped and the caller shows the
+     * login screen again.
+     */
+    fun restoreNativeSession(): NativeSessionManager.RestoreResult {
+        activeSession?.let { session ->
+            // Already authenticated in this process (e.g. activity rotation) — no network needed.
+            val stored = tokenStore.read()
+                ?: return NativeSessionManager.RestoreResult.NoStoredSession
+            return NativeSessionManager.RestoreResult.Restored(stored, sessionVerifiedThisProcess)
+        }
+        val client = apiClient ?: return NativeSessionManager.RestoreResult.NoStoredSession
+        val result = sessionManager.restore { stored ->
+            val rotated = client.refresh(stored.refreshToken, installationId)
+            StoredNativeSession(stored.studentId, rotated.accessToken, rotated.refreshToken)
+        }
+        if (result is NativeSessionManager.RestoreResult.Restored) {
+            sessionVerifiedThisProcess = result.verifiedByServer
+            bindAuthenticatedStudent(result.session.studentId, result.session.accessToken)
+        }
+        return result
     }
 
     fun authenticatedOfflineRuntime(): AuthenticatedOfflineRuntime? {
@@ -64,7 +126,7 @@ class CmsApplication : Application() {
 
     fun installationId(): String = installationId
 
-    /** Session identity provider for later header injection (X-Installation-Id); not exposed to JS. */
+    /** Session identity provider for header injection (X-Installation-Id); not exposed to JS. */
     fun installationIdProvider(): InstallationIdProvider = installationIdProvider
 
     private fun createRuntimeOrNull(): OfflineRuntimeCoordinator? {
@@ -106,7 +168,13 @@ class AuthenticatedOfflineRuntime internal constructor(
 }
 
 private object AndroidOfflineBuildConfiguration {
-    fun apiBaseUrl(): String = BuildConfig.OFFLINE_API_BASE_URL.trim()
+    /**
+     * Native login/refresh base URL (Batch 2): the release pipeline keeps
+     * OFFLINE_API_BASE_URL, and builds without it fall back to the Batch 0
+     * API_BASE_URL (HTTPS-only validated) so the native session path is reachable
+     * the moment a real API host is configured.
+     */
+    fun apiBaseUrl(): String = BuildConfig.OFFLINE_API_BASE_URL.trim().ifBlank { BuildConfig.API_BASE_URL.trim() }
 
     fun trustConfiguration(): OfflineTrustConfiguration {
         val enabled = BuildConfig.OFFLINE_TRUSTED_CLIENT_IMPLEMENTED
