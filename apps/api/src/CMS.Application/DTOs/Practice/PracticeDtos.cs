@@ -65,7 +65,9 @@ public record SubmitPracticeAnswerResultDto(
     string? CorrectAnswerText = null,
     string? Explanation = null,
     string? ExplanationHtml = null,
-    string? Reference = null);
+    string? Reference = null,
+    // W20.5 — matching per-pair correctness + the correct map (null on non-Matching).
+    MatchingResultDto? MatchingResult = null);
 
 public record PracticeProgressDto(
     Guid SessionId,
@@ -109,7 +111,10 @@ public record PracticeQuestionDto(
     string? ParagraphTag,
     string? LectureTitle,
     List<QuestionOptionDto> Options,
-    List<QuestionImageDto> Images);
+    List<QuestionImageDto> Images,
+    // W20.5 — matching prompts + targets (NO pairs — the reveal discipline).
+    // Null on non-Matching questions.
+    MatchingStudentDto? Matching = null);
 
 /// <summary>Lecture node of the categorized tree; LectureId = NULL marks the "غير مصنف" bucket.</summary>
 public record CategorizedPracticeLectureDto(

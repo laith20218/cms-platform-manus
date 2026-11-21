@@ -59,6 +59,12 @@ public class ExamSessionQuestion : BaseEntity
     public string? Reference { get; set; }
     public string TagsJson { get; set; } = "[]";
     public string ImagesJson { get; set; } = "[]";
+    /// <summary>
+    /// Wave 20.5 — the Matching (وصل) payload snapshotted VERBATIM from
+    /// Question.MatchingJson at session start (empty options + the pair map
+    /// live here). NULL for every non-Matching snapshot row.
+    /// </summary>
+    public string? MatchingJson { get; set; }
 
     public ExamSession ExamSession { get; set; } = null!;
 }

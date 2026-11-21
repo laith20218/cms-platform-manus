@@ -49,7 +49,9 @@ public record CreateQuestionCommand(
     string? ParagraphTag = null,
     Guid? SessionId = null,
     // Wave 16.2 (C3-3): optional exam-course ("دورة") anchor — existence-checked by the handler.
-    Guid? SemesterCourseId = null
+    Guid? SemesterCourseId = null,
+    // W20.5 — Matching (وصل) payload (required for type=Matching).
+    MatchingPayloadDto? Matching = null
 ) : IRequest<QuestionDto>;
 
 public record UpdateQuestionCommand(
@@ -61,7 +63,9 @@ public record UpdateQuestionCommand(
     string? ParagraphTag = null,
     // Wave 16.2 (C3-3): optional exam-course ("دورة") anchor — set when provided
     // (mirrors the Year/ParagraphTag update semantics), existence-checked by the handler.
-    Guid? SemesterCourseId = null
+    Guid? SemesterCourseId = null,
+    // W20.5 — Matching (وصل) payload; replaces the stored payload when provided.
+    MatchingPayloadDto? Matching = null
 ) : IRequest<QuestionDto>;
 
 public record DeleteQuestionCommand(Guid Id, Guid DeletedBy) : IRequest<Unit>;

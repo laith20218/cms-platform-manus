@@ -2,6 +2,7 @@ using System.Text.Json;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using CMS.Application.Commands.Practice;
+using CMS.Application.Common;
 using CMS.Application.DTOs.Practice;
 using CMS.Application.DTOs.Questions;
 using CMS.Application.Interfaces;
@@ -123,6 +124,7 @@ public sealed class PracticeHandlers :
         {
             QuestionType.Essay => null, // D13: NULL = ungraded
             QuestionType.MultipleSelect => GradeMultipleSelect(question, submitted),
+            QuestionType.Matching => GradeMatching(question, submitted), // W20.5
             _ => GradeSingleChoice(question, submitted)
         };
 
@@ -171,11 +173,23 @@ public sealed class PracticeHandlers :
         var correctOptionIds = question.Type == QuestionType.Essay
             ? new List<Guid>()
             : question.Options.Where(option => option.IsCorrect).Select(option => option.Id).ToList();
+        // W20.5 — matching questions disclose per-pair correctness + the correct map.
+        MatchingResultDto? matchingResult = null;
+        if (question.Type == QuestionType.Matching)
+        {
+            var payload = question.GetMatchingPayload();
+            if (payload is not null)
+            {
+                var grade = payload.Grade(MatchingMapper.ParseSubmittedPairs(submitted));
+                matchingResult = MatchingMapper.ToResultDto(grade, payload);
+            }
+        }
         return new SubmitPracticeAnswerResultDto(
             session.Id, req.QuestionId, isCorrect, answeredCount, totalQuestions, score, session.Status.ToString(),
             correctOptionIds,
             question.Type == QuestionType.Essay ? question.CorrectAnswer : null,
-            question.Explanation, question.ExplanationHtml, question.Reference);
+            question.Explanation, question.ExplanationHtml, question.Reference,
+            matchingResult);
     }
 
     public async Task<Unit> Handle(ResetPracticeQuestionCommand req, CancellationToken ct)
@@ -503,7 +517,21 @@ public sealed class PracticeHandlers :
             .ToList(),
         question.Images.OrderBy(image => image.SortOrder)
             .Select(image => new QuestionImageDto(image.Id, image.ImageUrl, image.AltText, image.Caption))
-            .ToList());
+            .ToList(),
+        // W20.5 — prompts + targets only; the pairs stay server-side until the reveal.
+        question.GetMatchingPayload() is { } matching ? MatchingMapper.ToStudentDto(matching) : null);
+
+    /// <summary>
+    /// W20.5 — all-or-nothing matching grade (the MultipleSelect precedent): every
+    /// prompt must carry its correct target.
+    /// </summary>
+    private static bool GradeMatching(Question question, string submitted)
+    {
+        var payload = question.GetMatchingPayload()
+            ?? throw new DomainException("سؤال الوصل بلا حمولة مطابقة");
+        var grade = payload.Grade(MatchingMapper.ParseSubmittedPairs(submitted));
+        return grade.IsCorrect;
+    }
 
     private static string? NormalizeTag(string? paragraphTag) =>
         string.IsNullOrWhiteSpace(paragraphTag) ? null : paragraphTag.Trim();

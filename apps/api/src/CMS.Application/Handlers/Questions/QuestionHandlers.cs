@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using CMS.Application.Commands.Questions;
+using CMS.Application.Common;
 using CMS.Application.DTOs.Questions;
 using CMS.Domain.Entities;
 using CMS.Domain.Enums;
@@ -263,7 +264,10 @@ public class QuestionQueryHandlers :
         q.Options.OrderBy(o => o.SortOrder).Select(o => new QuestionOptionDto(o.Id, o.OptionLetter, o.Text, o.ImageUrl)).ToList(),
         q.Images.Select(img => new QuestionImageDto(img.Id, img.ImageUrl, img.AltText, img.Caption)).ToList(),
         null, isFavorite, new QuestionStatsDto(q.AttemptsCount, q.GetCorrectRate()),
-        q.SemesterCourseId // Wave 16.2 (C3-3)
+        q.SemesterCourseId, // Wave 16.2 (C3-3)
+        // W20.5 — the student matching surface (prompts + targets only; the pairs
+        // stay server-side until the answer reveal). Full `Matching` stays null here.
+        MatchingItems: q.GetMatchingPayload() is { } studentMatching ? MatchingMapper.ToStudentDto(studentMatching) : null
     );
 
     /// <summary>Wave 16.2 (C3-1): student-view mapper for the random draw — same shape as
@@ -331,6 +335,11 @@ public class QuestionCommandHandlers :
         var type = Enum.Parse<QuestionType>(req.Type, true);
         var difficulty = Enum.Parse<Difficulty>(req.Difficulty, true);
 
+        // W20.5 — the وصل payload is only legal on Matching rows; a payload on any
+        // other type is an authoring error surfaced loudly, never silently stored.
+        if (type != QuestionType.Matching && req.Matching is not null)
+            throw new DomainException("حمولة الوصل تُخزَّن على أسئلة الوصل فقط");
+
         var question = Question.Create(req.Text, type, req.SubjectId, req.LectureId, difficulty, req.Tags, req.CreatedBy);
         question.UpdateExplanation(req.Explanation);
         if (req.Reference != null) question.SetReference(req.Reference);
@@ -351,6 +360,15 @@ public class QuestionCommandHandlers :
         if (type == QuestionType.Essay)
         {
             question.SetCorrectAnswer(req.CorrectAnswer ?? string.Empty);
+        }
+        else if (type == QuestionType.Matching)
+        {
+            // W20.5 — Matching questions carry the payload instead of options;
+            // SetMatchingPayload runs the full invariant validation (equal counts,
+            // bijective pairs).
+            if (req.Matching is null)
+                throw new DomainException("سؤال الوصل يتطلب حمولة العناصر والأزواج");
+            question.SetMatchingPayload(MatchingMapper.ToDomain(req.Matching));
         }
         else
         {
@@ -373,7 +391,8 @@ public class QuestionCommandHandlers :
             question.Difficulty.ToString(), question.Tags, null, req.Year, req.Reference, question.ParagraphTag,
             question.Options.OrderBy(o => o.SortOrder).Select(o => new QuestionOptionDto(o.Id, o.OptionLetter, o.Text, o.ImageUrl)).ToList(),
             new List<QuestionImageDto>(), null, false, new QuestionStatsDto(0, 0),
-            question.SemesterCourseId // Wave 16.2 (C3-3)
+            question.SemesterCourseId, // Wave 16.2 (C3-3)
+            question.GetMatchingPayload() is { } createdMatching ? MatchingMapper.ToDto(createdMatching) : null // W20.5
         );
     }
 
@@ -383,6 +402,10 @@ public class QuestionCommandHandlers :
             .Include(q => q.Options)
             .FirstOrDefaultAsync(q => q.Id == req.Id, ct)
             ?? throw new NotFoundException("Question", req.Id);
+
+        // W20.5 — same guard as create: the وصل payload never rides a non-Matching row.
+        if (question.Type != QuestionType.Matching && req.Matching is not null)
+            throw new DomainException("حمولة الوصل تُخزَّن على أسئلة الوصل فقط");
 
         // Update basic info via reflection
         typeof(Question).GetProperty("Text")?.SetValue(question, req.Text);
@@ -410,6 +433,12 @@ public class QuestionCommandHandlers :
         {
             if (!string.IsNullOrWhiteSpace(req.CorrectAnswer)) question.SetCorrectAnswer(req.CorrectAnswer);
         }
+        else if (question.Type == QuestionType.Matching)
+        {
+            // W20.5 — a provided payload REPLACES the stored one (full revalidation);
+            // null keeps the stored payload (text/explanation-only edits).
+            if (req.Matching is not null) question.SetMatchingPayload(MatchingMapper.ToDomain(req.Matching));
+        }
         else
         {
             _db.QuestionOptions.RemoveRange(question.Options);
@@ -428,7 +457,8 @@ public class QuestionCommandHandlers :
             question.Difficulty.ToString(), question.Tags, null, question.Year, question.Reference, question.ParagraphTag,
             question.Options.OrderBy(o => o.SortOrder).Select(o => new QuestionOptionDto(o.Id, o.OptionLetter, o.Text, o.ImageUrl)).ToList(),
             new List<QuestionImageDto>(), null, false, new QuestionStatsDto(question.AttemptsCount, question.GetCorrectRate()),
-            question.SemesterCourseId // Wave 16.2 (C3-3)
+            question.SemesterCourseId, // Wave 16.2 (C3-3)
+            question.GetMatchingPayload() is { } updatedMatching ? MatchingMapper.ToDto(updatedMatching) : null // W20.5
         );
     }
 
@@ -483,6 +513,20 @@ public class QuestionCommandHandlers :
         var submittedAnswer = question.Type == QuestionType.Essay
             ? req.AnswerText?.Trim()
             : req.SelectedOptionId;
+        if (question.Type == QuestionType.Matching)
+        {
+            // W20.5 — the matching answer rides SelectedOptionId as a JSON array of
+            // {promptId, targetId} pairs; per-pair correctness + overall come from
+            // the domain grader (all-or-nothing, the MultipleSelect precedent).
+            var matchingPayload = question.GetMatchingPayload()
+                ?? throw new DomainException("سؤال الوصل بلا حمولة مطابقة");
+            submittedAnswer = req.SelectedOptionId?.Trim();
+            if (string.IsNullOrWhiteSpace(submittedAnswer))
+                throw new DomainException("الإجابة مطلوبة");
+            var grade = matchingPayload.Grade(MatchingMapper.ParseSubmittedPairs(submittedAnswer));
+            var matchingResult = MatchingMapper.ToResultDto(grade, matchingPayload);
+            return await RecordMatchingAttemptAsync(question, req, submittedAnswer, grade.IsCorrect, matchingResult, isFirstAttempt, ct);
+        }
         if (string.IsNullOrWhiteSpace(submittedAnswer))
             throw new DomainException(question.Type == QuestionType.Essay ? "An answer is required" : "An option is required");
         bool isCorrect;
@@ -554,6 +598,64 @@ public class QuestionCommandHandlers :
                 student.CurrentStreak
             ) : null,
             CorrectAnswerText: question.Type == QuestionType.Essay ? question.CorrectAnswer : null
+        );
+    }
+
+    /// <summary>
+    /// W20.5 — records a graded matching attempt and returns the matching-shaped result
+    /// (per-pair correctness + the correct map). Shares the attempt/stats bookkeeping
+    /// with the choice-type path.
+    /// </summary>
+    private async Task<AnswerResultDto> RecordMatchingAttemptAsync(
+        Question question,
+        AnswerQuestionCommand req,
+        string submittedAnswer,
+        bool isCorrect,
+        MatchingResultDto matchingResult,
+        bool isFirstAttempt,
+        CancellationToken ct)
+    {
+        var attempt = new AttemptLog
+        {
+            StudentId = req.StudentId,
+            QuestionId = req.QuestionId,
+            SelectedAnswer = submittedAnswer,
+            IsCorrect = isCorrect,
+            IsFirstAttempt = isFirstAttempt,
+            AttemptNumber = await _db.AttemptLogs.CountAsync(a => a.StudentId == req.StudentId && a.QuestionId == req.QuestionId, ct) + 1,
+            DurationSeconds = req.DurationSeconds,
+            IsOffline = req.IsOffline
+        };
+        await _db.AttemptLogs.AddAsync(attempt, ct);
+
+        question.RecordAttempt(isCorrect);
+
+        var student = await _db.Students.FirstOrDefaultAsync(s => s.Id == req.StudentId, ct);
+        if (student != null)
+        {
+            student.RecordActivity();
+            student.RecordAnswer(isCorrect);
+        }
+
+        await _unitOfWork.SaveChangesAsync(ct);
+
+        return new AnswerResultDto(
+            IsCorrect: isCorrect,
+            CorrectOptionId: "",
+            CorrectOptionLetter: "",
+            Explanation: question.Explanation,
+            ExplanationHtml: question.ExplanationHtml,
+            Reference: question.Reference,
+            IsFirstAttempt: isFirstAttempt,
+            NewAchievements: new List<AchievementDto>(),
+            UpdatedStats: student != null ? new UpdatedStatsDto(
+                student.QuestionsAnswered,
+                student.CorrectAnswers,
+                student.GetAccuracy(),
+                student.CurrentStreak
+            ) : null,
+            CorrectAnswerText: null,
+            MatchingResult: matchingResult
         );
     }
 

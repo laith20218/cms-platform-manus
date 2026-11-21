@@ -1,3 +1,5 @@
+using CMS.Application.DTOs.Questions;
+
 namespace CMS.Application.DTOs.Exams;
 
 // ===== Student discovery =====
@@ -140,7 +142,12 @@ public record ReviewQuestionDto(
     string? UserAnswer,
     string? CorrectAnswer,
     bool? IsCorrect,
-    string? Explanation
+    string? Explanation,
+    // W20.5 — matching surface for the review UI (Wave 20.6): prompts + targets
+    // always (when the row is Matching); the correct pairs only when the review
+    // snapshot allows the reveal.
+    MatchingStudentDto? Matching = null,
+    List<MatchingPairDto>? CorrectPairs = null
 );
 
 public record ReviewOptionDto(Guid Id, string Letter, string Text, bool IsCorrect, bool IsUserAnswer);

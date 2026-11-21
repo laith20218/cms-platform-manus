@@ -1407,6 +1407,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("images_json");
 
+                    b.Property<string>("MatchingJson")
+                        .HasColumnType("text")
+                        .HasColumnName("matching_json");
+
                     b.Property<string>("OptionsJson")
                         .IsRequired()
                         .HasColumnType("jsonb")
@@ -2604,6 +2608,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("LectureId")
                         .HasColumnType("uuid")
                         .HasColumnName("lecture_id");
+
+                    b.Property<string>("MatchingJson")
+                        .HasColumnType("text")
+                        .HasColumnName("matching_json");
 
                     b.Property<string>("ParagraphTag")
                         .HasColumnType("text")
