@@ -422,7 +422,7 @@ describe('CoursePlayerPage — Push 10.8 processing gate', () => {
     renderPlayer('/my-studies/courses/c1');
 
     expect(await screen.findByTestId('episode-processing-failed')).toBeInTheDocument();
-    expect(screen.getByText('تعذر معالجة هذا الفيديو. يرجى التواصل مع الدعم.')).toBeInTheDocument();
+    expect(screen.getByText('تعذّر معالجة هذا الفيديو. يرجى التواصل مع الدعم.')).toBeInTheDocument();
     expect(screen.queryByTestId('course-episode-player')).not.toBeInTheDocument();
   });
 
