@@ -80,11 +80,3 @@ export function parseMatchingAnswer(raw: string | null | undefined): Record<stri
   }
   return {};
 }
-
-/** True when every prompt has a target attached — the submit gate. */
-export function isMatchingComplete(
-  payload: MatchingStudentPayload,
-  pairs: Record<string, string>,
-): boolean {
-  return payload.prompts.every((prompt) => Boolean(pairs[prompt.id]));
-}
