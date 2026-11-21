@@ -1,5 +1,6 @@
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
+import type { MatchingResult, MatchingStudentPayload } from '@/features/questions/services/matching';
 
 /**
  * W14.4 (A.4/B.1) — DB-backed practice (D13) over the W14.2 /practice endpoints,
@@ -33,6 +34,8 @@ export interface PracticeQuestion {
   lectureTitle?: string | null;
   options: PracticeOption[];
   images: PracticeImage[];
+  /** W20.6 — the وصل surface (prompts + targets, NO pairs); null on non-Matching. */
+  matching?: MatchingStudentPayload | null;
 }
 
 /** The (lecture, paragraphTag) lens — `untagged*` selects the "غير مصنف" bucket.
@@ -105,6 +108,8 @@ export interface SubmitAnswerResult {
   explanation?: string | null;
   explanationHtml?: string | null;
   reference?: string | null;
+  /** W20.6 — matching per-pair correctness + the correct map. */
+  matchingResult?: MatchingResult | null;
 }
 
 export interface PracticeProgress {

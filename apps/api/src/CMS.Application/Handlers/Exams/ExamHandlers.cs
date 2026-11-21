@@ -159,7 +159,12 @@ public sealed class ExamQueryHandlers :
                     question.QuestionTextHtml,
                     options,
                     images,
-                    answers.GetValueOrDefault(question.Id));
+                    answers.GetValueOrDefault(question.Id),
+                    // W20.6 — the وصل surface rides the run payload (prompts +
+                    // targets only; the pairs stay server-side until the review).
+                    question.MatchingJson is null
+                        ? null
+                        : MatchingMapper.ToStudentDto(CMS.Domain.ValueObjects.MatchingPayload.Deserialize(question.MatchingJson)));
             }).ToList();
 
         return new ExamSessionDto(

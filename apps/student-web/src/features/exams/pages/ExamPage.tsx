@@ -13,6 +13,11 @@ import { CenteredDialog } from '@/components/ui/Overlays';
 // with status code 400"). getApiErrorMessage prefers the backend's Arabic
 // ProblemDetails `detail` and keeps the Arabic fallback otherwise.
 import { getApiErrorMessage } from '@/utils/api-error';
+import {
+  isMatchingType,
+  parseMatchingAnswer,
+  serializeMatchingAnswer,
+} from '@/features/questions/services/matching';
 
 type Phase = 'loading' | 'exam' | 'submitting' | 'results' | 'error';
 
@@ -33,6 +38,9 @@ export default function ExamPage() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [session, setSession] = useState<ExamSession | null>(null);
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
+  // W20.6 — per-question وصل pairing maps (promptId → targetId); autosaved as the
+  // W20.5 wire JSON exactly like the options selections above.
+  const [matchingAnswers, setMatchingAnswers] = useState<Record<string, Record<string, string>>>({});
   const [timeLeft, setTimeLeft] = useState(0);
   const [result, setResult] = useState<ExamResult | null>(null);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
@@ -42,8 +50,17 @@ export default function ExamPage() {
   const [loadError, setLoadError] = useState('');
 
   const hydrateSession = useCallback((data: ExamSession) => {
-    const restoredAnswers = Object.fromEntries(data.questions.map(question => [question.id, parseSavedAnswer(question.savedAnswer)]).filter(([, answer]) => answer.length > 0));
-    setSession(data); setAnswers(restoredAnswers); setTimeLeft(remainingSeconds(data.expiresAt));
+    // W20.6 — a وصل savedAnswer restores as its pairing map (never through the
+    // string[] parser, which would mangle the {promptId,targetId} JSON).
+    const matchingQuestions = data.questions.filter(question => isMatchingType(question.type));
+    const restoredMatching = Object.fromEntries(
+      matchingQuestions
+        .filter(question => question.savedAnswer)
+        .map(question => [question.id, parseMatchingAnswer(question.savedAnswer)]),
+    );
+    const optionQuestions = data.questions.filter(question => !isMatchingType(question.type));
+    const restoredAnswers = Object.fromEntries(optionQuestions.map(question => [question.id, parseSavedAnswer(question.savedAnswer)]).filter(([, answer]) => answer.length > 0));
+    setSession(data); setAnswers(restoredAnswers); setMatchingAnswers(restoredMatching); setTimeLeft(remainingSeconds(data.expiresAt));
   }, []);
 
   const loadResult = useCallback(async (sessionId: string) => {
@@ -82,7 +99,7 @@ export default function ExamPage() {
   const retakeAttempt = useCallback(async () => {
     if (!examId) return;
     sessionStorage.removeItem(sessionStorageKey(examId));
-    setSession(null); setResult(null); setAnswers({});
+    setSession(null); setResult(null); setAnswers({}); setMatchingAnswers({});
     await openAttempt();
   }, [examId, openAttempt]);
 
@@ -102,7 +119,13 @@ export default function ExamPage() {
       .catch(error => { setLoadError(getApiErrorMessage(error, 'تعذّر تثبيت انتهاء الوقت. تحقق من اتصالك ثم أعد المحاولة.')); setPhase('error'); });
   }, [phase, session, timeLeft]);
 
-  const answeredCount = useMemo(() => Object.values(answers).filter(answer => answer.length > 0).length, [answers]);
+  const answeredCount = useMemo(() => {
+    // W20.6 — a وصل question counts as answered once ANY pair is saved (the
+    // server's own semantics: a non-null SelectedAnswer = answered).
+    const optionAnswered = Object.values(answers).filter(answer => answer.length > 0).length;
+    const matchingAnswered = Object.values(matchingAnswers).filter(pairs => Object.keys(pairs).length > 0).length;
+    return optionAnswered + matchingAnswered;
+  }, [answers, matchingAnswers]);
 
   const saveSelection = useCallback(async (question: ExamQuestion, selected: string[], index: number) => {
     if (!session) return;
@@ -127,6 +150,26 @@ export default function ExamPage() {
     setAnswers(previous => ({ ...previous, [question.id]: next }));
     void saveSelection(question, next, index);
   }, [answers, saveSelection]);
+
+  // W20.6 — وصل pairing autosaves with the same per-question contract: any change
+  // persists immediately (a fully-emptied map CLEARS the server answer).
+  const saveMatchingAnswer = useCallback(async (question: ExamQuestion, pairs: Record<string, string>, index: number) => {
+    if (!session) return;
+    setSavingQuestionId(question.id);
+    try {
+      const hasPairs = Object.keys(pairs).length > 0;
+      const response = await examApi.saveAnswer(session.sessionId, question.id, hasPairs ? serializeMatchingAnswer(pairs) : null, index, !hasPairs);
+      setTimeLeft(remainingSeconds(response.expiresAt));
+      if (response.status !== 'InProgress') await loadResult(session.sessionId);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'تعذّر حفظ الإجابة. تحقق من اتصالك وأعد المحاولة.'));
+    } finally { setSavingQuestionId(null); }
+  }, [loadResult, session]);
+
+  const handleMatchingPairsChange = useCallback((question: ExamQuestion, pairs: Record<string, string>, index: number) => {
+    setMatchingAnswers(previous => ({ ...previous, [question.id]: pairs }));
+    void saveMatchingAnswer(question, pairs, index);
+  }, [saveMatchingAnswer]);
 
   const submit = useCallback(async () => {
     if (!session) return;
@@ -200,10 +243,16 @@ export default function ExamPage() {
           question={question}
           index={index}
           total={session.totalQuestions}
-          isAnswered={(answers[question.id] ?? []).length > 0}
+          isAnswered={
+            isMatchingType(question.type)
+              ? Object.keys(matchingAnswers[question.id] ?? {}).length > 0
+              : (answers[question.id] ?? []).length > 0
+          }
           selected={answers[question.id] ?? []}
           pending={savingQuestionId === question.id}
           onSelect={(optionId) => handleSelectOption(question, optionId, index)}
+          matchingPairs={matchingAnswers[question.id] ?? {}}
+          onMatchingPairsChange={(pairs) => handleMatchingPairsChange(question, pairs, index)}
         />
       ))}
     </div>
