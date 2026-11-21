@@ -53,7 +53,7 @@ import {
   removePrompt, removeTarget, takenTargetIds, validateMatching,
   type MatchingApiDetail, type MatchingFormState,
 } from '../lib/matchingEditor';
-import { useUiPermissions } from '../hooks/useUiPermissions';
+import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
 type College = { id: string; nameAr: string; nameEn?: string | null };

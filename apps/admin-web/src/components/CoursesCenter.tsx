@@ -36,7 +36,7 @@ import {
   TARGET_QUALITY_DOWNGRADE_WARNING_AR, TARGET_QUALITY_DOWNGRADE_WARNING_EN,
 } from '../lib/mediaProcessing';
 import { sniffEpisodeMediaType } from '../lib/mediaType';
-import { useUiPermissions } from '../hooks/useUiPermissions';
+import { useUiPermissions } from '../hooks/uiPermissionsContext';
 import { EpisodeEditModal } from './EpisodeEditModal';
 import { EpisodeMetadataFields, type EpisodeMetadataValues } from './EpisodeMetadataFields';
 import { ProcessingErrorModal } from './ProcessingErrorModal';

@@ -19,7 +19,7 @@ import {
 import type { RoleRecord } from '../lib/api';
 import { PermissionMatrixEditor } from './PermissionMatrixEditor';
 import { UiPermissionsEditor } from './UiPermissionsEditor';
-import { useUiPermissions } from '../hooks/useUiPermissions';
+import { useUiPermissions } from '../hooks/uiPermissionsContext';
 import { useState } from 'react';
 
 type Copy = Record<string, string>;

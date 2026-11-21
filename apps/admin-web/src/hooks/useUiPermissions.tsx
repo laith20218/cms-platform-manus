@@ -5,79 +5,19 @@
  * authenticated shell in <UiPermissionsProvider value={bundleState}>. Consumers
  * (the gated centers) call useUiPermissions() and use its can() helper.
  *
- * can() FAILS OPEN while the bundle is loading or after a fetch error: the cosmetic
- * frontend layer must never lock an administrator out — the API's [Authorize] policies
- * and CanManageAsync checks are the real security boundary (see lib/uiPermissions.ts).
+ * W23.3 (A2): the context/consumer hook now lives in hooks/uiPermissionsContext.ts
+ * and the state hook in hooks/useUiPermissionsBundle.ts — this file exports ONLY
+ * the provider component (react-refresh/only-export-components clean; HMR keeps
+ * working, no behavior change).
  */
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { API_BASE_URL } from '../lib/api';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   ALL_UI_KEYS,
   UI_PERMISSIONS_REGISTRY_VERSION,
   createCanFunction,
-  type UiPermissionsBundle,
 } from '../lib/uiPermissions';
-
-export type UiPermissionsState =
-  | { phase: 'idle' }
-  | { phase: 'loading' }
-  | { phase: 'ready'; bundle: UiPermissionsBundle }
-  | { phase: 'error' };
-
-/**
- * Resolves the effective UI permissions of the current admin.
- * super_admin short-circuits to a synthesized full-access bundle (no request needed).
- */
-export function useUiPermissionsBundle(token: string, isSuperAdmin: boolean): UiPermissionsState {
-  const [state, setState] = useState<UiPermissionsState>({ phase: 'idle' });
-
-  useEffect(() => {
-    if (!token) {
-      setState({ phase: 'idle' });
-      return;
-    }
-    if (isSuperAdmin) {
-      // super_admin is never configurable — synthesize the envelope locally.
-      setState({
-        phase: 'ready',
-        bundle: {
-          mode: 'super_admin',
-          isSuperAdmin: true,
-          registryVersion: UI_PERMISSIONS_REGISTRY_VERSION,
-          allKeys: [...ALL_UI_KEYS],
-          allowedKeys: [...ALL_UI_KEYS],
-        },
-      });
-      return;
-    }
-
-    let cancelled = false;
-    setState({ phase: 'loading' });
-    fetch(`${API_BASE_URL}/api/v1/auth/admin/me/ui-permissions`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`me/ui-permissions failed with ${response.status}`);
-        const bundle = (await response.json()) as UiPermissionsBundle;
-        if (!cancelled) setState({ phase: 'ready', bundle });
-      })
-      .catch(() => {
-        // Fail-open: can() stays permissive; backend RBAC is the real gate.
-        if (!cancelled) setState({ phase: 'error' });
-      });
-    return () => { cancelled = true; };
-  }, [token, isSuperAdmin]);
-
-  return state;
-}
-
-type UiPermissionsContextValue = {
-  phase: UiPermissionsState['phase'];
-  bundle: UiPermissionsBundle | null;
-  can: (key: string) => boolean;
-};
-
-const UiPermissionsContext = createContext<UiPermissionsContextValue | null>(null);
+import { UiPermissionsContext, type UiPermissionsContextValue } from './uiPermissionsContext';
+import type { UiPermissionsState } from './useUiPermissionsBundle';
 
 export function UiPermissionsProvider({ value, children }: { value: UiPermissionsState; children: React.ReactNode }) {
   const bundle = value.phase === 'ready' ? value.bundle : null;
@@ -106,12 +46,4 @@ export function UiPermissionsProvider({ value, children }: { value: UiPermission
     [value.phase, bundle, can],
   );
   return <UiPermissionsContext.Provider value={contextValue}>{children}</UiPermissionsContext.Provider>;
-}
-
-export function useUiPermissions(): UiPermissionsContextValue {
-  const context = useContext(UiPermissionsContext);
-  if (!context) {
-    throw new Error('useUiPermissions must be used within <UiPermissionsProvider> (App wraps the authenticated shell).');
-  }
-  return context;
 }

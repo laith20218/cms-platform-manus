@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
-import { useUiPermissions } from '../hooks/useUiPermissions';
+import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
 type University = { id: string; nameAr: string; nameEn?: string | null; slug: string; collegesCount: number; isArchived: boolean };
 type College = { id: string; universityId: string; nameAr: string; nameEn?: string | null; slug: string; yearsCount: number; isArchived: boolean };
