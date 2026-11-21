@@ -489,7 +489,7 @@ function LockedVideoCard({ failed }: { failed: boolean }) {
       )}
       <p className="max-w-md text-sm font-medium leading-7 text-white/85">
         {failed
-          ? 'تعذر معالجة هذا الفيديو. يرجى التواصل مع الدعم.'
+          ? 'تعذّر معالجة هذا الفيديو. يرجى التواصل مع الدعم.'
           : 'الفيديو قيد المعالجة حالياً. يرجى المحاولة لاحقاً.'}
       </p>
     </div>
