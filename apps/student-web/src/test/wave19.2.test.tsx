@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -162,12 +162,23 @@ describe('W19.2 (D-32) — reading sheet queue past the 100-row boundary', () =>
     expect(screen.getByTestId('reading-sheet-position')).toHaveTextContent('1 / 150');
   });
 
-  it('one «التالي» tap at the boundary advances AND fetches — no double-tap', async () => {
+  it('one «التالي» tap at the boundary advances AND fetches — no double-tap', { timeout: 20_000 }, async () => {
     await openSheet();
     await screen.findByTestId('reading-sheet-item-0');
 
-    // Walk to the last loaded row (index 99).
-    for (let i = 0; i < 99; i++) fireEvent.click(screen.getByTestId('reading-sheet-next'));
+    // Walk to the last loaded row (index 99). W21.2 flake fix: the 99 identical
+    // taps dispatch inside ONE act() with raw dispatchEvent — React batches the
+    // functional setIndex updates into a single render pass. The old loop ran
+    // ~100 re-renders of the 100-row list (~1.6s locally, ~5.8s on a slow CI
+    // runner — past vitest's 5s default test timeout, the flake source). The
+    // intermediate positions are unasserted, so batching is equivalent; the
+    // MEANINGFUL boundary tap below still uses the regular fireEvent path.
+    const nextButton = screen.getByTestId('reading-sheet-next');
+    act(() => {
+      for (let i = 0; i < 99; i++) {
+        nextButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      }
+    });
     await waitFor(() => expect(screen.getByTestId('reading-sheet-position')).toHaveTextContent('100 / 150'));
 
     // ONE more tap: the position advances immediately (optimistic) …
