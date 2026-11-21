@@ -725,6 +725,12 @@ public class QuestionCommandHandlers :
 
     /// <summary>
     /// Bulk import questions from Excel/CSV data.
+    /// W22.3 (R-04): per-row validation raises <see cref="BusinessRuleViolationException"/>
+    /// — the project-standard domain exception — instead of a bare <see cref="Exception"/>.
+    /// The per-row catch still folds each row's message into the ImportResultDto errors
+    /// list (a 200 with an honest per-row Arabic report); but if the catch is ever
+    /// narrowed/removed, the middleware maps the domain exception to a 400
+    /// ProblemDetails carrying the Arabic message — never an opaque 500.
     /// </summary>
     public async Task<ImportResultDto> Handle(ImportQuestionsCommand req, CancellationToken ct)
     {
@@ -736,8 +742,8 @@ public class QuestionCommandHandlers :
             var row = req.Questions[i];
             try
             {
-                if (string.IsNullOrWhiteSpace(row.Text)) throw new Exception("نص السؤال مطلوب");
-                if (string.IsNullOrWhiteSpace(row.CorrectOption)) throw new Exception("الإجابة الصحيحة مطلوبة");
+                if (string.IsNullOrWhiteSpace(row.Text)) throw new BusinessRuleViolationException("نص السؤال مطلوب");
+                if (string.IsNullOrWhiteSpace(row.CorrectOption)) throw new BusinessRuleViolationException("الإجابة الصحيحة مطلوبة");
                 if (!Enum.TryParse<Difficulty>(row.Difficulty, true, out var diff)) diff = Difficulty.Medium;
 
                 var tags = row.Tags?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList() ?? new();
