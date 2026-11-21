@@ -9,7 +9,9 @@ import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import com.cms.student.BuildConfig
+import com.cms.student.CmsApplication
 import com.cms.student.R
+import com.cms.student.bridge.CmsJsBridge
 
 /**
  * Hybrid shell launcher: hosts the student-web experience inside a hardened
@@ -41,6 +43,20 @@ class ShellActivity : AppCompatActivity() {
             ?: ShellUrlPolicy.allowNothing()
         host = WebViewHost(webView, urlPolicy, ::showError)
         host.attach()
+
+        // Batch 3: the single audited JS bridge (window.CmsNative) — attached strictly
+        // AFTER host.attach() applied the hardening settings. Four read-only methods
+        // only; see CmsJsBridge for the surface, origin guard, and threat model.
+        host.attachJsBridge(
+            CmsJsBridge(
+                urlPolicy = urlPolicy,
+                currentUrl = { webView.url },
+                installationId = {
+                    (application as CmsApplication).installationIdProvider().installationId()
+                },
+                appVersion = { resolveAppVersion() }
+            )
+        )
 
         findViewById<Button>(R.id.shell_retry_button).setOnClickListener {
             hideError()
@@ -83,6 +99,13 @@ class ShellActivity : AppCompatActivity() {
             }
         }
         errorOverlay.visibility = View.VISIBLE
+    }
+
+    /** versionName from PackageManager (BuildConfig fallback) — shown to JS via the bridge. */
+    @Suppress("DEPRECATION") // PackageInfo via the flags overload is deprecated on API 33+; targetSdk 35 keeps the classic call valid.
+    private fun resolveAppVersion(): String {
+        val versionName = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull()
+        return versionName?.takeIf { it.isNotBlank() } ?: BuildConfig.VERSION_NAME
     }
 
     private fun hideError() {
