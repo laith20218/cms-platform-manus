@@ -320,7 +320,9 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
                 <div className="mt-0.5 flex items-center gap-2 text-[11px] text-[var(--c-text-muted)] sm:text-xs">
                   <span style={{ color: meta.color }}>{meta.label}</span>
                   {file.pagesCount ? <span lang="en">{file.pagesCount} صفحة</span> : null}
-                  {file.fileSize ? <span lang="en">{formatSize(file.fileSize)}</span> : null}
+                  {/* W20.4 (owner decision 2) — file size is deliberately NOT shown
+                      in the viewer header anymore (display chrome only — the load
+                      pipeline itself is untouched). */}
                 </div>
               </div>
             </div>
@@ -515,11 +517,4 @@ function ViewerError({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
-}
-
-function formatSize(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytes} B`;
 }

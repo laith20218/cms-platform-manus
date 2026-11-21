@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -108,6 +108,20 @@ export function LibraryHub({
   const [activeCategory, setActiveCategory] = useState<CategoryKey>('all');
   const [activeFormat, setActiveFormat] = useState<FormatKey>('all');
   const [selectedFile, setSelectedFile] = useState<HubLibraryFile | null>(null);
+  // W20.4 (owner decision 2) — the file-open loading LAYER: a % progress
+  // overlay between the card click and the viewer. Streaming kinds (video/
+  // audio) hand off directly — their players own buffering, and a byte-% would
+  // misrepresent streaming; every other kind runs a wrapper-level progress
+  // fetch of the SAME /library/{id}/content channel the viewers read (C2 rule:
+  // progress comes from fetch/XHR in non-frozen code, never from inside the
+  // frozen player cores).
+  const [opening, setOpening] = useState<{
+    file: HubLibraryFile;
+    /** 0-100 when the server reports Content-Length; null = indeterminate. */
+    percent: number | null;
+    failed: boolean;
+  } | null>(null);
+  const openAbortRef = useRef<AbortController | null>(null);
   // W19.3 (D-23): how many per-subject pages are loaded. «تحميل المزيد» bumps
   // it; the query refetches pages 1..N per subject (bounded in practice —
   // 100 files/page makes deep paging rare).
@@ -237,6 +251,53 @@ export function LibraryHub({
   const fetchingRef = useRef(false);
   useEffect(() => { fetchingRef.current = isFetching; }, [isFetching]);
 
+  // W20.4 — the open-file orchestration: progress-tracked preload, then handoff
+  // to the unchanged DocumentViewer. Abortable (إلغاء) and retryable (إعادة
+  // المحاولة) — a failure never leaves a silent blank.
+  const openFile = useCallback(async (file: HubLibraryFile) => {
+    const rawType = (file.type ?? '').trim().toLowerCase();
+    if (rawType === 'video' || rawType === 'audio') {
+      // Streaming kinds: the player streams progressively; hand off directly.
+      setSelectedFile(file);
+      return;
+    }
+    openAbortRef.current?.abort();
+    const controller = new AbortController();
+    openAbortRef.current = controller;
+    setOpening({ file, percent: 0, failed: false });
+    try {
+      const config = await entitlementRequestConfig();
+      await apiClient.get(`/library/${file.id}/content`, {
+        ...config,
+        responseType: 'blob',
+        signal: controller.signal,
+        onDownloadProgress: (event: { loaded: number; total?: number }) => {
+          const total = event.total ?? 0;
+          setOpening((previous) => {
+            if (!previous || previous.file.id !== file.id || previous.failed) return previous;
+            if (total > 0) {
+              return { ...previous, percent: Math.min(100, Math.round((event.loaded / total) * 100)) };
+            }
+            // No Content-Length: best-effort crawl (capped at 95% until done).
+            const current = previous.percent ?? 0;
+            return { ...previous, percent: Math.min(95, current + 3) };
+          });
+        },
+      });
+      // Handoff: the layer clears and the (unchanged) DocumentViewer mounts —
+      // its own reads of the same content channel now hit a warm transfer.
+      setOpening(null);
+      setSelectedFile(file);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        setOpening(null);
+        return;
+      }
+      setOpening((previous) =>
+        previous && previous.file.id === file.id ? { ...previous, failed: true } : previous);
+    }
+  }, []);
+
   // W17.4 — ?openFile= deep link (favorites file cards): once the subject's
   // files resolve, auto-open the DocumentViewer on the target file IN CONTEXT,
   // then clear the param so closing the viewer never re-opens it. A missing
@@ -247,7 +308,7 @@ export function LibraryHub({
   useEffect(() => {
     if (!openFileId || files === undefined) return;
     const target = files.find((file) => file.id === openFileId);
-    if (target) setSelectedFile(target);
+    if (target) void openFile(target);
     const next = new URLSearchParams(searchParams);
     next.delete('openFile');
     setSearchParams(next, { replace: true });
@@ -505,14 +566,14 @@ export function LibraryHub({
                 <div
                   role="button"
                   tabIndex={0}
-                  onClick={() => setSelectedFile(file)}
+                  onClick={() => void openFile(file)}
                   onKeyDown={(e) => {
                     // The nested favorite button handles its own Enter/Space —
                     // a bubbled keydown from it must not also open the viewer.
                     if (e.target !== e.currentTarget) return;
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault(); // Space scrolls the page otherwise
-                      setSelectedFile(file);
+                      void openFile(file);
                     }
                   }}
                   className="w-full text-start flex items-start gap-3 p-4 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] hover:border-[var(--c-primary-200)] hover:shadow-md hover:-translate-y-0.5 transition-all group cursor-pointer"
@@ -557,7 +618,8 @@ export function LibraryHub({
                         </span>
                       )}
                       <span className="inline-flex items-center gap-1"><Eye className="w-3.5 h-3.5" />{file.viewsCount}</span>
-                      <span>{formatSize(file.fileSize)}</span>
+                      {/* W20.4 (owner decision 2) — file size is deliberately NOT
+                          shown on student-facing cards anymore. */}
                     </div>
                   </div>
                   <button
@@ -602,6 +664,22 @@ export function LibraryHub({
         </div>
       )}
 
+      {/* W20.4 (owner decision 2) — the loading LAYER: % progress between the
+          card click and the viewer (see openFile). Retry on failure — never a
+          silent blank. Renders above the page; the viewer mounts after it. */}
+      {opening && (
+        <FileOpenLayer
+          file={opening.file}
+          percent={opening.percent}
+          failed={opening.failed}
+          onCancel={() => {
+            openAbortRef.current?.abort();
+            setOpening(null);
+          }}
+          onRetry={() => void openFile(opening.file)}
+        />
+      )}
+
       {/* Wave 15.5.1a (A1) — single click opens the viewer; the wrapper div is a
           pure test hook (no layout impact). */}
       {selectedFile && (
@@ -616,8 +694,94 @@ export function LibraryHub({
   );
 }
 
-function formatSize(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
-  return `${Math.round(bytes / 1024)} KB`;
+/**
+ * W20.4 (owner decision 2) — the file-open loading layer: determinate % when
+ * the server reports Content-Length, a calm indeterminate crawl otherwise.
+ * Failure → Arabic retry, never a blank. NOT part of any player core (C2).
+ */
+function FileOpenLayer({
+  file, percent, failed, onCancel, onRetry,
+}: {
+  file: HubLibraryFile;
+  percent: number | null;
+  failed: boolean;
+  onCancel: () => void;
+  onRetry: () => void;
+}) {
+  const meta = TYPE_META[file.type] ?? TYPE_META.Paragraph;
+  const Icon = meta.icon;
+  return (
+    <div
+      role="dialog"
+      aria-label={failed ? 'تعذّر تحميل الملف' : 'جارٍ تحميل الملف'}
+      data-testid="file-open-layer"
+      className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-[var(--c-bg)] p-4"
+      style={{ background: 'rgba(8, 26, 38, 0.66)' }}
+    >
+      <div className="w-full max-w-sm rounded-3xl border border-[var(--c-border)] bg-[var(--c-surface)] p-6 shadow-2xl">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl" style={{ background: meta.bg, color: meta.color }}>
+            <Icon className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold text-[var(--c-text)]">{file.title}</p>
+            <p className="mt-0.5 text-xs text-[var(--c-text-muted)]">{failed ? 'تعذّر تحميل الملف — تحقّق من اتصالك' : 'جارٍ تحميل الملف…'}</p>
+          </div>
+        </div>
+
+        {failed ? (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onCancel}
+              data-testid="file-open-close"
+              className="press inline-flex min-h-11 items-center rounded-xl border border-[var(--c-border)] px-4 text-sm font-semibold text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-400)]"
+            >
+              إغلاق
+            </button>
+            <button
+              type="button"
+              onClick={onRetry}
+              data-testid="file-open-retry"
+              className="press inline-flex min-h-11 items-center rounded-xl px-5 text-sm font-bold text-white"
+              style={{ background: 'var(--grad-primary)' }}
+            >
+              إعادة المحاولة
+            </button>
+          </div>
+        ) : (
+          <>
+            <div
+              className="h-2 overflow-hidden rounded-full bg-[var(--c-bg-hover)]"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={percent ?? undefined}
+              aria-label="تقدّم تحميل الملف"
+              data-testid="file-open-progress"
+            >
+              <div
+                className="h-full rounded-full transition-[width] duration-300"
+                style={{ width: `${percent ?? 8}%`, background: 'var(--grad-primary)' }}
+                data-testid="file-open-progress-fill"
+              />
+            </div>
+            <div className="mt-2 flex items-center justify-between">
+              <span className="text-xs text-[var(--c-text-muted)]" lang="en" data-testid="file-open-percent">
+                {percent != null ? `${percent}%` : '…'}
+              </span>
+              <button
+                type="button"
+                onClick={onCancel}
+                data-testid="file-open-cancel"
+                className="press inline-flex min-h-11 items-center rounded-xl px-3 text-sm font-semibold text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text)]"
+              >
+                إلغاء
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
