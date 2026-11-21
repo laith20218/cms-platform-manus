@@ -30,20 +30,28 @@
  *   • Delete — `DELETE /api/v1/questions/{id}`
  *   • Publish — `POST /api/v1/questions/{id}/publish`
  *   • Archive — `POST /api/v1/questions/{id}/archive`
- *   • Question types: Mcq, TrueFalse, MultipleSelect, Essay
+ *   • Question types: Mcq, TrueFalse, MultipleSelect, Essay, Matching (وصل)
  *   • Options editor: add/remove/reorder options, mark correct
  *   • Essay: model answer + explanation
- *   • Form: text, type, difficulty, lecture, tags, explanation, reference, year, options, correctAnswer
+ *   • Matching (W21.1): two row lists (prompts + targets) with stable client ids,
+ *     a target select per prompt (used targets disabled → bijection at input
+ *     time), and save-time validation via lib/matchingEditor
+ *   • Form: text, type, difficulty, lecture, tags, explanation, reference, year, options, correctAnswer, matching
  *   • Confirm dialog for publish/archive
  */
 import { Fragment, FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle, Archive, CheckCircle2, ChevronLeft, ChevronRight, Copy, Eye,
-  FileText, ImagePlus, ListFilter, LoaderCircle, Pencil, Plus, PlusCircle,
+  FileText, ImagePlus, Link2, ListFilter, LoaderCircle, Pencil, Plus, PlusCircle,
   Search, Send, Trash2, Undo2, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
+import {
+  emptyMatching, matchingFromDetail, matchingToApiPayload, newMatchingRowId,
+  removePrompt, removeTarget, takenTargetIds, validateMatching,
+  type MatchingApiDetail, type MatchingFormState,
+} from '../lib/matchingEditor';
 import { useUiPermissions } from '../hooks/useUiPermissions';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
@@ -63,8 +71,10 @@ type QuestionSummary = {
 type QuestionDetail = QuestionSummary & {
   reference?: string | null; year?: number | null; paragraphTag?: string | null;
   explanation: string; correctAnswer: string; options: QuestionOption[];
+  // W21.1 — the FULL وصل payload (prompts + targets + pairs) on Matching rows.
+  matching?: MatchingApiDetail | null;
 };
-type QuestionType = 'Mcq' | 'TrueFalse' | 'MultipleSelect' | 'Essay';
+type QuestionType = 'Mcq' | 'TrueFalse' | 'MultipleSelect' | 'Essay' | 'Matching';
 type Difficulty = 'Easy' | 'Medium' | 'Hard';
 type Props = { token: string; isArabic: boolean; onError: (message: string) => void; onNotice: (message: string) => void };
 
@@ -81,6 +91,8 @@ type FormState = {
   year: string;
   paragraphTag: string;
   options: QuestionOption[];
+  // W21.1 — only meaningful when type === 'Matching'.
+  matching: MatchingFormState;
 };
 
 type ConfirmDialog =
@@ -104,6 +116,10 @@ type QuestionPreview = {
   images: { imageUrl: string; altText: string | null; sortOrder: number }[];
 };
 
+// W21.1 — Arabic prompt letters for the وصل board (same alphabet as the student
+// surface so admins see the labels students will see).
+const MATCHING_PROMPT_LETTERS = ['أ', 'ب', 'ج', 'د', 'هـ', 'و', 'ز', 'ح', 'ط', 'ي'];
+
 const emptyForm = (): FormState => ({
   text: '', type: 'Mcq', difficulty: 'Medium', lectureId: '', tags: '',
   explanation: '', correctAnswer: '', reference: '', year: '', paragraphTag: '',
@@ -113,6 +129,7 @@ const emptyForm = (): FormState => ({
     { text: '', isCorrect: false },
     { text: '', isCorrect: false },
   ],
+  matching: emptyMatching(),
 });
 
 // ===== Push 2 / Track 1: sticky context (survives "Save & Add Another" + page reloads) =====
@@ -165,7 +182,10 @@ const formFromSticky = (context: StickyContext): FormState => ({
   tags: context.tags,
   year: context.year,
   paragraphTag: context.paragraphTag,
-  options: context.type === 'Essay' ? [] : freshOptionsForType(context.type),
+  options: context.type === 'Essay' || context.type === 'Matching' ? [] : freshOptionsForType(context.type),
+  // A kept Matching context still starts from a FRESH board — prompts/targets
+  // never carry over between rapid entries (same discipline as options).
+  matching: emptyMatching(),
 });
 
 const label = (arabic: boolean, item: { nameAr?: string; nameEn?: string | null; titleAr?: string; titleEn?: string | null }) =>
@@ -178,6 +198,7 @@ const typeBadgeClass = (type: string) => {
     case 'TrueFalse': return 'text-sky-700 bg-sky-50 border-sky-200';
     case 'MultipleSelect': return 'text-violet-700 bg-violet-50 border-violet-200';
     case 'Essay': return 'text-amber-700 bg-amber-50 border-amber-200';
+    case 'Matching': return 'text-rose-700 bg-rose-50 border-rose-200';
     default: return 'text-slate-600 bg-slate-50 border-slate-200';
   }
 };
@@ -205,6 +226,7 @@ const typeLabel = (type: string, isArabic: boolean) => {
     case 'TrueFalse': return isArabic ? 'صح أو خطأ' : 'True / False';
     case 'MultipleSelect': return isArabic ? 'اختيارات متعددة' : 'Multiple select';
     case 'Essay': return isArabic ? 'تحريري' : 'Essay';
+    case 'Matching': return isArabic ? 'وصل' : 'Matching';
     default: return type;
   }
 };
@@ -314,6 +336,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   const activeSubject = useMemo(() => subjects.find(subject => subject.id === subjectId), [subjects, subjectId]);
   const isEssay = form.type === 'Essay';
   const isTrueFalse = form.type === 'TrueFalse';
+  const isMatching = form.type === 'Matching';
 
   async function loadQuestions() {
     if (!subjectId) return;
@@ -379,6 +402,9 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
       }));
     } else if (type === 'Essay') {
       setForm(current => ({ ...current, type, options: [], correctAnswer: current.correctAnswer }));
+    } else if (type === 'Matching') {
+      // W21.1 — a fresh 2×2 وصل board; options never ride a matching question.
+      setForm(current => ({ ...current, type, options: [], correctAnswer: '', matching: emptyMatching() }));
     } else {
       setForm(current => ({
         ...current, type,
@@ -393,6 +419,35 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
       ...current,
       options: current.options.map((option, optionIndex) => optionIndex === index ? { ...option, ...patch } : option),
     }));
+  }
+
+  // ===== W21.1 — Matching (وصل) board state helpers =====
+
+  function patchMatching(patch: Partial<MatchingFormState>) {
+    setForm(current => ({ ...current, matching: { ...current.matching, ...patch } }));
+  }
+
+  function setPromptText(promptId: string, text: string) {
+    patchMatching({ prompts: form.matching.prompts.map(prompt => prompt.id === promptId ? { ...prompt, text } : prompt) });
+  }
+
+  function setTargetText(targetId: string, text: string) {
+    patchMatching({ targets: form.matching.targets.map(target => target.id === targetId ? { ...target, text } : target) });
+  }
+
+  function pairPrompt(promptId: string, targetId: string) {
+    const pairs = { ...form.matching.pairs };
+    if (targetId) pairs[promptId] = targetId;
+    else delete pairs[promptId];
+    patchMatching({ pairs });
+  }
+
+  function addPromptRow() {
+    patchMatching({ prompts: [...form.matching.prompts, { id: newMatchingRowId(), text: '' }] });
+  }
+
+  function addTargetRow() {
+    patchMatching({ targets: [...form.matching.targets, { id: newMatchingRowId(), text: '' }] });
   }
 
   function moveOption(index: number, direction: -1 | 1) {
@@ -425,6 +480,12 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
         year: detail.year != null ? String(detail.year) : '',
         paragraphTag: detail.paragraphTag ?? '',
         options: detail.options.map(option => ({ ...option })),
+        // W21.1 — hydrate the وصل board from the admin detail payload; a
+        // Matching row without a parseable payload falls back to a fresh 2×2
+        // board (the save-time validation still guards it).
+        matching: detail.type === 'Matching'
+          ? (matchingFromDetail(detail.matching) ?? emptyMatching())
+          : emptyMatching(),
       });
       setShowEditor(true);
     } catch (error) {
@@ -469,7 +530,19 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
       onError(isArabic ? 'اكتب الإجابة النموذجية للسؤال التحريري.' : 'Provide the model answer for the essay question.');
       return;
     }
-    if (!isEssay && (form.options.length < 2 || form.options.some(option => !option.text.trim()) || !form.options.some(option => option.isCorrect))) {
+    // W21.1 — وصل invariants BEFORE any network call: ≥2 rows per list, non-empty
+    // texts, equal counts, every prompt paired, no target reused (the selects
+    // already prevent duplicates at input time — this is defense in depth and
+    // guards the hydrated-from-detail path too).
+    if (isMatching) {
+      const invalid = validateMatching(form.matching, isArabic);
+      if (invalid) {
+        setEditorTab('content');
+        onError(invalid.message);
+        return;
+      }
+    }
+    if (!isEssay && !isMatching && (form.options.length < 2 || form.options.some(option => !option.text.trim()) || !form.options.some(option => option.isCorrect))) {
       setEditorTab('content');
       onError(isArabic ? 'أدخل خيارين على الأقل وحدد إجابة صحيحة.' : 'Provide at least two options and mark a correct answer.');
       return;
@@ -488,7 +561,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
         lectureId: form.lectureId || null,
         difficulty: form.difficulty,
         tags: form.tags.split(',').map(tag => tag.trim()).filter(Boolean),
-        options: isEssay ? [] : form.options.map(option => ({
+        options: isEssay || isMatching ? [] : form.options.map(option => ({
           id: option.id ?? null,
           text: option.text.trim(),
           isCorrect: option.isCorrect,
@@ -497,6 +570,9 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
         })),
         correctOptionId: '',
         correctAnswer: isEssay ? form.correctAnswer.trim() : null,
+        // W21.1 — the وصل payload rides create/update; null on every other type
+        // (the API rejects a matching payload on a non-Matching row).
+        matching: isMatching ? matchingToApiPayload(form.matching) : null,
         explanation: form.explanation.trim(),
         reference: form.reference.trim() || null,
         year: form.year.trim() ? Number(form.year.trim()) : null,
@@ -796,6 +872,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
               <option value="TrueFalse">{isArabic ? 'صح أو خطأ' : 'True / False'}</option>
               <option value="MultipleSelect">{isArabic ? 'اختيارات متعددة' : 'Multiple select'}</option>
               <option value="Essay">{isArabic ? 'تحريري' : 'Essay'}</option>
+              <option value="Matching">{isArabic ? 'وصل' : 'Matching'}</option>
             </select>
             <select
               value={statusFilter}
@@ -1188,6 +1265,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         <option value="TrueFalse">{isArabic ? 'صح أو خطأ' : 'True / False'}</option>
                         <option value="MultipleSelect">{isArabic ? 'اختيارات متعددة' : 'Multiple select'}</option>
                         <option value="Essay">{isArabic ? 'تحريري' : 'Essay'}</option>
+                        <option value="Matching">{isArabic ? 'وصل' : 'Matching'}</option>
                       </select>
                       {form.id && (
                         <small className="block mt-1 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
@@ -1196,7 +1274,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                       )}
                     </label>
 
-                    {/* Options editor OR essay model answer */}
+                    {/* Options editor OR essay model answer OR matching board (W21.1) */}
                     {isEssay ? (
                       <div
                         className="rounded-lg border p-4 space-y-3"
@@ -1220,6 +1298,169 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                           {isArabic
                             ? 'يُجرى التصحيح الآلي بمطابقة النص بعد توحيد المسافات وحالة الأحرف.'
                             : 'Automatic grading normalizes whitespace and letter case.'}
+                        </p>
+                      </div>
+                    ) : isMatching ? (
+                      /* ===== W21.1 — the Matching (وصل) board ===== */
+                      <div
+                        className="rounded-lg border p-4 space-y-3"
+                        style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}
+                        data-testid="matching-editor"
+                      >
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
+                              {isArabic ? 'عناصر الوصل' : 'Matching items'}
+                            </p>
+                            <h4 className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>
+                              {isArabic ? 'اربط كل عنصر من القائمة الأولى بإجابته في القائمة الثانية.' : 'Pair every prompt with its target — each side used exactly once.'}
+                            </h4>
+                          </div>
+                          <span
+                            data-testid="matching-counts"
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${form.matching.prompts.length === form.matching.targets.length
+                              ? 'text-slate-600 bg-slate-50 border-slate-200'
+                              : 'text-red-700 bg-red-50 border-red-200'}`}
+                            lang="en"
+                          >
+                            {form.matching.prompts.length} / {form.matching.targets.length}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {/* ===== Prompts (right column in RTL) — each pairs via select ===== */}
+                          <div className="space-y-2">
+                            <p className="text-xs font-bold" style={{ color: 'var(--cms-text-soft)' }}>
+                              {isArabic ? 'القائمة الأولى — العناصر' : 'List 1 — prompts'}
+                            </p>
+                            {form.matching.prompts.map((prompt, index) => {
+                              const taken = takenTargetIds(form.matching, prompt.id);
+                              return (
+                                <div
+                                  key={prompt.id}
+                                  data-testid={`matching-prompt-row-${prompt.id}`}
+                                  className="rounded-lg border bg-white p-2.5 space-y-2"
+                                  style={{ borderColor: 'var(--cms-line)' }}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="w-6 text-center text-xs font-semibold shrink-0" style={{ color: 'var(--cms-text-muted)' }}>
+                                      {MATCHING_PROMPT_LETTERS[index] ?? index + 1}
+                                    </span>
+                                    <input
+                                      value={prompt.text}
+                                      onChange={event => setPromptText(prompt.id, event.target.value)}
+                                      placeholder={isArabic ? 'نص العنصر' : 'Prompt text'}
+                                      data-testid={`matching-prompt-text-${prompt.id}`}
+                                      className="flex-1 px-2 py-1.5 rounded-md border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                      style={{ borderColor: 'var(--cms-line)' }}
+                                    />
+                                    <button
+                                      type="button"
+                                      title={isArabic ? 'حذف العنصر' : 'Remove prompt'}
+                                      disabled={form.matching.prompts.length <= 2}
+                                      onClick={() => patchMatching(removePrompt(form.matching, prompt.id))}
+                                      data-testid={`matching-prompt-remove-${prompt.id}`}
+                                      className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-30"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                  <div className="flex items-center gap-2 ps-8">
+                                    <Link2 className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-teal-600)' }} />
+                                    <select
+                                      value={form.matching.pairs[prompt.id] ?? ''}
+                                      onChange={event => pairPrompt(prompt.id, event.target.value)}
+                                      data-testid={`matching-prompt-pair-${prompt.id}`}
+                                      aria-label={isArabic ? `الإجابة الصحيحة للعنصر ${MATCHING_PROMPT_LETTERS[index] ?? index + 1}` : `Correct target for prompt ${index + 1}`}
+                                      className="flex-1 px-2 py-1.5 rounded-md border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                      style={{ borderColor: 'var(--cms-line)' }}
+                                    >
+                                      <option value="">{isArabic ? 'اختر الإجابة الصحيحة…' : 'Select the correct target…'}</option>
+                                      {form.matching.targets.map((target, targetIndex) => (
+                                        <option
+                                          key={target.id}
+                                          value={target.id}
+                                          disabled={taken.has(target.id)}
+                                        >
+                                          {targetIndex + 1}. {target.text.trim() || (isArabic ? '(عنصر جديد)' : '(new item)')}
+                                          {taken.has(target.id) ? (isArabic ? ' — مستخدم لعنصر آخر' : ' — taken') : ''}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            <button
+                              type="button"
+                              onClick={addPromptRow}
+                              data-testid="matching-add-prompt"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed text-xs font-medium transition-colors"
+                              style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              {isArabic ? 'إضافة عنصر' : 'Add prompt'}
+                            </button>
+                          </div>
+                          {/* ===== Targets (left column in RTL) ===== */}
+                          <div className="space-y-2">
+                            <p className="text-xs font-bold" style={{ color: 'var(--cms-text-soft)' }}>
+                              {isArabic ? 'القائمة الثانية — الإجابات' : 'List 2 — targets'}
+                            </p>
+                            {form.matching.targets.map((target, index) => {
+                              const pairedTo = Object.entries(form.matching.pairs)
+                                .find(([, targetId]) => targetId === target.id);
+                              return (
+                                <div
+                                  key={target.id}
+                                  data-testid={`matching-target-row-${target.id}`}
+                                  className="flex items-center gap-2 rounded-lg border bg-white p-2.5"
+                                  style={{ borderColor: 'var(--cms-line)' }}
+                                >
+                                  <span className="w-6 text-center text-xs font-semibold shrink-0" style={{ color: 'var(--cms-text-muted)' }}>
+                                    {index + 1}
+                                  </span>
+                                  <input
+                                    value={target.text}
+                                    onChange={event => setTargetText(target.id, event.target.value)}
+                                    placeholder={isArabic ? 'نص الإجابة' : 'Target text'}
+                                    data-testid={`matching-target-text-${target.id}`}
+                                    className="flex-1 px-2 py-1.5 rounded-md border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                    style={{ borderColor: 'var(--cms-line)' }}
+                                  />
+                                  {pairedTo && (
+                                    <span className="text-[10px] font-bold shrink-0" style={{ color: 'var(--cms-teal-700)' }}>
+                                      {isArabic ? 'مربوط' : 'paired'}
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    title={isArabic ? 'حذف الإجابة' : 'Remove target'}
+                                    disabled={form.matching.targets.length <= 2}
+                                    onClick={() => patchMatching(removeTarget(form.matching, target.id))}
+                                    data-testid={`matching-target-remove-${target.id}`}
+                                    className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-30"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                            <button
+                              type="button"
+                              onClick={addTargetRow}
+                              data-testid="matching-add-target"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed text-xs font-medium transition-colors"
+                              style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              {isArabic ? 'إضافة إجابة' : 'Add target'}
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                          {isArabic
+                            ? 'قاعدة التصحيح: تُحسب الإجابة صحيحة فقط إذا تطابقت كل الأزواج — يُعرض للطالب بعد التصحيح الزوج الصحيح لكل عنصر أخطأ فيه.'
+                            : 'Grading is all-or-nothing across pairs — after grading the student sees the correct target for every wrong pair.'}
                         </p>
                       </div>
                     ) : (
@@ -1835,6 +2076,19 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                   </div>
                 ))}
               </div>
+              {/* W21.1 — the preview DTO carries no وصل items (student-view contract);
+                 say so instead of showing a silently empty options area. */}
+              {preview.type === 'Matching' && (
+                <div
+                  className="rounded-lg border p-3 text-xs leading-relaxed"
+                  data-testid="preview-matching-note"
+                  style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)', color: 'var(--cms-text-soft)' }}
+                >
+                  {isArabic
+                    ? 'سؤال وصل — تعرض المعاينة نص السؤال فقط. العناصر والأزواج تُحرَّر وتُعاين من محرر السؤال.'
+                    : 'Matching question — the preview shows the question text only. Items and pairs are authored and reviewed in the question editor.'}
+                </div>
+              )}
               <p className="text-xs text-center" style={{ color: 'var(--cms-text-muted)' }}>
                 {isArabic ? 'معاينة كما يراها الطالب — دون الإجابة الصحيحة أو الشرح.' : 'Previewed exactly as the student sees it — no correct answer or explanation.'}
               </p>
