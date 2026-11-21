@@ -17,12 +17,12 @@
  *
  * Design tokens (--cms-*) for inline styling; Tailwind for structure.
  */
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   Settings as SettingsIcon, LoaderCircle, Search, X, Check, Pencil, RotateCcw, ShieldCheck,
 } from 'lucide-react';
 import { ApiError, apiRequest } from '../lib/api';
-import { useUiPermissions } from '../hooks/useUiPermissions';
+import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
 type Props = {
   token: string;
@@ -78,7 +78,9 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
   const [editDescription, setEditDescription] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const load = async () => {
+  // W23.3 (A2): `load` is now a stable useCallback + the declared effect dep —
+  // replaces the misplaced same-line disable comment (which never silenced anything).
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await apiRequest<SystemSetting[]>(`/api/v1/admin/settings${activeCategory ? `?category=${activeCategory}` : ''}`, token);
@@ -90,9 +92,9 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
     } finally {
       setLoading(false);
     }
-  };
+  }, [token, activeCategory, isArabic, onError]);
 
-  useEffect(() => { if (token) load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [token, activeCategory]);
+  useEffect(() => { if (token) load(); }, [load, token]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

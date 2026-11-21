@@ -38,7 +38,9 @@ import {
   X,
 } from 'lucide-react';
 import { API_BASE_URL, apiRequest, ApiError, type AdminRecord, type AdminUser, type PagedResult, type RoleRecord, login, refreshAccessToken } from './lib/api';
-import { UiPermissionsProvider, useUiPermissions, useUiPermissionsBundle } from './hooks/useUiPermissions';
+import { UiPermissionsProvider } from './hooks/useUiPermissions';
+import { useUiPermissions } from './hooks/uiPermissionsContext';
+import { useUiPermissionsBundle } from './hooks/useUiPermissionsBundle';
 import { createCanFunction } from './lib/uiPermissions';
 import { AcademicCenter } from './components/AcademicCenter';
 import { AdminsCenter, DialogLayer } from './components/AdminsCenter';

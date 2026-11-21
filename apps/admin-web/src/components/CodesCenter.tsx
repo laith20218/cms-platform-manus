@@ -2,7 +2,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { AlertCircle, BadgeCheck, Ban, Copy, Check, Download, KeyRound, LoaderCircle, Plus, RefreshCw, Search, UsersRound, Ticket, UserPlus } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
-import { useUiPermissions } from '../hooks/useUiPermissions';
+import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
 type College = { id: string; nameAr: string; nameEn?: string | null };

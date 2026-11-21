@@ -20,7 +20,7 @@ import {
   Plus, Search, ShieldCheck, ShieldOff, Trash2, UsersRound, X,
 } from 'lucide-react';
 import type { AdminRecord, RoleRecord } from '../lib/api';
-import { useUiPermissions } from '../hooks/useUiPermissions';
+import { useUiPermissions } from '../hooks/uiPermissionsContext';
 import { ScopePicker } from './ScopePicker';
 
 type Copy = Record<string, string>;

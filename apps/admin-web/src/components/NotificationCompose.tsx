@@ -75,7 +75,9 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
         .then(res => setStudents(Array.isArray(res) ? res : (res.items ?? [])))
         .catch(() => {});
     }
-  }, [targetType, token]);
+    // W23.3 (A2): the length guards are now declared deps — refetch only on
+    // empty→filled transitions (the guard itself no-ops the refetch).
+  }, [targetType, token, universities.length, students.length]);
 
   const canSend = title.trim() && body.trim() && (!audience.needsTarget || targetId);
 

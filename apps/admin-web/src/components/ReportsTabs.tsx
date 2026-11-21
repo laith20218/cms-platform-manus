@@ -16,14 +16,14 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import {
-  BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie,
+  BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, type PieLabelRenderProps,
 } from 'recharts';
 import {
   LoaderCircle, Calendar, Users, GraduationCap, ClipboardCheck, BookOpenCheck,
   FileText, KeyRound, ShieldCheck, AlertTriangle, TrendingUp, FileSpreadsheet, Archive, Eye, BarChart3,
 } from 'lucide-react';
 import { apiRequest, ApiError } from '../lib/api';
-import { useUiPermissions } from '../hooks/useUiPermissions';
+import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
 type Props = { token: string; isArabic: boolean; onError: (msg: string) => void };
 
@@ -36,6 +36,90 @@ const DATE_PRESETS = [
 ];
 
 const COLORS = ['#0d746b', '#12877d', '#1a9b90', '#4cb8ae', '#35718a', '#a36c1f', '#198566', '#b6473d'];
+
+// ===== W23.3 (A2): typed analytics payloads — replacing `any` =====
+// Shapes mirror the API responses (camelCase JSON): /api/v1/stats/global,
+// /api/v1/admin/{revenue,student-growth} and /api/v1/admin/analytics/*.
+
+/** /api/v1/stats/global (GlobalStatsDto). */
+interface GlobalStatsDto {
+  totalStudents: number;
+  totalQuestions: number;
+  totalAnswers: number;
+  platformAccuracy: number;
+  totalExamSessions: number;
+  totalLibraryViews: number;
+}
+
+/** /api/v1/admin/revenue (RevenueDataDto). */
+interface RevenuePointDto { period: string; revenue: number; codesSold: number; newSubscriptions: number; }
+
+/** /api/v1/admin/student-growth (StudentGrowthDto). */
+interface GrowthPointDto { date: string; newRegistrations: number; activeUsers: number; }
+
+interface OverviewData {
+  stats: GlobalStatsDto | null;
+  revenue: RevenuePointDto[];
+  growth: GrowthPointDto[];
+}
+
+/** /api/v1/admin/analytics/students. */
+interface DailyRegistrationDto { date: string; registrations: number; }
+interface StudentsAnalyticsDto {
+  totalStudents: number;
+  newRegistrations: number;
+  activeStudents: number;
+  inactiveStudents: number;
+  inactiveThresholdDate?: string;
+  dailyBreakdown: DailyRegistrationDto[];
+}
+
+/** /api/v1/admin/analytics/academic. */
+interface SubjectStatDto { subjectId: string; subjectName: string; totalAttempts: number; passRate: number; averageScore: number; }
+interface HardestQuestionDto { questionId: string; questionText: string; totalAttempts: number; correctRate: number; }
+interface AcademicAnalyticsDto { subjectStats: SubjectStatDto[]; hardestQuestions: HardestQuestionDto[]; }
+
+/** /api/v1/admin/analytics/exams. */
+interface ScoreRangeDto { range: string; count: number; }
+interface ExamsAnalyticsDto {
+  publishedCount: number; draftCount: number; archivedCount: number;
+  totalSessions: number; completedCount: number;
+  completionRate: number; passRate: number; avgDurationMinutes: number;
+  scoreDistribution: ScoreRangeDto[];
+}
+
+/** /api/v1/admin/analytics/questions. */
+interface ReportedQuestionDto { questionId: string; questionText: string; reportsCount: number; mostCommonReason: string; }
+interface AttemptedQuestionDto { questionId: string; questionText: string; attempts: number; correctRate: number; }
+interface QuestionsAnalyticsDto {
+  publishedCount: number; draftCount: number; archivedCount: number;
+  mostReported: ReportedQuestionDto[];
+  topAttempted: AttemptedQuestionDto[];
+}
+
+/** /api/v1/admin/analytics/content. */
+interface ViewsByTypeDto { type: string; count: number; totalSize: number; views: number; }
+interface ContentAnalyticsDto {
+  publishedFiles: number; draftFiles: number; archivedFiles: number;
+  totalStorageBytes: number; totalStorageMB: number; totalViews: number;
+  viewsByType: ViewsByTypeDto[];
+  pendingScans: number; failedScans: number; infectedFiles: number;
+}
+
+/** /api/v1/admin/analytics/codes. */
+interface DailyActivationDto { date: string; activated: number; }
+interface CodesAnalyticsDto {
+  totalIssued: number; activated: number; expired: number; revoked: number;
+  activationRate: number; activeSubscriptions: number;
+  estimatedValue: number; estimatedValueNote: string; dailyActivation: DailyActivationDto[];
+}
+
+/** /api/v1/admin/analytics/operations. */
+interface SecurityEventByTypeDto { eventType: string; count: number; }
+interface OperationsAnalyticsDto {
+  totalSecurityEvents: number; successfulLogins: number; failedLogins: number;
+  loginSuccessRate: number; securityEventsByType: SecurityEventByTypeDto[];
+}
 
 /** Format ISO date strings (yyyy-MM-dd) into short locale-friendly labels for chart x-axes. */
 function formatShortDate(value: string): string {
@@ -90,7 +174,7 @@ function EmptyState({ icon: Icon }: { icon: typeof Users }) {
 
 // ===== Tab 1: Overview =====
 function OverviewTab({ token, dateFrom, dateTo, isArabic, onError }: { token: string; dateFrom: string; dateTo: string; isArabic: boolean; onError: (msg: string) => void }) {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
     setLoading(true);
@@ -99,9 +183,9 @@ function OverviewTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
       if (dateFrom) params.set('dateFrom', new Date(dateFrom).toISOString());
       if (dateTo) params.set('dateTo', new Date(dateTo).toISOString());
       const [stats, revenue, growth] = await Promise.allSettled([
-        apiRequest<any>(`/api/v1/stats/global?${params}`, token),
-        apiRequest<any[]>(`/api/v1/admin/revenue?months=6`, token),
-        apiRequest<any[]>(`/api/v1/admin/student-growth?days=30`, token),
+        apiRequest<GlobalStatsDto>(`/api/v1/stats/global?${params}`, token),
+        apiRequest<RevenuePointDto[]>(`/api/v1/admin/revenue?months=6`, token),
+        apiRequest<GrowthPointDto[]>(`/api/v1/admin/student-growth?days=30`, token),
       ]);
       setData({
         stats: stats.status === 'fulfilled' ? stats.value : null,
@@ -151,7 +235,7 @@ function OverviewTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
 function StudentsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: string; dateFrom: string; dateTo: string; isArabic: boolean; onError: (msg: string) => void }) {
   // Push 3: this tab owns the report export button (btn:reports.export).
   const { can } = useUiPermissions();
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<StudentsAnalyticsDto | null>(null);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
     setLoading(true);
@@ -159,7 +243,7 @@ function StudentsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
       const params = new URLSearchParams();
       if (dateFrom) params.set('dateFrom', new Date(dateFrom).toISOString());
       if (dateTo) params.set('dateTo', new Date(dateTo).toISOString());
-      const res = await apiRequest<any>(`/api/v1/admin/analytics/students?${params}`, token);
+      const res = await apiRequest<StudentsAnalyticsDto>(`/api/v1/admin/analytics/students?${params}`, token);
       setData(res);
     } catch (e) { onError(e instanceof ApiError ? e.message : 'Failed'); }
     finally { setLoading(false); }
@@ -183,7 +267,7 @@ function StudentsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'التسجيلات اليومية' : 'Daily Registrations'}</h3>
             {can('btn:reports.export') && (
-              <button onClick={() => exportCsv('student-registrations.csv', ['Date', 'Registrations'], data.dailyBreakdown.map((d: any) => [d.date, d.registrations]))}
+              <button onClick={() => exportCsv('student-registrations.csv', ['Date', 'Registrations'], data.dailyBreakdown.map((d) => [d.date, d.registrations]))}
                 className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-muted)' }}>
                 <FileSpreadsheet size={10} /> CSV
               </button>
@@ -206,7 +290,7 @@ function StudentsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
 
 // ===== Tab 3: Academic =====
 function AcademicTab({ token, dateFrom, dateTo, isArabic, onError }: { token: string; dateFrom: string; dateTo: string; isArabic: boolean; onError: (msg: string) => void }) {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<AcademicAnalyticsDto | null>(null);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
     setLoading(true);
@@ -214,7 +298,7 @@ function AcademicTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
       const params = new URLSearchParams();
       if (dateFrom) params.set('dateFrom', new Date(dateFrom).toISOString());
       if (dateTo) params.set('dateTo', new Date(dateTo).toISOString());
-      const res = await apiRequest<any>(`/api/v1/admin/analytics/academic?${params}`, token);
+      const res = await apiRequest<AcademicAnalyticsDto>(`/api/v1/admin/analytics/academic?${params}`, token);
       setData(res);
     } catch (e) { onError(e instanceof ApiError ? e.message : 'Failed'); }
     finally { setLoading(false); }
@@ -229,7 +313,7 @@ function AcademicTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
           <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'نسب النجاح حسب المادة' : 'Pass Rates by Subject'}</h3>
           <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={data.subjectStats?.map((s: any) => ({ name: s.subjectName, passRate: Math.round(s.passRate), avgScore: s.averageScore })) ?? []} layout="vertical">
+            <BarChart data={data.subjectStats?.map((s) => ({ name: s.subjectName, passRate: Math.round(s.passRate), avgScore: s.averageScore })) ?? []} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="var(--cms-line)" />
               <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--cms-text-muted)' }} />
               <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'var(--cms-text-muted)' }} width={100} />
@@ -241,7 +325,7 @@ function AcademicTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
           <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'أصعب 10 أسئلة' : 'Top 10 Hardest Questions'}</h3>
           <div className="space-y-2 max-h-[250px] overflow-y-auto">
-            {data.hardestQuestions?.map((q: any, i: number) => (
+            {data.hardestQuestions?.map((q, i) => (
               <div key={i} className="flex items-center justify-between py-2 border-b last:border-0" style={{ borderColor: 'var(--cms-line)' }}>
                 <span className="text-xs truncate flex-1" style={{ color: 'var(--cms-text)' }}>{q.questionText}</span>
                 <span className="text-xs font-bold tabular-nums ml-2" style={{ color: 'var(--cms-danger)' }}>{q.correctRate}%</span>
@@ -256,7 +340,7 @@ function AcademicTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
 
 // ===== Tab 4: Exams =====
 function ExamsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: string; dateFrom: string; dateTo: string; isArabic: boolean; onError: (msg: string) => void }) {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<ExamsAnalyticsDto | null>(null);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
     setLoading(true);
@@ -264,7 +348,7 @@ function ExamsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: strin
       const params = new URLSearchParams();
       if (dateFrom) params.set('dateFrom', new Date(dateFrom).toISOString());
       if (dateTo) params.set('dateTo', new Date(dateTo).toISOString());
-      const res = await apiRequest<any>(`/api/v1/admin/analytics/exams?${params}`, token);
+      const res = await apiRequest<ExamsAnalyticsDto>(`/api/v1/admin/analytics/exams?${params}`, token);
       setData(res);
     } catch (e) { onError(e instanceof ApiError ? e.message : 'Failed'); }
     finally { setLoading(false); }
@@ -291,7 +375,7 @@ function ExamsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: strin
               <YAxis tick={{ fontSize: 11, fill: 'var(--cms-text-muted)' }} />
               <Tooltip contentStyle={{ background: 'var(--cms-surface)', border: '1px solid var(--cms-line)', borderRadius: 8, fontSize: 12 }} />
               <Bar dataKey="count" name="Students" fill="var(--cms-teal-600)" radius={[4, 4, 0, 0]}>
-                {data.scoreDistribution?.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                {data.scoreDistribution?.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -312,7 +396,7 @@ function ExamsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: strin
 
 // ===== Tab 5: Questions =====
 function QuestionsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: string; dateFrom: string; dateTo: string; isArabic: boolean; onError: (msg: string) => void }) {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<QuestionsAnalyticsDto | null>(null);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
     setLoading(true);
@@ -320,7 +404,7 @@ function QuestionsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: s
       const params = new URLSearchParams();
       if (dateFrom) params.set('dateFrom', new Date(dateFrom).toISOString());
       if (dateTo) params.set('dateTo', new Date(dateTo).toISOString());
-      const res = await apiRequest<any>(`/api/v1/admin/analytics/questions?${params}`, token);
+      const res = await apiRequest<QuestionsAnalyticsDto>(`/api/v1/admin/analytics/questions?${params}`, token);
       setData(res);
     } catch (e) { onError(e instanceof ApiError ? e.message : 'Failed'); }
     finally { setLoading(false); }
@@ -340,7 +424,7 @@ function QuestionsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: s
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
           <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'أكثر الأسئلة إبلاغاً' : 'Most Reported Questions'}</h3>
           <div className="space-y-2 max-h-[250px] overflow-y-auto">
-            {data.mostReported?.map((q: any, i: number) => (
+            {data.mostReported?.map((q, i) => (
               <div key={i} className="flex items-center justify-between py-2 border-b last:border-0" style={{ borderColor: 'var(--cms-line)' }}>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs truncate" style={{ color: 'var(--cms-text)' }}>{q.questionText}</div>
@@ -354,7 +438,7 @@ function QuestionsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: s
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
           <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'الأكثر محاولة' : 'Top Attempted'}</h3>
           <div className="space-y-2 max-h-[250px] overflow-y-auto">
-            {data.topAttempted?.map((q: any, i: number) => (
+            {data.topAttempted?.map((q, i) => (
               <div key={i} className="flex items-center justify-between py-2 border-b last:border-0" style={{ borderColor: 'var(--cms-line)' }}>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs truncate" style={{ color: 'var(--cms-text)' }}>{q.questionText}</div>
@@ -371,7 +455,7 @@ function QuestionsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: s
 
 // ===== Tab 6: Content =====
 function ContentTab({ token, dateFrom, dateTo, isArabic, onError }: { token: string; dateFrom: string; dateTo: string; isArabic: boolean; onError: (msg: string) => void }) {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<ContentAnalyticsDto | null>(null);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
     setLoading(true);
@@ -379,7 +463,7 @@ function ContentTab({ token, dateFrom, dateTo, isArabic, onError }: { token: str
       const params = new URLSearchParams();
       if (dateFrom) params.set('dateFrom', new Date(dateFrom).toISOString());
       if (dateTo) params.set('dateTo', new Date(dateTo).toISOString());
-      const res = await apiRequest<any>(`/api/v1/admin/analytics/content?${params}`, token);
+      const res = await apiRequest<ContentAnalyticsDto>(`/api/v1/admin/analytics/content?${params}`, token);
       setData(res);
     } catch (e) { onError(e instanceof ApiError ? e.message : 'Failed'); }
     finally { setLoading(false); }
@@ -401,8 +485,8 @@ function ContentTab({ token, dateFrom, dateTo, isArabic, onError }: { token: str
           <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'المشاهدات حسب النوع' : 'Views by Type'}</h3>
           <ResponsiveContainer width="100%" height={200}>
             <PieChart>
-              <Pie data={data.viewsByType} dataKey="views" nameKey="type" cx="50%" cy="50%" outerRadius={80} label={(entry: any) => entry.type}>
-                {data.viewsByType.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+              <Pie data={data.viewsByType} dataKey="views" nameKey="type" cx="50%" cy="50%" outerRadius={80} label={(entry: PieLabelRenderProps & { type?: string }) => entry.type}>
+                {data.viewsByType.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Pie>
               <Tooltip contentStyle={{ background: 'var(--cms-surface)', border: '1px solid var(--cms-line)', borderRadius: 8, fontSize: 12 }} />
             </PieChart>
@@ -415,7 +499,7 @@ function ContentTab({ token, dateFrom, dateTo, isArabic, onError }: { token: str
 
 // ===== Tab 7: Codes =====
 function CodesTab({ token, dateFrom, dateTo, isArabic, onError }: { token: string; dateFrom: string; dateTo: string; isArabic: boolean; onError: (msg: string) => void }) {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<CodesAnalyticsDto | null>(null);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
     setLoading(true);
@@ -423,7 +507,7 @@ function CodesTab({ token, dateFrom, dateTo, isArabic, onError }: { token: strin
       const params = new URLSearchParams();
       if (dateFrom) params.set('dateFrom', new Date(dateFrom).toISOString());
       if (dateTo) params.set('dateTo', new Date(dateTo).toISOString());
-      const res = await apiRequest<any>(`/api/v1/admin/analytics/codes?${params}`, token);
+      const res = await apiRequest<CodesAnalyticsDto>(`/api/v1/admin/analytics/codes?${params}`, token);
       setData(res);
     } catch (e) { onError(e instanceof ApiError ? e.message : 'Failed'); }
     finally { setLoading(false); }
@@ -463,7 +547,7 @@ function CodesTab({ token, dateFrom, dateTo, isArabic, onError }: { token: strin
 
 // ===== Tab 8: Operations =====
 function OperationsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: string; dateFrom: string; dateTo: string; isArabic: boolean; onError: (msg: string) => void }) {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<OperationsAnalyticsDto | null>(null);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
     setLoading(true);
@@ -471,7 +555,7 @@ function OperationsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: 
       const params = new URLSearchParams();
       if (dateFrom) params.set('dateFrom', new Date(dateFrom).toISOString());
       if (dateTo) params.set('dateTo', new Date(dateTo).toISOString());
-      const res = await apiRequest<any>(`/api/v1/admin/analytics/operations?${params}`, token);
+      const res = await apiRequest<OperationsAnalyticsDto>(`/api/v1/admin/analytics/operations?${params}`, token);
       setData(res);
     } catch (e) { onError(e instanceof ApiError ? e.message : 'Failed'); }
     finally { setLoading(false); }
@@ -498,7 +582,7 @@ function OperationsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: 
               <YAxis type="category" dataKey="eventType" tick={{ fontSize: 10, fill: 'var(--cms-text-muted)' }} width={120} />
               <Tooltip contentStyle={{ background: 'var(--cms-surface)', border: '1px solid var(--cms-line)', borderRadius: 8, fontSize: 12 }} />
               <Bar dataKey="count" name="Count" fill="var(--cms-teal-600)" radius={[0, 4, 4, 0]}>
-                {data.securityEventsByType.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                {data.securityEventsByType.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>

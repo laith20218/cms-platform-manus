@@ -56,7 +56,7 @@ import {
 import { apiRequest, type PagedResult, type AdminLibraryFileListItem, type UploadUrlResponse } from '../lib/api';
 import { isPdfProcessingActive, pdfHealthBadge, pdfTimelineSteps } from '../lib/mediaProcessing';
 import { ProcessingErrorModal } from './ProcessingErrorModal';
-import { useUiPermissions } from '../hooks/useUiPermissions';
+import { useUiPermissions } from '../hooks/uiPermissionsContext';
 import { CoursesCenter } from './CoursesCenter';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
