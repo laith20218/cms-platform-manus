@@ -10,6 +10,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.cms.student.BuildConfig
+import com.cms.student.bridge.CmsJsBridge
 
 /** Failures the shell surfaces as an honest Arabic error screen (no fake offline mode). */
 sealed interface ShellError {
@@ -27,8 +28,10 @@ sealed interface ShellError {
  * - Loads only [BuildConfig.STUDENT_WEB_BASE_URL]; [ShellUrlPolicy] allowlists exactly that
  *   origin (host and port), so navigation to any other host or scheme is silently blocked —
  *   no address bar and no external browser for normal navigation.
- * - JavaScript is enabled (student-web is a JS SPA) but there is NO JavascriptInterface
- *   bridge in this batch; the web app cannot reach native code.
+ * - JavaScript is enabled (student-web is a JS SPA). Batch 3 added exactly ONE
+ *   audited bridge: [attachJsBridge] exposes `window.CmsNative` (see [CmsJsBridge])
+ *   — four read-only methods behind the ShellUrlPolicy origin guard; nothing else
+ *   is reachable from the web app, and no second unrestricted interface exists.
  * - Password saving, file/content access, geolocation, and multiple windows are disabled;
  *   mixed content is never allowed; TLS errors always fail closed.
  * - DOM storage is enabled: student-web persists its session in localStorage/sessionStorage
@@ -81,6 +84,20 @@ class WebViewHost(
                 if (request.isForMainFrame) onShellError(ShellError.Network)
             }
         }
+    }
+
+    /**
+     * Batch 3: exposes the single audited JS bridge as `window.CmsNative`.
+     *
+     * MUST be called only after [attach] so the hardened settings (password save off,
+     * file access off, mixed content never, multi-window off, allowlisted navigation)
+     * are already in force — the interface would otherwise live inside an unhardened
+     * WebView. The bridge itself re-checks [ShellUrlPolicy] per call (origin guard,
+     * see [CmsJsBridge]), so a page outside the allowlist degrades to safe defaults.
+     * There is intentionally NO second addJavascriptInterface anywhere.
+     */
+    fun attachJsBridge(bridge: CmsJsBridge) {
+        webView.addJavascriptInterface(bridge, CmsJsBridge.JS_NAME)
     }
 
     /** Loads the configured student web home; a misconfigured base URL surfaces as an error. */

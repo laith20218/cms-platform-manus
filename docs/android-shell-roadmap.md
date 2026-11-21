@@ -1,4 +1,4 @@
-# Android Shell Roadmap — Batch 0, Batch 1 & Batch 2
+# Android Shell Roadmap — Batch 0, Batch 1, Batch 2 & Batch 3
 
 Hybrid WebView shell for the student experience. Kotlin stays the platform:
 `apps/android` owns device security, while `apps/student-web` owns the UI it hosts.
@@ -68,8 +68,8 @@ Notes: `android:label="CMS"` added to the application (matches the student-web P
 
 ### Out of scope (later batches)
 
-- Batch 3: JS bridge (`@JavascriptInterface`) for native ↔ web calls.
-- Later: encrypted media cache, FCM push, Play Integrity activation, Matching UI.
+- Batch 4 (when Owner asks): encrypted media cache. Batch 3 (JS bridge) is DONE below.
+- Later: FCM push, Play Integrity activation, Matching UI.
 
 ## Batch 2 — session + installation identity (status: DONE)
 
@@ -128,9 +128,60 @@ Delivered in `feat/android-batch-2-session-headers`:
   Integrity activation (stub untouched), no student-web redesign, no passwords stored
   anywhere, no tokens in WebView URLs.
 
-## Batch 3 — next (JS bridge)
+## Batch 3 — JS bridge (status: DONE)
 
-Minimal, audited `@JavascriptInterface` surface so native can share session/installation
-identity with student-web inside the hardened WebView: enumerate the exact methods,
-annotate `@JavascriptInterface`, keep `WebViewHost` allowlist + `FLAG_SECURE` semantics,
-add contract tests, and document the threat model for each exposed method.
+Delivered in `feat/android-batch-3-js-bridge` — minimal, audited `@JavascriptInterface`
+between student-web (inside the shell WebView) and Kotlin: native shell detection +
+installation identity for header parity. Nothing else.
+
+### Exact JS surface (the ONLY methods exposed to JavaScript)
+
+```
+window.CmsNative.hasNativeShell()    // -> true (false outside the allowlisted origin)
+window.CmsNative.getPlatform()       // -> "android" ("" outside the allowlisted origin)
+window.CmsNative.getAppVersion()     // -> versionName from PackageManager / BuildConfig ("" outside)
+window.CmsNative.getInstallationId()  // -> InstallationIdProvider UUID ("" outside)
+```
+
+- **Bridge** (`bridge/CmsJsBridge.kt`, package `com.cms.student.bridge`): constructor
+  takes a URL provider + the same `ShellUrlPolicy` that governs navigation. **Origin
+  guard (mandatory):** EVERY method resolves the WebView's current URL and consults
+  `ShellUrlPolicy.isAllowed`; when not allowlisted it returns safe defaults
+  (`false` / empty string) — never throws, never partial values. Wired by
+  `WebViewHost.attachJsBridge()` (`addJavascriptInterface(bridge, "CmsNative")`) which
+  is called only AFTER `attach()` applied all hardening settings (password save off,
+  file access off, mixed content never, multi-window off, allowlist, TLS fail-closed).
+  `ShellActivity` keeps `FLAG_SECURE` ownership; no second interface exists anywhere.
+- **Threat model (one paragraph).** If an XSS payload runs inside student-web, the
+  bridge can leak ONLY the installation id (an opaque per-install device-binding id,
+  not a credential, never a token), the platform name, and the app version. Worst
+  case: device correlation or burning the per-installation rate-limit quota (the
+  backend limiter keys on `X-Installation-Id ?? X-Device-Fingerprint`) — it cannot
+  authenticate as anyone, cannot read the native session or token store, cannot touch
+  files, cannot execute, and cannot drive navigation. Foreign iframes cannot reach real
+  data either: the guard consults the main-frame URL, and `shouldOverrideUrlLoading`
+  already blocks any non-allowlisted frame navigation in this single-window shell.
+- **student-web (feature-detect only)**: `src/utils/native-bridge.ts` is the one typed
+  accessor for `window.CmsNative` (presence check + try/catch + value sanity, so a
+  malformed/hostile injection degrades to "absent"). Single injection point:
+  `getOrCreateInstallationId()` now prefers the native id when present, so the
+  existing axios interceptor in `src/services/api-client.ts` automatically sends
+  `X-Installation-Id` + `X-Device-Fingerprint` (compat) with the NATIVE id inside the
+  shell — header parity with `OfflineRequestHeaders` — while browser builds keep the
+  `web-<32hex>` identity untouched. No UI changes.
+- **Tests**: `CmsJsBridgeTest` (6 JVM tests) — origin allow/deny per method, non-blank
+  UUID-shaped installation id when allowed, fail-closed under `allowNothing()`, and a
+  reflection inventory asserting the `@JavascriptInterface` surface is EXACTLY the four
+  approved methods. `src/utils/native-bridge.test.ts` (8 vitest tests) — falsy when
+  `CmsNative` absent, mocked-present behavior, malformed/throwing bridge fail-closed,
+  browser fallback identity preserved, native id preferred for parity.
+- **Non-goals respected (enforced by absence)**: media cache, FCM, Play Integrity
+  activation, certificate pin VALUES, offline catalog UI, and any token exfiltration
+  API (`getAccessToken`/`getRefreshToken`/passwords) — token injection into JS remains
+  D1-forbidden unless a future batch redesigns auth.
+
+## Batch 4 — next (encrypted media cache, ONLY when Owner asks)
+
+Not started. Batch 3 left the bridge intentionally free of any cache/download/file
+surface; Batch 4 must design the encrypted cache without widening `CmsNative` beyond
+the audited four methods.

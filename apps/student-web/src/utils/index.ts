@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { getNativeInstallationId } from './native-bridge';
 
 export { sanitizeActionUrl } from './sanitizeActionUrl';
 
@@ -15,10 +16,19 @@ export function cn(...inputs: ClassValue[]) {
  * Returns a stable, opaque browser-installation identifier for server-side device binding.
  * It is intentionally random rather than a browser fingerprint: browser traits are not a
  * reliable identity, while this value must survive refreshes and be sent consistently.
+ *
+ * Batch 3 (native shell): when the app runs inside the Android WebView shell and the
+ * audited `window.CmsNative` bridge supplies an installation id, THAT id wins so web
+ * requests inside the shell carry the same X-Installation-Id / X-Device-Fingerprint as
+ * the native offline path (header parity, one device identity per install). The value
+ * is feature-detected — in a plain browser nothing below changes.
  */
 const INSTALLATION_ID_KEY = 'cms-device-fingerprint';
 
 export function getOrCreateInstallationId(storage: Storage = window.localStorage): string {
+  const nativeInstallationId = getNativeInstallationId();
+  if (nativeInstallationId) return nativeInstallationId;
+
   const existing = storage.getItem(INSTALLATION_ID_KEY);
   if (existing && /^web-[a-f0-9]{32}$/i.test(existing)) return existing;
 
