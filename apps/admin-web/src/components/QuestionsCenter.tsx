@@ -46,6 +46,7 @@ import {
   Search, Send, Trash2, Undo2, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
+import { questionDifficultyLabel as difficultyLabel, questionTypeLabel as typeLabel } from '../lib/questionLabels';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import {
   emptyMatching, matchingFromDetail, matchingToApiPayload, newMatchingRowId,
@@ -220,25 +221,9 @@ const statusBadgeClass = (status: string) => {
   return 'text-slate-600 bg-slate-50 border-slate-200';
 };
 
-const typeLabel = (type: string, isArabic: boolean) => {
-  switch (type) {
-    case 'Mcq': return isArabic ? 'اختيار من متعدد' : 'MCQ';
-    case 'TrueFalse': return isArabic ? 'صح أو خطأ' : 'True / False';
-    case 'MultipleSelect': return isArabic ? 'اختيارات متعددة' : 'Multiple select';
-    case 'Essay': return isArabic ? 'تحريري' : 'Essay';
-    case 'Matching': return isArabic ? 'وصل' : 'Matching';
-    default: return type;
-  }
-};
-
-const difficultyLabel = (difficulty: string, isArabic: boolean) => {
-  switch (difficulty) {
-    case 'Easy': return isArabic ? 'سهل' : 'Easy';
-    case 'Medium': return isArabic ? 'متوسط' : 'Medium';
-    case 'Hard': return isArabic ? 'صعب' : 'Hard';
-    default: return difficulty;
-  }
-};
+// W22.1 — typeLabel/difficultyLabel now import from the SHARED lib/questionLabels
+// (byte-identical glossary; ExamsCenter rides the same map so the centers can
+// never drift). The local copies were removed.
 
 const statusLabel = (status: string, isArabic: boolean) => {
   const value = status.toLowerCase();
