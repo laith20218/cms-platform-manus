@@ -42,6 +42,7 @@ import {
   Pencil, Plus, Search, Send, Timer, Trash2, TrendingUp, Users, X, XCircle,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
+import { questionDifficultyLabel, questionTypeLabel } from '../lib/questionLabels';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import { useUiPermissions } from '../hooks/useUiPermissions';
 
@@ -137,7 +138,9 @@ const statusBadgeClass = (status: string) => {
   return 'text-slate-600 bg-slate-50 border-slate-200';
 };
 
-const typeLabel = (type: string, isArabic: boolean) => {
+// W22.1 — EXAM types only (Final/Midterm/Quiz/Practice). Question types ride
+// the shared lib/questionLabels helper so they never fall through to raw enums.
+const examTypeLabel = (type: string, isArabic: boolean) => {
   switch (type) {
     case 'Final': return isArabic ? 'نهائي' : 'Final';
     case 'Midterm': return isArabic ? 'نصفي' : 'Midterm';
@@ -979,7 +982,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${typeBadgeClass(exam.examType)}`}>
-                          {typeLabel(exam.examType, isArabic)}
+                          {examTypeLabel(exam.examType, isArabic)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
@@ -1642,7 +1645,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                                     {question.text}
                                   </strong>
                                   <small className="block mt-0.5 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
-                                    {typeLabel(question.type, isArabic)} · {question.lectureName ?? (isArabic ? 'على مستوى المادة' : 'Subject-wide')}
+                                    {questionTypeLabel(question.type, isArabic)} · {questionDifficultyLabel(question.difficulty, isArabic)} · {question.lectureName ?? (isArabic ? 'على مستوى المادة' : 'Subject-wide')}
                                   </small>
                                 </div>
                                 <div className="flex flex-col gap-0.5">
@@ -1734,7 +1737,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                                         {candidate.text}
                                       </strong>
                                       <small className="block mt-0.5 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
-                                        {typeLabel(candidate.type, isArabic)} · {candidate.difficulty} · {candidate.lectureName ?? (isArabic ? 'على مستوى المادة' : 'Subject-wide')}
+                                        {questionTypeLabel(candidate.type, isArabic)} · {questionDifficultyLabel(candidate.difficulty, isArabic)} · {candidate.lectureName ?? (isArabic ? 'على مستوى المادة' : 'Subject-wide')}
                                       </small>
                                     </div>
                                   </button>
