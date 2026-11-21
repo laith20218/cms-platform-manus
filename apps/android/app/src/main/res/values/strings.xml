@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Arabic-first: the student audience is Arabic, so the default locale carries the
+         Arabic copy and values-en/ provides the English fallback. Brand name "CMS" stays
+         locale-neutral (matches the student-web PWA short_name). -->
+    <string name="app_name">CMS</string>
+    <string name="shell_error_config_title">الإعداد غير مكتمل</string>
+    <string name="shell_error_config_message">عنوان خدمة الطالب غير مضبوط أو غير صالح في هذه النسخة. يرجى تحديث التطبيق أو التواصل مع الدعم الفني.</string>
+    <string name="shell_error_network_title">تعذّر الاتصال</string>
+    <string name="shell_error_network_message">تعذّر الوصول إلى خدمة الطالب. تحقّق من اتصالك بالإنترنت ثم أعد المحاولة.</string>
+    <string name="shell_retry">إعادة المحاولة</string>
+</resources>

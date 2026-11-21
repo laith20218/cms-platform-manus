@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CMS</string>
+    <string name="shell_error_config_title">Setup incomplete</string>
+    <string name="shell_error_config_message">The student service address is missing or invalid in this build. Please update the app or contact support.</string>
+    <string name="shell_error_network_title">Connection failed</string>
+    <string name="shell_error_network_message">Could not reach the student service. Check your internet connection and try again.</string>
+    <string name="shell_retry">Retry</string>
+</resources>
