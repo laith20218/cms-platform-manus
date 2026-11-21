@@ -6,4 +6,28 @@
     <string name="shell_error_network_title">Connection failed</string>
     <string name="shell_error_network_message">Could not reach the student service. Check your internet connection and try again.</string>
     <string name="shell_retry">Retry</string>
+    <!-- Batch 2: native login / session lifecycle (honest states, no fake offline). -->
+    <string name="login_prompt">Sign in to access the protected content.</string>
+    <string name="login_phone_hint">Phone number</string>
+    <string name="login_password_hint">Password</string>
+    <string name="login_submit">Sign in</string>
+    <string name="login_in_progress">Signing in…</string>
+    <string name="login_failed_generic">Could not sign in, or no valid API configuration exists.</string>
+    <string name="login_failed_credentials">The phone number or password is incorrect.</string>
+    <string name="session_ready">Student session created.</string>
+    <string name="session_verifying">Checking your previous session…</string>
+    <string name="session_restored">Previous session restored.</string>
+    <string name="session_restored_unverified">Stored session restored without server verification.</string>
+    <string name="session_expired">Your session has expired; please sign in again.</string>
+    <string name="session_expired_signed_out">Your session expired during the operation; you have been signed out.</string>
+    <string name="logout">Sign out</string>
+    <string name="logged_out">Signed out.</string>
+    <string name="offline_disabled">Trusted Offline is disabled in this build; content stays unavailable offline.</string>
+    <string name="offline_subject_hint">Subject UUID</string>
+    <string name="offline_exam_hint">Exam UUID (optional)</string>
+    <string name="offline_download">Download the encrypted exam package</string>
+    <string name="offline_requesting">Requesting and verifying an encrypted package…</string>
+    <string name="offline_invalid_ids">The subject or exam identifier is invalid.</string>
+    <string name="offline_rejected">The package was rejected or could not be verified.</string>
+    <string name="offline_authorized_only">Only request package IDs from the authorized content screen.</string>
 </resources>

@@ -81,7 +81,33 @@ data class OfflineSession(
     val studentId: UUID,
     val accessToken: String,
     val installationId: String
-)
+) {
+    /** Tokens must never leak into logs, crash reports, or error messages. */
+    override fun toString(): String =
+        "OfflineSession(studentId=$studentId, accessToken=<redacted>, installationId=$installationId)"
+}
+
+/** Login outcome for the native session path; the refresh token is persisted encrypted, never logged. */
+data class OfflineLoginResult(
+    val studentId: UUID,
+    val accessToken: String,
+    val refreshToken: String,
+    val installationId: String
+) {
+    /** Tokens must never leak into logs, crash reports, or error messages. */
+    override fun toString(): String =
+        "OfflineLoginResult(studentId=$studentId, accessToken=<redacted>, refreshToken=<redacted>, installationId=$installationId)"
+}
+
+/** Rotated token pair returned by `/auth/refresh`; persisted encrypted, never logged. */
+data class OfflineTokenPair(
+    val accessToken: String,
+    val refreshToken: String
+) {
+    /** Tokens must never leak into logs, crash reports, or error messages. */
+    override fun toString(): String =
+        "OfflineTokenPair(accessToken=<redacted>, refreshToken=<redacted>)"
+}
 
 data class OfflinePackageStatus(
     val packageId: UUID,

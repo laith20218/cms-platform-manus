@@ -13,13 +13,20 @@ import javax.net.ssl.HttpsURLConnection
 /**
  * HTTPS-only implementation of every backend endpoint consumed by the Android Offline flow.
  * Callers must invoke it off the Android main thread. Tokens and envelopes are never logged.
+ *
+ * @param certificatePins optional SPKI SHA-256 pins (Batch 2); empty disables pinning so
+ *   debug builds against placeholder domains keep working, non-empty enforces fail-closed.
  */
-class HttpsOfflinePackageClient(baseApiUrl: String) : IOfflinePackageClient, ISyncClient {
+class HttpsOfflinePackageClient(
+    baseApiUrl: String,
+    certificatePins: Set<String> = emptySet()
+) : IOfflinePackageClient, ISyncClient {
     private val baseUri: URI = normalizeBaseUri(baseApiUrl)
     private val gson = Gson()
+    private val pinnedSocketFactory = OfflineCertificatePinning.socketFactoryIfPinned(certificatePins)
 
     /** Login establishes an in-memory OfflineSession; neither password nor refresh token is persisted here. */
-    fun login(phone: String, password: String, installationId: String, deviceName: String?): OfflineSession {
+    fun login(phone: String, password: String, installationId: String, deviceName: String?): OfflineLoginResult {
         require(phone.isNotBlank() && password.isNotBlank() && installationId.isNotBlank()) { "Login inputs are required" }
         val body = JsonObject().apply {
             addProperty("phone", phone)
@@ -27,11 +34,25 @@ class HttpsOfflinePackageClient(baseApiUrl: String) : IOfflinePackageClient, ISy
             addProperty("deviceFingerprint", installationId)
             deviceName?.takeIf(String::isNotBlank)?.let { addProperty("deviceName", it) }
         }
-        val response = unauthenticatedRequest("POST", "auth/login", gson.toJson(body))
+        // Batch 2: the login call carries the same installation identity headers as the
+        // web client (the backend rate limiter keys on X-Installation-Id ?? X-Device-Fingerprint).
+        val response = unauthenticatedRequest("POST", "auth/login", gson.toJson(body), OfflineRequestHeaders.installation(installationId))
         val accessToken = response.requiredString("accessToken")
+        val refreshToken = response.requiredString("refreshToken")
         val studentId = UUID.fromString(response.getAsJsonObject("user")?.requiredString("id")
             ?: throw OfflineTransportException(message = "Login response omitted student identity"))
-        return OfflineSession(studentId, accessToken, installationId)
+        return OfflineLoginResult(studentId, accessToken, refreshToken, installationId)
+    }
+
+    /** Rotates the token pair via POST auth/refresh (requires the X-Device-Fingerprint header). */
+    fun refresh(refreshToken: String, installationId: String): OfflineTokenPair {
+        require(refreshToken.isNotBlank() && installationId.isNotBlank()) { "Refresh inputs are required" }
+        val body = JsonObject().apply { addProperty("refreshToken", refreshToken) }
+        val response = unauthenticatedRequest("POST", "auth/refresh", gson.toJson(body), OfflineRequestHeaders.installation(installationId))
+        return OfflineTokenPair(
+            accessToken = response.requiredString("accessToken"),
+            refreshToken = response.requiredString("refreshToken")
+        )
     }
 
     override fun issueEntitlement(session: OfflineSession): String {
@@ -107,7 +128,7 @@ class HttpsOfflinePackageClient(baseApiUrl: String) : IOfflinePackageClient, ISy
         )
     }
 
-    private fun unauthenticatedRequest(method: String, relativePath: String, body: String): JsonObject {
+    private fun unauthenticatedRequest(method: String, relativePath: String, body: String, headers: Map<String, String>): JsonObject {
         val url = baseUri.resolve(relativePath).toURL()
         val connection = (url.openConnection() as? HttpsURLConnection)
             ?: throw OfflineTransportException(message = "Authentication transport requires HTTPS")
@@ -120,6 +141,8 @@ class HttpsOfflinePackageClient(baseApiUrl: String) : IOfflinePackageClient, ISy
             connection.doOutput = true
             connection.setRequestProperty("Accept", "application/json")
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            OfflineCertificatePinning.applyTo(connection, pinnedSocketFactory)
+            headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
             connection.outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(body) }
             val code = connection.responseCode
             if (code !in 200..299) {
@@ -158,8 +181,12 @@ class HttpsOfflinePackageClient(baseApiUrl: String) : IOfflinePackageClient, ISy
             connection.readTimeout = READ_TIMEOUT_MILLIS
             connection.useCaches = false
             connection.setRequestProperty("Accept", "application/json")
-            connection.setRequestProperty("Authorization", "Bearer ${session.accessToken}")
-            connection.setRequestProperty("X-Installation-Id", session.installationId)
+            OfflineCertificatePinning.applyTo(connection, pinnedSocketFactory)
+            // Batch 2: single place — Authorization: Bearer + X-Installation-Id +
+            // X-Device-Fingerprint (compat) for every authenticated offline/API call.
+            OfflineRequestHeaders.authenticated(session).forEach { (name, value) ->
+                connection.setRequestProperty(name, value)
+            }
             extraHeaders.forEach { (name, value) ->
                 if (value.isBlank()) throw OfflineTransportException(message = "Required Offline request header is blank")
                 connection.setRequestProperty(name, value)
