@@ -237,15 +237,10 @@ export type LibraryFileDetail = {
 };
 
 // ===== Push 3 / Track 3: advanced UI permissions =====
-
-/** Wire shape of GET /api/v1/auth/admin/me/ui-permissions (drift-detection envelope). */
-export type MyUiPermissions = {
-  mode: 'super_admin' | 'unconfigured' | 'custom';
-  isSuperAdmin: boolean;
-  registryVersion: string;
-  allKeys: string[];
-  allowedKeys: string[];
-};
+// (W23.4/B6-2: the dead MyUiPermissions type + fetchMyUiPermissions helper were
+// removed — the live fetch path is hooks/useUiPermissionsBundle.ts, which reads
+// /api/v1/auth/admin/me/ui-permissions directly with the UiPermissionsBundle shape
+// from lib/uiPermissions.ts.)
 
 /** Wire shape of GET /api/v1/admin/roles/{id}/ui-permissions. */
 export type RoleUiPermissions = {
@@ -254,11 +249,6 @@ export type RoleUiPermissions = {
   registryVersion: string;
   allKeys: string[];
 };
-
-/** Resolves the current admin's UI-permission envelope. */
-export async function fetchMyUiPermissions(token: string): Promise<MyUiPermissions> {
-  return apiRequest<MyUiPermissions>('/api/v1/auth/admin/me/ui-permissions', token);
-}
 
 /** Reads the UI-permission configuration of one role (system or custom). */
 export async function fetchRoleUiPermissions(token: string, roleId: string): Promise<RoleUiPermissions> {
