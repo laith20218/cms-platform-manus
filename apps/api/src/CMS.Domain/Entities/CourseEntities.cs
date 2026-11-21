@@ -15,6 +15,16 @@ public class Course : AuditableEntity
 {
     public Guid SubjectId { get; set; }
     public string Title { get; set; } = string.Empty;
+
+    /// <summary>Wave 20.3 (owner decision 1) — the student-facing six-digit public code
+    /// ("000000"–"999999", zero-padded). Auto-assigned at row creation, unique per table,
+    /// always rendered next to the title, searchable by name OR code. The code belongs
+    /// to the COURSE as a whole — episodes never carry their own codes.</summary>
+    public string? PublicCode { get; private set; }
+
+    /// <summary>W20.3 — assigns the (collision-checked) generated code once, at creation.</summary>
+    public void AssignPublicCode(string code) => PublicCode = code;
+
     public string? Description { get; set; }
     public string? CoverImageUrl { get; set; }
     /// <summary>Lifecycle identical to library files (decision د2): Draft → Published → Archived.</summary>

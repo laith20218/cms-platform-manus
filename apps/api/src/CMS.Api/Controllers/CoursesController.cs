@@ -35,17 +35,19 @@ public class CoursesController : ControllerBase
     /// <summary>
     /// Courses catalog for a subject — only students holding a VideoAudio-capable grant
     /// receive entries (others get an empty list, mirroring the library file listing).
+    /// W20.3 — the optional `search` query param matches by name/description OR
+    /// six-digit public code (digit-only terms are zero-padded: "1234" finds "001234").
     /// </summary>
     [HttpGet("subject/{subjectId:guid}")]
     [Authorize]
-    public async Task<IActionResult> GetSubjectCourses(Guid subjectId, CancellationToken ct)
+    public async Task<IActionResult> GetSubjectCourses(Guid subjectId, [FromQuery] string? search, CancellationToken ct)
     {
         var studentId = GetStudentId();
         if (!studentId.HasValue) return Unauthorized();
         var rejection = await EntitlementRejectionAsync(studentId.Value, subjectId, ct);
         if (rejection is not null) return rejection;
 
-        return Ok(await _mediator.Send(new GetSubjectCoursesQuery(studentId.Value, subjectId), ct));
+        return Ok(await _mediator.Send(new GetSubjectCoursesQuery(studentId.Value, subjectId, search), ct));
     }
 
     /// <summary>Course detail with its ordered episodes.</summary>

@@ -12,7 +12,9 @@ public record CourseListItemDto(
     string? CoverImageUrl,
     int EpisodesCount,
     int TotalDurationSeconds,
-    int TotalViewsCount
+    int TotalViewsCount,
+    // W20.3 — the student-facing six-digit public code (additive key; searchable by name OR code).
+    string? PublicCode = null
 );
 
 public record CourseDto(
@@ -24,7 +26,9 @@ public record CourseDto(
     string Status,
     int EpisodesCount,
     DateTime CreatedAt,
-    List<CourseEpisodeDto> Episodes
+    List<CourseEpisodeDto> Episodes,
+    // W20.3 — the student-facing six-digit public code (additive key).
+    string? PublicCode = null
 );
 
 public record CourseEpisodeDto(

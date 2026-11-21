@@ -267,6 +267,11 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext, IDataProte
         modelBuilder.Entity<Course>(entity =>
         {
             entity.HasIndex(x => x.SubjectId);
+            // W20.3 — the student-facing six-digit public code (unique per table;
+            // NULL only on pre-backfill rows, and Postgres unique indexes allow
+            // multiple NULLs, so the additive migration needs no default value).
+            entity.Property(x => x.PublicCode).HasMaxLength(6);
+            entity.HasIndex(x => x.PublicCode).IsUnique();
             entity.HasOne(x => x.Subject).WithMany(x => x.Courses).HasForeignKey(x => x.SubjectId).OnDelete(DeleteBehavior.Restrict);
         });
         modelBuilder.Entity<CourseEpisode>(entity =>
@@ -385,6 +390,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext, IDataProte
         modelBuilder.Entity<LibraryFile>(entity =>
         {
             entity.Property(x => x.HlsKey).HasMaxLength(600);
+            // W20.3 — same public-code contract as Course (see the Course config).
+            entity.Property(x => x.PublicCode).HasMaxLength(6);
+            entity.HasIndex(x => x.PublicCode).IsUnique();
         });
 
         // Auto snake_case naming

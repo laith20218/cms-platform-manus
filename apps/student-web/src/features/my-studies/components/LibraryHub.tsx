@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
   BookMarked, Bookmark, CalendarDays, ChevronDown, Eye, FileCode, FileSpreadsheet,
-  FileText, Image as ImageIcon, LoaderCircle, Music, Target, Video,
+  FileText, Image as ImageIcon, LoaderCircle, Music, Search, Target, Video, X,
 } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
@@ -80,6 +80,8 @@ interface HubLibraryFile {
   /** Curricular category (Curriculum / Lecture / Summary / GoldenIdeas) — null = uncategorized. */
   category?: string | null;
   createdAt?: string | null;
+  /** W20.3 — the six-digit public code (always shown next to the title). */
+  publicCode?: string | null;
   subjectId: string;
   subjectSlug: string;
   subjectName: string;
@@ -110,6 +112,16 @@ export function LibraryHub({
   // it; the query refetches pages 1..N per subject (bounded in practice —
   // 100 files/page makes deep paging rare).
   const [pagesLoaded, setPagesLoaded] = useState(1);
+  // W20.3 — name OR code search. The input drives a debounced committed term
+  // that rides the SERVER filter (`?search=` on GET /library/subject/{id}), so
+  // the search covers the whole catalog — not just the loaded pages — and the
+  // «تم تحميل X من Y» totals stay coherent against the filtered set.
+  const [searchInput, setSearchInput] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchTerm(searchInput.trim()), 350);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   // Wave 15.5.1a — the same context flag drives the h1 + breadcrumb branches.
   const location = useLocation();
@@ -183,7 +195,7 @@ export function LibraryHub({
   // «تم تحميل X من Y ملفاً» instead of silently capping at the first 100.
   const [entitlementDenied, setEntitlementDenied] = useState<ReturnType<typeof variantForReason> | null>(null);
   const { data: catalog, isLoading, isError, isFetching, error, refetch } = useQuery({
-    queryKey: ['library-hub', subjects.map((s) => s.id).join(','), pagesLoaded],
+    queryKey: ['library-hub', subjects.map((s) => s.id).join(','), pagesLoaded, searchTerm],
     enabled: subjects.length > 0,
     retry: (failureCount, failure) => !(failure instanceof EntitlementDeniedError) && failureCount < 1,
     queryFn: async (): Promise<{ files: HubLibraryFile[]; totalFiles: number }> => {
@@ -198,7 +210,7 @@ export function LibraryHub({
           for (let page = 1; page <= pagesLoaded; page++) {
             const res = await apiClient.get(`/library/subject/${subjectId}`, {
               ...(await entitlementRequestConfig()),
-              params: { page, pageSize: LIBRARY_PAGE_SIZE },
+              params: { page, pageSize: LIBRARY_PAGE_SIZE, ...(searchTerm ? { search: searchTerm } : {}) },
             });
             total = res.data?.total ?? total;
             const items = res.data?.items ?? [];
@@ -363,6 +375,35 @@ export function LibraryHub({
         <h1 className="text-2xl font-bold">المكتبة الرقمية</h1>
       )}
 
+      {/* W20.3 — name OR code search (server-side `?search=`): matches the
+          title or the six-digit public code (typing "1234" finds "001234"). */}
+      <div className="mt-5 mb-3" data-testid="library-search-row">
+        <label htmlFor="library-hub-search" className="sr-only">ابحث في المكتبة بالاسم أو الرمز</label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--c-text-faint)]" aria-hidden="true" />
+          <input
+            id="library-hub-search"
+            type="search"
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="ابحث بالاسم أو برمز الملف المكوّن من ٦ أرقام"
+            data-testid="library-search-input"
+            className="w-full min-h-11 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] py-2.5 pe-10 ps-4 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] transition-colors focus:border-[var(--c-primary-400)] focus:outline-none focus:ring-2 focus:ring-[var(--c-primary-100)]"
+          />
+          {searchInput && (
+            <button
+              type="button"
+              onClick={() => setSearchInput('')}
+              aria-label="مسح البحث"
+              data-testid="library-search-clear"
+              className="absolute start-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-[var(--c-text-faint)] transition-colors hover:text-[var(--c-text)]"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Category filter chips (Row A) */}
       <div role="tablist" aria-label="تصنيفات المكتبة" className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-3 mt-5" data-testid="library-category-tabs">
         {availableCategories.map(({ key, label }) => {
@@ -432,10 +473,22 @@ export function LibraryHub({
         <div className="text-center py-14 rounded-2xl border border-dashed border-[var(--c-border)]" data-testid="library-empty">
           <BookMarked className="w-12 h-12 mx-auto mb-3 text-[var(--c-text-faint)]" />
           <p className="text-[var(--c-text-muted)]">
-            {activeCategory === 'all' && activeFormat === 'all'
-              ? 'لا توجد ملفات في مكتبتك بعد'
-              : 'لا توجد ملفات تطابق هذا التصنيف أو الصيغة'}
+            {searchTerm
+              ? 'لا توجد ملفات تطابق البحث'
+              : activeCategory === 'all' && activeFormat === 'all'
+                ? 'لا توجد ملفات في مكتبتك بعد'
+                : 'لا توجد ملفات تطابق هذا التصنيف أو الصيغة'}
           </p>
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchInput('')}
+              className="press mt-3 inline-flex min-h-11 items-center rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] px-4 text-sm font-semibold text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-400)] hover:text-[var(--c-primary-700)]"
+              data-testid="library-search-empty-clear"
+            >
+              مسح البحث وعرض كل الملفات
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="library-grid">
@@ -473,6 +526,16 @@ export function LibraryHub({
                       <span className="text-sm font-semibold text-[var(--c-text)] truncate group-hover:text-[var(--c-primary-700)] transition-colors">
                         {file.title}
                       </span>
+                      {file.publicCode && (
+                        <span
+                          className="shrink-0 rounded-md bg-[var(--c-bg-hover)] px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-[var(--c-text-muted)]"
+                          lang="en"
+                          data-testid="library-card-code"
+                          title="رمز الملف"
+                        >
+                          {file.publicCode}
+                        </span>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-[var(--c-text-muted)]">
                       <span className="font-medium" style={{ color: meta.color }}>{meta.label}</span>

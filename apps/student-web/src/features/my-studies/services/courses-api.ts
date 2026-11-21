@@ -59,6 +59,9 @@ export interface CourseListItem {
   episodesCount: number;
   totalDurationSeconds: number;
   totalViewsCount: number;
+  /** W20.3 — the six-digit public code (additive server key; always shown
+   * next to the title, searchable by name OR code). Absent on legacy payloads. */
+  publicCode?: string | null;
 }
 
 export interface CourseEpisode {

@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using CMS.Application.Common;
 using CMS.Application.Interfaces;
 using CMS.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -37,6 +38,9 @@ public sealed class StudentSearchController : ControllerBase
 
         var cappedLimit = Math.Clamp(limit, 1, 30);
         var perKindLimit = Math.Min(10, cappedLimit);
+        // W20.3 — a digit-only term (≤ 6 digits) also matches file public codes in
+        // their zero-padded form ("1234" finds "001234").
+        var fileCodeTerm = PublicCodes.NormalizeSearchTerm(term);
         var activeGrants = _db.StudentSubscriptions.AsNoTracking()
             .Where(subscription => subscription.StudentId == studentId
                 && subscription.Status == SubscriptionStatus.Active
@@ -137,7 +141,7 @@ public sealed class StudentSearchController : ControllerBase
             join university in _db.Universities.AsNoTracking() on college.UniversityId equals university.Id
             where entitledSubjectIds.Contains(academicSubject.Id)
                 && file.Status == ContentStatus.Published && file.DeletedAt == null && file.VirusScanStatus == VirusScanStatus.Clean
-                && (file.Title.Contains(term) || (file.Description ?? string.Empty).Contains(term) || file.Tags.Any(tag => tag.Contains(term)))
+                && (file.Title.Contains(term) || (file.Description ?? string.Empty).Contains(term) || file.Tags.Any(tag => tag.Contains(term)) || (fileCodeTerm != null && file.PublicCode == fileCodeTerm))
                 && activeGrants.Any(grant => ((grant.ScopeType == SubscriptionScopeType.Subject && grant.ScopeSubjectId == academicSubject.Id)
                     || (grant.ScopeType == SubscriptionScopeType.Semester && grant.ScopeSemesterId == semester.Id)
                     || (grant.ScopeType == SubscriptionScopeType.Year && grant.ScopeYearId == academicYear.Id)

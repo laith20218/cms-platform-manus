@@ -629,6 +629,11 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("description");
 
+                    b.Property<string>("PublicCode")
+                        .HasMaxLength(6)
+                        .HasColumnType("character varying(6)")
+                        .HasColumnName("public_code");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer")
                         .HasColumnName("status");
@@ -648,6 +653,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_courses");
+
+                    b.HasIndex("PublicCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_courses_public_code");
 
                     b.HasIndex("SubjectId")
                         .HasDatabaseName("ix_courses_subject_id");
@@ -1917,6 +1926,11 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("processing_status");
 
+                    b.Property<string>("PublicCode")
+                        .HasMaxLength(6)
+                        .HasColumnType("character varying(6)")
+                        .HasColumnName("public_code");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer")
                         .HasColumnName("status");
@@ -1976,6 +1990,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.HasIndex("ProcessingStatus")
                         .HasDatabaseName("ix_library_files_processing_status")
                         .HasFilter("processing_status IS NOT NULL");
+
+                    b.HasIndex("PublicCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_library_files_public_code");
 
                     b.HasIndex("SubjectId")
                         .HasDatabaseName("ix_library_files_subject_id");

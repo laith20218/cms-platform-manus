@@ -61,7 +61,7 @@ public sealed class CoursesControllerProblemDetailsTests
         var controller = CreateController();
         SetupInvalidValidation(failureReason);
 
-        var result = await controller.GetSubjectCourses(Guid.NewGuid(), CancellationToken.None);
+        var result = await controller.GetSubjectCourses(Guid.NewGuid(), null, CancellationToken.None);
 
         var objectResult = result.Should().BeOfType<ObjectResult>().Subject;
         objectResult.StatusCode.Should().Be(403);
@@ -76,7 +76,7 @@ public sealed class CoursesControllerProblemDetailsTests
         var controller = CreateController();
         SetupInvalidValidation("Subject is outside the entitlement scope.");
 
-        await controller.GetSubjectCourses(Guid.NewGuid(), CancellationToken.None);
+        await controller.GetSubjectCourses(Guid.NewGuid(), null, CancellationToken.None);
 
         _audit.Verify(
             writer => writer.LogSecurityEventAsync(
