@@ -98,7 +98,7 @@ export function usePdfBookmarks(fileId: string) {
   const rollback = useCallback(
     (previous: PageBookmark[]) => {
       queryClient.setQueryData<PageBookmark[]>(listKey, orderBookmarks(previous));
-      toast.error('تعذر حفظ العلامة المرجعية. تحقق من اتصالك وحاول مجددًا.');
+      toast.error('تعذّر حفظ العلامة المرجعية. تحقق من اتصالك وحاول مجددًا.');
     },
     [queryClient, listKey],
   );

@@ -230,7 +230,7 @@ describe('usePdfBookmarks (12.5.B — server persistence, optimistic UI)', () =>
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     act(() => { result.current.toggle(5); });
-    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('تعذر حفظ العلامة المرجعية. تحقق من اتصالك وحاول مجددًا.'));
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('تعذّر حفظ العلامة المرجعية. تحقق من اتصالك وحاول مجددًا.'));
     expect(result.current.bookmarks).toEqual([]);
   });
 

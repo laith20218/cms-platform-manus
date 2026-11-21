@@ -941,7 +941,7 @@ export default function VideoPlayer({
             className="pointer-events-none absolute top-3 z-20 flex items-center gap-2 rounded-full bg-black/50 px-3 py-1.5 text-[11px] font-medium text-white/80 backdrop-blur-sm"
           >
             <LoaderCircle className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-            جاري تجديد الرابط…
+            جارٍ تجديد الرابط…
           </motion.div>
         )}
       </AnimatePresence>
