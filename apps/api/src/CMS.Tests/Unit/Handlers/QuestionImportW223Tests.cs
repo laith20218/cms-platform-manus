@@ -28,8 +28,9 @@ public class QuestionImportW223Tests
 
     private static ImportQuestionRow Row(
         string text = "سؤال سليم من الاستيراد",
-        string correctOption = "A") =>
-        new(text, "الخيار أ", "الخيار ب", null, null, correctOption, "شرح السؤال المستورد", "Easy", null, null, null);
+        string correctOption = "A",
+        string explanation = "شرح السؤال المستورد") =>
+        new(text, "الخيار أ", "الخيار ب", null, null, correctOption, explanation, "Easy", null, null, null);
 
     [Fact]
     public async Task Import_MissingText_ReportsTheArabicRowError_ExpectedPathNotAnException()
@@ -71,6 +72,33 @@ public class QuestionImportW223Tests
 
         result.Failed.Should().Be(1);
         result.Errors[0].Should().Contain("الإجابة الصحيحة مطلوبة");
+    }
+
+    [Fact]
+    public async Task Import_MissingExplanation_ReportsTheArabicDomainRowError()
+    {
+        // W23.2 (A3): a row without an explanation trips the DOMAIN guard
+        // (Question.UpdateExplanation → BusinessRuleViolationException(«الشرح مطلوب»))
+        // which the per-row catch folds into the Arabic row report — the old
+        // mixed-script «السطر 1: Explanation is required» is gone.
+        using var db = TestDbHelper.CreateInMemoryContext();
+        using var uow = new UnitOfWork(db);
+        var handler = BuildHandler(db, uow);
+        var subject = TestDbHelper.GetTestSubject(db);
+        var admin = db.Admins.First();
+
+        var result = await handler.Handle(new ImportQuestionsCommand(
+            subject.Id, null,
+            new List<ImportQuestionRow> { Row(explanation: "   ") },
+            admin.Id), CancellationToken.None);
+
+        result.Total.Should().Be(1);
+        result.Success.Should().Be(0);
+        result.Failed.Should().Be(1);
+        result.Errors.Should().ContainSingle();
+        result.Errors[0].Should().Contain("السطر 1");
+        result.Errors[0].Should().Contain("الشرح مطلوب");
+        result.Errors[0].Should().NotContain("Explanation is required");
     }
 
     [Fact]

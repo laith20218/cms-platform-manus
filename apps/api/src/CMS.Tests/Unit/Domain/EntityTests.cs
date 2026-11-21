@@ -154,7 +154,7 @@ public class QuestionEntityTests
     }
 
     [Fact]
-    public void UpdateExplanation_EmptyExplanation_ShouldThrowDomainException()
+    public void UpdateExplanation_EmptyExplanation_ShouldThrowBusinessRuleViolation_WithArabicMessage()
     {
         // Arrange
         var question = Question.Create("Test?", QuestionType.Mcq, Guid.NewGuid(), null,
@@ -163,9 +163,10 @@ public class QuestionEntityTests
         // Act
         var act = () => question.UpdateExplanation("");
 
-        // Assert
-        act.Should().Throw<DomainException>()
-            .WithMessage("Explanation is required");
+        // Assert — W23.2 (A3): the domain guard carries the Arabic message on the
+        // project-standard BusinessRuleViolationException (was an English DomainException text).
+        act.Should().Throw<BusinessRuleViolationException>()
+            .WithMessage("الشرح مطلوب");
     }
 
     [Fact]
