@@ -49,14 +49,18 @@ URL cannot be produced by accident.
 - [x] `android:allowBackup="false"` preserved; security core and its tests untouched.
 - [x] This roadmap documents Batch 0–1 done criteria and the MainActivity launcher decision.
 
-## Batch 1 — done criteria (status: NEXT)
+## Batch 1 — done criteria (status: DONE)
 
-- [ ] `shell/ShellActivity` is `MAIN`/`LAUNCHER`, sets `FLAG_SECURE`, hosts the WebView through `shell/WebViewHost`.
-- [ ] WebView host checklist: HTTPS-only load of `STUDENT_WEB_BASE_URL`; `shouldOverrideUrlLoading` (both overloads) allowlists only the configured host; no address bar / external browser for normal navigation; `setSavePassword(false)`; DOM storage enabled (student-web session storage requires it — evidence: `apps/student-web/src/app/providers/AuthProvider.tsx`, `src/services/api-client.ts` use `localStorage`/`sessionStorage`); `setAllowFileAccess(false)`; cleartext stays disabled via the existing network security config; JS enabled; **no** `@JavascriptInterface` bridge in this batch.
-- [ ] `session/InstallationIdProvider`: stable UUID per install persisted in `EncryptedSharedPreferences` — same file/key as the existing `CmsApplication` installation identity so existing installs keep their ID on upgrade; readable API for later header injection; not exposed to JS yet.
-- [ ] `MainActivity` loses its LAUNCHER intent-filter (`exported="false"`); the offline entry stays reachable only via explicit intent, e.g. `adb shell am start -n com.cms.student/.MainActivity`.
-- [ ] Arabic-first error UI when the URL is missing/invalid or the network fails — honest messaging, no fake offline mode.
-- [ ] JVM unit tests: URL allowlist policy rejections + installation id stability (pure logic via interface, no Robolectric); existing security tests stay green.
+Delivered in `feat/android-batch-1-webview-shell`:
+
+- [x] `shell/ShellActivity` is `MAIN`/`LAUNCHER`, sets `FLAG_SECURE`, hosts the WebView through `shell/WebViewHost`. Verified in the built APK: `MainActivity` has `exported=false` and no intent-filter; `ShellActivity` carries `exported=true` + the LAUNCHER filter.
+- [x] WebView host checklist (all in `shell/WebViewHost.kt`): HTTPS-only load of `STUDENT_WEB_BASE_URL`; `shouldOverrideUrlLoading` in **both** overloads delegates to `shell/ShellUrlPolicy` which allowlists exactly the configured host (+ explicit port when the base URL carries one) and rejects non-HTTPS schemes, other hosts/subdomains, embedded credentials, and odd ports; no address bar / no external browser — blocked navigations are dropped silently; `setSavePassword(false)`; DOM storage **enabled** (student-web session storage requires it — evidence: `apps/student-web/src/app/providers/AuthProvider.tsx`, `src/services/api-client.ts` use `localStorage`/`sessionStorage`); `setAllowFileAccess(false)` + `allowContentAccess(false)` + both `*FromFileURLs` settings false; geolocation off; multiple windows off; mixed content never allowed; TLS errors fail closed (`handler.cancel()`); JS enabled; **no** `@JavascriptInterface` bridge anywhere.
+- [x] `session/InstallationIdProvider` + `session/EncryptedInstallationIdStore`: stable UUID per install in `EncryptedSharedPreferences`, same file/key as the previous `CmsApplication` identity (`cms_installation_identity`/`installation_id`) so existing installs keep their id on upgrade. `CmsApplication.installationIdProvider()` exposes the read API for later `X-Installation-Id` header injection; not exposed to JS.
+- [x] `MainActivity` lost its LAUNCHER intent-filter and is `exported="false"`; the offline entry stays reachable via explicit intent, e.g. `adb shell am start -n com.cms.student/.MainActivity`. The existing instrumentation suites launch it explicitly (`ActivityScenario.launch`), so they are unaffected.
+- [x] Arabic-first error UI (`res/values/strings.xml` default Arabic, `values-en/` English fallback) for a missing/invalid URL (configuration error) and main-frame network/HTTP failures — honest messaging, no fake offline mode. Retry button reloads the configured home.
+- [x] JVM unit tests: `ShellUrlPolicyTest` (8) + `InstallationIdProviderTest` (5) — pure logic, no Robolectric (the project does not use it). Existing security suites unchanged and green (27 total).
+
+Notes: `android:label="CMS"` added to the application (matches the student-web PWA `short_name`); previously the launcher showed the raw package name. Out-of-scope items below remain untouched.
 
 ### Out of scope (later batches)
 

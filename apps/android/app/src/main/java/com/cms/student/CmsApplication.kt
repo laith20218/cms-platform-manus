@@ -1,9 +1,6 @@
 package com.cms.student
 
 import android.app.Application
-import android.content.Context
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import com.cms.student.security.AndroidKeystorePackageKeyProvider
 import com.cms.student.security.AuthenticatedOfflinePackageStatusApi
 import com.cms.student.security.CachedOfflineRevocationStatusProvider
@@ -14,6 +11,8 @@ import com.cms.student.security.OfflineRuntimeCoordinator
 import com.cms.student.security.OfflineSession
 import com.cms.student.security.OfflineTrustConfiguration
 import com.cms.student.security.TrustedOfflineVerifierFactory
+import com.cms.student.session.EncryptedInstallationIdStore
+import com.cms.student.session.InstallationIdProvider
 import java.util.UUID
 
 class CmsApplication : Application() {
@@ -25,13 +24,15 @@ class CmsApplication : Application() {
     private lateinit var installationId: String
     private var activeSession: OfflineSession? = null
     private var runtime: OfflineRuntimeCoordinator? = null
+    /** Session-scope identity (Batch 1): stable UUID per install, encrypted at rest. */
+    private val installationIdProvider by lazy { InstallationIdProvider(EncryptedInstallationIdStore(this)) }
     private val apiClient: HttpsOfflinePackageClient? by lazy {
         AndroidOfflineBuildConfiguration.apiBaseUrl().takeIf(String::isNotBlank)?.let(::HttpsOfflinePackageClient)
     }
 
     override fun onCreate() {
         super.onCreate()
-        installationId = InstallationIdentity.getOrCreate(this)
+        installationId = installationIdProvider.installationId()
         runtime = createRuntimeOrNull()
     }
 
@@ -62,6 +63,9 @@ class CmsApplication : Application() {
     }
 
     fun installationId(): String = installationId
+
+    /** Session identity provider for later header injection (X-Installation-Id); not exposed to JS. */
+    fun installationIdProvider(): InstallationIdProvider = installationIdProvider
 
     private fun createRuntimeOrNull(): OfflineRuntimeCoordinator? {
         val configuration = AndroidOfflineBuildConfiguration.trustConfiguration()
@@ -99,27 +103,6 @@ class AuthenticatedOfflineRuntime internal constructor(
     fun pendingAnswers(packageId: UUID) = coordinator.pendingAnswers(session, packageId)
     fun sync(packageId: UUID, examSessionId: UUID? = null) = coordinator.sync(session, packageId, examSessionId)
     fun refreshStatus(packageId: UUID) = coordinator.refreshStatus(session, packageId)
-}
-
-private object InstallationIdentity {
-    private const val FILE = "cms_installation_identity"
-    private const val KEY = "installation_id"
-
-    fun getOrCreate(context: Context): String {
-        val masterKey = MasterKey.Builder(context.applicationContext)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        val prefs = EncryptedSharedPreferences.create(
-            context.applicationContext,
-            FILE,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-        return prefs.getString(KEY, null) ?: UUID.randomUUID().toString().also {
-            check(prefs.edit().putString(KEY, it).commit()) { "Unable to persist installation identity" }
-        }
-    }
 }
 
 private object AndroidOfflineBuildConfiguration {
