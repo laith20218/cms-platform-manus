@@ -6,6 +6,14 @@ import {
   Image as ImageIcon, Loader2, Minus, Monitor, Music, Plus, RotateCcw, Video, X,
 } from 'lucide-react';
 import { libraryApi, type LibraryFile, type FileAccess } from './services/library-api';
+import {
+  isNativeMediaCacheActive,
+  nativeCacheDenyMessage,
+  nativeCacheTypeFor,
+  nativeEnsureLocal,
+  nativeOpenLocal,
+  waitForNativeCacheReady,
+} from '@/utils/native-cache';
 import { PlayerShell } from '@/features/media-player/PlayerShell';
 import { LazyPlayerMount, PlayerLoading } from '@/features/media-player/LazyPlayerMount';
 import type { AudioPlayerProps } from '@/features/media-player/audio/AudioPlayer';
@@ -113,7 +121,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
   const [zoomIndex, setZoomIndex] = useState(0);
   const [textBody, setTextBody] = useState<string | null>(null);
   const [textFailed, setTextFailed] = useState(false);
-  const [detail, setDetail] = useState<{ fileFormat: string | null; fontPipelineFixed: boolean; enableScripts: boolean } | null>(null);
+  const [detail, setDetail] = useState<{ fileFormat: string | null; fontPipelineFixed: boolean; enableScripts: boolean; youtubeVideoId: string | null } | null>(null);
   const [viewStartMs] = useState(Date.now());
   const recordedRef = useRef(false);
 
@@ -144,8 +152,8 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
       .catch(() => { if (!cancelled) { setLoadFailed(true); toast.error('تعذّر الوصول للملف'); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     libraryApi.getFile(file.id)
-      .then((data) => { if (!cancelled) setDetail({ fileFormat: data?.fileFormat ?? null, fontPipelineFixed: data?.fontPipelineFixed === true, enableScripts: data?.enableScripts === true }); })
-      .catch(() => { if (!cancelled) setDetail({ fileFormat: null, fontPipelineFixed: false, enableScripts: false }); });
+      .then((data) => { if (!cancelled) setDetail({ fileFormat: data?.fileFormat ?? null, fontPipelineFixed: data?.fontPipelineFixed === true, enableScripts: data?.enableScripts === true, youtubeVideoId: data?.youtubeVideoId ?? null }); })
+      .catch(() => { if (!cancelled) setDetail({ fileFormat: null, fontPipelineFixed: false, enableScripts: false, youtubeVideoId: null }); });
     return () => { cancelled = true; };
   }, [file.id]);
 
@@ -177,6 +185,25 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
   }, [file.id, viewStartMs, access]);
 
   const clampZoom = (next: number) => setZoomIndex(Math.max(0, Math.min(ZOOM_STEPS.length - 1, next)));
+
+  // ===== Batch 4 — native encrypted media cache (feature-detect only).
+  // Inside the Android shell the file is routed through ensureLocal → openLocal
+  // (owner lock 7: download on first open, then open the native viewer). In a plain
+  // browser the hook stays 'inactive' and every rendering branch below is unchanged.
+  // Video rows wait for the file detail first (YouTube-hosted rows have no API bytes
+  // to cache and keep the web iframe path).
+  const nativeCache = useNativeMediaCache({
+    file,
+    kind,
+    decisionPending: kindPending || (kind === 'video' && detail === null),
+    youtubeVideoId: detail?.youtubeVideoId ?? null,
+  });
+  if (nativeCache.phase === 'downloading') {
+    return <NativeCacheProgressScreen percent={nativeCache.percent} onClose={onClose} />;
+  }
+  if (nativeCache.phase === 'handled') {
+    return <NativeHandledScreen onClose={onClose} />;
+  }
 
   // ===== Push 11.7 (F1) — AUDIO: the fullscreen player shell replaces the
   // document dialog (see the rendering-matrix note above for the z-index
@@ -515,6 +542,120 @@ function ViewerError({ onClose }: { onClose: () => void }) {
           إغلاق
         </button>
       </div>
+    </div>
+  );
+}
+
+// ===== Batch 4 — native encrypted media cache states =====
+
+/** Hook phases: 'inactive' keeps every pre-Batch-4 rendering branch untouched. */
+type NativeCachePhase = 'inactive' | 'downloading' | 'handled';
+
+/**
+ * Drives the first-open native-cache flow (owner lock 7): ensureLocal on first
+ * open → progress while downloading → openLocal when ready. Deny codes surface as
+ * Arabic toasts and fall back to the existing web viewer, which keeps streaming
+ * online as before.
+ */
+function useNativeMediaCache({ file, kind, decisionPending, youtubeVideoId }: {
+  file: LibraryFile;
+  kind: ViewerKind;
+  decisionPending: boolean;
+  youtubeVideoId: string | null;
+}): { phase: NativeCachePhase; percent: number } {
+  const [phase, setPhase] = useState<NativeCachePhase>('inactive');
+  const [percent, setPercent] = useState(0);
+
+  useEffect(() => {
+    if (decisionPending || kind === 'other') return;
+    const type = nativeCacheTypeFor(kind, youtubeVideoId);
+    if (!type || !isNativeMediaCacheActive()) return;
+
+    let cancelled = false;
+    const finishWithOpen = () => {
+      const openCode = nativeOpenLocal(file.id);
+      if (cancelled) return;
+      if (openCode === 'opened') {
+        setPhase('handled');
+        return;
+      }
+      const message = openCode ? nativeCacheDenyMessage(openCode) : null;
+      if (message) toast.error(message);
+      setPhase('inactive');
+    };
+
+    const code = nativeEnsureLocal(file.id, type, { title: file.title });
+    if (code == null) return; // bridge unavailable — the web path is the fallback
+    if (code === 'ready') {
+      finishWithOpen();
+      return;
+    }
+    if (code === 'started' || code === 'downloading') {
+      setPhase('downloading');
+      void waitForNativeCacheReady(file.id, {
+        shouldStop: () => cancelled,
+        onProgress: (pct) => { if (!cancelled) setPercent(pct); },
+      }).then((result) => {
+        if (cancelled) return;
+        if (result === 'ready') {
+          finishWithOpen();
+          return;
+        }
+        // Canceled/absent downloads and transient errors: honest Arabic note, web fallback.
+        const message = nativeCacheDenyMessage(result === 'timeout' ? 'error' : result === 'absent' ? 'denied_offline' : result);
+        if (message) toast.error(message);
+        setPhase('inactive');
+      });
+      return;
+    }
+    // Synchronous deny (denied_native_session / denied_offline / denied_auth / quota / …)
+    const message = nativeCacheDenyMessage(code);
+    if (message) toast.error(message);
+    return () => { cancelled = true; };
+  }, [decisionPending, kind, file.id, file.title, youtubeVideoId]);
+
+  return { phase, percent };
+}
+
+/** Download progress interstitial shown while the native cache fills (Arabic-first). */
+function NativeCacheProgressScreen({ percent, onClose }: { percent: number; onClose: () => void }) {
+  return (
+    <div
+      dir="rtl"
+      data-testid="native-cache-progress"
+      className="fixed inset-0 z-[var(--z-modal)] flex flex-col items-center justify-center gap-4 bg-[var(--c-bg)] p-8"
+    >
+      <Loader2 className="h-10 w-10 animate-spin text-[var(--c-primary-700)]" />
+      <p className="text-base font-bold text-[var(--c-text)]">جارٍ تنزيل الملف لفتحه دون اتصال…</p>
+      <p className="text-sm tabular-nums text-[var(--c-text-muted)]" lang="en">{Math.round(percent)}%</p>
+      <button
+        type="button"
+        onClick={onClose}
+        className="press mt-2 inline-flex min-h-11 items-center rounded-2xl border border-[var(--c-border)] px-5 py-2 text-sm font-bold text-[var(--c-text-soft)]"
+      >
+        إغلاق
+      </button>
+    </div>
+  );
+}
+
+/** Shown after the native viewer activity has taken over the screen. */
+function NativeHandledScreen({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      dir="rtl"
+      data-testid="native-cache-opened"
+      className="fixed inset-0 z-[var(--z-modal)] flex flex-col items-center justify-center gap-3 bg-[var(--c-bg)] p-8 text-center"
+    >
+      <p className="text-base font-bold text-[var(--c-text)]">تم فتح الملف في عارض التطبيق</p>
+      <p className="max-w-sm text-sm text-[var(--c-text-muted)]">يمكنك إغلاق هذه الشاشة والمتابعة من داخل التطبيق.</p>
+      <button
+        type="button"
+        onClick={onClose}
+        className="press mt-2 inline-flex min-h-11 items-center rounded-2xl border border-[var(--c-border)] px-5 py-2 text-sm font-bold text-[var(--c-text-soft)]"
+      >
+        إغلاق
+      </button>
     </div>
   );
 }

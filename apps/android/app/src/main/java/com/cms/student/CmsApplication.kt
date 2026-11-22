@@ -1,6 +1,16 @@
 package com.cms.student
 
 import android.app.Application
+import com.cms.student.media.CacheIndex
+import com.cms.student.media.CacheProgressBus
+import com.cms.student.media.CacheQuota
+import com.cms.student.media.ConnectivityNetworkAvailability
+import com.cms.student.media.EncryptedMediaCachePersistence
+import com.cms.student.media.EncryptedMediaFileStore
+import com.cms.student.media.HttpsMediaContentTransport
+import com.cms.student.media.MediaCacheService
+import com.cms.student.media.MediaFileStore
+import com.cms.student.media.NativeMediaOpener
 import com.cms.student.security.AndroidKeystorePackageKeyProvider
 import com.cms.student.security.AuthenticatedOfflinePackageStatusApi
 import com.cms.student.security.CachedOfflineRevocationStatusProvider
@@ -19,7 +29,9 @@ import com.cms.student.session.InstallationIdProvider
 import com.cms.student.session.NativeSessionManager
 import com.cms.student.session.StoredNativeSession
 import com.cms.student.session.TokenStore
+import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.Executors
 
 class CmsApplication : Application() {
     companion object {
@@ -34,7 +46,7 @@ class CmsApplication : Application() {
     private val installationIdProvider by lazy { InstallationIdProvider(EncryptedInstallationIdStore(this)) }
     /** Batch 2: native login tokens (access + refresh) encrypted at rest, never plaintext, never logged. */
     private val tokenStore: TokenStore by lazy { EncryptedTokenStore(this) }
-    private val sessionManager by lazy { NativeSessionManager(tokenStore) }
+    private val sessionManager by lazy { NativeSessionManager(tokenStore) { mediaCacheService.wipe() } }
     @Volatile private var sessionVerifiedThisProcess = false
     private val apiClient: HttpsOfflinePackageClient? by lazy {
         AndroidOfflineBuildConfiguration.apiBaseUrl().takeIf(String::isNotBlank)?.let { baseUrl ->
@@ -128,6 +140,65 @@ class CmsApplication : Application() {
 
     /** Session identity provider for header injection (X-Installation-Id); not exposed to JS. */
     fun installationIdProvider(): InstallationIdProvider = installationIdProvider
+
+    // =====================================================================
+    // Batch 4 — encrypted media cache graph (files + index + quota + transport)
+    // =====================================================================
+
+    private val mediaExecutor by lazy { Executors.newSingleThreadExecutor() }
+    private val mediaProgressBus by lazy { CacheProgressBus() }
+    private val mediaFileStore: MediaFileStore by lazy { EncryptedMediaFileStore(this) }
+
+    private val mediaCacheService: MediaCacheService by lazy {
+        val baseApiUrl = AndroidOfflineBuildConfiguration.apiBaseUrl()
+        check(baseApiUrl.isNotBlank()) { "Media cache requires the HTTPS API base URL (BuildConfig validation guarantees one)" }
+        MediaCacheService(
+            index = CacheIndex(EncryptedMediaCachePersistence(this)),
+            fileStore = mediaFileStore,
+            transport = HttpsMediaContentTransport(
+                baseApiUrl,
+                OfflineCertificatePinning.parsePins(BuildConfig.OFFLINE_API_SPKI_PINS_BASE64)
+            ) { activeSessionForMedia() },
+            quota = CacheQuota(),
+            progressBus = mediaProgressBus,
+            executor = mediaExecutor,
+            opener = NativeMediaOpener(this),
+            networkAvailability = ConnectivityNetworkAvailability(this),
+            clock = Instant::now,
+            sessionProvider = ::activeSessionForMedia,
+            sessionRefresher = ::rotateNativeSessionForMedia,
+            onAuthDead = ::onNativeAuthRejected
+        )
+    }
+
+    /** The bridge-facing cache API (window.CmsNative Batch-4 methods). */
+    fun mediaCache(): MediaCacheService = mediaCacheService
+
+    /** The encrypted object store, shared with the viewer activities. */
+    fun mediaFileStore(): MediaFileStore = mediaFileStore
+
+    /** Native session for media downloads: the in-memory session, else the stored pair. */
+    private fun activeSessionForMedia(): OfflineSession? {
+        activeSession?.let { return it }
+        val stored = tokenStore.read() ?: return null
+        return OfflineSession(stored.studentId, stored.accessToken, installationId)
+    }
+
+    /** Rotates the stored pair once when a media download 401s; a rejected refresh wipes the session. */
+    private fun rotateNativeSessionForMedia(): OfflineSession? {
+        val client = apiClient ?: return null
+        val stored = tokenStore.read() ?: return null
+        return try {
+            val rotated = client.refresh(stored.refreshToken, installationId)
+            val next = StoredNativeSession(stored.studentId, rotated.accessToken, rotated.refreshToken)
+            sessionManager.onLoginSucceeded(next)
+            bindAuthenticatedStudent(next.studentId, next.accessToken)
+            activeSession
+        } catch (error: OfflineTransportException) {
+            if (error.statusCode == 401) onNativeAuthRejected()
+            null
+        }
+    }
 
     private fun createRuntimeOrNull(): OfflineRuntimeCoordinator? {
         val configuration = AndroidOfflineBuildConfiguration.trustConfiguration()

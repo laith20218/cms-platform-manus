@@ -1,0 +1,188 @@
+/**
+ * Batch 4 — native encrypted media cache helpers for `window.CmsNative`'s cache
+ * surface (the seven methods the Android shell added on top of the four Batch-3
+ * identity methods). Everything is feature-detected: in a plain browser every
+ * helper returns null/false and callers keep the existing web behavior.
+ *
+ * The native side re-checks the HTTPS origin allowlist per call; outside the
+ * allowlisted origin the bridge returns safe deny/absent codes, which the
+ * helpers surface as-is so the caller can fall back to the web path.
+ */
+
+import { hasNativeShell } from './native-bridge';
+
+/** Cacheable library-file kinds the native side can store and open. */
+export type NativeCacheType = 'pdf' | 'txt' | 'html' | 'image' | 'video' | 'audio';
+
+/** Typed shape of the cache surface — mirrors the Kotlin @JavascriptInterface methods. */
+interface CmsNativeCacheBridge {
+  ensureLocal(contentId: string, type: string, hintsJson?: string): string;
+  openLocal(contentId: string): string;
+  cacheStatus(contentId: string): string;
+}
+
+const NATIVE_BRIDGE_NAME = 'CmsNative';
+const CACHE_METHODS: Array<keyof CmsNativeCacheBridge> = ['ensureLocal', 'openLocal', 'cacheStatus'];
+
+/** Viewer kinds that map onto a native cache type. */
+const CACHEABLE_KINDS: Record<string, NativeCacheType> = {
+  pdf: 'pdf',
+  txt: 'txt',
+  text: 'txt',
+  html: 'html',
+  image: 'image',
+  video: 'video',
+  audio: 'audio',
+};
+
+/** Max length guard for ids coming from our own API rows (defensive). */
+const MAX_CONTENT_ID_LENGTH = 256;
+
+function readCacheBridge(): CmsNativeCacheBridge | null {
+  const candidate = (globalThis as unknown as Record<string, unknown>)[NATIVE_BRIDGE_NAME];
+  if (!candidate || typeof candidate !== 'object') return null;
+  const bridge = candidate as unknown as Record<string, unknown>;
+  if (CACHE_METHODS.some((method) => typeof bridge[method] !== 'function')) return null;
+  return candidate as unknown as CmsNativeCacheBridge;
+}
+
+/**
+ * True only inside the shell AND when the bridge carries the Batch-4 cache surface.
+ * Older shell builds (Batch 3) expose only the four identity methods — they
+ * degrade to the plain web path via this check.
+ */
+export function isNativeMediaCacheActive(): boolean {
+  if (!hasNativeShell()) return false;
+  return readCacheBridge() !== null;
+}
+
+/** Maps a DocumentViewer kind onto the native cache type; null when not cacheable. */
+export function nativeCacheTypeFor(kind: string | null | undefined, youtubeVideoId?: string | null): NativeCacheType | null {
+  const key = (kind ?? '').trim().toLowerCase();
+  if (!(key in CACHEABLE_KINDS)) return null;
+  // YouTube-hosted rows have no API bytes to cache — the web iframe stays the only viewer.
+  if (key === 'video' && youtubeVideoId) return null;
+  return CACHEABLE_KINDS[key];
+}
+
+export interface NativeCacheHints {
+  title?: string;
+  subjectId?: string;
+}
+
+/**
+ * Calls ensureLocal(contentId, type, hints) and returns the native status code
+ * ("started" | "ready" | "downloading" | deny codes…), or null outside the shell.
+ */
+export function nativeEnsureLocal(contentId: string, type: NativeCacheType, hints?: NativeCacheHints): string | null {
+  const bridge = readCacheBridge();
+  if (!bridge) return null;
+  const id = contentId.trim();
+  if (!id || id.length > MAX_CONTENT_ID_LENGTH) return null;
+  try {
+    const hintsJson = hints && (hints.title || hints.subjectId) ? JSON.stringify(hints) : undefined;
+    const code = bridge.ensureLocal(id, type, hintsJson);
+    return typeof code === 'string' && code.length > 0 ? code : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Calls openLocal(contentId); returns the native code or null outside the shell. */
+export function nativeOpenLocal(contentId: string): string | null {
+  const bridge = readCacheBridge();
+  if (!bridge) return null;
+  const id = contentId.trim();
+  if (!id || id.length > MAX_CONTENT_ID_LENGTH) return null;
+  try {
+    const code = bridge.openLocal(id);
+    return typeof code === 'string' && code.length > 0 ? code : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Reads cacheStatus(contentId): "queued | downloading:<pct> | ready | …". */
+export function nativeCacheStatus(contentId: string): string | null {
+  const bridge = readCacheBridge();
+  if (!bridge) return null;
+  const id = contentId.trim();
+  if (!id || id.length > MAX_CONTENT_ID_LENGTH) return null;
+  try {
+    const code = bridge.cacheStatus(id);
+    return typeof code === 'string' && code.length > 0 ? code : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Extracts the integer percent out of a "downloading:<pct>" status. */
+export function nativeCachePercent(status: string): number | null {
+  const match = /^downloading:(\d{1,3})$/.exec(status);
+  return match ? Number(match[1]) : null;
+}
+
+/** Arabic-first denial/error messages for every deny code the bridge can return. */
+export function nativeCacheDenyMessage(code: string): string | null {
+  switch (code) {
+    case 'denied_native_session':
+      return 'لتخزين المحتوى وفتحه دون اتصال، سجّل الدخول أولاً من شاشة «وضع بدون إنترنت» في التطبيق.';
+    case 'denied_auth':
+      return 'لم يعد هذا المحتوى متاحاً لحسابك.';
+    case 'denied_offline':
+      return 'لا توجد نسخة محفوظة — اتصل بالإنترنت ثم أعد فتح الملف.';
+    case 'denied_stale':
+      return 'انتهت صلاحية النسخة المحفوظة — اتصل بالإنترنت ثم أعد فتح الملف.';
+    case 'quota':
+    case 'error:quota':
+      return 'مساحة التخزين دون اتصال ممتلئة — احذف بعض الملفات من «وضع بدون إنترنت».';
+    case 'unsupported_type':
+      return 'نوع الملف غير مدعوم للعرض دون اتصال.';
+    case 'invalid_args':
+      return null; // our own row shape is at fault — silent web fallback, no user-facing noise
+    default:
+      if (code.startsWith('error')) return 'حدث خطأ أثناء تجهيز الملف دون اتصال.';
+      return null;
+  }
+}
+
+/** Terminal outcomes of the download wait loop. */
+export type NativeCacheWaitResult =
+  | 'ready'
+  | 'denied_auth'
+  | 'error'
+  | 'absent'
+  | 'timeout';
+
+interface WaitOptions {
+  pollMs?: number;
+  timeoutMs?: number;
+  shouldStop?: () => boolean;
+  onProgress?: (percent: number) => void;
+}
+
+/**
+ * Polls cacheStatus until the object is ready or the download settles.
+ * `absent` means the download vanished (canceled/cleared) — the caller falls
+ * back to the web path.
+ */
+export async function waitForNativeCacheReady(contentId: string, options: WaitOptions = {}): Promise<NativeCacheWaitResult> {
+  const pollMs = options.pollMs ?? 700;
+  const timeoutMs = options.timeoutMs ?? 15 * 60_000;
+  const startedAt = Date.now();
+
+  for (;;) {
+    if (options.shouldStop?.()) return 'absent';
+    const status = nativeCacheStatus(contentId);
+    if (status !== null) {
+      const percent = nativeCachePercent(status);
+      if (percent !== null) options.onProgress?.(percent);
+      if (status === 'ready') return 'ready';
+      if (status === 'absent') return 'absent';
+      if (status === 'denied_auth') return 'denied_auth';
+      if (status.startsWith('error')) return 'error';
+    }
+    if (Date.now() - startedAt > timeoutMs) return 'timeout';
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}

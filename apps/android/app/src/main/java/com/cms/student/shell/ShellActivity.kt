@@ -1,5 +1,6 @@
 package com.cms.student.shell
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
@@ -12,6 +13,7 @@ import com.cms.student.BuildConfig
 import com.cms.student.CmsApplication
 import com.cms.student.R
 import com.cms.student.bridge.CmsJsBridge
+import com.cms.student.media.OfflineCatalogActivity
 
 /**
  * Hybrid shell launcher: hosts the student-web experience inside a hardened
@@ -25,6 +27,7 @@ class ShellActivity : AppCompatActivity() {
     private lateinit var errorOverlay: View
     private lateinit var errorTitle: TextView
     private lateinit var errorMessage: TextView
+    private lateinit var offlineCatalogButton: Button
     private lateinit var host: WebViewHost
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -36,6 +39,7 @@ class ShellActivity : AppCompatActivity() {
         errorOverlay = findViewById(R.id.shell_error_overlay)
         errorTitle = findViewById(R.id.shell_error_title)
         errorMessage = findViewById(R.id.shell_error_message)
+        offlineCatalogButton = findViewById(R.id.shell_offline_catalog_button)
 
         // An unusable base URL yields a block-everything policy; loadHome() then
         // shows the honest configuration error instead of loading anything.
@@ -44,9 +48,11 @@ class ShellActivity : AppCompatActivity() {
         host = WebViewHost(webView, urlPolicy, ::showError)
         host.attach()
 
-        // Batch 3: the single audited JS bridge (window.CmsNative) — attached strictly
-        // AFTER host.attach() applied the hardening settings. Four read-only methods
-        // only; see CmsJsBridge for the surface, origin guard, and threat model.
+        // Batch 3 + Batch 4: the single audited JS bridge (window.CmsNative) — attached
+        // strictly AFTER host.attach() applied the hardening settings. Four read-only
+        // identity methods plus the origin-guarded encrypted-media-cache surface
+        // (listCached/ensureLocal/openLocal/cacheStatus/cancelDownload/removeCached/
+        // clearCache); see CmsJsBridge for the surface, origin guard, and threat model.
         host.attachJsBridge(
             CmsJsBridge(
                 urlPolicy = urlPolicy,
@@ -54,13 +60,21 @@ class ShellActivity : AppCompatActivity() {
                 installationId = {
                     (application as CmsApplication).installationIdProvider().installationId()
                 },
-                appVersion = { resolveAppVersion() }
+                appVersion = { resolveAppVersion() },
+                cacheApi = (application as CmsApplication).mediaCache()
             )
         )
 
         findViewById<Button>(R.id.shell_retry_button).setOnClickListener {
             hideError()
             host.loadHome()
+        }
+
+        // Batch 4 — owner lock 6: when the shell cannot reach the student service, the
+        // error screen carries an entry to the native offline catalog «وضع بدون إنترنت»
+        // listing every cached object that can still open under the 72h window.
+        findViewById<Button>(R.id.shell_offline_catalog_button).setOnClickListener {
+            runCatching { startActivity(Intent(this, OfflineCatalogActivity::class.java)) }
         }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -92,10 +106,12 @@ class ShellActivity : AppCompatActivity() {
             ShellError.InvalidConfiguration -> {
                 errorTitle.setText(R.string.shell_error_config_title)
                 errorMessage.setText(R.string.shell_error_config_message)
+                offlineCatalogButton.visibility = View.GONE
             }
             ShellError.Network -> {
                 errorTitle.setText(R.string.shell_error_network_title)
                 errorMessage.setText(R.string.shell_error_network_message)
+                offlineCatalogButton.visibility = View.VISIBLE
             }
         }
         errorOverlay.visibility = View.VISIBLE

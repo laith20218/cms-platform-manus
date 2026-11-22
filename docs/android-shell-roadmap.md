@@ -1,4 +1,4 @@
-# Android Shell Roadmap — Batch 0, Batch 1, Batch 2 & Batch 3
+# Android Shell Roadmap — Batch 0, Batch 1, Batch 2, Batch 3 & Batch 4
 
 Hybrid WebView shell for the student experience. Kotlin stays the platform:
 `apps/android` owns device security, while `apps/student-web` owns the UI it hosts.
@@ -68,8 +68,10 @@ Notes: `android:label="CMS"` added to the application (matches the student-web P
 
 ### Out of scope (later batches)
 
-- Batch 4 (when Owner asks): encrypted media cache. Batch 3 (JS bridge) is DONE below.
-- Later: FCM push, Play Integrity activation, Matching UI.
+- Batch 5 (when Owner asks): FCM push or offline-catalog polish (the owner questionnaire
+  named both as candidates; the catalog's YouTube/episode blockers below are the first
+  polish targets). Batch 4 (encrypted media cache) is DONE below.
+- Later: Play Integrity activation, Matching UI.
 
 ## Batch 2 — session + installation identity (status: DONE)
 
@@ -180,8 +182,111 @@ window.CmsNative.getInstallationId()  // -> InstallationIdProvider UUID ("" outs
   API (`getAccessToken`/`getRefreshToken`/passwords) — token injection into JS remains
   D1-forbidden unless a future batch redesigns auth.
 
-## Batch 4 — next (encrypted media cache, ONLY when Owner asks)
+## Batch 4 — encrypted media cache (status: DONE)
 
-Not started. Batch 3 left the bridge intentionally free of any cache/download/file
-surface; Batch 4 must design the encrypted cache without widening `CmsNative` beyond
-the audited four methods.
+Delivered in `feat/android-batch-4-encrypted-media-cache`: encrypted on-device media
+cache + native in-app openers + the Arabic offline catalog «وضع بدون إنترنت» + the
+origin-guarded `CmsNative` cache surface, integrated with logout/auth-reject wipe.
+
+### Content-type matrix (Phase A recon → implementation)
+
+| Library type | Download strategy | Native opener | Notes |
+|---|---|---|---|
+| PDF | `GET {API}/library/{id}/content` (Bearer + X-Entitlement + X-Installation-Id + X-Device-Fingerprint) | `media/PdfViewActivity` — framework `PdfRenderer`, page list, LRU bitmap cache | MERGE-CRITICAL path, implemented |
+| TXT + HTML (text) | same `/content` endpoint | `media/TextReaderActivity` — TextView column (txt) / hardened WebView, JS off (html) | Interactive lessons (enableScripts) render static — documented degradation |
+| Audio | same `/content` endpoint (full object) | `media/AudioPlayerActivity` — MediaPlayer + seekbar | |
+| Video (non-YouTube) | same `/content` endpoint (full object) | `media/VideoPlayerActivity` — VideoView + MediaController | Presigned/HLS playback-url paths deliberately unused (external host / multi-object ladder) |
+| Image | same `/content` endpoint | `media/ImageViewerActivity` — bounded decode + zoom | |
+| Video (YouTube rows) | **BLOCKED** — YouTube-hosted; no API bytes exist | web iframe path unchanged | student-web skips ensureLocal for `youtubeVideoId` rows |
+| course-episode audio/video | **BLOCKED** — only presigned object-storage playback URLs (host not allowlistable) or multi-object HLS ladders; no same-origin full-object endpoint | web streaming unchanged | documented for a future batch |
+
+Native URL derivation: the cache derives `{OFFLINE_API_BASE_URL ?? API_BASE_URL}/library/{contentId}/content`
+itself from the validated UUID — a JS-supplied URL is never fetched (no arbitrary-URL
+surface). `POST /entitlements/issue` (same headers, in-process cached with 60s renewal
+skew) supplies the `X-Entitlement` token the controller gate requires.
+
+### Honest session requirement (D1 carried forward)
+
+Downloads need a native session (TokenStore access token — the WebView's
+sessionStorage Bearer tokens are deliberately unreachable per strategy D1, and there
+is no cookie to capture). `ensureLocal` answers `denied_native_session` when absent;
+the offline catalog surfaces a one-tap local sign-in entry (`MainActivity`, same
+`/auth/login` endpoint + credentials the student already uses in the WebView).
+A dead access token triggers ONE rotation via `/auth/refresh` before denying.
+
+### Storage + policy
+
+- **Encrypt-at-rest**: AndroidX `EncryptedFile` + Android Keystore `MasterKey`
+  (AES256_GCM_HKDF_4KB — the Batch-2 token-store stack) for every object AND the index
+  document; atomic tmp-then-rename writes; app-private `filesDir/media-cache` (G6:
+  no plaintext media at rest; openers decrypt transiently into an app-private temp
+  file deleted on viewer close).
+- **Quota**: `CachePolicy.MAX_CACHE_BYTES` = 1 GiB; LRU eviction (by `lastAccessAt`)
+  on insert, never evicting in-flight/open ids; an un-trimmable plan refuses the
+  download (`quota`).
+- **Offline window**: `CachePolicy.CONFIRMATION_WINDOW_HOURS` = 72 — offline opens
+  require `lastConfirmedAt` within 72h; stale objects answer `denied_stale`. While
+  online, `openLocal` re-checks entitlement with a bounded (2.5s) HEAD through the
+  same authorized+entitlement headers (owner lock 9).
+- **Wipe integration**: `NativeSessionManager.onTokensCleared` (fires on logout,
+  auth rejection, refresh-401) wipes every encrypted media file + index synchronously
+  (owner lock 3).
+
+### Exact JS surface (the ONLY methods exposed to JavaScript — 4 + 7)
+
+```
+window.CmsNative.hasNativeShell()    // -> true (false outside the allowlisted origin)
+window.CmsNative.getPlatform()       // -> "android" ("" outside)
+window.CmsNative.getAppVersion()     // -> versionName ("" outside)
+window.CmsNative.getInstallationId() // -> UUID ("" outside)
+window.CmsNative.listCached()        // -> JSON rows: contentId/type/title/bytes/createdAt/lastAccessAt
+window.CmsNative.ensureLocal(id, type, hints) // -> started|ready|downloading|denied_*|quota|error codes
+window.CmsNative.openLocal(id)       // -> opened|missing|denied_stale|denied_auth|denied_native_session
+window.CmsNative.cacheStatus(id)     // -> queued|downloading:<pct>|ready|denied_auth|error:<code>|absent
+window.CmsNative.cancelDownload(id)  // -> canceled|not_downloading|absent
+window.CmsNative.removeCached(id)    // -> removed|absent
+window.CmsNative.clearCache()        // -> cleared
+```
+
+Origin guard (mandatory, unchanged): EVERY method consults the same
+`ShellUrlPolicy` allowlist per call; not allowlisted → safe defaults
+(`""`/`false`/`"[]"`/`denied_origin`/`absent`), never throws. Outside the origin the
+action methods (ensureLocal/openLocal/clearCache) answer `denied_origin` and reach
+NO cache logic. Forbidden and absent: token accessors, raw filesystem paths (the
+index's `storedFileName`/`sourcePath` never cross the bridge), arbitrary URL fetch,
+eval, external-viewer/file-share intents.
+
+**Threat model update (XSS in student-web):** the readable surface grows only by
+cache metadata (ids, types, Arabic titles, byte counts, timestamps) — no content
+bytes, no paths, no source URLs, no tokens. The action surface can fill the cache with
+content the student is already entitled to (the server re-validates the student's own
+native session + signed entitlement per request), burn the per-installation
+rate-limit quota, or delete cached rows — a nuisance, never an escalation: it cannot
+authenticate as anyone else, cannot reach another student's content, cannot exfiltrate
+a token, cannot execute strings, cannot drive navigation, and cannot open anything
+beyond ids already in the cache.
+
+### student-web (feature-detect only)
+
+- `src/utils/native-cache.ts` (new) — the one typed accessor for the cache surface:
+presence + method-shape checks, try/catch, value sanity; deny-code → Arabic message
+map; the download-wait poll loop. `DocumentViewer` gained a small hook: inside the
+shell, the first open of a cacheable library file routes `ensureLocal` → progress
+interstitial → `openLocal` (owner lock 7); in the browser the hook stays inactive and
+every existing rendering branch is untouched. YouTube rows and `other` kinds skip
+native routing.
+
+### Tests
+
+- Android JVM: `CacheQuotaTest` (6), `CacheIndexTest` (6), `MediaCacheServiceTest` (26),
+  `CmsJsBridgeTest` (9 — now asserting the 11-method inventory + cache origin deny),
+  `NativeSessionManagerTest` (12 — 4 new wipe-hook tests).
+- student-web vitest: `native-cache.test.ts` (14) — inactive in browser, Batch-3-only
+  shell degrades, throwing bridge fails closed, kind mapping incl. YouTube refusal,
+  hints JSON, deny-message map, wait-loop outcomes (fake timers).
+
+## Batch 5 — next (ONLY when Owner asks)
+
+Not started. Candidates from the owner questionnaire: FCM push notifications, or
+catalog polish (YouTube/episode offline blockers above, catalog bulk actions,
+background refresh of stale entries).

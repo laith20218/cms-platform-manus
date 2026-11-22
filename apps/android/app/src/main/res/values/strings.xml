@@ -33,4 +33,32 @@
     <string name="offline_invalid_ids">معرف المادة أو الامتحان غير صالح.</string>
     <string name="offline_rejected">رُفضت الحزمة أو تعذر التحقق منها.</string>
     <string name="offline_authorized_only">اطلب فقط package IDs من شاشة المحتوى المصرح بها.</string>
+    <!-- Batch 4: encrypted media cache — offline catalog «وضع بدون إنترنت» + native viewers. -->
+    <string name="shell_offline_catalog">وضع بدون إنترنت (المحتوى المحفوظ)</string>
+    <string name="offline_catalog_title">وضع بدون إنترنت</string>
+    <string name="offline_catalog_empty">لا توجد ملفات محفوظة بعد.</string>
+    <string name="offline_catalog_clear">مسح كل الملفات المحفوظة</string>
+    <string name="offline_catalog_cleared">تم مسح الملفات المحفوظة.</string>
+    <string name="offline_catalog_login_hint">لتخزين الملفات وفتحها دون اتصال، سجّل الدخول من هنا مرة واحدة بنفس بيانات حسابك.</string>
+    <string name="offline_catalog_login">تسجيل الدخول المحلي</string>
+    <string name="offline_catalog_available">متاح دون اتصال</string>
+    <string name="offline_catalog_needs_refresh">تحتاج تحديثاً بعد الاتصال</string>
+    <string name="media_kind_pdf">ملف PDF</string>
+    <string name="media_kind_txt">ملف نصي</string>
+    <string name="media_kind_html">درس تفاعلي</string>
+    <string name="media_kind_image">صورة</string>
+    <string name="media_kind_video">فيديو</string>
+    <string name="media_kind_audio">ملف صوتي</string>
+    <string name="media_opening">جارٍ فتح الملف…</string>
+    <string name="media_open_failed">تعذّر فتح الملف المحفوظ.</string>
+    <string name="media_open_denied_auth">لم يعد هذا المحتوى متاحاً لحسابك.</string>
+    <string name="media_open_denied_stale">انتهت صلاحية النسخة المحفوظة — اتصل بالإنترنت ثم أعد المحاولة.</string>
+    <string name="media_pages_fmt">عدد الصفحات: %1$d</string>
+    <string name="media_close">إغلاق</string>
+    <string name="media_play">تشغيل</string>
+    <string name="media_pause">إيقاف مؤقت</string>
+    <string name="media_video_error">تعذّر تشغيل الفيديو المحفوظ.</string>
+    <string name="media_audio_error">تعذّر تشغيل الملف الصوتي المحفوظ.</string>
+    <string name="media_zoom_in">تكبير</string>
+    <string name="media_zoom_out">تصغير</string>
 </resources>

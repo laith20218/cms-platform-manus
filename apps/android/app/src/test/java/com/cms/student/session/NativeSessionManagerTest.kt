@@ -108,4 +108,50 @@ class NativeSessionManagerTest {
         assertEquals(NativeSessionManager.RestoreResult.Restored(store.persisted!!, verifiedByServer = false), result)
         assertNotNull(store.persisted)
     }
+
+    // ===== Batch 4: the onTokensCleared hook must fire on EVERY token wipe =====
+    // (CmsApplication wires it to the media cache wipe — owner lock 3: logout /
+    // auth-reject wipes all encrypted media files + index immediately.)
+
+    @Test
+    fun `logout fires the token-cleared hook exactly once`() {
+        val store = FakeTokenStore().apply { persisted = storedSession() }
+        var wipeCalls = 0
+        val manager = NativeSessionManager(store) { wipeCalls++ }
+        manager.onLoggedOut()
+        assertNull(store.persisted)
+        assertEquals(1, wipeCalls)
+    }
+
+    @Test
+    fun `auth rejection fires the token-cleared hook`() {
+        val store = FakeTokenStore().apply { persisted = storedSession() }
+        var wipeCalls = 0
+        val manager = NativeSessionManager(store) { wipeCalls++ }
+        manager.onAuthRejected()
+        assertNull(store.persisted)
+        assertEquals(1, wipeCalls)
+    }
+
+    @Test
+    fun `a refresh-401 during restore fires the token-cleared hook`() {
+        val store = FakeTokenStore().apply { persisted = storedSession() }
+        var wipeCalls = 0
+        val manager = NativeSessionManager(store) { wipeCalls++ }
+        val result = manager.restore { throw OfflineTransportException(401, "refresh rejected") }
+        assertEquals(NativeSessionManager.RestoreResult.AuthRejected, result)
+        assertNull(store.persisted)
+        assertEquals(1, wipeCalls)
+    }
+
+    @Test
+    fun `successful logins and rotations never fire the wipe hook`() {
+        val store = FakeTokenStore()
+        var wipeCalls = 0
+        val manager = NativeSessionManager(store) { wipeCalls++ }
+        manager.onLoginSucceeded(storedSession())
+        manager.restore { storedSession(access = "rotated") }
+        assertEquals(0, wipeCalls)
+        assertNotNull(store.persisted)
+    }
 }

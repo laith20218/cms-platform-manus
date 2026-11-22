@@ -11,8 +11,15 @@ import com.cms.student.security.OfflineTransportException
  *  - auth rejection (401)   → tokens wiped (stale credentials must not survive)
  *  - logout                 → tokens wiped
  *  - process death          → [restore] rebuilds the session from the encrypted store
+ *
+ * Batch 4 adds the [onTokensCleared] hook: it fires on EVERY path that wipes the
+ * tokens (logout, auth rejection, refresh-401) so the encrypted media cache can
+ * wipe itself in the same instant — no cached media ever outlives a dead session.
  */
-class NativeSessionManager(private val store: TokenStore) {
+class NativeSessionManager(
+    private val store: TokenStore,
+    private val onTokensCleared: () -> Unit = {}
+) {
 
     sealed interface RestoreResult {
         /** A usable session exists; [verifiedByServer] is true only when a fresh refresh succeeded. */
@@ -33,11 +40,13 @@ class NativeSessionManager(private val store: TokenStore) {
     /** A 401 from login or any offline client means the tokens are dead — wipe them. */
     fun onAuthRejected() {
         store.clear()
+        onTokensCleared()
     }
 
     /** Explicit logout wipes both tokens. */
     fun onLoggedOut() {
         store.clear()
+        onTokensCleared()
     }
 
     /**
@@ -55,6 +64,7 @@ class NativeSessionManager(private val store: TokenStore) {
         } catch (error: OfflineTransportException) {
             if (error.statusCode == 401) {
                 store.clear()
+                onTokensCleared()
                 RestoreResult.AuthRejected
             } else {
                 // Transient network failure: keep the stored pair and proceed with the
