@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -42,6 +44,53 @@ val apiSpkiPinsBase64 = providers.gradleProperty("OFFLINE_API_SPKI_PINS_BASE64")
     .orElse("").get().trim()
     .also { requirePinList("OFFLINE_API_SPKI_PINS_BASE64", it) }
 
+// ---------------------------------------------------------------------------
+// Optional release signing (student pilot APKs) — see docs/android-signing-notes.md.
+// Resolution order:
+//   1) keystore.properties in the Gradle root (apps/android/, GITIGNORED; template:
+//      keystore.properties.example) — takes precedence when present.
+//   2) CMS_STORE_FILE / CMS_STORE_PASSWORD / CMS_KEY_ALIAS / CMS_KEY_PASSWORD
+//      environment variables.
+// When neither is present, release builds stay UNSIGNED exactly as before
+// (app-release-unsigned.apk); debug signing never touches this path. Keystore
+// bytes and passwords live only OUTSIDE the repo — .gitignore blocks
+// keystore.properties / *.jks / *.keystore as a second line of defense.
+// ---------------------------------------------------------------------------
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    } else {
+        System.getenv("CMS_STORE_FILE")?.let { setProperty("storeFile", it) }
+        System.getenv("CMS_STORE_PASSWORD")?.let { setProperty("storePassword", it) }
+        System.getenv("CMS_KEY_ALIAS")?.let { setProperty("keyAlias", it) }
+        System.getenv("CMS_KEY_PASSWORD")?.let { setProperty("keyPassword", it) }
+    }
+}
+fun signingProp(name: String): String? =
+    keystoreProperties.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
+val releaseSigningReady = signingProp("storeFile") != null &&
+    signingProp("storePassword") != null &&
+    signingProp("keyAlias") != null &&
+    signingProp("keyPassword") != null
+if (keystorePropertiesFile.exists() && !releaseSigningReady) {
+    throw GradleException(
+        "keystore.properties exists but is incomplete: storeFile, storePassword, keyAlias " +
+        "and keyPassword are all required. See keystore.properties.example and " +
+        "docs/android-signing-notes.md."
+    )
+}
+signingProp("storeFile")?.let { storeFilePath ->
+    val store = rootProject.file(storeFilePath)
+    if (!store.isFile) {
+        throw GradleException(
+            "Release keystore not found at '$storeFilePath' (resolved: ${store.absolutePath}). " +
+            "Check storeFile in keystore.properties / the CMS_STORE_FILE environment variable. " +
+            "See docs/android-signing-notes.md."
+        )
+    }
+}
+
 android {
     namespace = "com.cms.student"
     compileSdk = 35
@@ -67,11 +116,23 @@ android {
         buildConfigField("String", "OFFLINE_API_SPKI_PINS_BASE64", "\"$apiSpkiPinsBase64\"")
     }
 
+    val releaseSigningConfig = if (releaseSigningReady) {
+        signingConfigs.create("release") {
+            storeFile = rootProject.file(signingProp("storeFile")!!)
+            storePassword = signingProp("storePassword")
+            keyAlias = signingProp("keyAlias")
+            keyPassword = signingProp("keyPassword")
+        }
+    } else {
+        null
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            releaseSigningConfig?.let { signingConfig = it }
         }
     }
 

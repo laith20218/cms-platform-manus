@@ -46,6 +46,29 @@ quotes/backslashes. Pin entries are validated as base64 (with optional `sha256/`
 prefix). The build fails fast on anything else, so a non-HTTPS shell URL or a
 garbage pin cannot be produced by accident.
 
+## Student pilot APK (sideload testing)
+
+Post-Batch-4 the app is ready for student pilot testing via sideloading — no Play
+Store needed. Pointers:
+
+- **`docs/android-student-apk-guide.md`** (Arabic) — prerequisites (Android Studio,
+  or JDK 17+ / Android SDK 35 on the command line), passing the real HTTPS
+  `STUDENT_WEB_BASE_URL` / `API_BASE_URL` via `-P`, debug vs release choice for a
+  pilot, where the APK lands under `app/build/outputs/apk/...`, how students
+  enable "install unknown apps", and first-run expectations (network needed;
+  native login required before media can be cached for offline use).
+- **`docs/android-signing-notes.md`** — generating a local upload/release keystore
+  OUTSIDE the repo and pointing Gradle at it via a gitignored
+  `apps/android/keystore.properties` (template: `keystore.properties.example`) or
+  `CMS_STORE_FILE` / `CMS_STORE_PASSWORD` / `CMS_KEY_ALIAS` / `CMS_KEY_PASSWORD`
+  environment variables. Release signing stays optional: with no keystore
+  configured, release builds remain unsigned exactly as before.
+- Thin helper: `scripts/android-assemble-student-apk.sh <web-url> <api-url>
+  [debug|release]` — validates HTTPS, runs Gradle, prints the output APK path.
+
+Google Play listing / Play App Signing remain future work (out of scope for the
+pilot). Batch 5 gate work is intentionally NOT part of this.
+
 ## Batch 0 — done criteria (status: DONE)
 
 - [x] `apps/android` opens as a standard Gradle Android app; `:app:assembleDebug` green (local evidence recorded in the PR; CI re-runs it on every PR).
