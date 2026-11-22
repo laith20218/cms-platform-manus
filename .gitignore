@@ -95,6 +95,16 @@ deploy/nginx/certs/
 *.pem
 *.key
 
+# === Android signing material (never commit) ===
+# Real signing config and keystores stay OUTSIDE the repo — see
+# docs/android-signing-notes.md; only keystore.properties.example is committed.
+apps/android/keystore.properties
+keystore.properties
+*.jks
+*.keystore
+*.p12
+*.pfx
+
 # === Database ===
 *.db
 *.sqlite
