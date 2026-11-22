@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Batch 4: connectivity probe for the media cache (online/offline entitlement decisions). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:name=".CmsApplication"
@@ -29,5 +31,26 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Batch 4: in-app, FLAG_SECURE media viewers for cached objects (owner lock 5:
+             native in-app only; no external viewer, no file share). All exported=false —
+             reachable only from inside the app (bridge openLocal / offline catalog). -->
+        <activity
+            android:name=".media.PdfViewActivity"
+            android:exported="false" />
+        <activity
+            android:name=".media.TextReaderActivity"
+            android:exported="false" />
+        <activity
+            android:name=".media.AudioPlayerActivity"
+            android:exported="false" />
+        <activity
+            android:name=".media.VideoPlayerActivity"
+            android:exported="false" />
+        <activity
+            android:name=".media.ImageViewerActivity"
+            android:exported="false" />
+        <activity
+            android:name=".media.OfflineCatalogActivity"
+            android:exported="false" />
     </application>
 </manifest>

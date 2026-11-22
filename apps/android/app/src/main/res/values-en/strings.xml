@@ -30,4 +30,32 @@
     <string name="offline_invalid_ids">The subject or exam identifier is invalid.</string>
     <string name="offline_rejected">The package was rejected or could not be verified.</string>
     <string name="offline_authorized_only">Only request package IDs from the authorized content screen.</string>
+    <!-- Batch 4: encrypted media cache — offline catalog + native viewers. -->
+    <string name="shell_offline_catalog">Offline mode (saved content)</string>
+    <string name="offline_catalog_title">Offline mode</string>
+    <string name="offline_catalog_empty">No saved files yet.</string>
+    <string name="offline_catalog_clear">Clear all saved files</string>
+    <string name="offline_catalog_cleared">Saved files cleared.</string>
+    <string name="offline_catalog_login_hint">To cache files and open them offline, sign in once from here with your account credentials.</string>
+    <string name="offline_catalog_login">Local sign-in</string>
+    <string name="offline_catalog_available">Available offline</string>
+    <string name="offline_catalog_needs_refresh">Needs a refresh after reconnecting</string>
+    <string name="media_kind_pdf">PDF file</string>
+    <string name="media_kind_txt">Text file</string>
+    <string name="media_kind_html">Interactive lesson</string>
+    <string name="media_kind_image">Image</string>
+    <string name="media_kind_video">Video</string>
+    <string name="media_kind_audio">Audio file</string>
+    <string name="media_opening">Opening file…</string>
+    <string name="media_open_failed">Could not open the saved file.</string>
+    <string name="media_open_denied_auth">This content is no longer available for your account.</string>
+    <string name="media_open_denied_stale">The saved copy has expired — reconnect and try again.</string>
+    <string name="media_pages_fmt">Pages: %1$d</string>
+    <string name="media_close">Close</string>
+    <string name="media_play">Play</string>
+    <string name="media_pause">Pause</string>
+    <string name="media_video_error">Could not play the saved video.</string>
+    <string name="media_audio_error">Could not play the saved audio.</string>
+    <string name="media_zoom_in">Zoom in</string>
+    <string name="media_zoom_out">Zoom out</string>
 </resources>

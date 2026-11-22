@@ -41,5 +41,15 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:text="@string/shell_retry" />
+
+        <!-- Batch 4 (owner lock 6): entry to the native offline catalog «وضع بدون إنترنت»;
+             shown only on the network-error state (see ShellActivity.showError). -->
+        <Button
+            android:id="@+id/shell_offline_catalog_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/shell_offline_catalog"
+            android:visibility="gone" />
     </LinearLayout>
 </FrameLayout>
