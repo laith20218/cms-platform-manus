@@ -362,11 +362,11 @@ public class AdminDashboardController : ControllerBase
     [Authorize(Policy = Policies.CodeView)]
     public async Task<ActionResult<PagedResult<CodeManagementDto>>> GetCodes(
         [FromQuery] string? status, [FromQuery] Guid? subjectId,
-        [FromQuery] string? search, [FromQuery] string? scopeType,
+        [FromQuery] string? search, [FromQuery] string? scopeType, [FromQuery] Guid? yearId,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        var result = await _mediator.Send(new GetCodesQuery(status, subjectId, page, pageSize, GetAdminId(), search, scopeType), ct);
+        var result = await _mediator.Send(new GetCodesQuery(status, subjectId, page, pageSize, GetAdminId(), search, scopeType, yearId), ct);
         return Ok(result);
     }
 
@@ -386,8 +386,11 @@ public class AdminDashboardController : ControllerBase
 
     /// <summary>
     /// Manually activate a code for a student (admin-side activation).
-    /// Bypasses the student self-redeem flow — the admin selects a code +
-    /// a student, and the subscription is created immediately.
+    /// Night Task 5.1 — hardened to match the student self-redeem contract:
+    /// scope checks on BOTH the code and the student, a transaction with the
+    /// same compare-and-swap private-code claim, and the private-code
+    /// single-student rule enforced (an already-claimed private code can never
+    /// be stacked onto a second student by the admin path again).
     /// </summary>
     [HttpPost("codes/{codeId:guid}/activate")]
     [Authorize(Policy = Policies.CodeEdit)]
@@ -395,29 +398,41 @@ public class AdminDashboardController : ControllerBase
     {
         var adminId = GetAdminId();
 
-        // Validate code exists + is active
         var code = await _db.SubscriptionCodes.FirstOrDefaultAsync(c => c.Id == codeId, ct);
         if (code is null) return NotFound(new ProblemDetails { Title = "Code not found", Status = 404 });
-        if (code.Status != Domain.Enums.CodeStatus.Active)
+        if (code.Status != CodeStatus.Active)
             return BadRequest(new ProblemDetails { Title = "Code is not active", Status = 400 });
+        if (code.CodeExpiresAt.HasValue && code.CodeExpiresAt.Value <= DateTime.UtcNow)
+            return BadRequest(new ProblemDetails { Title = "Code has expired", Status = 400 });
 
-        // Validate student exists + is active
+        // Night Task 5.1 — the same admin-scope discipline every other codes
+        // endpoint applies (this action previously skipped both checks).
+        if (!await _permissions.IsInScopeAsync(adminId, "subscription_code", code.Id, ct))
+            return Forbid();
         var student = await _db.Students.FirstOrDefaultAsync(s => s.Id == dto.StudentId && s.DeletedAt == null, ct);
         if (student is null) return NotFound(new ProblemDetails { Title = "Student not found", Status = 404 });
-        if (student.Status != Domain.Enums.StudentStatus.Active)
+        if (student.Status != StudentStatus.Active)
             return BadRequest(new ProblemDetails { Title = "Student is not active", Status = 400 });
+        if (!await _permissions.IsInScopeAsync(adminId, "student", student.Id, ct))
+            return Forbid();
 
-        // Check no existing subscription for this code+student
-        var existing = await _db.StudentSubscriptions.AnyAsync(s => s.StudentId == dto.StudentId && s.SubscriptionCodeId == code.Id, ct);
+        // Idempotency for the same (student, code) pair.
+        var existing = await _db.StudentSubscriptions.AnyAsync(s => s.StudentId == student.Id && s.SubscriptionCodeId == code.Id, ct);
         if (existing) return BadRequest(new ProblemDetails { Title = "This code is already activated for this student", Status = 400 });
 
-        // Create the subscription
+        // Night Task 5.1 — PRIVATE codes bind to exactly ONE student. The old
+        // path let an admin stack any number of students onto a claimed private
+        // code (UsedBy kept only the first). Mirror the student-flow rule: a
+        // private code already claimed by ANOTHER student is refused outright.
+        if (!code.IsPublic && code.UsedBy.HasValue && code.UsedBy.Value != student.Id)
+            return BadRequest(new ProblemDetails { Title = "This private code is already bound to another student", Status = 400 });
+
         var now = DateTime.UtcNow;
         var durationExpiresAt = code.DurationDays > 0 ? now.AddDays(code.DurationDays) : DateTime.MaxValue;
         var subscriptionExpiresAt = code.CodeExpiresAt.HasValue && code.CodeExpiresAt.Value < durationExpiresAt
             ? code.CodeExpiresAt.Value : durationExpiresAt;
 
-        var subscription = new CMS.Domain.Entities.StudentSubscription
+        var subscription = new StudentSubscription
         {
             StudentId = student.Id,
             SubscriptionCodeId = code.Id,
@@ -428,22 +443,40 @@ public class AdminDashboardController : ControllerBase
             ScopeYearId = code.ScopeYearId,
             ScopeSemesterId = code.ScopeSemesterId,
             ScopeSubjectId = code.ScopeSubjectId,
-            Status = Domain.Enums.SubscriptionStatus.Active,
+            Status = SubscriptionStatus.Active,
             StartsAt = now,
             ExpiresAt = subscriptionExpiresAt,
         };
-        _db.StudentSubscriptions.Add(subscription);
 
-        // Mark code as used if not already
-        if (!code.UsedAt.HasValue)
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        try
         {
-            typeof(CMS.Domain.Entities.SubscriptionCode).GetProperty(nameof(CMS.Domain.Entities.SubscriptionCode.UsedAt))?.SetValue(code, now);
-            typeof(CMS.Domain.Entities.SubscriptionCode).GetProperty(nameof(CMS.Domain.Entities.SubscriptionCode.UsedBy))?.SetValue(code, student.Id);
+            if (!code.IsPublic && code.UsedBy != student.Id)
+            {
+                // Atomic claim (same CAS as the student self-redeem flow): first
+                // writer wins; concurrent admin/student claims collapse to one.
+                // The `UsedBy != student.Id` guard also makes a re-activation for
+                // the SAME bound student idempotent (no second claim needed).
+                var claimed = await _db.SubscriptionCodes
+                    .Where(candidate => candidate.Id == code.Id && candidate.Status == CodeStatus.Active && candidate.UsedBy == null)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(candidate => candidate.Status, CodeStatus.Used)
+                        .SetProperty(candidate => candidate.UsedBy, student.Id)
+                        .SetProperty(candidate => candidate.UsedAt, now), ct);
+                if (claimed != 1)
+                    return BadRequest(new ProblemDetails { Title = "This private code is already bound to another student", Status = 400 });
+            }
+
+            _db.StudentSubscriptions.Add(subscription);
+            await _db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(ct);
+            throw;
         }
 
-        await _db.SaveChangesAsync(ct);
-
-        // Audit log the manual activation
         await _audit.LogSecurityEventAsync(
             studentId: student.Id, adminId: adminId,
             eventType: SecurityEventType.AdminAction, severity: SecuritySeverity.Info,
@@ -453,6 +486,56 @@ public class AdminDashboardController : ControllerBase
             ct: ct);
 
         return Ok(new { subscriptionId = subscription.Id, codeId = code.Id, studentId = student.Id, expiresAt = subscriptionExpiresAt });
+    }
+
+    /// <summary>
+    /// Night Task 5.3 — per-code redemption detail: WHO activated this code,
+    /// WHEN it expires for them, and WHAT it unlocks (content scope +
+    /// resolved subject name) — the specificity the codes ledger summarizes
+    /// only as a count.
+    /// </summary>
+    [HttpGet("codes/{codeId:guid}/redemptions")]
+    [Authorize(Policy = Policies.CodeView)]
+    public async Task<ActionResult<List<CodeRedemptionDto>>> GetCodeRedemptions(Guid codeId, CancellationToken ct)
+    {
+        var adminId = GetAdminId();
+        var code = await _db.SubscriptionCodes.AsNoTracking().FirstOrDefaultAsync(c => c.Id == codeId, ct);
+        if (code is null) return NotFound(new ProblemDetails { Title = "Code not found", Status = 404 });
+        if (!await _permissions.IsInScopeAsync(adminId, "subscription_code", code.Id, ct))
+            return Forbid();
+
+        var rows = await _db.StudentSubscriptions.AsNoTracking()
+            .Where(sub => sub.SubscriptionCodeId == code.Id)
+            .OrderByDescending(sub => sub.StartsAt)
+            .ToListAsync(ct);
+
+        var studentIds = rows.Select(r => r.StudentId).Distinct().ToList();
+        var students = await _db.Students.AsNoTracking()
+            .Where(s => studentIds.Contains(s.Id))
+            .ToDictionaryAsync(s => s.Id, ct);
+
+        string? subjectName = null;
+        if (code.ScopeSubjectId.HasValue)
+            subjectName = await _db.Subjects.AsNoTracking()
+                .Where(subject => subject.Id == code.ScopeSubjectId)
+                .Select(subject => subject.NameAr)
+                .FirstOrDefaultAsync(ct);
+
+        var items = rows.Select(row => new CodeRedemptionDto(
+            row.Id,
+            students.TryGetValue(row.StudentId, out var studentRow) ? studentRow.FullName : null,
+            students.TryGetValue(row.StudentId, out var studentRow2) ? studentRow2.Phone : null,
+            row.ContentScope.ToString(),
+            subjectName,
+            row.ScopeType.ToString(),
+            row.Status.ToString(),
+            row.StartsAt,
+            row.ExpiresAt,
+            row.RevokedAt,
+            row.RevocationReason
+        )).ToList();
+
+        return Ok(items);
     }
 }
 

@@ -302,6 +302,19 @@ public class AdminManagementHandlers :
         await EnsurePermissionAsync(req.AdminId, Resources.Codes, Actions.View, ct);
         if (req.SubjectId.HasValue && !await _permissions.IsInScopeAsync(req.AdminId, "subject", req.SubjectId.Value, ct))
             throw new ForbiddenException("مرشح المادة خارج نطاقك الإداري");
+        // Night Task 5.3 — year filter: matches BOTH year-scoped codes and
+        // subject-scoped codes whose subject sits under that academic year
+        // (via the subject's semester). Scope safety stays with the per-code
+        // IsInScopeAsync filter below, exactly like the search/scopeType
+        // filters — the year predicate only narrows the candidate set.
+        List<Guid>? yearSubjectIds = null;
+        if (req.YearId.HasValue)
+        {
+            yearSubjectIds = await _db.Subjects.AsNoTracking()
+                .Where(subject => subject.Semester != null && subject.Semester.AcademicYearId == req.YearId.Value)
+                .Select(subject => subject.Id)
+                .ToListAsync(ct);
+        }
 
         var query = _db.SubscriptionCodes.AsNoTracking();
 
@@ -310,6 +323,11 @@ public class AdminManagementHandlers :
 
         if (req.SubjectId.HasValue)
             query = query.Where(c => c.ScopeSubjectId == req.SubjectId);
+
+        // Night Task 5.3 — year filter (see the note above the probe).
+        if (req.YearId.HasValue)
+            query = query.Where(c => c.ScopeYearId == req.YearId
+                || (c.ScopeSubjectId.HasValue && yearSubjectIds != null && yearSubjectIds.Contains(c.ScopeSubjectId.Value)));
 
         // Search by code substring (dash-agnostic: strip dashes for comparison)
         if (!string.IsNullOrWhiteSpace(req.Search))

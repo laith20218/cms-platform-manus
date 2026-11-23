@@ -1,6 +1,11 @@
-/** CodesCenter — premium Tailwind redesign. Restrained ivory panels, navy labels, teal confirmations. */
+/** CodesCenter — Night Task 5.4: modal-driven code management.
+ *  The heavy permanent generate form became a focused modal; the main screen is
+ *  a clean, filterable ledger (status / scope / year / subject / search) with
+ *  per-code redemption detail (5.3) — who activated, what it unlocks, when it
+ *  expires. Existing workflows (generate, copy, CSV, bulk revoke, manual
+ *  activate, revoke) preserved 1:1. */
 import { FormEvent, useEffect, useState } from 'react';
-import { AlertCircle, BadgeCheck, Ban, Copy, Check, Download, KeyRound, LoaderCircle, Plus, RefreshCw, Search, UsersRound, Ticket, UserPlus } from 'lucide-react';
+import { AlertCircle, BadgeCheck, Ban, Copy, Check, Download, Eye, KeyRound, LoaderCircle, Plus, RefreshCw, Search, UsersRound, Ticket, UserPlus } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
@@ -10,6 +15,7 @@ type AcademicYear = { id: string; nameAr: string; nameEn?: string | null; yearNu
 type Semester = { id: string; nameAr: string; nameEn?: string | null };
 type Subject = { id: string; nameAr: string; nameEn?: string | null; code?: string | null };
 type CodeItem = { id: string; code: string; scopeType: string; contentScope: string; isPublic: boolean; scopeName?: string | null; status: string; usedAt?: string | null; usedByName?: string | null; createdAt: string; expiresAt?: string | null; redemptionCount: number };
+type RedemptionRow = { subscriptionId: string; studentName?: string | null; studentPhone?: string | null; contentScope: string; subjectName?: string | null; scopeType: string; status: string; startsAt: string; expiresAt: string; revokedAt?: string | null; revocationReason?: string | null };
 type ContentScope = 'questions_exams' | 'lectures_text' | 'video_audio' | 'full_subject' | 'full_year';
 
 type Props = { token: string; isArabic: boolean; onError: (message: string) => void; onNotice: (message: string) => void };
@@ -22,12 +28,21 @@ const scopeChoices: Array<{ value: ContentScope; ar: string; en: string }> = [
   { value: 'full_subject', ar: 'مادة كاملة', en: 'Full subject' },
   { value: 'full_year', ar: 'سنة كاملة', en: 'Full academic year' },
 ];
+const contentScopeLabel = (value: string, arabic: boolean) => scopeChoices.find((s) => s.value === value)?.[arabic ? 'ar' : 'en'] ?? value;
+const redemptionStatusChip = (status: string) => {
+  const value = status.toLowerCase();
+  if (value === 'active') return 'text-emerald-600 bg-emerald-50 border-emerald-200';
+  if (value === 'cancelled' || value === 'revoked') return 'text-red-600 bg-red-50 border-red-200';
+  if (value === 'expired') return 'text-amber-600 bg-amber-50 border-amber-200';
+  return 'text-slate-600 bg-slate-50 border-slate-200';
+};
 
 const statusChipClass = (status: string) => {
   const value = status.toLowerCase();
   if (value === 'active') return 'text-emerald-600 bg-emerald-50 border-emerald-200';
   if (value === 'revoked') return 'text-red-600 bg-red-50 border-red-200';
   if (value === 'expired') return 'text-amber-600 bg-amber-50 border-amber-200';
+  if (value === 'used') return 'text-teal-600 bg-teal-50 border-teal-200';
   return 'text-slate-600 bg-slate-50 border-slate-200';
 };
 
@@ -51,7 +66,6 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
   const [form, setForm] = useState({ contentScope: 'questions_exams' as ContentScope, isPublic: false, quantity: '1', durationDays: '0', prefix: '', codeExpiresAt: '' });
   const [revokeTarget, setRevokeTarget] = useState<CodeItem | null>(null);
   const [revokeReason, setRevokeReason] = useState('');
-  // AREA 2: filters + multi-select + manual activation
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
   const [filterScopeType, setFilterScopeType] = useState('');
@@ -62,19 +76,37 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
   const [activateStudentId, setActivateStudentId] = useState('');
   const [activateLoading, setActivateLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // Night Task 5.4 — the generate form lives in a modal now.
+  const [generateOpen, setGenerateOpen] = useState(false);
+  // Night Task 5.3 — academic filters (year + subject) on the ledger.
+  const [filterYearId, setFilterYearId] = useState('');
+  const [filterSubjectId, setFilterSubjectId] = useState('');
+  const [filterColleges, setFilterColleges] = useState<College[]>([]);
+  const [filterYears, setFilterYears] = useState<AcademicYear[]>([]);
+  const [filterSemesters, setFilterSemesters] = useState<Semester[]>([]);
+  const [filterSubjects, setFilterSubjects] = useState<Subject[]>([]);
+  const [filterSemesterSelection, setFilterSemesterSelection] = useState('');
+  const [filterUniversityId, setFilterUniversityId] = useState('');
+  const [filterCollegeId, setFilterCollegeId] = useState('');
+  // Night Task 5.3 — per-code redemption detail modal.
+  const [redemptionsTarget, setRedemptionsTarget] = useState<CodeItem | null>(null);
+  const [redemptions, setRedemptions] = useState<RedemptionRow[] | null>(null);
+  const [redemptionsLoading, setRedemptionsLoading] = useState(false);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
   const isYearCode = form.contentScope === 'full_year';
   const selectedScopeId = isYearCode ? yearId : subjectId;
   const selectedScopeType = isYearCode ? 'year' : 'subject';
 
-  const loadCodes = async (status = filterStatus, search = filterSearch, scopeType = filterScopeType) => {
+  const loadCodes = async (status = filterStatus, search = filterSearch, scopeType = filterScopeType, year = filterYearId, subject = filterSubjectId) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: '1', pageSize: '100' });
       if (status) params.set('status', status);
       if (search) params.set('search', search);
       if (scopeType) params.set('scopeType', scopeType);
+      if (year) params.set('yearId', year);
+      if (subject) params.set('subjectId', subject);
       setCodes((await request<PagedResult<CodeItem>>(`/api/v1/admin/codes?${params.toString()}`)).items);
       setSelectedIds(new Set());
     }
@@ -86,6 +118,7 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void Promise.all([loadCodes(), loadUniversities()]); }, []);
 
+  // ===== Generate-modal cascade (unchanged logic) =====
   async function chooseUniversity(id: string) {
     setUniversityId(id); setCollegeId(''); setYearId(''); setSemesterId(''); setSubjectId(''); setYears([]); setSemesters([]); setSubjects([]);
     if (!id) { setColleges([]); return; }
@@ -107,6 +140,31 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
     try { setSubjects(await request<Subject[]>(`/api/v1/semesters/${id}/subjects`)); } catch (error) { onError(error instanceof Error ? error.message : 'Request failed.'); }
   }
 
+  // ===== Night Task 5.3 — filter cascade (separate, light state) =====
+  async function chooseFilterUniversity(id: string) {
+    setFilterUniversityId(id); setFilterCollegeId(''); setFilterYearId(''); setFilterSubjectId('');
+    setFilterYears([]); setFilterSemesters([]); setFilterSubjects([]);
+    if (!id) { setFilterColleges([]); return; }
+    try { setFilterColleges(await request<College[]>(`/api/v1/universities/${id}/colleges`)); } catch { setFilterColleges([]); }
+  }
+  async function chooseFilterCollege(id: string) {
+    setFilterCollegeId(id); setFilterYearId(''); setFilterSubjectId('');
+    setFilterSemesters([]); setFilterSubjects([]);
+    if (!id) { setFilterYears([]); return; }
+    try { setFilterYears(await request<AcademicYear[]>(`/api/v1/colleges/${id}/years`)); } catch { setFilterYears([]); }
+  }
+  async function chooseFilterYear(id: string) {
+    setFilterYearId(id); setFilterSubjectId(''); setFilterSemesterSelection('');
+    setFilterSubjects([]);
+    if (!id) { setFilterSemesters([]); return; }
+    try { setFilterSemesters(await request<Semester[]>(`/api/v1/years/${id}/semesters`)); } catch { setFilterSemesters([]); }
+  }
+  async function chooseFilterSemester(id: string) {
+    setFilterSubjectId('');
+    if (!id) { setFilterSubjects([]); return; }
+    try { setFilterSubjects(await request<Subject[]>(`/api/v1/semesters/${id}/subjects`)); } catch { setFilterSubjects([]); }
+  }
+
   async function generate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedScopeId) { onError(isArabic ? 'اختر نطاق الرمز الأكاديمي أولًا.' : 'Choose the academic code scope first.'); return; }
@@ -123,6 +181,7 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
         isPublic: form.isPublic,
       };
       const result = await request<{ codes: string[] }>('/api/v1/admin/codes/generate', { method: 'POST', body: JSON.stringify(payload) });
+      setGenerateOpen(false);
       await loadCodes();
       onNotice(isArabic ? `تم إنشاء ${result.codes.length} رمز وصول.` : `${result.codes.length} access code(s) created.`);
     } catch (error) { onError(error instanceof Error ? error.message : 'Request failed.'); }
@@ -141,7 +200,6 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
     finally { setBusy(false); }
   }
 
-  // AREA 2: copy code to clipboard
   async function copyCode(code: CodeItem) {
     try {
       await navigator.clipboard.writeText(code.code);
@@ -151,7 +209,6 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
     } catch { onError(isArabic ? 'تعذّر النسخ.' : 'Copy failed.'); }
   }
 
-  // AREA 2: export codes to CSV
   function exportCsv() {
     if (codes.length === 0) { onError(isArabic ? 'لا توجد أكواد للتصدير.' : 'No codes to export.'); return; }
     const headers = ['Code', 'Status', 'ScopeType', 'ContentScope', 'IsPublic', 'ScopeName', 'RedemptionCount', 'CreatedAt', 'ExpiresAt', 'UsedAt', 'UsedByName'];
@@ -163,7 +220,6 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
     URL.revokeObjectURL(url);
   }
 
-  // AREA 2: bulk revoke selected codes
   async function bulkRevoke() {
     if (selectedIds.size === 0) return;
     setBusy(true);
@@ -179,7 +235,6 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
     onNotice(isArabic ? `تم إبطال ${success} كود.` : `${success} code(s) revoked.`);
   }
 
-  // AREA 2: search students for manual activation
   async function searchStudents(query: string) {
     setActivateStudentQuery(query);
     if (query.trim().length < 3) { setActivateStudents([]); return; }
@@ -189,7 +244,6 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
     } catch { setActivateStudents([]); }
   }
 
-  // AREA 2: manually activate a code for a student
   async function manuallyActivate(code: CodeItem, studentId: string) {
     if (!studentId) { onError(isArabic ? 'اختر طالبًا أولاً.' : 'Select a student first.'); return; }
     setActivateLoading(true);
@@ -202,6 +256,21 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
     finally { setActivateLoading(false); }
   }
 
+  // Night Task 5.3 — per-code redemption detail.
+  async function openRedemptions(code: CodeItem) {
+    setRedemptionsTarget(code);
+    setRedemptions(null);
+    setRedemptionsLoading(true);
+    try {
+      setRedemptions(await request<RedemptionRow[]>(`/api/v1/admin/codes/${code.id}/redemptions`));
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'Request failed.');
+      setRedemptionsTarget(null);
+    } finally { setRedemptionsLoading(false); }
+  }
+
+  const dateFmt = new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium' });
+
   return (
     <section className="space-y-6">
       <header className="flex items-start justify-between gap-4 flex-wrap">
@@ -212,153 +281,60 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{isArabic ? 'سياسة الوصول' : 'Access policy'}</p>
             <h2 className="text-2xl font-bold text-slate-900">{isArabic ? 'رموز الوصول' : 'Access codes'}</h2>
-            <p className="text-sm text-slate-600 mt-1 max-w-2xl">{isArabic ? 'يتحكم الرمز في نوع المحتوى ونطاقه الأكاديمي، ولا يُمنح الوصول من الواجهة.' : 'Every code defines content and academic scope; access is issued by the server only.'}</p>
+            <p className="text-sm text-slate-600 mt-1 max-w-2xl">{isArabic ? 'سجل واحد خفيف: إنشاء من نافذة مركّزة، وتصفية حسب السنة والمادة، وتفصيل كل تفعيل.' : 'One light ledger: focused create modal, year/subject filters, per-redemption detail.'}</p>
           </div>
         </div>
-        <button type="button" disabled={loading} onClick={() => void loadCodes()} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-600 bg-white hover:bg-slate-50 transition-colors disabled:opacity-50">
-          {loading ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}{isArabic ? 'تحديث' : 'Refresh'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button type="button" disabled={loading} onClick={() => void loadCodes()} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-600 bg-white hover:bg-slate-50 transition-colors disabled:opacity-50">
+            {loading ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}{isArabic ? 'تحديث' : 'Refresh'}
+          </button>
+          {can('btn:codes.generate') && (
+            <button type="button" onClick={() => setGenerateOpen(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-colors" data-testid="open-generate-modal">
+              <Plus className="w-4 h-4" />{isArabic ? 'إنشاء رموز' : 'Generate codes'}
+            </button>
+          )}
+        </div>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[0.95fr_1.25fr] gap-5 items-start">
-        {/* Codes form */}
-        <form onSubmit={generate} className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-teal-50 text-teal-600">
-              <KeyRound className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{isArabic ? 'إنشاء رمز' : 'Create code'}</p>
-              <h3 className="text-base font-bold text-slate-900">{isArabic ? 'نطاق وصول مضبوط' : 'Controlled access scope'}</h3>
-            </div>
+      {/* Code ledger — the single main surface (Night Task 5.4) */}
+      <section className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200 bg-slate-50">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{isArabic ? 'سجل الرموز' : 'Code ledger'}</p>
+            <h3 className="text-base font-bold text-slate-900">{isArabic ? 'الأكواد والتفعيلات' : 'Codes & redemptions'}</h3>
           </div>
-
-          <label className="block">
-            <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'نوع المحتوى' : 'Content scope'}</span>
-            <select value={form.contentScope} onChange={(event) => setForm({ ...form, contentScope: event.target.value as ContentScope })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
-              {scopeChoices.map((scope) => <option key={scope.value} value={scope.value}>{isArabic ? scope.ar : scope.en}</option>)}
-            </select>
-          </label>
-
-          <label className="flex items-start gap-3 p-3 rounded-lg bg-teal-50/40 border border-teal-200 cursor-pointer">
-            <input type="checkbox" checked={form.isPublic} onChange={(event) => setForm({ ...form, isPublic: event.target.checked })} className="mt-0.5 h-4 w-4 accent-teal-600" />
-            <span className="flex flex-col gap-0.5">
-              <strong className="text-sm font-semibold text-slate-900">{isArabic ? 'رمز عام مجاني' : 'Public free code'}</strong>
-              <small className="text-xs text-slate-500">{isArabic ? 'يمكن لكل طالب مسجّل استرداده مرة واحدة.' : 'Each registered student may redeem it once.'}</small>
-            </span>
-          </label>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="block">
-              <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'الجامعة' : 'University'}</span>
-              <select value={universityId} onChange={(event) => void chooseUniversity(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
-                <option value="">{isArabic ? 'اختر الجامعة' : 'Choose university'}</option>
-                {universities.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
-              </select>
-            </label>
-            <label className="block">
-              <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'الكلية' : 'College'}</span>
-              <select value={collegeId} disabled={!universityId} onChange={(event) => void chooseCollege(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
-                <option value="">{isArabic ? 'اختر الكلية' : 'Choose college'}</option>
-                {colleges.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
-              </select>
-            </label>
-            <label className="block">
-              <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'السنة' : 'Academic year'}</span>
-              <select value={yearId} disabled={!collegeId} onChange={(event) => void chooseYear(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
-                <option value="">{isArabic ? 'اختر السنة' : 'Choose year'}</option>
-                {years.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
-              </select>
-            </label>
-            {!isYearCode && (
-              <>
-                <label className="block">
-                  <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'الفصل' : 'Semester'}</span>
-                  <select value={semesterId} disabled={!yearId} onChange={(event) => void chooseSemester(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    <option value="">{isArabic ? 'اختر الفصل' : 'Choose semester'}</option>
-                    {semesters.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
-                  </select>
-                </label>
-                <label className="block sm:col-span-2">
-                  <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'المادة' : 'Subject'}</span>
-                  <select value={subjectId} disabled={!semesterId} onChange={(event) => setSubjectId(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    <option value="">{isArabic ? 'اختر المادة' : 'Choose subject'}</option>
-                    {subjects.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}{item.code ? ` — ${item.code}` : ''}</option>)}
-                  </select>
-                </label>
-              </>
+          <div className="flex items-center gap-2">
+            {can('btn:codes.export') && (
+              <button type="button" onClick={exportCsv} disabled={codes.length === 0} title={isArabic ? 'تصدير CSV' : 'Export CSV'} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 transition-colors disabled:opacity-50">
+                <Download className="w-3.5 h-3.5" />CSV
+              </button>
             )}
+            {selectedIds.size > 0 && can('btn:codes.revoke-bulk') && (
+              <button type="button" onClick={() => void bulkRevoke()} disabled={busy} title={isArabic ? 'إبطال المحدد' : 'Revoke selected'} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-600 bg-white hover:bg-red-50 transition-colors disabled:opacity-50">
+                {busy ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}{selectedIds.size}
+              </button>
+            )}
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-50 text-teal-700 text-xs font-bold">
+              <UsersRound className="w-3.5 h-3.5" />{codes.length}
+            </span>
           </div>
+        </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="block">
-              <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'الكمية' : 'Quantity'}</span>
-              <input min="1" max="1000" type="number" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} required className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
-            </label>
-            <label className="block">
-              <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'المدة بالأيام' : 'Duration in days'}</span>
-              <input min="0" type="number" value={form.durationDays} onChange={(event) => setForm({ ...form, durationDays: event.target.value })} required className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
-              <small className="block mt-1 text-[10px] text-slate-400">{isArabic ? '0 = وصول دائم' : '0 = permanent access'}</small>
-            </label>
-            <label className="block">
-              <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'بادئة الرمز (اختياري)' : 'Code prefix (optional)'}</span>
-              <input value={form.prefix} onChange={(event) => setForm({ ...form, prefix: event.target.value.toUpperCase() })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-mono" />
-            </label>
-            <label className="block">
-              <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'تاريخ انتهاء الرمز (اختياري)' : 'Code expiry (optional)'}</span>
-              <input type="datetime-local" value={form.codeExpiresAt} onChange={(event) => setForm({ ...form, codeExpiresAt: event.target.value })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
-            </label>
-          </div>
-
-          <div className="flex items-start gap-2 rounded-lg bg-teal-50 border border-teal-200 p-3 text-teal-700">
-            <BadgeCheck className="w-4 h-4 mt-0.5 shrink-0" />
-            <span className="text-xs">{isArabic ? `${scopeChoices.find((s) => s.value === form.contentScope)?.ar ?? ''}: ${form.isPublic ? 'متاح لكل طالب مسجل مرة واحدة.' : 'يملكه أول طالب مسجل يسترده.'}` : `${scopeChoices.find((s) => s.value === form.contentScope)?.en ?? ''}: ${form.isPublic ? 'available once to every registered student.' : 'owned by the first registered student to redeem it.'}`}</span>
-          </div>
-
-        {can('btn:codes.generate') && (
-          <button className="inline-flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-colors disabled:opacity-50" disabled={busy} type="submit">
-            {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}{isArabic ? 'إنشاء الرموز' : 'Generate codes'}
-          </button>
-        )}
-        </form>
-
-        {/* Code ledger */}
-        <section className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-          <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200 bg-slate-50">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{isArabic ? 'سجل الرموز' : 'Code ledger'}</p>
-              <h3 className="text-base font-bold text-slate-900">{isArabic ? 'الأكواد المنشأة' : 'Generated codes'}</h3>
-            </div>
-            <div className="flex items-center gap-2">
-              {can('btn:codes.export') && (
-                <button type="button" onClick={exportCsv} disabled={codes.length === 0} title={isArabic ? 'تصدير CSV' : 'Export CSV'} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 transition-colors disabled:opacity-50">
-                  <Download className="w-3.5 h-3.5" />CSV
-                </button>
-              )}
-              {selectedIds.size > 0 && can('btn:codes.revoke-bulk') && (
-                <button type="button" onClick={() => void bulkRevoke()} disabled={busy} title={isArabic ? 'إبطال المحدد' : 'Revoke selected'} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-600 bg-white hover:bg-red-50 transition-colors disabled:opacity-50">
-                  {busy ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}{selectedIds.size}
-                </button>
-              )}
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-50 text-teal-700 text-xs font-bold">
-                <UsersRound className="w-3.5 h-3.5" />{codes.length}
-              </span>
-            </div>
-          </div>
-          {/* AREA 2: Filters bar */}
-          <div className="flex flex-wrap gap-2 px-5 py-3 border-b border-slate-100 bg-slate-50/50">
+        {/* Filters — status / scope / search + Night 5.3 academic (year & subject) */}
+        <div className="space-y-2 px-5 py-3 border-b border-slate-100 bg-slate-50/50">
+          <div className="flex flex-wrap gap-2">
             <div className="relative flex-1 min-w-[160px]">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-              <input value={filterSearch} onChange={(e) => { setFilterSearch(e.target.value); }} onKeyDown={(e) => { if (e.key === 'Enter') void loadCodes(filterStatus, filterSearch, filterScopeType); }} placeholder={isArabic ? 'بحث بالكود...' : 'Search by code...'} className="w-full pr-8 pl-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              <input value={filterSearch} onChange={(e) => { setFilterSearch(e.target.value); }} onKeyDown={(e) => { if (e.key === 'Enter') void loadCodes(filterStatus, filterSearch, filterScopeType, filterYearId, filterSubjectId); }} placeholder={isArabic ? 'بحث بالكود...' : 'Search by code...'} className="w-full pr-8 pl-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
-            <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); void loadCodes(e.target.value, filterSearch, filterScopeType); }} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+            <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); void loadCodes(e.target.value, filterSearch, filterScopeType, filterYearId, filterSubjectId); }} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
               <option value="">{isArabic ? 'كل الحالات' : 'All status'}</option>
               <option value="Active">{isArabic ? 'نشط' : 'Active'}</option>
               <option value="Used">{isArabic ? 'مستخدم' : 'Used'}</option>
               <option value="Revoked">{isArabic ? 'ملغي' : 'Revoked'}</option>
               <option value="Expired">{isArabic ? 'منتهي' : 'Expired'}</option>
             </select>
-            <select value={filterScopeType} onChange={(e) => { setFilterScopeType(e.target.value); void loadCodes(filterStatus, filterSearch, e.target.value); }} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+            <select value={filterScopeType} onChange={(e) => { setFilterScopeType(e.target.value); void loadCodes(filterStatus, filterSearch, e.target.value, filterYearId, filterSubjectId); }} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
               <option value="">{isArabic ? 'كل النطاقات' : 'All scopes'}</option>
               <option value="subject">{isArabic ? 'مادة' : 'Subject'}</option>
               <option value="year">{isArabic ? 'سنة' : 'Year'}</option>
@@ -366,80 +342,277 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
               <option value="college">{isArabic ? 'كلية' : 'College'}</option>
               <option value="university">{isArabic ? 'جامعة' : 'University'}</option>
             </select>
-            <button type="button" onClick={() => void loadCodes(filterStatus, filterSearch, filterScopeType)} disabled={loading} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 transition-colors disabled:opacity-50">
+            <button type="button" onClick={() => void loadCodes(filterStatus, filterSearch, filterScopeType, filterYearId, filterSubjectId)} disabled={loading} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 transition-colors disabled:opacity-50">
               {loading ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}{isArabic ? 'بحث' : 'Search'}
             </button>
           </div>
-          <div className="p-3 max-h-[36rem] overflow-y-auto">
-            {loading ? (
-              <div className="space-y-2 p-2">
-                {[0, 1, 2, 3, 4].map((row) => (
-                  <div key={row} className="flex items-center gap-3 p-2">
-                    <div className="h-5 w-32 rounded bg-slate-100 animate-pulse" />
-                    <div className="flex-1 space-y-1">
-                      <div className="h-3 rounded bg-slate-100 animate-pulse w-1/2" />
-                      <div className="h-2.5 rounded bg-slate-100 animate-pulse w-1/4" />
-                    </div>
-                    <div className="h-5 w-16 rounded-full bg-slate-100 animate-pulse" />
-                  </div>
-                ))}
-              </div>
-            ) : codes.length === 0 ? (
-              <div className="flex flex-col items-center justify-center text-center py-12 text-slate-500">
-                <KeyRound className="w-6 h-6 text-slate-300" />
-                <p className="mt-2 text-sm">{isArabic ? 'لا توجد رموز ضمن نطاقك.' : 'No codes exist in your scope.'}</p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {codes.map((code) => {
-                  const inactive = code.status.toLowerCase() !== 'active';
-                  return (
-                    <article key={code.id} className={`flex flex-col md:flex-row md:items-center gap-3 p-3 rounded-lg border border-slate-100 hover:border-slate-200 transition-colors ${inactive ? 'opacity-60' : ''}`}>
-                      {/* AREA 2: multi-select checkbox */}
-                      {code.status.toLowerCase() === 'active' && (
-                        <input type="checkbox" checked={selectedIds.has(code.id)} onChange={(e) => { const next = new Set(selectedIds); if (e.target.checked) next.add(code.id); else next.delete(code.id); setSelectedIds(next); }} className="h-4 w-4 accent-teal-600 shrink-0" />
-                      )}
-                      <div className="min-w-0 md:w-48">
-                        <div className="flex items-center gap-1">
-                          <code className="block font-mono text-sm text-slate-900 break-all">{code.code}</code>
-                          {/* AREA 2: copy button */}
-                          <button type="button" onClick={() => void copyCode(code)} title={isArabic ? 'نسخ' : 'Copy'} className="shrink-0 p-1 rounded text-slate-400 hover:text-teal-600 hover:bg-teal-50 transition-colors">
-                            {copiedId === code.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                          </button>
-                        </div>
-                        <small className={`mt-0.5 inline-block text-[10px] font-bold uppercase tracking-wide ${code.isPublic ? 'text-teal-700' : 'text-slate-500'}`}>{code.isPublic ? (isArabic ? 'عام' : 'Public') : (isArabic ? 'خاص' : 'Private')}</small>
-                      </div>
-                      <div className="flex-1 min-w-0 space-y-0.5">
-                        <strong className="block text-sm font-medium text-slate-900">{scopeChoices.find((scope) => scope.value === code.contentScope)?.[isArabic ? 'ar' : 'en'] ?? code.contentScope}</strong>
-                        <span className="block text-xs text-slate-500 truncate">{code.scopeName || code.scopeType}</span>
-                        <small className="block text-xs text-slate-400">{isArabic ? `${code.redemptionCount} تفعيل` : `${code.redemptionCount} redemption(s)`}</small>
-                      </div>
-                      <div className="flex items-center gap-2 md:flex-col md:items-end">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs border ${statusChipClass(code.status)}`}>{code.status}</span>
-                        {code.expiresAt && <small className="text-xs text-slate-400">{new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium' }).format(new Date(code.expiresAt))}</small>}</div>
-                      <div className="flex items-center gap-1">
-                        {/* AREA 2: manual activation button */}
-                        {code.status.toLowerCase() === 'active' && (
-                          <button type="button" disabled={busy} title={isArabic ? 'تفعيل يدوي لطالب' : 'Activate for student'} onClick={() => { setActivateTarget(code); setActivateStudentQuery(''); setActivateStudents([]); setActivateStudentId(''); }} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-teal-200 text-xs font-medium text-teal-700 bg-white hover:bg-teal-50 transition-colors disabled:opacity-50">
-                            <UserPlus className="w-3.5 h-3.5" />{isArabic ? 'تفعيل' : 'Activate'}
-                          </button>
-                        )}
-                        {code.status.toLowerCase() === 'active' && can('btn:codes.revoke') && (
-                          <button type="button" disabled={busy} title={isArabic ? 'إبطال شامل' : 'Revoke all'} onClick={() => { setRevokeTarget(code); setRevokeReason(''); }} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-600 bg-white hover:bg-red-50 transition-colors disabled:opacity-50">
-                            <Ban className="w-3.5 h-3.5" />{isArabic ? 'إبطال' : 'Revoke'}
-                          </button>
-                        )}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{isArabic ? 'تصفية أكاديمية:' : 'Academic filter:'}</span>
+            <select value={filterUniversityId} onChange={(e) => void chooseFilterUniversity(e.target.value)} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+              <option value="">{isArabic ? 'الجامعة' : 'University'}</option>
+              {universities.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
+            </select>
+            <select value={filterCollegeId} disabled={!filterUniversityId} onChange={(e) => void chooseFilterCollege(e.target.value)} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
+              <option value="">{isArabic ? 'الكلية' : 'College'}</option>
+              {filterColleges.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
+            </select>
+            <select value={filterYearId} disabled={!filterCollegeId} onChange={(e) => { void chooseFilterYear(e.target.value).then(() => loadCodes(filterStatus, filterSearch, filterScopeType, e.target.value, '')); }} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500" data-testid="filter-year">
+              <option value="">{isArabic ? 'كل السنوات' : 'All years'}</option>
+              {filterYears.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
+            </select>
+            <select value={filterSemesterSelection} disabled={filterSemesters.length === 0} onChange={(e) => { setFilterSemesterSelection(e.target.value); void chooseFilterSemester(e.target.value); }} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
+              <option value="">{isArabic ? 'كل الفصول' : 'All semesters'}</option>
+              {filterSemesters.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
+            </select>
+            <select value={filterSubjectId} disabled={filterSubjects.length === 0} onChange={(e) => { setFilterSubjectId(e.target.value); void loadCodes(filterStatus, filterSearch, filterScopeType, filterYearId, e.target.value); }} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500" data-testid="filter-subject">
+              <option value="">{isArabic ? 'كل المواد' : 'All subjects'}</option>
+              {filterSubjects.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
+            </select>
+            {(filterYearId || filterSubjectId) && (
+              <button type="button" onClick={() => { setFilterYearId(''); setFilterSubjectId(''); setFilterSemesterSelection(''); void loadCodes(filterStatus, filterSearch, filterScopeType, '', ''); }} className="px-2 py-1 rounded-lg text-[11px] font-bold text-teal-700 hover:bg-teal-50 transition-colors">
+                {isArabic ? 'مسح الأكاديمية' : 'Clear academic'}
+              </button>
             )}
           </div>
-        </section>
-      </div>
+        </div>
 
-      {/* AREA 2: Manual activation modal */}
+        <div className="p-3 max-h-[40rem] overflow-y-auto">
+          {loading ? (
+            <div className="space-y-2 p-2">
+              {[0, 1, 2, 3, 4].map((row) => (
+                <div key={row} className="flex items-center gap-3 p-2">
+                  <div className="h-5 w-32 rounded bg-slate-100 animate-pulse" />
+                  <div className="flex-1 space-y-1">
+                    <div className="h-3 rounded bg-slate-100 animate-pulse w-1/2" />
+                    <div className="h-2.5 rounded bg-slate-100 animate-pulse w-1/4" />
+                  </div>
+                  <div className="h-5 w-16 rounded-full bg-slate-100 animate-pulse" />
+                </div>
+              ))}
+            </div>
+          ) : codes.length === 0 ? (
+            <div className="flex flex-col items-center justify-center text-center py-12 text-slate-500">
+              <KeyRound className="w-6 h-6 text-slate-300" />
+              <p className="mt-2 text-sm">{isArabic ? 'لا توجد رموز ضمن نطاقك.' : 'No codes exist in your scope.'}</p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {codes.map((code) => {
+                const inactive = code.status.toLowerCase() !== 'active';
+                return (
+                  <article key={code.id} className={`flex flex-col md:flex-row md:items-center gap-3 p-3 rounded-lg border border-slate-100 hover:border-slate-200 transition-colors ${inactive ? 'opacity-60' : ''}`}>
+                    {code.status.toLowerCase() === 'active' && (
+                      <input type="checkbox" checked={selectedIds.has(code.id)} onChange={(e) => { const next = new Set(selectedIds); if (e.target.checked) next.add(code.id); else next.delete(code.id); setSelectedIds(next); }} className="h-4 w-4 accent-teal-600 shrink-0" />
+                    )}
+                    <div className="min-w-0 md:w-48">
+                      <div className="flex items-center gap-1">
+                        <code className="block font-mono text-sm text-slate-900 break-all">{code.code}</code>
+                        <button type="button" onClick={() => void copyCode(code)} title={isArabic ? 'نسخ' : 'Copy'} className="shrink-0 p-1 rounded text-slate-400 hover:text-teal-600 hover:bg-teal-50 transition-colors">
+                          {copiedId === code.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                      <small className={`mt-0.5 inline-block text-[10px] font-bold uppercase tracking-wide ${code.isPublic ? 'text-teal-700' : 'text-slate-500'}`}>{code.isPublic ? (isArabic ? 'عام' : 'Public') : (isArabic ? 'خاص' : 'Private')}</small>
+                    </div>
+                    <div className="flex-1 min-w-0 space-y-0.5">
+                      <strong className="block text-sm font-medium text-slate-900">{contentScopeLabel(code.contentScope, isArabic)}</strong>
+                      <span className="block text-xs text-slate-500 truncate" data-testid={`code-scope-${code.id}`}>{code.scopeName || code.scopeType}</span>
+                      <small className="block text-xs text-slate-400">{code.redemptionCount > 0
+                        ? (isArabic ? `${code.redemptionCount} تفعيل — اضغط العين للتفاصيل` : `${code.redemptionCount} redemption(s) — open the eye for detail`)
+                        : (isArabic ? 'لم يُفعَّل بعد' : 'No redemptions yet')}</small>
+                    </div>
+                    <div className="flex items-center gap-2 md:flex-col md:items-end">
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs border ${statusChipClass(code.status)}`}>{code.status}</span>
+                      {code.expiresAt && <small className="text-xs text-slate-400">{dateFmt.format(new Date(code.expiresAt))}</small>}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {code.redemptionCount > 0 && (
+                        <button type="button" onClick={() => void openRedemptions(code)} title={isArabic ? 'تفاصيل التفعيلات' : 'Redemption detail'} data-testid={`open-redemptions-${code.id}`} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 transition-colors">
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {code.status.toLowerCase() === 'active' && (
+                        <button type="button" disabled={busy} title={isArabic ? 'تفعيل يدوي لطالب' : 'Activate for student'} onClick={() => { setActivateTarget(code); setActivateStudentQuery(''); setActivateStudents([]); setActivateStudentId(''); }} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-teal-200 text-xs font-medium text-teal-700 bg-white hover:bg-teal-50 transition-colors disabled:opacity-50">
+                          <UserPlus className="w-3.5 h-3.5" />{isArabic ? 'تفعيل' : 'Activate'}
+                        </button>
+                      )}
+                      {code.status.toLowerCase() === 'active' && can('btn:codes.revoke') && (
+                        <button type="button" disabled={busy} title={isArabic ? 'إبطال شامل' : 'Revoke all'} onClick={() => { setRevokeTarget(code); setRevokeReason(''); }} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-600 bg-white hover:bg-red-50 transition-colors disabled:opacity-50">
+                          <Ban className="w-3.5 h-3.5" />{isArabic ? 'إبطال' : 'Revoke'}
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ===== Night Task 5.4 — generate modal (was the permanent side form) ===== */}
+      {generateOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onMouseDown={() => !busy && setGenerateOpen(false)}>
+          <div className="bg-white rounded-xl max-w-2xl w-full shadow-xl max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="flex items-start gap-3 p-5 border-b border-slate-200 sticky top-0 bg-white">
+              <div className="p-2 rounded-lg bg-teal-50 text-teal-600">
+                <KeyRound className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-slate-900">{isArabic ? 'إنشاء رموز وصول' : 'Generate access codes'}</h3>
+                <p className="text-sm text-slate-600 mt-0.5">{isArabic ? 'نطاق مضبوط ونوع محتوى محدد لكل دفعة.' : 'A controlled scope and content type per batch.'}</p>
+              </div>
+              <button type="button" onClick={() => setGenerateOpen(false)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors" aria-label={isArabic ? 'إغلاق' : 'Close'}>✕</button>
+            </div>
+            <form onSubmit={generate} className="p-5 space-y-4">
+              <label className="block">
+                <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'نوع المحتوى' : 'Content scope'}</span>
+                <select value={form.contentScope} onChange={(event) => setForm({ ...form, contentScope: event.target.value as ContentScope })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                  {scopeChoices.map((scope) => <option key={scope.value} value={scope.value}>{isArabic ? scope.ar : scope.en}</option>)}
+                </select>
+              </label>
+
+              <label className="flex items-start gap-3 p-3 rounded-lg bg-teal-50/40 border border-teal-200 cursor-pointer">
+                <input type="checkbox" checked={form.isPublic} onChange={(event) => setForm({ ...form, isPublic: event.target.checked })} className="mt-0.5 h-4 w-4 accent-teal-600" />
+                <span className="flex flex-col gap-0.5">
+                  <strong className="text-sm font-semibold text-slate-900">{isArabic ? 'رمز عام مجاني' : 'Public free code'}</strong>
+                  <small className="text-xs text-slate-500">{isArabic ? 'يمكن لكل طالب مسجّل استرداده مرة واحدة.' : 'Each registered student may redeem it once.'}</small>
+                </span>
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'الجامعة' : 'University'}</span>
+                  <select value={universityId} onChange={(event) => void chooseUniversity(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    <option value="">{isArabic ? 'اختر الجامعة' : 'Choose university'}</option>
+                    {universities.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'الكلية' : 'College'}</span>
+                  <select value={collegeId} disabled={!universityId} onChange={(event) => void chooseCollege(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    <option value="">{isArabic ? 'اختر الكلية' : 'Choose college'}</option>
+                    {colleges.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'السنة' : 'Academic year'}</span>
+                  <select value={yearId} disabled={!collegeId} onChange={(event) => void chooseYear(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    <option value="">{isArabic ? 'اختر السنة' : 'Choose year'}</option>
+                    {years.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
+                  </select>
+                </label>
+                {!isYearCode && (
+                  <>
+                    <label className="block">
+                      <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'الفصل' : 'Semester'}</span>
+                      <select value={semesterId} disabled={!yearId} onChange={(event) => void chooseSemester(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        <option value="">{isArabic ? 'اختر الفصل' : 'Choose semester'}</option>
+                        {semesters.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
+                      </select>
+                    </label>
+                    <label className="block sm:col-span-2">
+                      <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'المادة' : 'Subject'}</span>
+                      <select value={subjectId} disabled={!semesterId} onChange={(event) => setSubjectId(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        <option value="">{isArabic ? 'اختر المادة' : 'Choose subject'}</option>
+                        {subjects.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}{item.code ? ` — ${item.code}` : ''}</option>)}
+                      </select>
+                    </label>
+                  </>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'الكمية' : 'Quantity'}</span>
+                  <input min="1" max="1000" type="number" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} required className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'المدة بالأيام' : 'Duration in days'}</span>
+                  <input min="0" type="number" value={form.durationDays} onChange={(event) => setForm({ ...form, durationDays: event.target.value })} required className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  <small className="block mt-1 text-[10px] text-slate-400">{isArabic ? '0 = وصول دائم' : '0 = permanent access'}</small>
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'بادئة الرمز (اختياري)' : 'Code prefix (optional)'}</span>
+                  <input value={form.prefix} onChange={(event) => setForm({ ...form, prefix: event.target.value.toUpperCase() })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-mono" />
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-medium text-slate-700 mb-1">{isArabic ? 'تاريخ انتهاء الرمز (اختياري)' : 'Code expiry (optional)'}</span>
+                  <input type="datetime-local" value={form.codeExpiresAt} onChange={(event) => setForm({ ...form, codeExpiresAt: event.target.value })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                </label>
+              </div>
+
+              <div className="flex items-start gap-2 rounded-lg bg-teal-50 border border-teal-200 p-3 text-teal-700">
+                <BadgeCheck className="w-4 h-4 mt-0.5 shrink-0" />
+                <span className="text-xs">{isArabic ? `${scopeChoices.find((s) => s.value === form.contentScope)?.ar ?? ''}: ${form.isPublic ? 'متاح لكل طالب مسجل مرة واحدة.' : 'يملكه أول طالب مسجل يسترده — ولا يمكن ربطه بطالب ثانٍ.'}` : `${scopeChoices.find((s) => s.value === form.contentScope)?.en ?? ''}: ${form.isPublic ? 'available once to every registered student.' : 'owned by the first student to redeem it — never a second student.'}`}</span>
+              </div>
+
+              <div className="flex gap-3 justify-end pt-1">
+                <button type="button" onClick={() => setGenerateOpen(false)} disabled={busy} className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50">{isArabic ? 'إلغاء' : 'Cancel'}</button>
+                <button className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-colors disabled:opacity-50" disabled={busy} type="submit">
+                  {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}{isArabic ? 'إنشاء الرموز' : 'Generate codes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Night Task 5.3 — redemptions detail modal ===== */}
+      {redemptionsTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onMouseDown={() => !redemptionsLoading && setRedemptionsTarget(null)}>
+          <div className="bg-white rounded-xl max-w-2xl w-full shadow-xl max-h-[85vh] flex flex-col" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()} data-testid="redemptions-modal">
+            <div className="flex items-start gap-3 p-5 border-b border-slate-200">
+              <div className="p-2 rounded-lg bg-teal-50 text-teal-600">
+                <UsersRound className="w-6 h-6" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-slate-900">{isArabic ? 'تفاصيل التفعيلات' : 'Redemption detail'}</h3>
+                <p className="text-sm text-slate-600 mt-0.5">{isArabic ? 'من فعّل هذا الرمز، وماذا يفتح، ومتى ينتهي.' : 'Who activated this code, what it unlocks, and when it ends.'}</p>
+                <p className="text-sm font-mono font-medium text-slate-900 mt-1.5 break-all">{redemptionsTarget.code}</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  {contentScopeLabel(redemptionsTarget.contentScope, isArabic)}
+                  {redemptionsTarget.scopeName ? ` · ${redemptionsTarget.scopeName}` : ''}
+                </p>
+              </div>
+              <button type="button" onClick={() => setRedemptionsTarget(null)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors" aria-label={isArabic ? 'إغلاق' : 'Close'}>✕</button>
+            </div>
+            <div className="p-5 overflow-y-auto">
+              {redemptionsLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <LoaderCircle className="w-6 h-6 animate-spin text-teal-600" />
+                </div>
+              ) : !redemptions || redemptions.length === 0 ? (
+                <div className="text-center py-10 text-slate-500">
+                  <UsersRound className="w-6 h-6 mx-auto text-slate-300" />
+                  <p className="mt-2 text-sm">{isArabic ? 'لم يُفعّل هذا الرمز بعد.' : 'No redemptions yet.'}</p>
+                </div>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {redemptions.map((row) => (
+                    <li key={row.subscriptionId} className="py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-slate-900 truncate">{row.studentName || '—'}</p>
+                        <p className="text-xs text-slate-500">{row.studentPhone || ''}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          <span className="font-bold text-slate-600">{contentScopeLabel(row.contentScope, isArabic)}</span>
+                          {row.subjectName ? ` · ${row.subjectName}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-slate-500">
+                        <span>{isArabic ? 'من' : 'from'} {dateFmt.format(new Date(row.startsAt))}</span>
+                        <span>{isArabic ? 'إلى' : 'until'} {row.expiresAt === '0001-01-01T00:00:00Z' ? (isArabic ? 'دائم' : 'permanent') : dateFmt.format(new Date(row.expiresAt))}</span>
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs border ${redemptionStatusChip(row.status)}`}>{row.status}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual activation modal */}
       {activateTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onMouseDown={() => !activateLoading && setActivateTarget(null)}>
           <div className="bg-white rounded-xl max-w-lg w-full shadow-xl" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>

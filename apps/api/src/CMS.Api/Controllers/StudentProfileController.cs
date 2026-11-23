@@ -97,9 +97,19 @@ public sealed class StudentProfileController : ControllerBase
                 subscription.ExpiresAt,
                 subscription.RevokedAt,
                 subscription.ScopeSubjectId,
+                subscription.ContentScope,
                 Code = code == null ? null : code.Code
             })
             .ToListAsync(ct);
+
+        // Night Task 5.2 — per-subject specificity for the profile's
+        // «الاشتراكات والأكواد المفعّلة» section: the student sees WHICH subject
+        // a code unlocked and WHAT content (questions / lectures+files /
+        // video+audio), not only start/end dates.
+        var subjectIds = subscriptions.Where(item => item.ScopeSubjectId.HasValue).Select(item => item.ScopeSubjectId!.Value).Distinct().ToList();
+        var subjectNames = await _db.Subjects.AsNoTracking()
+            .Where(subject => subjectIds.Contains(subject.Id))
+            .ToDictionaryAsync(subject => subject.Id, subject => subject.NameAr, ct);
 
         // Push 8 avatar fix: the stored value is a raw storage KEY
         // (avatars/students/{id}/{guid}.ext), not a URL — the student web used to
@@ -140,7 +150,9 @@ public sealed class StudentProfileController : ControllerBase
                 item.StartsAt,
                 item.ExpiresAt,
                 item.RevokedAt,
-                item.ScopeSubjectId)).ToList()));
+                item.ScopeSubjectId,
+                item.ContentScope.ToString(),
+                item.ScopeSubjectId.HasValue && subjectNames.TryGetValue(item.ScopeSubjectId.Value, out var subjectName) ? subjectName : null)).ToList()));
     }
 
     /// <summary>
@@ -510,7 +522,10 @@ public sealed record StudentProfileSubscriptionDto(
     DateTime StartsAt,
     DateTime ExpiresAt,
     DateTime? RevokedAt,
-    Guid? ScopeSubjectId);
+    Guid? ScopeSubjectId,
+    // Night Task 5.2 — additive scope fields: what the code unlocks.
+    string? ContentScope = null,
+    string? ScopeSubjectName = null);
 
 public sealed record UpdateOwnProfileRequest(
     string? Email,

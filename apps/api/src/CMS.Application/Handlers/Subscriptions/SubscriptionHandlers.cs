@@ -106,8 +106,26 @@ public sealed class SubscriptionHandlers :
                     throw new ForbiddenException("تم استرداد هذا الرمز من طالب آخر");
             }
 
-            await _db.StudentSubscriptions.AddAsync(subscription, ct);
-            await _unitOfWork.SaveChangesAsync(ct);
+            try
+            {
+                await _db.StudentSubscriptions.AddAsync(subscription, ct);
+                await _unitOfWork.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException)
+            {
+                // Night Task 5.1 — two concurrent redemptions of the SAME code by
+                // the SAME student both pass the non-atomic pre-check above; the
+                // unique index (StudentId, SubscriptionCodeId) protects integrity,
+                // but the loser used to surface as a raw 500. Verify the collision
+                // actually happened (provider-agnostic) and translate it into the
+                // same honest domain error the pre-check throws — anything else
+                // rethrows so real database faults stay visible.
+                var collision = await _db.StudentSubscriptions.AsNoTracking()
+                    .AnyAsync(existing => existing.StudentId == student.Id && existing.SubscriptionCodeId == code.Id, ct);
+                if (collision)
+                    throw new DomainException("تم استرداد هذا الرمز مسبقًا", "SUBSCRIPTION_CODE_ALREADY_REDEEMED");
+                throw;
+            }
             await _unitOfWork.CommitTransactionAsync(ct);
         }
         catch
