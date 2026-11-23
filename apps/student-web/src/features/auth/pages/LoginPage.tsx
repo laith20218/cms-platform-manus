@@ -19,6 +19,7 @@ export default function LoginPage() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -28,7 +29,10 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await login(phone, password);
+      // Task 2 (Night) — «تذكّرني» is now REAL: an explicit opt-in persists the
+      // session tokens in durable storage (see session-store.ts); the default
+      // (unchecked) keeps the strict tab-scoped sessionStorage behavior.
+      await login(phone, password, { remember: rememberMe });
       // D-17 (Wave 18.2): ProtectedRoute parked the intended destination in
       // ?next= — resume it after a successful login (guarded to internal paths).
       navigate(safeNextPath(searchParams.get('next')) ?? '/dashboard');
@@ -125,10 +129,21 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* D-06 (Wave 18.2): the «تذكّرني» checkbox is REMOVED — the session
-                model has no persistent-login contract (sessionStorage + single-use
-                rotating refresh tokens), so the control was a silent fake. */}
-            <div className="flex justify-end items-center">
+            {/* Task 2 (Night) — the «تذكّرني» control is back, and this time it
+                is REAL: D-06 (Wave 18.2) removed a checkbox that lied (no
+                persistence existed behind it). session-store.ts now backs the
+                opt-in with durable token storage + restore-on-load; the default
+                stays OFF (privacy-safe). */}
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer select-none" data-testid="login-remember-me">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded border-[1.5px] border-[var(--c-border-strong)] accent-[var(--c-primary-600)] cursor-pointer"
+                />
+                <span className="text-[13px] font-semibold text-[var(--c-text-soft)]">تذكّرني</span>
+              </label>
               <Link to="/forgot-password" className="text-[13px] font-semibold text-[var(--c-primary-700)] hover:underline">نسيت كلمة المرور؟</Link>
             </div>
 

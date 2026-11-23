@@ -219,12 +219,14 @@ describe('Wave 18.2 — Notifications zero badge (D-05)', () => {
 });
 
 // =====================================================================
-// D-06 — Login: no fake remember-me
+// D-06 — Login honesty (updated by Night Task 2): «تذكّرني» is back AND real
 // =====================================================================
-describe('Wave 18.2 — Login honesty (D-06)', () => {
-  it('renders no «تذكّرني» control (no persistent-login contract exists)', async () => {
+describe('Wave 18.2 — Login honesty (D-06, Night Task 2 revision)', () => {
+  it('renders the «تذكّرني» control, unchecked by default (privacy-safe)', async () => {
     renderWithProviders(<LoginPage />);
-    expect(screen.queryByText('تذكّرني')).not.toBeInTheDocument();
+    const remember = screen.getByTestId('login-remember-me').querySelector('input');
+    expect(remember).not.toBeNull();
+    expect((remember as HTMLInputElement).checked).toBe(false);
     expect(screen.getByText('نسيت كلمة المرور؟')).toBeInTheDocument();
   });
 });
