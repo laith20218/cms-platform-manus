@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactElement } from 'react';
 
@@ -149,7 +149,11 @@ describe('OfflinePanel', () => {
     const row = await screen.findByTestId(`offline-item-${CONTENT_A}`);
     expect(row).toBeInTheDocument();
     expect(screen.getByText('ملف القلب')).toBeInTheDocument();
-    expect(screen.getByText(/4 ك\.ب/)).toBeInTheDocument();
+    // The size label lives inside the row; the storage meter shows the same total,
+    // so the query is scoped to the row (Wave 3 added the used/5 GiB meter).
+    expect(within(row).getByText(/4 ك\.ب/)).toBeInTheDocument();
+    expect(screen.getByTestId('offline-panel-meter-value')).toHaveTextContent('من 5.00 ج.ب');
+    expect(screen.getByTestId('offline-panel-uncacheable-note')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /فتح ملف القلب/ }));
     expect(openSpy).toHaveBeenCalledWith(CONTENT_A);

@@ -5,6 +5,8 @@ import {
   nativeListCached,
   nativeOpenLocal,
   nativeRemoveCached,
+  NATIVE_MEDIA_CACHE_MAX_BYTES,
+  UNCACHEABLE_OFFLINE_NOTE,
   type NativeCachedItem,
 } from '@/utils/native-cache';
 import { useOfflineStatus } from './useOfflineStatus';
@@ -48,7 +50,16 @@ function formatBytes(bytes?: number): string | null {
   if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) return null;
   if (bytes < 1024) return `${bytes} بايت`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} ك.ب`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} م.ب`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} م.ب`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} ج.ب`;
+}
+
+/** Sums the safe byte counts the bridge reports — display only, never a promise. */
+function totalCachedBytes(items: NativeCachedItem[]): number {
+  return items.reduce(
+    (sum, item) => sum + (typeof item.bytes === 'number' && Number.isFinite(item.bytes) && item.bytes > 0 ? item.bytes : 0),
+    0,
+  );
 }
 
 export function OfflinePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -138,6 +149,27 @@ export function OfflinePanel({ open, onClose }: { open: boolean; onClose: () => 
           {offline ? 'يبدو أنك دون اتصال الآن — يمكنك فتح المحتوى المحفوظ فقط' : 'أنت متصل — يمكن فتح المحتوى المحفوظ وتحديثه'}
         </div>
 
+        {/* Storage meter — real bytes from the bridge vs the native 5 GiB cap */}
+        {catalogActive && items && items.length > 0 && (
+          <div className="px-5 py-3 border-b border-[var(--c-border)]" data-testid="offline-panel-meter">
+            <div className="flex items-center justify-between text-[11.5px] font-semibold text-[var(--c-text-muted)]">
+              <span>مساحة التخزين دون اتصال</span>
+              <span dir="rtl" data-testid="offline-panel-meter-value">
+                {formatBytes(totalCachedBytes(items))} من {formatBytes(NATIVE_MEDIA_CACHE_MAX_BYTES)}
+              </span>
+            </div>
+            <div className="mt-1.5 h-1.5 w-full rounded-full bg-[var(--c-border)] overflow-hidden">
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${Math.min(100, Math.max(1, (totalCachedBytes(items) / NATIVE_MEDIA_CACHE_MAX_BYTES) * 100))}%`,
+                  background: 'var(--grad-primary)',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Body */}
         <div className="flex-1 overflow-y-auto min-h-0" data-testid="offline-panel-body">
           {!catalogActive ? (
@@ -199,6 +231,14 @@ export function OfflinePanel({ open, onClose }: { open: boolean; onClose: () => 
               })}
             </ul>
           )}
+        </div>
+
+        {/* Arabic honesty (Owner decision 5): what can NEVER be cached offline */}
+        <div
+          className="px-5 pb-1 text-[11.5px] leading-relaxed text-[var(--c-text-faint)]"
+          data-testid="offline-panel-uncacheable-note"
+        >
+          {UNCACHEABLE_OFFLINE_NOTE}
         </div>
 
         <footer className="px-5 py-3 border-t border-[var(--c-border)] text-[11.5px] text-[var(--c-text-faint)]">
