@@ -316,3 +316,12 @@ node gen-diagram.mjs     # writes docs/diagrams/student-web-navigation-graph.svg
 node validate.mjs        # geometric QA (label/node/edge collisions) — must print ALL CLEAN
 node render-png.mjs      # 2x PNG via headless Chromium (requires Noto Sans Arabic installed)
 ```
+
+
+---
+
+## Diagram re-layout (v3)
+
+Visual re-layout for clarity (layered bands, legacy redirects in a dedicated red table, no cross-page spaghetti). Inventory tables above remain authoritative for every edge.
+
+Files: `docs/diagrams/student-web-navigation-graph.svg` · `docs/diagrams/student-web-navigation-graph.png`
