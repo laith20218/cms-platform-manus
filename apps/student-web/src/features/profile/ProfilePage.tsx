@@ -3,7 +3,7 @@ import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { CalendarDays, Camera, CheckCircle2, Clock3, GraduationCap, KeyRound, Loader2, LockKeyhole, LogOut, Mail, Pencil, Settings, ShieldCheck, Ticket, UserRound, X } from 'lucide-react';
+import { BarChart3, CalendarDays, Camera, CheckCircle2, Clock3, GraduationCap, KeyRound, Loader2, LockKeyhole, LogOut, Mail, Pencil, Settings, ShieldCheck, Ticket, UserRound, X } from 'lucide-react';
 import { useAuth } from '@/app/providers/useAuth';
 import { authApi } from '@/features/auth/services/auth-api';
 import { profileApi } from './services/profile-api';
@@ -270,8 +270,10 @@ export default function ProfilePage() {
         )}
       </section>
 
-      {/* ===== W16.1a quick links — تفعيل كود + الإعدادات moved here from the sidebar ===== */}
-      <section className="grid gap-4 sm:grid-cols-2">
+      {/* ===== W16.1a quick links — تفعيل كود + الإعدادات moved here from the sidebar.
+           Wave C — «إحصاءاتي» joins them: the Profile is the OFFICIAL entry point
+           for /stats (recon: it was an orphan with no nav-chrome link at all). ===== */}
+      <section className="grid gap-4 sm:grid-cols-3">
         <Link
           to="/activate-code"
           data-testid="profile-activate-code-link"
@@ -296,6 +298,19 @@ export default function ProfilePage() {
           <span className="min-w-0">
             <span className="block text-base font-bold text-[var(--cms-text)]">الإعدادات</span>
             <span className="mt-0.5 block text-sm text-[var(--cms-text-muted)]">المظهر والإشعارات ومشاركة لوحة المتصدرين وكلمة المرور</span>
+          </span>
+        </Link>
+        <Link
+          to="/stats"
+          data-testid="profile-stats-link"
+          className="press flex items-center gap-4 rounded-2xl border border-[var(--cms-line)] bg-[var(--cms-surface)] p-5 shadow-sm transition-colors hover:border-[var(--cms-teal-100)] hover:bg-[var(--cms-teal-50)]"
+        >
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--cms-teal-600)] text-[var(--cms-text-inverse)]">
+            <BarChart3 className="h-5 w-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-base font-bold text-[var(--cms-text)]">إحصاءاتي</span>
+            <span className="mt-0.5 block text-sm text-[var(--cms-text-muted)]">أداؤك ونسب الدقة والسلاسل ولوحة المتصدرين</span>
           </span>
         </Link>
       </section>

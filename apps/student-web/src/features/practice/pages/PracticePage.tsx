@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLogicalBack } from '@/hooks/useLogicalBack';
 import { useQuery } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import { toast } from 'sonner';
@@ -86,6 +87,9 @@ function PracticePageInner() {
   const { examModelId, subjectId: routeSubjectId } = useParams<{ examModelId?: string; subjectId?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  // Wave C — «العودة» on a direct URL entry falls back to the practice
+  // catalog (the page's logical parent), never outside the app.
+  const goBack = useLogicalBack('/exams?subtab=practice');
   const mySubjects = useMySubjects();
 
   const filter: PracticeCategoryFilter | undefined = useMemo(() => {
@@ -382,7 +386,7 @@ function PracticePageInner() {
           <button type="button" onClick={() => void bootstrap()} className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--cms-line-strong)] px-5 text-sm font-bold text-[var(--cms-text)]">
             <RotateCcw className="w-4 h-4" aria-hidden="true" /> إعادة المحاولة
           </button>
-          <button type="button" onClick={() => navigate(-1)} className="press inline-flex min-h-11 items-center rounded-xl px-5 text-sm font-bold text-[var(--cms-text-inverse)]" style={{ background: 'var(--cms-teal-700)' }}>
+          <button type="button" onClick={() => goBack()} className="press inline-flex min-h-11 items-center rounded-xl px-5 text-sm font-bold text-[var(--cms-text-inverse)]" style={{ background: 'var(--cms-teal-700)' }}>
             العودة
           </button>
         </div>

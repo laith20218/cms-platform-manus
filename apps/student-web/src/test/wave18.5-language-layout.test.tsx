@@ -228,7 +228,7 @@ describe('Wave 18.6 — legal pages public chrome (D-15)', () => {
     renderWithProviders(<TermsPage />);
 
     expect(await screen.findByTestId('content-page-terms', {}, { timeout: 5000 })).toBeInTheDocument();
-    expect(screen.getByTestId('legal-back-home')).toHaveAttribute('href', '/');
+    expect(screen.getByTestId('legal-back-home')).toHaveAttribute('href', '/dashboard');
     expect(screen.getByTestId('legal-back-home')).toHaveTextContent('العودة للرئيسية');
     expect(screen.getByText('CMS', { exact: false })).toBeInTheDocument();
   });
