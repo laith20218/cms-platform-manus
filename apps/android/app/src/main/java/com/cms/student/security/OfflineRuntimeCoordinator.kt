@@ -3,7 +3,6 @@ package com.cms.student.security
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.nio.charset.StandardCharsets
-import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
@@ -19,8 +18,7 @@ class OfflineRuntimeCoordinator(
     private val packageStore: IOfflinePackageStore,
     private val revocationCache: CachedOfflineRevocationStatusProvider,
     private val revocationRefresher: OfflineRevocationRefresher,
-    private val publicKeyProvider: () -> String,
-    private val policy: OfflineUsePolicy = OfflineUsePolicy()
+    private val publicKeyProvider: () -> String
 ) {
     private val gson = Gson()
 
@@ -51,17 +49,21 @@ class OfflineRuntimeCoordinator(
     }
 
     /**
-     * Network-free continuation is deliberately narrower than initial opening: only a package
-     * with a recent explicitly ACTIVE server confirmation can be opened, and it never refreshes
-     * in a loop. UNKNOWN, REVOKED, expired, mismatched, or stale packages are rejected.
+     * Network-free continuation is deliberately narrower than initial opening: only a
+     * package whose FIRST successful online acquisition/open left an explicitly ACTIVE
+     * server confirmation can be opened. Offline rights are bound to the SERVER-ISSUED
+     * manifest expiry embedded in the envelope (Owner decision 2026-11-23 — the former
+     * 15-minute post-confirmation window is retired). Security tradeoff, accepted by
+     * the Owner: a revocation issued while the device is offline takes effect at the
+     * next online contact (openOnline / sync always force a fresh status check).
+     * UNKNOWN, REVOKED, expired, mismatched, or stale packages are rejected.
      */
     fun continueOffline(session: OfflineSession, packageId: UUID, subjectId: UUID, now: Instant = Instant.now()): List<OfflineQuestion>? {
         val stored = packageStore.load(packageId, session.studentId, session.installationId) ?: return null
         val confirmedAt = stored.lastConfirmedAt ?: return null
         if (
             stored.lastConfirmedStatus != RevocationStatus.ACTIVE ||
-            !stored.envelope.manifest.expiresAt.isAfter(now) ||
-            confirmedAt.plus(policy.maximumOfflineUseAfterConfirmation).isBefore(now)
+            !stored.envelope.manifest.expiresAt.isAfter(now)
         ) return null
         revocationCache.applyConfirmedStatus(packageId, RevocationStatus.ACTIVE)
         return decryptAndParse(session, packageId, subjectId)
@@ -176,7 +178,3 @@ class OfflineRuntimeCoordinator(
         else -> OfflineSyncDisposition.RETRYABLE_FAILURE
     }
 }
-
-data class OfflineUsePolicy(
-    val maximumOfflineUseAfterConfirmation: Duration = Duration.ofMinutes(15)
-)
