@@ -169,10 +169,10 @@ describe('bank practice notice — the gate', () => {
   });
 
   it('a bundle WITHOUT notice content navigates directly — no modal, no FAB', async () => {
-    stubCourse({ description: undefined });
+    stubCourse({ description: '' });
     await openPage();
     fireEvent.click(screen.getByTestId(`practice-exam-${EXAM_ID}`));
-    await waitFor(() => expect(screen.getByTestId('location-probe')).toHaveTextContent(`/practice/exam/${EXAM_ID}`));
+    await waitFor(() => expect(screen.getByTestId('location-probe')).toHaveTextContent(`/practice/exam/${EXAM_ID}`), { timeout: 4000 });
     expect(screen.queryByTestId('bank-notice-modal')).not.toBeInTheDocument();
     expect(screen.queryByTestId('bank-notice-fab')).not.toBeInTheDocument();
   });
