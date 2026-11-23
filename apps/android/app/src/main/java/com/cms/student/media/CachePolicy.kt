@@ -6,21 +6,19 @@ package com.cms.student.media
  * stays auditable in one file.
  *
  * Owner locks encoded as constants:
- *  - [MAX_CACHE_BYTES] = 1 GiB total cached media, LRU eviction beyond it (lock 4).
- *  - [CONFIRMATION_WINDOW_HOURS] = 72h offline-open grace after the last server-side
- *    entitlement confirmation (lock 9; the chosen value is stated here and in the PR).
+ *  - [MAX_CACHE_BYTES] = 5 GiB total cached media, LRU eviction beyond it
+ *    (Owner decision 2026-11-23: raised from 1 GiB).
+ *  - Durable offline policy (Owner decision 2026-11-23, replaces the 72h-only gate):
+ *    a cached object opens offline as long as its local ciphertext exists — until
+ *    logout wipe, auth rejection/session end (401 path), or the server-issued
+ *    entitlement expiry embedded with the entry ([MediaCacheEntry.entitlementExpiresAt])
+ *    has passed. No hour-count gate; a null expiry never fakes infinite rights —
+ *    an online re-check still applies whenever the network is reachable.
  */
 object CachePolicy {
 
-    /** Total on-device cap for completed cached media (1 GiB). */
-    const val MAX_CACHE_BYTES: Long = 1_073_741_824L
-
-    /**
-     * While offline, a cached object may open only when its [MediaCacheEntry.lastConfirmedAt]
-     * is within this window; a stale object answers `denied_stale` and the Arabic message
-     * asks the student to reconnect (owner lock 9).
-     */
-    const val CONFIRMATION_WINDOW_HOURS: Int = 72
+    /** Total on-device cap for completed cached media (5 GiB, exact bytes). */
+    const val MAX_CACHE_BYTES: Long = 5_368_709_120L
 
     /** Network timeout for the synchronous on-open entitlement re-check (keeps the bridge call bounded). */
     const val VERIFY_TIMEOUT_MILLIS: Int = 2_500
@@ -69,17 +67,17 @@ enum class MediaKind(val wireName: String) {
  */
 object CacheStatus {
     // ensureLocal(contentId, type, hints) →
-    const val READY = "ready"                       // cached and (offline) within the confirmation window
+    const val READY = "ready"                       // cached and usable offline under the durable policy
     const val STARTED = "started"                   // download/replacement enqueued on the executor
     const val DOWNLOADING = "downloading"           // already in flight for this contentId
     const val DENIED_NATIVE_SESSION = "denied_native_session" // no native session (D1: WebView tokens are unreachable)
     const val DENIED_OFFLINE = "denied_offline"     // offline and nothing usable cached
-    const val DENIED_STALE = "denied_stale"         // offline and the cached copy is outside the 72h window
+    const val DENIED_STALE = "denied_stale"         // offline and the stored server-issued entitlement expiry has passed
     const val DENIED_AUTH = "denied_auth"           // server answered 401/403 for this student
     const val DENIED_ORIGIN = "denied_origin"       // bridge origin guard rejected the caller
     const val INVALID_ARGS = "invalid_args"         // blank / oversized / non-UUID contentId
     const val UNSUPPORTED_TYPE = "unsupported_type" // wire type not in [MediaKind]
-    const val QUOTA = "quota"                       // 1 GiB cap cannot be freed for the new download
+    const val QUOTA = "quota"                       // 5 GiB cap cannot be freed for the new download
     const val ERROR = "error"
 
     // cacheStatus(contentId) → (plus DOWNLOADING with ":<percent>" suffix)

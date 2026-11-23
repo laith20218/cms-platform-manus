@@ -10,8 +10,11 @@ import java.time.Instant
  * they never cross the bridge (listCached exposes only id/kind/title/bytes/timestamps).
  *
  * [lastConfirmedAt] is the timestamp of the last server-side entitlement confirmation
- * (download completion, or a 2xx on-open re-check) — the offline-open grace window
- * (72h, [CachePolicy.CONFIRMATION_WINDOW_HOURS]) is measured against it.
+ * (download completion, or a 2xx on-open re-check) — bookkeeping only; it no longer
+ * gates offline opens. [entitlementExpiresAt] is the server-issued entitlement expiry
+ * captured at download time (null when the server sends none); under the durable
+ * offline policy an entry is denied offline only when this expiry exists and has
+ * passed (Owner decision 2026-11-23).
  */
 data class MediaCacheEntry(
     val contentId: String,
@@ -23,7 +26,8 @@ data class MediaCacheEntry(
     val lastConfirmedAt: Instant,
     val lastAccessAt: Instant,
     val displayName: String? = null,
-    val subjectId: String? = null
+    val subjectId: String? = null,
+    val entitlementExpiresAt: Instant? = null
 ) {
     /** Bridge-facing metadata row — deliberately excludes paths and internal fields. */
     fun toSafeJson(): String = Gson().toJson(
@@ -158,7 +162,8 @@ class CacheIndex(private val persistence: MediaCachePersistence) {
         val lastConfirmedAt: String,
         val lastAccessAt: String,
         val displayName: String? = null,
-        val subjectId: String? = null
+        val subjectId: String? = null,
+        val entitlementExpiresAt: String? = null
     ) {
         fun toDomain(): MediaCacheEntry? = runCatching {
             MediaCacheEntry(
@@ -171,7 +176,10 @@ class CacheIndex(private val persistence: MediaCachePersistence) {
                 lastConfirmedAt = Instant.parse(lastConfirmedAt),
                 lastAccessAt = Instant.parse(lastAccessAt),
                 displayName = displayName,
-                subjectId = subjectId
+                subjectId = subjectId,
+                entitlementExpiresAt = entitlementExpiresAt?.let { parsed ->
+                    runCatching { Instant.parse(parsed) }.getOrNull()
+                }
             )
         }.getOrNull()
 
@@ -186,7 +194,8 @@ class CacheIndex(private val persistence: MediaCachePersistence) {
                 lastConfirmedAt = entry.lastConfirmedAt.toString(),
                 lastAccessAt = entry.lastAccessAt.toString(),
                 displayName = entry.displayName,
-                subjectId = entry.subjectId
+                subjectId = entry.subjectId,
+                entitlementExpiresAt = entry.entitlementExpiresAt?.toString()
             )
         }
     }

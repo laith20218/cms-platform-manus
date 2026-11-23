@@ -82,6 +82,20 @@ class CacheIndexTest {
     }
 
     @Test
+    fun `entitlement expiry metadata survives a persistence round trip`() {
+        val persistence = InMemoryMediaCachePersistence()
+        val first = CacheIndex(persistence)
+        first.put(
+            entry("a").copy(entitlementExpiresAt = Instant.parse("2026-06-01T09:30:00Z"))
+        )
+        first.put(entry("b").copy(entitlementExpiresAt = null))
+
+        val reloaded = CacheIndex(persistence)
+        assertEquals(Instant.parse("2026-06-01T09:30:00Z"), reloaded.get("a")?.entitlementExpiresAt)
+        assertNull(reloaded.get("b")?.entitlementExpiresAt)
+    }
+
+    @Test
     fun `a corrupted persisted document degrades to an empty index`() {
         val persistence = object : MediaCachePersistence {
             override fun load(): String = "not-json-{"
