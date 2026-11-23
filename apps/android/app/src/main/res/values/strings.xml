@@ -25,7 +25,8 @@
     <string name="session_expired_signed_out">انتهت صلاحية الجلسة أثناء العملية؛ تم تسجيل الخروج.</string>
     <string name="logout">تسجيل الخروج</string>
     <string name="logged_out">تم تسجيل الخروج.</string>
-    <string name="offline_disabled">Offline الموثوق معطّل في هذا البناء؛ يبقى المحتوى غير متاح Offline.</string>
+    <string name="offline_disabled">حِزم الأسئلة دون اتصال معطّلة في هذا البناء — لا يمكن تنزيل حزم أو فتحها دون اتصال. كاش المكتبة المشفّر («وضع بدون إنترنت») يعمل بشكل طبيعي.</string>
+    <string name="offline_ready">حِزم الأسئلة دون اتصال مفعّلة في هذا البناء — أدخل معرّف المادة لتنزيل حزمة مشفّرة مرتبطة بجهازك وحسابك، ويمكن فتحها دون اتصال حتى انتهاء صلاحيتها الصادرة من الخادم.</string>
     <string name="offline_subject_hint">Subject UUID</string>
     <string name="offline_exam_hint">Exam UUID اختياري</string>
     <string name="offline_download">تنزيل حزمة الامتحان المشفرة</string>

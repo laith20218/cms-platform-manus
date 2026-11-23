@@ -135,6 +135,8 @@ class MainActivity : AppCompatActivity() {
             form.addView(TextView(this).apply { text = getString(R.string.offline_disabled) })
             return
         }
+        // Ready state: packages are enabled in this build — say so explicitly.
+        form.addView(TextView(this).apply { text = getString(R.string.offline_ready) })
         val subject = EditText(this).apply { hint = getString(R.string.offline_subject_hint) }
         val exam = EditText(this).apply { hint = getString(R.string.offline_exam_hint) }
         val download = Button(this).apply {

@@ -151,6 +151,21 @@ export function nativeCachePercent(status: string): number | null {
 
 // ===== Night Task 3 — offline catalog surface (feature-detected) =====
 
+/**
+ * On-device encrypted media cache cap, mirrored from the Kotlin
+ * `CachePolicy.MAX_CACHE_BYTES` (Owner decision 2026-11-23: 5 GiB exact).
+ * Display-only — the native side enforces the real quota.
+ */
+export const NATIVE_MEDIA_CACHE_MAX_BYTES = 5 * 1024 * 1024 * 1024;
+
+/**
+ * Arabic honesty (Owner decision 5): YouTube-hosted videos and course episodes
+ * have no downloadable API bytes, so they can never enter the encrypted offline
+ * cache — the web player stays the only viewer and needs connectivity.
+ */
+export const UNCACHEABLE_OFFLINE_NOTE =
+  'ملاحظة: فيديوهات يوتيوب وحلقات الكورسات لا تُخزَّن للعرض دون اتصال — تُشاهَد من الويب عند توفر الاتصال.';
+
 /** True when the shell can enumerate + delete cached objects (Batch-4 catalog). */
 export function isNativeCatalogActive(): boolean {
   if (!hasNativeShell()) return false;
