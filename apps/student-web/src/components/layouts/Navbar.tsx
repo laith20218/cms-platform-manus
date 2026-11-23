@@ -1,13 +1,18 @@
 // CMS student navigation: quiet clinical blue, fast utility actions, and profile-first account access.
 import { Link, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Bell, CloudOff, Search, Moon, Sun } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTheme } from '@/app/providers/useTheme';
 import { useAuth } from '@/app/providers/useAuth';
 // Night Task 3 — «وضع بدون إنترنت»: the control beside the notifications bell
 // opens the offline panel (cached-content review) even while online.
 import { OfflinePanel } from '@/features/offline/OfflinePanel';
 import { useOfflineStatus } from '@/features/offline/useOfflineStatus';
+// Night Task 4 — the bell opens a top-start quarter DROPDOWN (not a full page);
+// «عرض الكل» inside it links to the full notifications page.
+import { NotificationsDropdown } from '@/features/notifications/NotificationsDropdown';
+import { notificationApi } from '@/features/notifications/services/notification-api';
 
 export function Navbar() {
   const { theme, toggleTheme } = useTheme();
@@ -15,7 +20,17 @@ export function Navbar() {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [offlineOpen, setOfflineOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const offline = useOfflineStatus();
+  const bellRef = useRef<HTMLButtonElement>(null);
+
+  // Shared cache with the notifications surfaces (the page polls every 30 s and
+  // keeps this count fresh; the bell badge is a passive reader of the same key).
+  const { data: unreadCount } = useQuery({
+    queryKey: ['unread-count'],
+    queryFn: notificationApi.getUnreadCount,
+    staleTime: 30_000,
+  });
 
   const submitSearch = () => {
     const normalized = query.trim();
@@ -62,11 +77,40 @@ export function Navbar() {
         >
           <CloudOff className="w-5 h-5" />
         </button>
-        <Link to="/notifications" data-testid="navbar-bell" aria-label="الإشعارات" className="w-10 h-10 rounded-[10px] flex items-center justify-center text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] transition-colors"><Bell className="w-5 h-5" /></Link>
+        {/* Night Task 4 — the bell is a dropdown TRIGGER now (aria-haspopup /
+            aria-expanded); the full page stays one hop away via «عرض الكل». */}
+        <button
+          ref={bellRef}
+          type="button"
+          onClick={() => setNotificationsOpen((openState) => !openState)}
+          data-testid="navbar-bell"
+          aria-label="الإشعارات"
+          aria-haspopup="dialog"
+          aria-expanded={notificationsOpen}
+          className="relative w-10 h-10 rounded-[10px] flex items-center justify-center text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] transition-colors"
+        >
+          <Bell className="w-5 h-5" />
+          {(unreadCount ?? 0) > 0 && (
+            <span
+              data-testid="navbar-bell-unread-badge"
+              lang="en"
+              className="absolute -top-0.5 -end-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--c-danger-500)] text-white text-[10px] font-bold tabular-nums flex items-center justify-center shadow-sm"
+            >
+              {(unreadCount ?? 0) > 99 ? '99+' : unreadCount}
+            </span>
+          )}
+        </button>
         <Link to="/profile" data-testid="navbar-avatar" aria-label="فتح الملف الشخصي" className="flex items-center gap-2.5 py-1 ps-3 pe-1 rounded-3xl border backdrop-blur-md transition-all hover:bg-[var(--c-glass-strong)]" style={{ background: 'var(--c-glass)', borderColor: 'var(--c-border-glass)' }}><div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-[13px]" style={{ background: 'var(--grad-primary)' }}>{user?.fullName?.charAt(0) || 'ط'}</div><span className="hidden sm:block text-[13px] font-semibold text-[var(--c-text-soft)]">{user?.fullName?.split(' ')[0] || 'طالب'}</span></Link>
       </div>
 
       <OfflinePanel open={offlineOpen} onClose={() => setOfflineOpen(false)} />
+      <NotificationsDropdown
+        open={notificationsOpen}
+        onClose={() => {
+          setNotificationsOpen(false);
+          bellRef.current?.focus();
+        }}
+      />
     </header>
   );
 }

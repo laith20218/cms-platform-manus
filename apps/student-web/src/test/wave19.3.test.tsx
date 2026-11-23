@@ -114,10 +114,13 @@ describe('W19.3 (D-23) — LibraryHub past the 100-file cap', () => {
 
 describe('W19.3 (D-34/D-35) — Navbar mobile search entry', () => {
   it('renders an md:hidden search link to /search with a full Arabic aria-label', () => {
+    // Night Task 4 — the Navbar reads the shared unread-count query now.
     render(
-      <MemoryRouter>
-        <Navbar />
-      </MemoryRouter>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter>
+          <Navbar />
+        </MemoryRouter>
+      </QueryClientProvider>
     );
 
     const mobile = screen.getByTestId('navbar-search-mobile');
