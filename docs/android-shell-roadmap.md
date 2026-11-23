@@ -313,3 +313,11 @@ native routing.
 Not started. Candidates from the owner questionnaire: FCM push notifications, or
 catalog polish (YouTube/episode offline blockers above, catalog bulk actions,
 background refresh of stale entries).
+
+
+## Device identity policy (Wave B)
+
+The canonical policy for device identity — native install identity inside the
+Android shell, web install id in browsers, header parity, clear-data behavior,
+and the no-IMEI rule — lives in
+[security/DEVICE_IDENTITY_POLICY.md](security/DEVICE_IDENTITY_POLICY.md).
