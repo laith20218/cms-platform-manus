@@ -1,10 +1,15 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
-  ArrowRight, BookMarked, CheckCircle2, ChevronLeft, ClipboardList,
+  ArrowRight, Bell, BookMarked, CheckCircle2, ChevronLeft, ClipboardList,
   Clock, Dumbbell, FileCheck2, Loader2, PencilRuler,
 } from 'lucide-react';
+// Night Task 8 — the bank practice «تنويه»: admin notice content (bundle
+// Description) + per-student dismissal + the floating reopen button.
+import { useBankNotice } from '../useBankNotice';
+import { BankNoticeModal } from '../BankNoticeModal';
 import { examCoursesApi, COURSE_TYPE_LABELS, SEMESTER_LABELS } from '../services/exam-courses-api';
 import { isEntitlementDenied, variantForReason } from '@/features/my-studies/services/courses-api';
 import { CatalogEntitlementErrorCard, CatalogErrorCard } from '@/features/my-studies/components/CatalogErrorCards';
@@ -30,6 +35,19 @@ export default function ExamCourseDetailPage() {
     queryFn: () => examCoursesApi.getCourse(courseId!),
     enabled: !!courseId,
   });
+  // Night Task 8 — notice = the bundle's admin-managed description; the
+  // dismissal state (session + per-student server preference) lives in the hook.
+  const notice = useBankNotice(courseId, query.data?.description ?? null);
+  const [noticeGate, setNoticeGate] = useState<string | null>(null); // deferred practice route
+  const [neverPending, setNeverPending] = useState(false);
+
+  const startPractice = (examId: string) => {
+    if (notice.hasNotice && !notice.permHidden && !notice.sessionHidden) {
+      setNoticeGate(`/practice/exam/${examId}`);
+      return;
+    }
+    navigate(`/practice/exam/${examId}`);
+  };
 
   if (query.isLoading) {
     return (
@@ -145,7 +163,7 @@ export default function ExamCourseDetailPage() {
                   <div className="flex shrink-0 items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => navigate(`/practice/exam/${exam.examId}`)}
+                      onClick={() => startPractice(exam.examId)}
                       data-testid={`practice-exam-${exam.examId}`}
                       className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--cms-teal-600)] px-4 text-sm font-bold text-[var(--cms-teal-800)] transition-colors hover:bg-[var(--cms-teal-50)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cms-teal-700)]"
                       aria-label={`بدء تدريب ${exam.titleAr}`}
@@ -170,6 +188,33 @@ export default function ExamCourseDetailPage() {
             </li>
           ))}
         </ul>
+      )}
+
+      {/* ===== Night Task 8 — the practice «تنويه» (notice) ===== */}
+      {notice.hasNotice && (
+        <>
+          <BankNoticeModal
+            open={noticeGate !== null}
+            title={course.nameAr}
+            notice={course.description ?? ''}
+            neverPending={neverPending}
+            onHide={() => { notice.hideForSession(); const route = noticeGate || null; setNoticeGate(null); if (route) navigate(route); }}
+            onNeverShowAgain={() => { setNeverPending(true); void notice.hideForever().finally(() => { setNeverPending(false); const route = noticeGate || null; setNoticeGate(null); if (route) navigate(route); }); }}
+            onContinue={() => { const route = noticeGate || null; setNoticeGate(null); if (route) navigate(route); }}
+          />
+          {/* The floating «تنويه» — bottom-START (RTL-aware), reopens the notice. */}
+          <button
+            type="button"
+            onClick={() => setNoticeGate('')}
+            aria-label="عرض التنويه"
+            data-testid="bank-notice-fab"
+            className="fixed bottom-5 start-4 z-[var(--z-sticky)] inline-flex items-center gap-2 rounded-full px-4 py-3 text-sm font-bold text-white shadow-lg transition-transform hover:-translate-y-0.5"
+            style={{ background: 'var(--grad-primary)', boxShadow: '0 8px 24px rgba(25,118,210,0.35)' }}
+          >
+            <Bell className="w-4 h-4" aria-hidden="true" />
+            تنويه
+          </button>
+        </>
       )}
     </div>
   );
