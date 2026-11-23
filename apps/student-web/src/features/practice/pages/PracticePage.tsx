@@ -30,6 +30,7 @@ import {
   isMatchingType,
   parseMatchingAnswer,
   serializeMatchingAnswer,
+  serializeMatchingAnswerMulti,
 } from '@/features/questions/services/matching';
 // D-30 (Wave 18.4): the shared optimistic favorite toggle (was a local copy).
 import { useQuestionFavoriteToggle } from '@/features/questions/hooks/useQuestionFavoriteToggle';
@@ -122,6 +123,9 @@ function PracticePageInner() {
   // W20.6 — per-question وصل pairing maps (promptId → targetId), the matching
   // counterpart of `selections`; restored from a resumed session's recorded answers.
   const [matchingPairs, setMatchingPairs] = useState<Record<string, Record<string, string>>>({});
+
+  // Night Task 7.1 — multi-map pairing state (promptId → target set per question).
+  const [matchingMultiPairs, setMatchingMultiPairs] = useState<Record<string, Record<string, string[]>>>({});
   const [pending, setPending] = useState<string | null>(null);
   const [resettingAll, setResettingAll] = useState(false);
   const [showResetAllConfirm, setShowResetAllConfirm] = useState(false);
@@ -253,10 +257,15 @@ function PracticePageInner() {
     const selected = selections[question.id] ?? [];
     const essayText = (essayDrafts[question.id] ?? '').trim();
     const pairs = matchingPairs[question.id] ?? {};
+    const multiPairs = matchingMultiPairs[question.id] ?? {};
+    const isMulti = question.matching?.allowMultiMap === true;
     // W20.6 — the وصل submit gate: EVERY prompt paired before تصحيح.
+    // Night Task 7.1 — multi mode: every prompt carries ≥1 selected target.
     const matchingComplete = isMatching
       && Boolean(question.matching)
-      && question.matching!.prompts.every((prompt) => Boolean(pairs[prompt.id]));
+      && (isMulti
+        ? question.matching!.prompts.every((prompt) => (multiPairs[prompt.id] ?? []).length > 0)
+        : question.matching!.prompts.every((prompt) => Boolean(pairs[prompt.id])));
     if (isMatching ? !matchingComplete : isEssay ? !essayText : selected.length === 0) {
       toast.message(isMatching
         ? 'اربط كل العناصر أولاً.'
@@ -266,7 +275,7 @@ function PracticePageInner() {
     setPending(question.id);
     try {
       const payload = isMatching
-        ? serializeMatchingAnswer(pairs)
+        ? (isMulti ? serializeMatchingAnswerMulti(multiPairs) : serializeMatchingAnswer(pairs))
         : isEssay
           ? essayText
           : question.type === 'MultipleSelect'
@@ -285,7 +294,7 @@ function PracticePageInner() {
     } finally {
       setPending(null);
     }
-  }, [essayDrafts, filter, matchingPairs, refreshProgress, selections, start]);
+  }, [essayDrafts, filter, matchingMultiPairs, matchingPairs, refreshProgress, selections, start]);
 
   const resetQuestion = useCallback(async (question: PracticeQuestion) => {
     if (!start) return;
@@ -475,6 +484,8 @@ function PracticePageInner() {
             onEssayChange={(value) => setEssayDrafts((previous) => ({ ...previous, [question.id]: value }))}
             matchingPairs={matchingPairs[question.id] ?? {}}
             onMatchingPairsChange={(pairs) => setMatchingPairs((previous) => ({ ...previous, [question.id]: pairs }))}
+            matchingMultiPairs={matchingMultiPairs[question.id] ?? {}}
+            onMatchingMultiPairsChange={(multi) => setMatchingMultiPairs((previous) => ({ ...previous, [question.id]: multi }))}
             showBookmark
             isFavorite={favoriteOverrides[question.id] ?? false}
             onToggleFavorite={() => toggleQuestionFavorite(question.id, favoriteOverrides[question.id] ?? false)}

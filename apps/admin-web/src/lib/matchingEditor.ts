@@ -15,12 +15,24 @@ export interface MatchingRow {
   text: string;
 }
 
+/** Night Task 7.2 — the numbering styles the API accepts (null = legacy default). */
+export type MatchingNumberingStyle = 'digits' | 'arabicLetters' | 'latinLetters';
+
 /** The editor's matching state: two row lists + the pair map (promptId → targetId). */
 export interface MatchingFormState {
   prompts: MatchingRow[];
   targets: MatchingRow[];
   /** promptId → targetId; a prompt absent from the map is unpaired. */
   pairs: Record<string, string>;
+  /** Night Task 7.1 — multi-map mode: promptId → the SET of correct targets.
+   *  Used only when allowMultiMap is on; the single-mode `pairs` map stays the
+   *  legacy contract so existing content + tests are untouched. */
+  multiPairs?: Record<string, string[]>;
+  /** Night Task 7.1 — a left item may be correctly paired with MULTIPLE right items. */
+  allowMultiMap?: boolean;
+  /** Night Task 7.2 — numbering style per list (undefined = legacy default). */
+  promptNumbering?: MatchingNumberingStyle;
+  targetNumbering?: MatchingNumberingStyle;
 }
 
 /** The wire shape of MatchingPayloadDto (camelCase — W20.5 contract). */
@@ -37,6 +49,10 @@ export interface MatchingApiPayload {
   prompts: MatchingApiItem[];
   targets: MatchingApiItem[];
   pairs: MatchingApiPair[];
+  /** Night Task 7 — optional rules (absent on legacy payloads). */
+  allowMultiMap?: boolean;
+  promptNumbering?: MatchingNumberingStyle;
+  targetNumbering?: MatchingNumberingStyle;
 }
 /** The `matching` field as it arrives on AdminQuestionDetailDto (W20.5). */
 export interface MatchingApiDetail extends MatchingApiPayload {}
@@ -62,7 +78,34 @@ function row(text: string): MatchingRow {
 
 /** A fresh 2×2 board — the minimum the API accepts. */
 export function emptyMatching(): MatchingFormState {
-  return { prompts: [row(''), row('')], targets: [row(''), row('')], pairs: {} };
+  return { prompts: [row(''), row('')], targets: [row(''), row('')], pairs: {}, multiPairs: {} };
+}
+
+/** Night Task 7 — the numbering label for a list index, per style.
+ *  digits: 1, 2, 3… · arabicLetters: أ ب ج د هـ و ز ح ط ي… · latinLetters: A, B…Z, AA…
+ *  (matches the student renderer + the PROMPT_LETTERS legacy default). */
+export const ARABIC_LETTERS = ['أ', 'ب', 'ج', 'د', 'هـ', 'و', 'ز', 'ح', 'ط', 'ي'];
+export function matchingNumberingLabel(index: number, style: MatchingNumberingStyle | null | undefined): string {
+  if (style === 'arabicLetters') return ARABIC_LETTERS[index] ?? String(index + 1);
+  if (style === 'latinLetters') {
+    let n = index;
+    let label = '';
+    do { label = String.fromCharCode(65 + (n % 26)) + label; n = Math.floor(n / 26) - 1; } while (n >= 0);
+    return label;
+  }
+  return String(index + 1); // digits — also the legacy default for targets
+}
+
+/** Toggles one target in a prompt's multi-map selection set (admin checkboxes). */
+export function toggleMultiTarget(matching: MatchingFormState, promptId: string, targetId: string): MatchingFormState {
+  const current = matching.multiPairs ?? {};
+  const selected = current[promptId] ?? [];
+  const next = selected.includes(targetId)
+    ? selected.filter(id => id !== targetId)
+    : [...selected, targetId];
+  const multiPairs = { ...current };
+  if (next.length > 0) multiPairs[promptId] = next; else delete multiPairs[promptId];
+  return { ...matching, multiPairs };
 }
 
 export type MatchingValidationCode =
@@ -96,6 +139,31 @@ export function validateMatching(
         : 'A matching item cannot have empty text.',
     };
   }
+
+  // ===== Night Task 7.1 — multi-map mode: per-prompt SETS, targets still exclusive =====
+  if (matching.allowMultiMap) {
+    const multiPairs = matching.multiPairs ?? {};
+    if (matching.prompts.some(prompt => (multiPairs[prompt.id] ?? []).length === 0)) {
+      return {
+        code: 'unpairedPrompt',
+        message: isArabic
+          ? 'اربط كل عنصر من القائمة الأولى بإجابة صحيحة واحدة على الأقل.'
+          : 'Pair every prompt with at least one correct target.',
+      };
+    }
+    const used = matching.prompts.flatMap(prompt => multiPairs[prompt.id] ?? []);
+    if (used.length !== new Set(used).size) {
+      return {
+        code: 'duplicateTarget',
+        message: isArabic
+          ? 'كل إجابة من القائمة الثانية تبقى صحيحة لعنصر واحد فقط.'
+          : 'Every target stays correct for at most one prompt.',
+      };
+    }
+    return null;
+  }
+
+  // ===== Legacy single-map bijection (unchanged) =====
   if (matching.prompts.length !== matching.targets.length) {
     return {
       code: 'unequalCounts',
@@ -126,12 +194,33 @@ export function validateMatching(
 
 /** Shapes the editor state into the create/update wire payload. */
 export function matchingToApiPayload(matching: MatchingFormState): MatchingApiPayload {
-  return {
+  const base = {
     prompts: matching.prompts.map((prompt, index) => ({ id: prompt.id, text: prompt.text.trim(), sortOrder: index })),
     targets: matching.targets.map((target, index) => ({ id: target.id, text: target.text.trim(), sortOrder: index })),
+  };
+  if (matching.allowMultiMap) {
+    const multiPairs = matching.multiPairs ?? {};
+    const pairs: MatchingApiPair[] = [];
+    for (const prompt of matching.prompts) {
+      for (const targetId of multiPairs[prompt.id] ?? []) {
+        pairs.push({ promptId: prompt.id, targetId });
+      }
+    }
+    return {
+      ...base,
+      pairs,
+      allowMultiMap: true,
+      promptNumbering: matching.promptNumbering,
+      targetNumbering: matching.targetNumbering,
+    };
+  }
+  return {
+    ...base,
     pairs: matching.prompts
       .map(prompt => ({ promptId: prompt.id, targetId: matching.pairs[prompt.id] }))
       .filter((pair): pair is MatchingApiPair => Boolean(pair.targetId)),
+    promptNumbering: matching.promptNumbering,
+    targetNumbering: matching.targetNumbering,
   };
 }
 
@@ -143,15 +232,29 @@ export function matchingFromDetail(detail: MatchingApiDetail | null | undefined)
   const prompts = byOrder(detail.prompts).map(item => ({ id: item.id, text: item.text }));
   const targets = byOrder(detail.targets).map(item => ({ id: item.id, text: item.text }));
   const pairs: Record<string, string> = {};
-  for (const pair of detail.pairs ?? []) pairs[pair.promptId] = pair.targetId;
-  return { prompts, targets, pairs };
+  const multiPairs: Record<string, string[]> = {};
+  for (const pair of detail.pairs ?? []) {
+    pairs[pair.promptId] = pair.targetId;
+    (multiPairs[pair.promptId] ??= []).push(pair.targetId);
+  }
+  return {
+    prompts,
+    targets,
+    pairs,
+    multiPairs,
+    allowMultiMap: detail.allowMultiMap === true,
+    promptNumbering: detail.promptNumbering,
+    targetNumbering: detail.targetNumbering,
+  };
 }
 
 /** Removes one prompt row (its pair vanishes with it). */
 export function removePrompt(matching: MatchingFormState, promptId: string): MatchingFormState {
   const pairs = { ...matching.pairs };
   delete pairs[promptId];
-  return { ...matching, prompts: matching.prompts.filter(prompt => prompt.id !== promptId), pairs };
+  const multiPairs = { ...(matching.multiPairs ?? {}) };
+  delete multiPairs[promptId];
+  return { ...matching, prompts: matching.prompts.filter(prompt => prompt.id !== promptId), pairs, multiPairs };
 }
 
 /** Removes one target row — any pair pointing at it is cleared (never dangles). */
@@ -160,7 +263,12 @@ export function removeTarget(matching: MatchingFormState, targetId: string): Mat
   for (const [promptId, paired] of Object.entries(pairs)) {
     if (paired === targetId) delete pairs[promptId];
   }
-  return { ...matching, targets: matching.targets.filter(target => target.id !== targetId), pairs };
+  const multiPairs: Record<string, string[]> = {};
+  for (const [promptId, selected] of Object.entries(matching.multiPairs ?? {})) {
+    const kept = selected.filter(id => id !== targetId);
+    if (kept.length > 0) multiPairs[promptId] = kept;
+  }
+  return { ...matching, targets: matching.targets.filter(target => target.id !== targetId), pairs, multiPairs };
 }
 
 /** The ids every OTHER prompt already claimed — used to disable those options

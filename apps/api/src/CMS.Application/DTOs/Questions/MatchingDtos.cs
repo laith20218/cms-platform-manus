@@ -21,7 +21,11 @@ public record MatchingPairDto(
 public record MatchingPayloadDto(
     List<MatchingItemDto> Prompts,
     List<MatchingItemDto> Targets,
-    List<MatchingPairDto> Pairs);
+    List<MatchingPairDto> Pairs,
+    // Night Task 7 — optional rules (default false / null = legacy W20.5 behavior).
+    bool AllowMultiMap = false,
+    string? PromptNumbering = null,
+    string? TargetNumbering = null);
 
 /// <summary>
 /// The STUDENT-facing matching payload: prompts + targets only. The correct pairs
@@ -30,7 +34,11 @@ public record MatchingPayloadDto(
 /// </summary>
 public record MatchingStudentDto(
     List<MatchingItemDto> Prompts,
-    List<MatchingItemDto> Targets);
+    List<MatchingItemDto> Targets,
+    // Night Task 7 — presentation/rules metadata (no pairs leak: safe pre-answer).
+    bool AllowMultiMap = false,
+    string? PromptNumbering = null,
+    string? TargetNumbering = null);
 
 /// <summary>Per-pair grading result disclosed after answering.</summary>
 public record MatchingPairResultDto(

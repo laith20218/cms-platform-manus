@@ -11,6 +11,7 @@ import { questionApi } from './services/question-api';
 import {
   isMatchingType,
   serializeMatchingAnswer,
+  serializeMatchingAnswerMulti,
   type MatchingResult,
   type MatchingStudentPayload,
 } from './services/matching';
@@ -81,6 +82,9 @@ export default function QuestionPage() {
   const [essayAnswer, setEssayAnswer] = useState('');
   // W20.6 — the وصل pairing map for the CURRENT question (promptId → targetId).
   const [matchingPairs, setMatchingPairs] = useState<Record<string, string>>({});
+
+  // Night Task 7.1 — multi-map pairing state (promptId → target set).
+  const [matchingMultiPairs, setMatchingMultiPairs] = useState<Record<string, string[]>>({});
   const [answerResult, setAnswerResult] = useState<AnswerResult | null>(null);
   // D-45 (Wave 18.3): the report flow delegates to the shared dialog — the
   // inline duplicate (reason chips + textarea + mutation) is gone.
@@ -194,7 +198,13 @@ export default function QuestionPage() {
     }
     if (isMatching) {
       // Submit gate: EVERY prompt paired (the brief's «all paired → تصحيح»). The
-      // answer rides selectedOptionId as the W20.5 wire JSON.
+      // answer rides selectedOptionId as the W20.5 wire JSON. Night Task 7.1 —
+      // multi-map questions carry a target SET per prompt.
+      if (matchingPayload?.allowMultiMap) {
+        if (!matchingPayload.prompts.every((prompt) => (matchingMultiPairs[prompt.id] ?? []).length > 0)) return;
+        answerMutation.mutate({ questionId: currentQuestion.id, optionId: serializeMatchingAnswerMulti(matchingMultiPairs) });
+        return;
+      }
       if (!matchingPayload || !matchingPayload.prompts.every((prompt) => matchingPairs[prompt.id])) return;
       answerMutation.mutate({ questionId: currentQuestion.id, optionId: serializeMatchingAnswer(matchingPairs) });
       return;
@@ -454,6 +464,8 @@ export default function QuestionPage() {
               <MatchingQuestion
                 payload={matchingPayload}
                 pairs={matchingPairs}
+                multiPairs={matchingMultiPairs}
+                onMultiPairsChange={isAnswered || answerMutation.isPending ? undefined : setMatchingMultiPairs}
                 onPairsChange={isAnswered || answerMutation.isPending ? undefined : setMatchingPairs}
                 locked={isAnswered || answerMutation.isPending}
                 result={answerResult?.matchingResult ?? null}
