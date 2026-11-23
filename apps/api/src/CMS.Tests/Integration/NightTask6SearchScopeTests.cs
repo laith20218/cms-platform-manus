@@ -276,6 +276,7 @@ internal sealed class SearchScopeHttpFactory : WebApplicationFactory<Program>, I
         {
             var prefix = granted ? "أ" : "ب";
             var lecture = Lecture.Create(subject.Id, $"محاضرة {prefix} {Marker}", $"night6-lec-{prefix}-{suffix}", 1);
+            lecture.Publish();
             db.Lectures.Add(lecture);
 
             var question = Question.Create($"سؤال {prefix} {Marker}", QuestionType.Mcq, subject.Id, null, Difficulty.Medium, new List<string> { "tag" }, Guid.NewGuid());
