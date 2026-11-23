@@ -448,10 +448,14 @@ public class AdminDashboardController : ControllerBase
             ExpiresAt = subscriptionExpiresAt,
         };
 
-        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
-        try
+        // Night Task 5.1 — transactional integrity is only needed for the
+        // PRIVATE-code claim (the CAS + the subscription insert must commit
+        // together). Public codes have nothing to claim — the unique
+        // (student, code) index is their guard — so they skip the transaction.
+        if (!code.IsPublic && code.UsedBy != student.Id)
         {
-            if (!code.IsPublic && code.UsedBy != student.Id)
+            await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+            try
             {
                 // Atomic claim (same CAS as the student self-redeem flow): first
                 // writer wins; concurrent admin/student claims collapse to one.
@@ -465,16 +469,21 @@ public class AdminDashboardController : ControllerBase
                         .SetProperty(candidate => candidate.UsedAt, now), ct);
                 if (claimed != 1)
                     return BadRequest(new ProblemDetails { Title = "This private code is already bound to another student", Status = 400 });
-            }
 
+                _db.StudentSubscriptions.Add(subscription);
+                await _db.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(ct);
+                throw;
+            }
+        }
+        else
+        {
             _db.StudentSubscriptions.Add(subscription);
             await _db.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-        }
-        catch
-        {
-            await transaction.RollbackAsync(ct);
-            throw;
         }
 
         await _audit.LogSecurityEventAsync(
