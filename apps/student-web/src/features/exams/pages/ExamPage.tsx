@@ -17,6 +17,7 @@ import {
   isMatchingType,
   parseMatchingAnswer,
   serializeMatchingAnswer,
+  serializeMatchingAnswerMulti,
 } from '@/features/questions/services/matching';
 
 type Phase = 'loading' | 'exam' | 'submitting' | 'results' | 'error';
@@ -41,6 +42,9 @@ export default function ExamPage() {
   // W20.6 — per-question وصل pairing maps (promptId → targetId); autosaved as the
   // W20.5 wire JSON exactly like the options selections above.
   const [matchingAnswers, setMatchingAnswers] = useState<Record<string, Record<string, string>>>({});
+
+  // Night Task 7.1 — multi-map matching answers ({promptId → target set} per question).
+  const [matchingMultiAnswers, setMatchingMultiAnswers] = useState<Record<string, Record<string, string[]>>>({});
   const [timeLeft, setTimeLeft] = useState(0);
   const [result, setResult] = useState<ExamResult | null>(null);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
@@ -171,6 +175,25 @@ export default function ExamPage() {
     void saveMatchingAnswer(question, pairs, index);
   }, [saveMatchingAnswer]);
 
+  // Night Task 7.1 — multi-map save: same wire field + per-question contract.
+  const saveMatchingMultiAnswer = useCallback(async (question: ExamQuestion, multi: Record<string, string[]>, index: number) => {
+    if (!session) return;
+    setSavingQuestionId(question.id);
+    try {
+      const hasPairs = Object.values(multi).some(ids => ids.length > 0);
+      const response = await examApi.saveAnswer(session.sessionId, question.id, hasPairs ? serializeMatchingAnswerMulti(multi) : null, index, !hasPairs);
+      setTimeLeft(remainingSeconds(response.expiresAt));
+      if (response.status !== 'InProgress') await loadResult(session.sessionId);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'تعذّر حفظ الإجابة. تحقق من اتصالك وأعد المحاولة.'));
+    } finally { setSavingQuestionId(null); }
+  }, [loadResult, session]);
+
+  const handleMatchingMultiPairsChange = useCallback((question: ExamQuestion, multi: Record<string, string[]>, index: number) => {
+    setMatchingMultiAnswers(previous => ({ ...previous, [question.id]: multi }));
+    void saveMatchingMultiAnswer(question, multi, index);
+  }, [saveMatchingMultiAnswer]);
+
   const submit = useCallback(async () => {
     if (!session) return;
     setShowSubmitConfirm(false); setPhase('submitting');
@@ -245,7 +268,9 @@ export default function ExamPage() {
           total={session.totalQuestions}
           isAnswered={
             isMatchingType(question.type)
-              ? Object.keys(matchingAnswers[question.id] ?? {}).length > 0
+              ? (question.matching?.allowMultiMap
+                  ? Object.values(matchingMultiAnswers[question.id] ?? {}).some(ids => ids.length > 0)
+                  : Object.keys(matchingAnswers[question.id] ?? {}).length > 0)
               : (answers[question.id] ?? []).length > 0
           }
           selected={answers[question.id] ?? []}
@@ -253,6 +278,8 @@ export default function ExamPage() {
           onSelect={(optionId) => handleSelectOption(question, optionId, index)}
           matchingPairs={matchingAnswers[question.id] ?? {}}
           onMatchingPairsChange={(pairs) => handleMatchingPairsChange(question, pairs, index)}
+          matchingMultiPairs={matchingMultiAnswers[question.id] ?? {}}
+          onMatchingMultiPairsChange={(multi) => handleMatchingMultiPairsChange(question, multi, index)}
         />
       ))}
     </div>

@@ -24,10 +24,18 @@ export interface MatchingPair {
   targetId: string;
 }
 
-/** The student-facing surface: prompts + targets (never the pairs). */
+/** Night Task 7.2 — the numbering styles the admin can pick (absent = legacy default). */
+export type MatchingNumberingStyle = 'digits' | 'arabicLetters' | 'latinLetters';
+
+/** The student-facing surface: prompts + targets (never the pairs).
+ *  Night Task 7: carries the rules metadata (multi-map + numbering) the board
+ *  needs to render and interact correctly — still zero pair leakage. */
 export interface MatchingStudentPayload {
   prompts: MatchingItem[];
   targets: MatchingItem[];
+  allowMultiMap?: boolean;
+  promptNumbering?: MatchingNumberingStyle;
+  targetNumbering?: MatchingNumberingStyle;
 }
 
 /** Per-pair grading result disclosed after answering. */
@@ -47,6 +55,58 @@ export interface MatchingResult {
 
 export const isMatchingType = (type: string | null | undefined) =>
   (type ?? '').toLowerCase() === 'matching';
+
+/** Night Task 7.1 — true when the question allows a prompt to match multiple targets. */
+export const isMultiMapPayload = (payload: MatchingStudentPayload | null | undefined): boolean =>
+  payload?.allowMultiMap === true;
+
+/** Night Task 7.2 — the label for a list index (mirrors the admin renderer).
+ *  Legacy defaults: prompts = Arabic letters, targets = digits. */
+export const ARABIC_LETTERS = ['أ', 'ب', 'ج', 'د', 'هـ', 'و', 'ز', 'ح', 'ط', 'ي'];
+export function matchingNumberingLabel(index: number, style: MatchingNumberingStyle | null | undefined): string {
+  if (style === 'arabicLetters') return ARABIC_LETTERS[index] ?? String(index + 1);
+  if (style === 'latinLetters') {
+    let n = index;
+    let label = '';
+    do { label = String.fromCharCode(65 + (n % 26)) + label; n = Math.floor(n / 26) - 1; } while (n >= 0);
+    return label;
+  }
+  return String(index + 1);
+}
+
+/** Night Task 7.1 — serializes the multi-map pairing (promptId → target set). */
+export function serializeMatchingAnswerMulti(pairs: Record<string, string[]>): string {
+  const flat: MatchingPair[] = [];
+  for (const [promptId, targets] of Object.entries(pairs)) {
+    for (const targetId of targets) flat.push({ promptId, targetId });
+  }
+  return JSON.stringify(flat);
+}
+
+/** Parses a recorded multi-map answer (promptId → target set). Malformed input
+ *  yields an empty map — never a crash (same discipline as the single parser). */
+export function parseMatchingAnswerMulti(raw: string | null | undefined): Record<string, string[]> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const map: Record<string, string[]> = {};
+      for (const item of parsed) {
+        if (
+          item && typeof item === 'object'
+          && typeof item.promptId === 'string'
+          && typeof item.targetId === 'string'
+        ) {
+          (map[item.promptId] ??= []).push(item.targetId);
+        }
+      }
+      return map;
+    }
+  } catch {
+    // Not matching-shaped JSON — treat as no recorded pairing.
+  }
+  return {};
+}
 
 /** Serializes the in-progress pairing (promptId → targetId) to the wire format. */
 export function serializeMatchingAnswer(pairs: Record<string, string>): string {

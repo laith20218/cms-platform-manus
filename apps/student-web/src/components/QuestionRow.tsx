@@ -87,8 +87,11 @@ export interface QuestionRowProps {
   /** promptId → targetId for THIS question (controlled, like `selected`). */
   matchingPairs?: Record<string, string>;
   onMatchingPairsChange?: (pairs: Record<string, string>) => void;
+  /** Night Task 7.1 — multi-map controlled state (payload.allowMultiMap questions). */
+  matchingMultiPairs?: Record<string, string[]>;
+  onMatchingMultiPairsChange?: (pairs: Record<string, string[]>) => void;
   /** Review mode: the recorded وصل answer + the reveal-gated correct map. */
-  reviewMatching?: { userPairs: Record<string, string>; correctPairs: MatchingPair[] | null } | null;
+  reviewMatching?: { userPairs: Record<string, string>; correctPairs: MatchingPair[] | null; multiUserPairs?: Record<string, string[]> } | null;
 
   // ===== review (read-only mode) =====
   readOnly?: boolean;
@@ -126,6 +129,8 @@ export function QuestionRow({
   onEssayChange,
   matchingPairs,
   onMatchingPairsChange,
+  matchingMultiPairs,
+  onMatchingMultiPairsChange,
   reviewMatching,
   readOnly,
   reviewOptions,
@@ -148,7 +153,11 @@ export function QuestionRow({
   // W20.6 — the وصل submit gate: EVERY prompt must carry a target (the brief's
   // «Submit/تصحيح enabled when all paired»), mirroring selected.length for choices.
   const matchingComplete = isMatching
-    ? Boolean(question.matching) && question.matching!.prompts.every((prompt) => Boolean(matchingPairs?.[prompt.id]))
+    ? Boolean(question.matching) && (
+        question.matching!.allowMultiMap
+          ? question.matching!.prompts.every((prompt) => (matchingMultiPairs?.[prompt.id] ?? []).length > 0)
+          : question.matching!.prompts.every((prompt) => Boolean(matchingPairs?.[prompt.id]))
+      )
     : false;
   const canConfirm = isMatching ? matchingComplete : isEssay ? Boolean(essayDraft?.trim()) : selected.length > 0;
 
@@ -291,10 +300,12 @@ export function QuestionRow({
         <MatchingQuestion
           payload={question.matching!}
           pairs={matchingPairs ?? {}}
+          multiPairs={matchingMultiPairs}
+          onMultiPairsChange={canInteract ? onMatchingMultiPairsChange : undefined}
           onPairsChange={canInteract ? onMatchingPairsChange : undefined}
           locked={answered || pending === true}
           result={feedback?.matchingResult ?? null}
-          review={readOnly && reviewMatching ? reviewMatching : null}
+          review={readOnly && reviewMatching ? { userPairs: reviewMatching.userPairs, correctPairs: reviewMatching.correctPairs, multiUserPairs: reviewMatching.multiUserPairs } : null}
           testIdPrefix={prefix}
           questionId={question.id}
         />

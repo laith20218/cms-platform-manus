@@ -49,9 +49,9 @@ import { apiRequest, type PagedResult } from '../lib/api';
 import { questionDifficultyLabel as difficultyLabel, questionTypeLabel as typeLabel } from '../lib/questionLabels';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import {
-  emptyMatching, matchingFromDetail, matchingToApiPayload, newMatchingRowId,
-  removePrompt, removeTarget, takenTargetIds, validateMatching,
-  type MatchingApiDetail, type MatchingFormState,
+  emptyMatching, matchingFromDetail, matchingToApiPayload, matchingNumberingLabel, newMatchingRowId,
+  removePrompt, removeTarget, takenTargetIds, toggleMultiTarget, validateMatching,
+  type MatchingApiDetail, type MatchingFormState, type MatchingNumberingStyle,
 } from '../lib/matchingEditor';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
@@ -119,7 +119,6 @@ type QuestionPreview = {
 
 // W21.1 — Arabic prompt letters for the وصل board (same alphabet as the student
 // surface so admins see the labels students will see).
-const MATCHING_PROMPT_LETTERS = ['أ', 'ب', 'ج', 'د', 'هـ', 'و', 'ز', 'ح', 'ط', 'ي'];
 
 const emptyForm = (): FormState => ({
   text: '', type: 'Mcq', difficulty: 'Medium', lectureId: '', tags: '',
@@ -425,6 +424,11 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     if (targetId) pairs[promptId] = targetId;
     else delete pairs[promptId];
     patchMatching({ pairs });
+  }
+
+  // Night Task 7.1 — multi-map checkbox toggle for one (prompt, target).
+  function toggleMultiPair(promptId: string, targetId: string) {
+    patchMatching(toggleMultiTarget(form.matching, promptId, targetId));
   }
 
   function addPromptRow() {
@@ -1298,18 +1302,62 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               {isArabic ? 'عناصر الوصل' : 'Matching items'}
                             </p>
                             <h4 className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>
-                              {isArabic ? 'اربط كل عنصر من القائمة الأولى بإجابته في القائمة الثانية.' : 'Pair every prompt with its target — each side used exactly once.'}
+                              {form.matching.allowMultiMap
+                                ? (isArabic ? 'علّم لكل عنصر كل الإجابات الصحيحة له — إجابة واحدة على الأقل.' : 'Tick every correct target for each prompt — at least one.')
+                                : (isArabic ? 'اربط كل عنصر من القائمة الأولى بإجابته في القائمة الثانية.' : 'Pair every prompt with its target — each side used exactly once.')}
                             </h4>
                           </div>
                           <span
                             data-testid="matching-counts"
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${form.matching.prompts.length === form.matching.targets.length
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${form.matching.allowMultiMap || form.matching.prompts.length === form.matching.targets.length
                               ? 'text-slate-600 bg-slate-50 border-slate-200'
                               : 'text-red-700 bg-red-50 border-red-200'}`}
                             lang="en"
                           >
                             {form.matching.prompts.length} / {form.matching.targets.length}
                           </span>
+                        </div>
+
+                        {/* Night Task 7 — rules row: multi-map toggle + numbering styles */}
+                        <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-white px-3 py-2" style={{ borderColor: 'var(--cms-line)' }} data-testid="matching-rules">
+                          <label className="flex items-center gap-2 text-xs font-medium cursor-pointer" style={{ color: 'var(--cms-text-soft)' }}>
+                            <input
+                              type="checkbox"
+                              checked={form.matching.allowMultiMap === true}
+                              onChange={event => patchMatching({ allowMultiMap: event.target.checked })}
+                              data-testid="matching-allow-multimap"
+                              className="h-4 w-4 accent-teal-600"
+                            />
+                            {isArabic ? 'إجابة متعددة لكل عنصر (وصل متعدد)' : 'Multi-map (prompt → several targets)'}
+                          </label>
+                          <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                            <span className="font-semibold">{isArabic ? 'ترقيم القائمة الأولى:' : 'Prompt numbering:'}</span>
+                            <select
+                              value={form.matching.promptNumbering ?? 'arabicLetters'}
+                              onChange={event => patchMatching({ promptNumbering: event.target.value as MatchingNumberingStyle })}
+                              data-testid="matching-prompt-numbering"
+                              className="px-2 py-1 rounded-md border text-xs bg-white"
+                              style={{ borderColor: 'var(--cms-line)' }}
+                            >
+                              <option value="arabicLetters">{isArabic ? 'أ ب ج' : 'أ ب ج (Arabic)'}</option>
+                              <option value="digits">{isArabic ? '1 2 3' : '1 2 3 (digits)'}</option>
+                              <option value="latinLetters">{isArabic ? 'A B C' : 'A B C (Latin)'}</option>
+                            </select>
+                          </label>
+                          <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                            <span className="font-semibold">{isArabic ? 'ترقيم القائمة الثانية:' : 'Target numbering:'}</span>
+                            <select
+                              value={form.matching.targetNumbering ?? 'digits'}
+                              onChange={event => patchMatching({ targetNumbering: event.target.value as MatchingNumberingStyle })}
+                              data-testid="matching-target-numbering"
+                              className="px-2 py-1 rounded-md border text-xs bg-white"
+                              style={{ borderColor: 'var(--cms-line)' }}
+                            >
+                              <option value="digits">{isArabic ? '1 2 3' : '1 2 3 (digits)'}</option>
+                              <option value="arabicLetters">{isArabic ? 'أ ب ج' : 'أ ب ج (Arabic)'}</option>
+                              <option value="latinLetters">{isArabic ? 'A B C' : 'A B C (Latin)'}</option>
+                            </select>
+                          </label>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {/* ===== Prompts (right column in RTL) — each pairs via select ===== */}
@@ -1328,7 +1376,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                 >
                                   <div className="flex items-center gap-2">
                                     <span className="w-6 text-center text-xs font-semibold shrink-0" style={{ color: 'var(--cms-text-muted)' }}>
-                                      {MATCHING_PROMPT_LETTERS[index] ?? index + 1}
+                                      {matchingNumberingLabel(index, form.matching.promptNumbering ?? 'arabicLetters')}
                                     </span>
                                     <input
                                       value={prompt.text}
@@ -1349,13 +1397,43 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                       <X className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
+                                  {form.matching.allowMultiMap ? (
+                                    /* Night Task 7.1 — multi-map: checkbox chips per target. */
+                                    <div className="flex flex-wrap gap-1.5 ps-8" data-testid={`matching-prompt-multipair-${prompt.id}`}>
+                                      {form.matching.targets.map((target, targetIndex) => {
+                                        const selected = (form.matching.multiPairs?.[prompt.id] ?? []).includes(target.id);
+                                        const takenByOther = [...Object.entries(form.matching.multiPairs ?? {})]
+                                          .some(([otherPromptId, ids]) => otherPromptId !== prompt.id && ids.includes(target.id));
+                                        return (
+                                          <label
+                                            key={target.id}
+                                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors ${selected
+                                              ? 'border-teal-500 bg-teal-50 text-teal-800'
+                                              : takenByOther
+                                                ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
+                                                : 'border-slate-300 bg-white text-slate-700 hover:border-teal-400'}`}
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={selected}
+                                              disabled={takenByOther && !selected}
+                                              onChange={() => toggleMultiPair(prompt.id, target.id)}
+                                              data-testid={`matching-multi-${prompt.id}-${target.id}`}
+                                              className="h-3.5 w-3.5 accent-teal-600"
+                                            />
+                                            <span>{matchingNumberingLabel(targetIndex, form.matching.targetNumbering ?? 'digits')}. {target.text.trim() || (isArabic ? '(عنصر جديد)' : '(new item)')}</span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
                                   <div className="flex items-center gap-2 ps-8">
                                     <Link2 className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-teal-600)' }} />
                                     <select
                                       value={form.matching.pairs[prompt.id] ?? ''}
                                       onChange={event => pairPrompt(prompt.id, event.target.value)}
                                       data-testid={`matching-prompt-pair-${prompt.id}`}
-                                      aria-label={isArabic ? `الإجابة الصحيحة للعنصر ${MATCHING_PROMPT_LETTERS[index] ?? index + 1}` : `Correct target for prompt ${index + 1}`}
+                                      aria-label={isArabic ? `الإجابة الصحيحة للعنصر ${matchingNumberingLabel(index, form.matching.promptNumbering ?? 'arabicLetters')}` : `Correct target for prompt ${index + 1}`}
                                       className="flex-1 px-2 py-1.5 rounded-md border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                                       style={{ borderColor: 'var(--cms-line)' }}
                                     >
@@ -1366,12 +1444,13 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                           value={target.id}
                                           disabled={taken.has(target.id)}
                                         >
-                                          {targetIndex + 1}. {target.text.trim() || (isArabic ? '(عنصر جديد)' : '(new item)')}
+                                          {matchingNumberingLabel(targetIndex, form.matching.targetNumbering ?? 'digits')}. {target.text.trim() || (isArabic ? '(عنصر جديد)' : '(new item)')}
                                           {taken.has(target.id) ? (isArabic ? ' — مستخدم لعنصر آخر' : ' — taken') : ''}
                                         </option>
                                       ))}
                                     </select>
                                   </div>
+                                  )}
                                 </div>
                               );
                             })}
@@ -1392,8 +1471,9 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               {isArabic ? 'القائمة الثانية — الإجابات' : 'List 2 — targets'}
                             </p>
                             {form.matching.targets.map((target, index) => {
-                              const pairedTo = Object.entries(form.matching.pairs)
-                                .find(([, targetId]) => targetId === target.id);
+                              const pairedTo = form.matching.allowMultiMap
+                                ? Object.entries(form.matching.multiPairs ?? {}).find(([, ids]) => ids.includes(target.id))
+                                : Object.entries(form.matching.pairs).find(([, targetId]) => targetId === target.id);
                               return (
                                 <div
                                   key={target.id}
@@ -1402,7 +1482,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                   style={{ borderColor: 'var(--cms-line)' }}
                                 >
                                   <span className="w-6 text-center text-xs font-semibold shrink-0" style={{ color: 'var(--cms-text-muted)' }}>
-                                    {index + 1}
+                                    {matchingNumberingLabel(index, form.matching.targetNumbering ?? 'digits')}
                                   </span>
                                   <input
                                     value={target.text}
@@ -1443,9 +1523,13 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                           </div>
                         </div>
                         <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                          {isArabic
-                            ? 'قاعدة التصحيح: تُحسب الإجابة صحيحة فقط إذا تطابقت كل الأزواج — يُعرض للطالب بعد التصحيح الزوج الصحيح لكل عنصر أخطأ فيه.'
-                            : 'Grading is all-or-nothing across pairs — after grading the student sees the correct target for every wrong pair.'}
+                          {form.matching.allowMultiMap
+                            ? (isArabic
+                              ? 'قاعدة التصحيح (وصل متعدد): يُحسب العنصر صحيحاً فقط إذا اختار الطالب مجموعة إجاباته الصحيحة كاملة بلا زيادة — والدرجة الكاملة تتطلب كل العناصر صحيحة.'
+                              : 'Multi-map grading: a prompt is correct only when the student selects exactly its full set of correct targets; full marks need every prompt correct.')
+                            : (isArabic
+                              ? 'قاعدة التصحيح: تُحسب الإجابة صحيحة فقط إذا تطابقت كل الأزواج — يُعرض للطالب بعد التصحيح الزوج الصحيح لكل عنصر أخطأ فيه.'
+                              : 'Grading is all-or-nothing across pairs — after grading the student sees the correct target for every wrong pair.')}
                         </p>
                       </div>
                     ) : (

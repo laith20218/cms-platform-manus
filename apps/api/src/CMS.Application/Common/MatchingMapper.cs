@@ -15,6 +15,9 @@ public static class MatchingMapper
         Prompts = dto.Prompts.Select(item => new MatchingItem(item.Id, item.Text, item.SortOrder)).ToList(),
         Targets = dto.Targets.Select(item => new MatchingItem(item.Id, item.Text, item.SortOrder)).ToList(),
         Pairs = dto.Pairs.Select(pair => new MatchingPair(pair.PromptId, pair.TargetId)).ToList(),
+        AllowMultiMap = dto.AllowMultiMap,
+        PromptNumbering = dto.PromptNumbering,
+        TargetNumbering = dto.TargetNumbering,
     };
 
     /// <summary>The FULL payload (admin / post-answer surfaces only — carries the pairs).</summary>
@@ -23,14 +26,22 @@ public static class MatchingMapper
             .Select(item => new MatchingItemDto(item.Id, item.Text, item.SortOrder)).ToList(),
         payload.Targets.OrderBy(item => item.SortOrder)
             .Select(item => new MatchingItemDto(item.Id, item.Text, item.SortOrder)).ToList(),
-        payload.Pairs.Select(pair => new MatchingPairDto(pair.PromptId, pair.TargetId)).ToList());
+        payload.Pairs.Select(pair => new MatchingPairDto(pair.PromptId, pair.TargetId)).ToList(),
+        payload.AllowMultiMap,
+        payload.PromptNumbering,
+        payload.TargetNumbering);
 
-    /// <summary>The STUDENT payload — prompts + targets, never the pairs (anti-leak).</summary>
+    /// <summary>The STUDENT payload — prompts + targets, never the pairs (anti-leak).
+    /// Night Task 7: carries the rules metadata (multi-map + numbering) the
+    /// student UI needs to render and interact correctly.</summary>
     public static MatchingStudentDto ToStudentDto(MatchingPayload payload) => new(
         payload.Prompts.OrderBy(item => item.SortOrder)
             .Select(item => new MatchingItemDto(item.Id, item.Text, item.SortOrder)).ToList(),
         payload.Targets.OrderBy(item => item.SortOrder)
-            .Select(item => new MatchingItemDto(item.Id, item.Text, item.SortOrder)).ToList());
+            .Select(item => new MatchingItemDto(item.Id, item.Text, item.SortOrder)).ToList(),
+        payload.AllowMultiMap,
+        payload.PromptNumbering,
+        payload.TargetNumbering);
 
     public static MatchingResultDto ToResultDto((bool IsCorrect, IReadOnlyList<MatchingPayload.PairGrade> Pairs) grade, MatchingPayload payload) => new(
         grade.IsCorrect,
