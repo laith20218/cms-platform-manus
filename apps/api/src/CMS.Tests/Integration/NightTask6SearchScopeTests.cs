@@ -56,7 +56,7 @@ public sealed class NightTask6SearchScopeTests : IClassFixture<AdminEndpointFact
         const string marker = "منوماركر";
         foreach (var (subject, prefix) in new[] { (grantedSubject, "أ"), (otherSubject, "ب") })
         {
-            var lecture = Lecture.Create(subject.Id, $"محاضرة {prefix} {marker}", $"night6-lec-{prefix.ToLower()}-{Guid.NewGuid():N}"[..48], 1);
+            var lecture = Lecture.Create(subject.Id, $"محاضرة {prefix} {marker}", $"night6-lec-{prefix}-{Guid.NewGuid():N}"[..44], 1);
             db.Lectures.Add(lecture);
 
             var question = Question.Create($"سؤال {prefix} {marker}", QuestionType.Mcq, subject.Id, null, Difficulty.Medium, new List<string> { "tag" }, Guid.NewGuid());
