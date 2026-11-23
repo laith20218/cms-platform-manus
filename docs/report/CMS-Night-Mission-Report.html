@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>تقرير المهمة الليلية — CMS Night Mission Report</title>
+<style>
+@page {
+  size: 794px 1123px; /* A4 @ 96dpi */
+  margin: 0;
+}
+:root {
+  --c-ink: #10233a;      /* primary — deep navy ink */
+  --c-accent: #0f766e;   /* teal accent (CMS brand family) */
+  --c-muted: #5b6b7e;
+  --c-bg: #ffffff;
+  --c-soft: #f2f7f6;     /* soft panel background */
+  --c-line: #d7e2e0;
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 794px;
+  background: var(--c-bg);
+  color: var(--c-ink);
+  font-family: 'Noto Sans Arabic', 'Noto Naskh Arabic', sans-serif;
+  line-height: 1.66;
+  font-size: 13.5px;
+}
+@media screen {
+  html { height: auto; display: flex; justify-content: center; background: #20262c; }
+  body { transform-origin: top center; margin: 20px auto; box-shadow: 0 0 40px rgba(0,0,0,.5); }
+}
+* { box-sizing: border-box; }
+
+/* ===== Cover (fixed page) ===== */
+.cover {
+  width: 794px; height: 1123px;
+  break-after: page;
+  overflow: hidden;
+  position: relative;
+  background: linear-gradient(160deg, #0b2235 0%, #10233a 55%, #123a36 100%);
+  color: #eef6f4;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 70px 64px;
+}
+.cover .ring { position: absolute; border: 1px solid rgba(16,185,129,.25); border-radius: 50%; }
+.cover .ring.r1 { width: 420px; height: 420px; top: -140px; left: -120px; }
+.cover .ring.r2 { width: 300px; height: 300px; bottom: -90px; right: -70px; border-color: rgba(94,234,212,.18); }
+.cover .grid-dots { position: absolute; top: 60px; right: 64px; width: 120px; height: 60px;
+  background-image: radial-gradient(rgba(238,246,244,.35) 1.4px, transparent 1.4px); background-size: 15px 15px; }
+.cover .tag {
+  display: inline-block; width: fit-content;
+  border: 1px solid rgba(94,234,212,.55); color: #99f0dd;
+  border-radius: 999px; padding: 5px 18px; font-size: 12px; font-weight: 700; letter-spacing: .5px;
+  margin-bottom: 28px;
+}
+.cover h1 { font-size: 44px; font-weight: 800; margin: 0 0 14px; line-height: 1.35; }
+.cover .en-title { font-size: 16px; color: #9fb8c8; font-weight: 500; letter-spacing: .4px; margin-bottom: 30px; font-family: ui-monospace, monospace; direction: ltr; text-align: right; }
+.cover .subtitle { font-size: 15px; color: #cfe0e6; max-width: 560px; margin-bottom: 44px; }
+.cover .summary-block {
+  border: 1px solid rgba(94,234,212,.28); background: rgba(13,42,38,.45);
+  border-radius: 16px; padding: 20px 24px; margin-bottom: 40px;
+}
+.cover .summary-block .row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; }
+.cover .summary-block .row .k { color: #9fb8c8; }
+.cover .summary-block .row .v { font-weight: 700; color: #eafffa; font-family: ui-monospace, monospace; direction: ltr; }
+.cover .meta { position: absolute; bottom: 56px; right: 64px; left: 64px; display: flex; justify-content: space-between; align-items: flex-end; font-size: 12px; color: #9fb8c8; }
+.cover .meta .sha { font-family: ui-monospace, monospace; direction: ltr; text-align: left; line-height: 1.7; }
+.cover .meta .brand { font-weight: 800; color: #eafffa; font-size: 14px; }
+
+/* ===== Flowing content ===== */
+.main-content { padding: 44px 58px 32px; }
+
+.section-tag {
+  display: inline-block; background: var(--c-soft); color: var(--c-accent);
+  border: 1px solid var(--c-line); border-radius: 999px;
+  font-size: 11px; font-weight: 800; padding: 3px 14px; letter-spacing: .4px; margin-bottom: 8px;
+}
+.section-title { font-size: 23px; font-weight: 800; margin: 0 0 4px; }
+.section-sub { font-size: 12px; color: var(--c-muted); margin-bottom: 10px; }
+.divider { height: 3px; width: 64px; background: var(--c-accent); border-radius: 2px; margin-bottom: 16px; }
+
+.chapter-header { break-after: avoid; break-inside: avoid; margin-top: 17px; }
+.card { break-inside: avoid; border: 1px solid var(--c-line); border-radius: 14px; padding: 12px 18px; margin-bottom: 10px; background: #fff; }
+.card.soft { background: var(--c-soft); }
+.card h4 { margin: 0 0 6px; font-size: 14.5px; font-weight: 800; color: var(--c-ink); }
+.card h4 .num { color: var(--c-accent); }
+.card p { margin: 3px 0; font-size: 12.5px; color: #33475c; }
+.card p b { color: var(--c-ink); }
+.kv { font-size: 12px; color: var(--c-muted); }
+.kv code, .mono { font-family: ui-monospace, monospace; direction: ltr; unicode-bidi: embed; font-size: 11px; color: #0b5d55; background: #eef6f4; border-radius: 5px; padding: 1px 6px; }
+
+/* delivery table */
+table.pr-table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin: 10px 0 6px; }
+table.pr-table th { background: var(--c-ink); color: #fff; padding: 7px 8px; font-weight: 700; text-align: right; }
+table.pr-table td { border: 1px solid var(--c-line); padding: 6px 8px; vertical-align: top; }
+table.pr-table tr { break-inside: avoid; }
+table.pr-table td.mono, table.pr-table th.mono { font-family: ui-monospace, monospace; direction: ltr; text-align: left; font-size: 10.5px; }
+table.pr-table td.center { text-align: center; }
+
+/* diagram figure */
+figure.diagram { break-inside: avoid; margin: 12px 0 16px; border: 1px solid var(--c-line); border-radius: 14px; overflow: hidden; }
+figure.diagram img { display: block; width: 100%; height: auto; }
+figure.diagram figcaption { font-size: 11px; color: var(--c-muted); padding: 8px 14px; background: var(--c-soft); border-top: 1px solid var(--c-line); }
+
+ul.tight { margin: 6px 0; padding-right: 20px; }
+ul.tight li { margin-bottom: 4px; font-size: 12.5px; color: #33475c; }
+ul.tight li b { color: var(--c-ink); }
+
+.callout { break-inside: avoid; border-right: 4px solid var(--c-accent); background: var(--c-soft); border-radius: 10px; padding: 9px 16px; margin: 7px 0; font-size: 12.5px; color: #33475c; }
+.callout.red { border-right-color: #b91c1c; background: #fef4f4; }
+.callout b { color: var(--c-ink); }
+
+/* ===== Ending (fixed page) ===== */
+.ending {
+  width: 794px; height: 1123px; break-before: page; overflow: hidden; position: relative;
+  background: linear-gradient(200deg, #10233a 0%, #0b2235 70%);
+  color: #eef6f4; display: flex; flex-direction: column; justify-content: center; padding: 70px 64px;
+}
+.ending .ring { position: absolute; border: 1px solid rgba(16,185,129,.2); border-radius: 50%; }
+.ending .ring.r1 { width: 380px; height: 380px; bottom: -120px; left: -100px; }
+.ending .big-text { font-size: 30px; font-weight: 800; line-height: 1.6; margin-bottom: 22px; }
+.ending .sub { font-size: 14px; color: #9fb8c8; max-width: 520px; }
+.ending .sha-row { position: absolute; bottom: 60px; right: 64px; font-family: ui-monospace, monospace; direction: ltr; font-size: 11px; color: #9fb8c8; text-align: left; }
+</style>
+</head>
+<body>
+
+<!-- ===================== COVER ===================== -->
+<div class="cover">
+  <div class="ring r1"></div>
+  <div class="ring r2"></div>
+  <div class="grid-dots"></div>
+  <div class="tag">تقرير تنفيذ مكتمل · 8/8 مهام</div>
+  <h1>تقرير المهمة الليلية<br>لمنصة CMS التعليمية</h1>
+  <div class="en-title">CMS Platform — Night Mission Report</div>
+  <div class="subtitle">تنفيذ ليلي واحد، ثماني مهام مستقلة: من خريطة التنقل إلى أكواد التفعيل وأسئلة الوصل — كل مهمة بفرعها وPRها واختباراتها وأدلة دمجها.</div>
+  <div class="summary-block">
+    <div class="row"><span class="k">أساس البداية (pre-night)</span><span class="v">1874184</span></div>
+    <div class="row"><span class="k">رأس main النهائي</span><span class="v">0252e18</span></div>
+    <div class="row"><span class="k">PRs مدموجة</span><span class="v">#167 → #175 (9)</span></div>
+    <div class="row"><span class="k">اختبارات الطالب النهائية</span><span class="v">75 files / 732 GREEN</span></div>
+    <div class="row"><span class="k">اختبارات المشرف النهائية</span><span class="v">13 files / 97 GREEN</span></div>
+  </div>
+  <div class="meta">
+    <div>
+      <div class="brand">CMS — College Medical System</div>
+      <div style="margin-top:4px;">جلسة تنفيذ 2026-11-22 → 2026-11-23</div>
+    </div>
+    <div class="sha">
+      base: 1874184579f803a3b4a1890c77778d5546ba82c7<br>
+      head: 0252e18406fdec28853e8ebbe61849f0c7ffb20f
+    </div>
+  </div>
+</div>
+
+<!-- ===================== FLOWING CONTENT ===================== -->
+<div class="main-content">
+
+  <!-- 1. Executive summary -->
+  <div class="section-tag">القسم 1</div>
+  <div class="section-title">الملخص التنفيذي</div>
+  <div class="divider"></div>
+  <p style="font-size:13px; color:#33475c; margin:0 0 10px;">
+    نُفِّذت المهام الثماني كاملة وفق انضباط الليلة: تقصٍّ إلزامي قبل كل تنفيذ، فرع وPR مستقلان لكل مهمة، اختبارات مغلِّقة للسلوك، ودمج موثَّق بأدلة CI — مع القاعدة الحاكمة: أي فشل لا يوقف الليلة، بل يُوثَّق ويُتجاوز. أُغلق في الختام PR تكميلي (#175) لإصلاح حالة اختبار حُدِّدت خطأً في المهمة 8، ليصبح الرصيد النهائي تسع دموجات وصفر انحدار مثبَت في نطاق ما لُمِس.
+  </p>
+  <div class="card soft">
+    <h4>جدول التسليم النهائي</h4>
+    <table class="pr-table">
+      <tr><th style="width:4%">#</th><th style="width:34%">المهمة</th><th class="mono" style="width:9%">PR</th><th class="mono" style="width:13%">Merge SHA</th><th style="width:40%">الاختبارات</th></tr>
+      <tr><td class="center">1</td><td>خريطة تنقل student-web (تحليل فقط)</td><td class="mono">#167</td><td class="mono">3aad75c</td><td>مستندات فقط — لم يُلمس كود منتج</td></tr>
+      <tr><td class="center">2</td><td>«تذكّرني» + جلسة دائمة للطالب</td><td class="mono">#168</td><td class="mono">62ef61d</td><td>student-web 71/687 — 18 حالة جديدة</td></tr>
+      <tr><td class="center">3</td><td>تخزين دون اتصال + واجهة offline + زر بجانب الجرس</td><td class="mono">#169</td><td class="mono">7306b0d</td><td>student-web 72/702 — 15 حالة جديدة</td></tr>
+      <tr><td class="center">4</td><td>الإشعارات لوحة منسدلة (ربع أعلى-البداية)</td><td class="mono">#170</td><td class="mono">8803a35</td><td>student-web 73/715 — 13 حالة جديدة</td></tr>
+      <tr><td class="center">5</td><td>أكواد التفعيل: تفعيل أحادي + نطاق + UX إداري</td><td class="mono">#171</td><td class="mono">c34bd8f</td><td>CI أخضر (Backend+Postgres+Security) — 9 حالات API</td></tr>
+      <tr><td class="center">6</td><td>قفل نطاق الاستحقاق في البحث</td><td class="mono">#172</td><td class="mono">248f17d</td><td>CI أخضر — 6 حالات HTTP على Postgres</td></tr>
+      <tr><td class="center">7</td><td>أسئلة الوصل: ربط متعدد + أنماط ترقيم</td><td class="mono">#173</td><td class="mono">0022de0</td><td>CI أخضر — 11 API + 10 admin + 9 student</td></tr>
+      <tr><td class="center">8</td><td>تنويه بنك الأسئلة + زر «تنويه» عائم</td><td class="mono">#174</td><td class="mono">598778f</td><td>student-web 75/732 — 8 حالات جديدة</td></tr>
+      <tr><td class="center">+</td><td>إصلاح fixture اختبار المهمة 8</td><td class="mono">#175</td><td class="mono">0252e18</td><td>student-web 75/732 أخضر بالكامل</td></tr>
+    </table>
+    <p class="kv">الأساس قبل الليلة: student-web 70 ملفاً/669 اختباراً · admin-web 12/87 — كلها خضراء عند <span class="mono">1874184</span>.</p>
+  </div>
+
+  <!-- 2. Task 1 diagram -->
+  <div class="chapter-header">
+    <div class="section-tag">القسم 2</div>
+    <div class="section-title">المهمة 1 — خريطة التنقل الكاملة</div>
+    <div class="divider"></div>
+  </div>
+  <p style="font-size:13px; color:#33475c; margin:0 0 8px;">
+    مسح شامل لكل مسارات <span class="mono">router.tsx</span> (37 مساراً + 7 أسطح داخلية) وكل حواف الانتقال (120+ حافة)، بتصنيف كل سطح: رئيسي / من الشريط العلوي فقط / متداخل / يتيم / موروث-تحويلي. المولّد الحتمي <span class="mono">tools/nav-diagram/</span> يبني الرسم ويُدقَّق هندسياً (صفر تداخل تسميات/عُقد)، والأحمر يعلّم المسارات الميتة والحواف الموروثة. الجدول التفصيلي لكل حافة: <span class="mono">docs/student-web-navigation-recon.md</span>.
+  </p>
+  <figure class="diagram">
+    <img src="../diagrams/student-web-navigation-graph.png" alt="خريطة التنقل الكاملة لمنصة الطالب — الأحمر = مسارات موروثة/ميتة">
+    <figcaption>خريطة تنقل student-web: القوائم والأسطح وكل الانتقالات — الأحمر المتقطع = مسارات تحويلية موروثة أو حافة «ميتة» (منها: لا رابط داخلي لأي من ‎/library و/practice و/my-studies و/exam-courses‎، ويتيم ‎/stats‎، وحافة صفحات القانونيين → الجذر). المصدر المتجه: student-web-navigation-graph.svg</figcaption>
+  </figure>
+
+  <!-- 3. Task cards -->
+  <div class="chapter-header">
+    <div class="section-tag">القسم 3</div>
+    <div class="section-title">تفصيل المهام 2–8</div>
+    <div class="divider"></div>
+  </div>
+
+  <div class="card">
+    <h4><span class="num">المهمة 2 —</span> «تذكّرني» حقيقي + جلسة دائمة <span class="kv">· PR #168 · 62ef61d</span></h4>
+    <p><b>التقصي:</b> موجة 18.2 (D-06) حذفت مربعاً قديماً كان <b>كذبة صامتة</b> (لا ثبات خلفه). الخادم يدوّر رموز التحديث بنافذة انزلاقية 7 أيام — عقدُ جلسة دائمة صادق بلا أي تغيير API.</p>
+    <p><b>الأسلوب:</b> طبقة تخزين <span class="mono">session-store</span>: الافتراضي مطفأ = sessionStorage الصارم كما هو؛ الاختيار = localStorage + علم ينجو من إعادة التحميل فيكتب التدوير في المخزن الصحيح. الإقفال يمسح المخزنين (fail-closed). كلمة المرور لا تُخزن قط — أثبته اختبار جرد المفاتيح.</p>
+    <p><b>الاختبارات:</b> 18 حالة (نمطا التخزين، نجاة «إعادة تشغيل»، أولوية القراءة، إخلاء النسخة القديمة، ثبات التدوير، إقفال فاشل) + تحديث حالة D-06 إلى العقد الصادق.</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="num">المهمة 3 —</span> تخزين دون اتصال تلقائي + واجهة صادقة <span class="kv">· PR #169 · 7306b0d</span></h4>
+    <p><b>التقصي الحاسم:</b> التخزين التلقائي عند العرض <b>موجود أصلاً</b> (ensureLocal عند أول فتح داخل التطبيق)، وجسر Batch-4 يوفر <span class="mono">listCached/removeCached</span> — فالتنفيذ المتسق الأدنى <b>بلا أي تغيير أندرويد</b> (حدود D1 وFLAG_SECURE والقشرة كلها بكر).</p>
+    <p><b>الأسلوب:</b> لوحة «وضع بدون إنترنت» منزلقة تفتح من زر CloudOff <b>بجانب الجرس مباشرة</b> حتى أثناء الاتصال: قائمة حية للمحفوظات (فتح/حذف لكل ملف)، حالة متصفح صادقة بلا قائمة فارغة مزيّفة، وشريط لاصق عند الانقطاع يدل على الزر.</p>
+    <p><b>الاختبارات:</b> 15 حالة — اكتشاف الميزة في المتصفح/التطبيق، تحليل listCached وإقفاله الفاشل، حالات اللوحة وأفعالها، موضع الزر قبل الجرس، وensureLocal التلقائي عند العرض داخل التطبيق مع سلامة مسار المتصفح.</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="num">المهمة 4 —</span> الإشعارات لوحة منسدلة <span class="kv">· PR #170 · 8803a35</span></h4>
+    <p><b>الأسلوب:</b> الجرس صار زر تشغيل (<span class="mono">aria-haspopup/expanded</span>) يفتح لوحة مثبتة أعلى-<b>البداية</b> المنطقية (<span class="mono">top-0 start-0</span> — اليمين بصرياً تحت RTL، وصحيحة تلقائياً لو أضيفت لغة LTR)، بعرض نصف الشاشة وارتفاع ~نصفها، وشبه ملء الشاشة على الهواتف. تكافؤ كامل مع الصفحة (تعليم-مقروء، تعليم الكل، actionUrl المقنن) + شارة عدم قراءة على الجرس (99+) + «عرض الكل» يبقي الصفحة الكاملة على بعد نقرة.</p>
+    <p><b>الاختبارات:</b> 13 حالة — دلالات الزر وعدم تنقل الفعل الأساسي، التموضع المنطقي، تكافؤ السلوك، إغلاق Esc/الخلفية، وإدارة التركيز ذهاباً وإياباً.</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="num">المهمة 5 —</span> أكواد التفعيل: تكامل التفعيل الأحادي + النطاق + UX <span class="kv">· PR #171 · c34bd8f</span></h4>
+    <p><b>الثغرتان المكتشفتان:</b> (أ) مسار التفعيل اليدوي للمشرف كان يكدّس طلاباً بلا حد على كود <b>خاص</b> مملوك (بلا فحص UsedBy ولا نطاق ولا معاملة)؛ (ب) سباق استرداد مزدوج لنفس الطالب على كود عام يخرج 500 خاماً بدل 400.</p>
+    <p><b>الإصلاحات (كلها مفروضة من الخادم):</b> ترجمة تصادم الفهرس الفريد إلى 400 الصادق؛ تحصين مسار المشرف بفحوص النطاق على الكود والطالب + قاعدة الكود-الخاص-لطالب-واحد + مطالبة CAS داخل معاملة؛ حقول ContentScope واسم المادة إضافياً في ‎/profile مع رقائق عربية في واجهة الطالب (أسئلة/محاضرات/فيديو — لا تواريخ فقط)؛ مرشح yearId + نقطة نهاية تفاصيل التفعيلات لكل كود؛ وشاشة الأكواد الإدارية صارت <b>نافذية-المنوال</b>: نموذج الإنشاء نافذة مركّزة، والسطح الرئيسي سجل نظيف بمرشح أكاديمي متسلسل ونافذة تفاصيل لكل كود.</p>
+    <p><b>الاختبارات:</b> 6 حالات HTTP + 3 على Postgres حقيقي (رابطة CAS مع تحقق UsedBy، إيدمبوتنسي الطالب نفسه، تعدد الطلاب للأكواد العامة) — dotnet غير متاح في بيئة التنفيذ، <b>فCI هو المنفذ والمُثبِت</b> (Backend + Postgres + Security أخضر).</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="num">المهمة 6 —</span> قفل نطاق الاستحقاق في البحث <span class="kv">· PR #172 · 248f17d</span></h4>
+    <p><b>التقصي:</b> فلتر الخادم للبحث المجمّع <b>سليم وموثوق أصلاً</b> (كل نوع محتوى يُربط عبر المنح النشطة مع مطابقة ContentScope لكل نوع) — والعميل لا يضيف حراسة بل يعرض ما يصله فقط. المفقود: أي اختبار يغلق العقد.</p>
+    <p><b>الأسلوب:</b> 6 حالات HTTP على Postgres حقيقي: محتوى بنص مطابق مزروع في مادة ممنوحة وأخرى غير ممنوحة (أي تسرب لا لبس فيه)، خصوصية النطاق لكل من QuestionsExams/VideoAudio/LecturesText/FullSubject، لا منح = قائمة فارغة لا خطأ، والمسودة مخفية حتى داخل المادة الممنوحة.</p>
+    <p class="kv">ملاحظة: المحاولة الأولى على InMemory فشلت (استعلامات Tags تحتاج مزوداً علوائياً) — نُقلت إلى مصنع HTTP على Postgres، وهي نفسها بوابة ترجمة EF التي وُجدت لها أطقم MySubjectsPostgres.</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="num">المهمة 7 —</span> أسئلة الوصل: ربط متعدد + ترقيم <span class="kv">· PR #173 · 0022de0</span></h4>
+    <p><b>الأسلوب:</b> إعدادات حمولة إضافية: <span class="mono">AllowMultiMap</span> (افتراضي = السلوك الحالي <b>حرفياً</b> — المحتوى القديم وكل اختبارات W20.5 لم تُمسّ، بمُثبِت اختباري) و<span class="mono">PromptNumbering/TargetNumbering</span> (أرقام/أحرف عربية/أحرف لاتينية). في الوضع المتعدد: مجموعة إجابات صحيحة لكل عنصر أيسر (التصحيح بتساوي المجموعات؛ الأهداف تبقى لعنصر واحد؛ أحجام القائمتين قد تختلف كمموهات إضافية).</p>
+    <p><b>التنفيذ عبر الأطباق الثلاثة:</b> الخادم (تحقق مُتفرّع + تصحيح بالمجموعات + كشف صادق)، المشرف (صف قواعد على اللوحة: مفتاح + اختيارا ترقيم + مربعات اختيار لكل عنصر في الوضع المتعدد)، الطالب (اللوحة المشتركة نفسها تدير المجموعات بالنقر-النقر وشرائح لكل اختيار مع كشف المجموعة الصحيحة).</p>
+    <p><b>الاختبارات:</b> 11 API + 10 مساعد إداري + 9 مكون طالب — CI: Backend + Postgres أخضر.</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="num">المهمة 8 —</span> تنويه بنك الأسئلة قبل التدريب + زر عائم <span class="kv">· PR #174 · 598778f</span></h4>
+    <p><b>الأسلوب (صفر تغيير API):</b> مصدر التنويه = وصف حزمة الأسئلة المُدار من المشرف أصلاً («الحقول الموجودة»)، والتثبيت يركب مخزن تفضيلات الطالب W15.0. ضغط «تدريب» يفتح النافذة ويرحّل التنقل: <b>«إخفاء»</b> لهذه الزيارة فقط (يعود عند الدخول القادم للقسم)، <b>«عدم العرض مرة أخرى»</b> يُثبَّت لكل طالب+قسم على الخادم (قراءة-دمج-كتابة بمفتاح <span class="mono">bankNoticeHidden.&lt;id&gt;</span>) مع localStorage احتياطاً عند فشل الشبكة، و<b>«متابعة التدريب»</b>/Esc/الخلفية تُكمل. زر «تنويه» عائم لطيف مثبت <b>أسفل-البداية</b> (منطقي RTL) يعيد الفتح في أي وقت.</p>
+    <p><b>الحد الموثق:</b> المشغّل هو «تدريب» تفاصيل الحزمة (مدخل التدريب الأساسي لعدسة السنوات)؛ عدسة «مصنّفة» وباني التدريب مجموعات محسوبة بلا كيان يحمل تنويهاً — تحتاج حقلاً على مستوى المادة فأُرجئت بوعي.</p>
+    <p><b>الاختبارات:</b> 8 حالات + إصلاح تالٍ في #175 لخطأ fixture (تمرير <span class="mono">undefined</span> في معامل افتراضي مفكَّك أعاد تفعيل نص التنويه) — الملف النهائي 75/732 أخضر حتمياً.</p>
+  </div>
+
+  <!-- 4. Not done -->
+  <div class="chapter-header">
+    <div class="section-tag">القسم 4</div>
+    <div class="section-title">ما لم يُنفَّذ / قُوطع — بلا مواربة</div>
+    <div class="divider"></div>
+  </div>
+  <ul class="tight">
+    <li><b>هذا التقرير نفسه كان الفجوة:</b> انقطعت الجلسة الأولى أثناء مراقبة CI لـ#175 — اكتملت في جلسة استئناف (دمج #175 ثم هذا التقرير MD+PDF). لم يُدَّعَ أي إنجاز قبل وجوده فعلياً على main.</li>
+    <li><b>بندا مهمة 5 المؤجلان بوعي:</b> أداء توليد الأكواد (إعادة تحميل الجدول كاملاً لكل كود) وعمى تحليلات التفعيلات عن أكواد العامة — رُصدا في الـPR ولم يُلمسا احتواءً للمخاطر.</li>
+    <li><b>حد مهمة 8:</b> لا تنويه على مستوى العدسة «مصنّفة»/باني التدريب (يتطلب حقلاً على مستوى المادة).</li>
+    <li><b>مسار OTP</b> (VerifyOtpPage) بلا مربع «تذكّرني» — بقي على الافتراض المتشدد (موثق في #168).</li>
+    <li><b>لا تغييرات Android في الليلة</b> — لم تتطلبها أي مهمة، وبالتالي لم تُشغَّل أطقم assembleDebug.</li>
+    <li><b>CI لا يشغّل student-web vitest أصلاً</b> (فقط admin-web vitest + e2e الطالب) — فكان التحقق المحلي هو المرجع لطلاب الويب، بدل ادعاء تغطية CI غير موجودة.</li>
+  </ul>
+
+  <!-- 5. CI honesty -->
+  <div class="chapter-header">
+    <div class="section-tag">القسم 5</div>
+    <div class="section-title">ملاحظات CI الصادقة</div>
+    <div class="divider"></div>
+  </div>
+  <div class="callout">
+    <b>Backend Tests + Backend Integration (Postgres) + Security Scan: أخضر</b> على كل فروع المهام 5–7 و#175 — وهي الفروع الوحيدة التي مستّت الـAPI، وقد أثبت CI فيها اختبارات الليل كلها (بما فيها تكامل Postgres الحقيقي).
+  </div>
+  <div class="callout red">
+    <b>Frontend Tests أحمر على main نفسها بشكل متقطع وموثق</b> (تشغيلات 527 و531 على main): فشل مزمن في فحص «صفر أخطاء كونسول غير متوقعة» داخل HLS OPTION-C e2e بسبب ومضات شبكة العدّاء نحو R2 (<span class="mono">EAI_AGAIN · nonB2NetworkFailures=2</span>) — لا صلة له بأي كود ليلي، وفي كل مرة كانت أطقم vitest خضراء. <b>لم يُدَّعَ أخضر كاذب لهذا الفشل قط؛</b> بُيِّن في كل PR أُدمج برغمه مع خضرة كل ما في نطاقه.
+  </div>
+  <div class="callout">
+    <b>dotnet غير متاح في بيئة التنفيذ:</b> اختبارات API كُتبت وأُثبت خضرها عبر CI (هو نفسه المنفّذ)، لا عبر تشغيل محلي — وهذا موثق في كل PR ذي صلة.
+  </div>
+
+  <!-- 6. P12 -->
+  <div class="chapter-header">
+    <div class="section-tag">القسم 6</div>
+    <div class="section-title">بيان نظافة الرمز (P12)</div>
+    <div class="divider"></div>
+  </div>
+  <p style="font-size:13px; color:#33475c; margin:0;">
+    بعد <b>كل</b> دفعة (9 دفعات فروع + دفعات المتابعة داخل PRs 171/172/175): فُحص <span class="mono">git config --list | grep -c github_pat</span> = <b>0</b> و<span class="mono">git remote -v | grep -c github_pat</span> = <b>0</b> — الرمز لم يُخزن قط في الإعدادات أو الـremotes (الدفع عبر URL أحادي الاستخدام يُغفل بعده)، ولا وجود له في أي ملف مرفوع. آخر فحص بعد دمج #175: <b>نظيف</b>.
+  </p>
+
+  <!-- 7. References — compact card (no standalone page) -->
+  <div class="card soft" style="margin-top:14px;">
+    <h4>المراجع على main</h4>
+    <ul class="tight" style="margin:4px 0 0;">
+      <li>هذا التقرير: <span class="mono">docs/CMS-Night-Mission-Report.md</span> · <span class="mono">docs/CMS-Night-Mission-Report.pdf</span> (ومصدر HTML بجانبهما)</li>
+      <li>تقصي التنقل الكامل: <span class="mono">docs/student-web-navigation-recon.md</span></li>
+      <li>خريطة التنقل: <span class="mono">docs/diagrams/student-web-navigation-graph.png</span> · <span class="mono">.svg</span> — المولّد والمدقق الهندسي: <span class="mono">tools/nav-diagram/</span></li>
+    </ul>
+  </div>
+
+</div>
+
+<!-- ===================== ENDING ===================== -->
+<div class="ending">
+  <div class="ring r1"></div>
+  <div class="big-text">ثماني مهام.<br>تسع دموجات.<br>وصفر ادعاء بلا دليل.</div>
+  <div class="sub">كل ما في هذا التقرير موجود فعلاً على main — وكل ما لم يُنفَّذ مذكور باسمه في القسم 4.</div>
+  <div class="sha-row">
+    base 1874184579f803a3b4a1890c77778d5546ba82c7<br>
+    head&nbsp; 0252e18406fdec28853e8ebbe61849f0c7ffb20f
+  </div>
+</div>
+
+</body>
+</html>
