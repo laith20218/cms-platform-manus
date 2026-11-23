@@ -55,8 +55,28 @@ public record GetCodesQuery(
     int PageSize = 20,
     Guid AdminId = default,
     string? Search = null,
-    string? ScopeType = null
+    string? ScopeType = null,
+    Guid? YearId = null
 ) : IRequest<PagedResult<CodeManagementDto>>;
+
+/// <summary>
+/// Night Task 5.3 — per-student redemption detail for one code: who activated
+/// it, what it unlocks (content scope + resolved subject name), and the
+/// subscription window/state.
+/// </summary>
+public record CodeRedemptionDto(
+    Guid SubscriptionId,
+    string? StudentName,
+    string? StudentPhone,
+    string ContentScope,
+    string? SubjectName,
+    string ScopeType,
+    string Status,
+    DateTime StartsAt,
+    DateTime ExpiresAt,
+    DateTime? RevokedAt,
+    string? RevocationReason
+);
 
 public record CodeManagementDto(
     Guid Id,

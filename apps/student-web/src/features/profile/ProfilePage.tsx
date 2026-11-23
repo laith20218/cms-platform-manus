@@ -22,6 +22,21 @@ function scopeLabel(scope: string) {
   return ({ university: 'جامعة', college: 'كلية', year: 'سنة', semester: 'فصل', subject: 'مادة' } as Record<string, string>)[scope.toLowerCase()] ?? scope;
 }
 
+// Night Task 5.2 — WHAT each code unlocks (content scope), Arabic-first with
+// an honest raw fallback for unknown values. FullSubject/FullYear unlock everything.
+const CONTENT_SCOPE_LABELS: Record<string, string> = {
+  QuestionsExams: 'أسئلة واختبارات',
+  LecturesText: 'محاضرات وملفات نصية',
+  VideoAudio: 'فيديو وصوت',
+  FullSubject: 'مادة كاملة',
+  FullYear: 'سنة كاملة',
+};
+function contentScopeLabels(contentScope?: string | null): string[] {
+  if (!contentScope) return [];
+  const label = CONTENT_SCOPE_LABELS[contentScope];
+  return [label ?? contentScope];
+}
+
 // D-37 (Wave 18.5): the account status never leaks the raw English enum —
 // mapped to Arabic, unknown values fall back to the raw text (honest).
 const ACCOUNT_STATUS_LABELS: Record<string, string> = {
@@ -531,8 +546,25 @@ export default function ProfilePage() {
                       {subscription.maskedCode || 'اشتراك يدوي'}
                     </p>
                     <p className="mt-1 text-sm text-[var(--cms-text-soft)]">
-                      نطاق {scopeLabel(subscription.scopeType)} · فُعّل في {dateLabel(subscription.startsAt)}
+                      نطاق {scopeLabel(subscription.scopeType)}
+                      {subscription.scopeSubjectName ? ` · ${subscription.scopeSubjectName}` : ''}
+                      {' '}· فُعّل في {dateLabel(subscription.startsAt)}
                     </p>
+                    {/* Night Task 5.2 — scope chips: courses vs questions vs
+                        files, not only start/end dates. Hidden when the API
+                        build predates the additive fields (honest fallback). */}
+                    {contentScopeLabels(subscription.contentScope).length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5" data-testid={`subscription-scope-${subscription.id}`}>
+                        {contentScopeLabels(subscription.contentScope).map((label) => (
+                          <span
+                            key={label}
+                            className="rounded-full bg-[var(--cms-teal-50)] px-2.5 py-0.5 text-[11px] font-bold text-[var(--cms-teal-600)]"
+                          >
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-3">
                     <span

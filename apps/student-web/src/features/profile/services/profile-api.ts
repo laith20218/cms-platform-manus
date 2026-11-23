@@ -9,6 +9,10 @@ export interface StudentProfileSubscription {
   expiresAt: string;
   revokedAt?: string | null;
   scopeSubjectId?: string | null;
+  /** Night Task 5.2 — additive scope fields from the API: WHAT the code
+   *  unlocks. Absent on older API builds; the UI falls back gracefully. */
+  contentScope?: string | null;
+  scopeSubjectName?: string | null;
 }
 
 export interface StudentProfile {
