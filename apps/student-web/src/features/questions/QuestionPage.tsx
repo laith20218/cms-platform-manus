@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -18,6 +18,7 @@ import {
 import { FavoriteListPicker } from '@/features/favorites/components/FavoriteListPicker';
 import { MatchingQuestion } from '@/components/MatchingQuestion';
 import { LockedEmptyState } from '@/features/my-studies/components/LockedEmptyState';
+import { useLogicalBack } from '@/hooks/useLogicalBack';
 import { isEntitlementDenied } from '@/features/my-studies/services/courses-api';
 import { getHttpStatus } from '@/utils/api-error';
 // D-45 (Wave 18.3): the shared ReportQuestionDialog replaces this page's inline
@@ -72,10 +73,16 @@ const difficultyLabel = (difficulty: string) =>
   difficulty === 'easy' ? 'سهل' : difficulty === 'hard' ? 'صعب' : 'متوسط';
 
 export default function QuestionPage() {
-  const { lectureId, questionId } = useParams<{ lectureId?: string; questionId?: string }>();
+  const { subjectSlug, lectureId, questionId } = useParams<{ subjectSlug?: string; lectureId?: string; questionId?: string }>();
   const [searchParams] = useSearchParams();
   const focusQuestionId = searchParams.get('focus');
-  const navigate = useNavigate();
+  // Wave C — «العودة» on a direct URL entry must land on this question's
+  // logical parent (the lecture / the subject), never leave the app.
+  const goBack = useLogicalBack(
+    lectureId && subjectSlug
+      ? `/subjects/${subjectSlug}/lectures/${lectureId}`
+      : subjectSlug ? `/subjects/${subjectSlug}` : '/subjects',
+  );
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
@@ -219,7 +226,7 @@ export default function QuestionPage() {
     } else {
       // End of lecture
       toast.success('أنهيت جميع أسئلة المحاضرة! 🎉');
-      navigate(-1);
+      goBack();
     }
   };
 
@@ -259,7 +266,7 @@ export default function QuestionPage() {
           <h2 className="text-lg font-bold text-[var(--c-text)]">الأسئلة غير موجودة</h2>
           <p className="mt-2 text-sm text-[var(--c-text-muted)]">قد يكون الرابط قديماً أو أزيلت المحاضرة/الأسئلة.</p>
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => goBack()}
             className="mt-4 rounded-lg bg-[var(--c-primary-700)] px-4 py-2 text-sm font-semibold text-white"
           >
             رجوع
@@ -295,7 +302,7 @@ export default function QuestionPage() {
         </p>
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={() => goBack()}
           className="press mt-6 inline-flex min-h-11 items-center gap-2 rounded-2xl px-6 py-2.5 text-sm font-bold text-white shadow-md"
           style={{ background: 'var(--c-primary-700)' }}
         >
@@ -326,7 +333,7 @@ export default function QuestionPage() {
     <div className="space-y-4 max-w-[880px] mx-auto">
       {/* Breadcrumbs + Back */}
       <div className="flex items-center justify-between">
-        <button type="button" onClick={() => navigate(-1)} className="flex items-center gap-1.5 text-sm text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]">
+        <button type="button" onClick={() => goBack()} className="flex items-center gap-1.5 text-sm text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]">
           <ChevronLeft className="w-4 h-4" />
           العودة
         </button>

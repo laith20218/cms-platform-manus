@@ -112,6 +112,12 @@ keystore.properties
 db/
 data/
 
+# Wave C: the functional nav diagram's source of truth lives under
+# docs/diagrams/student-web-nav-functional/data/ and MUST be tracked — the
+# generic data/ rule above silently excluded it, breaking the interactive
+# diagram on fresh clones.
+!docs/diagrams/student-web-nav-functional/data/
+
 # === Uploads (generated) ===
 uploads/
 apps/api/src/CMS.Api/uploads/

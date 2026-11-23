@@ -34,8 +34,11 @@ function LegalPageChrome() {
           CMS <span className="font-semibold text-[var(--c-text-muted)]">— المنصة الطبية التعليمية</span>
         </span>
       </div>
+      {/* Wave C — the official home of the authenticated app is /dashboard;
+          linking / added a pointless redirect hop (and a second bounce to
+          /login for guests). Direct target, same label. */}
       <Link
-        to="/"
+        to="/dashboard"
         data-testid="legal-back-home"
         className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] px-3.5 text-xs font-bold text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-300)] hover:text-[var(--c-primary-700)]"
       >
