@@ -2,33 +2,100 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { authApi } from '@/features/auth/services/auth-api';
 import { clearEntitlementToken } from '@/features/entitlements/services/entitlement-api';
 import { notifySessionExpired } from '@/services/session-expiry';
-import { readSession, writeSession, writeRotatedTokens, clearSession } from '@/services/session-store';
+import {
+  readSession,
+  writeSession,
+  writeRotatedTokens,
+  clearSession,
+  writeRememberedUser,
+  readRememberedUser,
+} from '@/services/session-store';
+import { isSessionEndingFailure } from '@/utils/api-error';
 import { AuthContext, type User } from './auth-context';
+
+/** Wave A (remember-me hardening): max attempts for the background /me verify
+ *  on app start. Each attempt runs against the live API; when all fail with a
+ *  transport fault (offline / Render cold start), the shell keeps showing the
+ *  cached session UI instead of a login form. */
+const RESTORE_VERIFY_MAX_ATTEMPTS = 3;
+/** Delay between background verify attempts (first retry after ~2 s). */
+const RETRY_BASE_DELAY_MS = 2000;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Task 2 (Night) — «تذكّرني»: the restore path now reads the active store
-    // (sessionStorage first, then a remembered localStorage copy), so an
-    // opted-in student stays signed in across browser/app restarts while the
-    // default stays the strict tab-scoped session.
+    // Task 2 (Night) + Wave A hardening — «تذكّرني» restore:
+    //
+    // 1. A remembered session hydrates the shell INSTANTLY from the cached
+    //    profile (see session-store readRememberedUser), so a valid reopen
+    //    never flashes the login form while /me is in flight.
+    // 2. The session is wiped ONLY on a definitive server verdict (401/403
+    //    via isSessionEndingFailure). The API hosts on Render; a cold-start
+    //    timeout on /me used to clearSession() + toast "session expired" —
+    //    logging the student out of a perfectly valid remembered session.
+    //    Transport faults now keep the session and retry (bounded), because
+    //    the server never ruled it dead.
+    // 3. Explicit logout / refresh rejection still requires login — the
+    //    verdict paths and logout() are unchanged.
     const tokens = readSession();
-    if (tokens) {
-      authApi.me()
-        .then(setUser)
-        .catch(() => {
-          clearSession();
-          clearEntitlementToken();
-          // Wave 12.5.A (Group 3) — any /me failure (server error, network blip,
-          // expired session) previously logged the student out with NO signal.
-          notifySessionExpired();
-        })
-        .finally(() => setIsLoading(false));
-    } else {
+
+    if (!tokens) {
+      setIsLoading(false);
+      return;
+    }
+
+    // Instant hydration for remembered sessions (fresh cache only).
+    const cachedUser = readRememberedUser() as User | null;
+    if (cachedUser) {
+      setUser(cachedUser);
       setIsLoading(false);
     }
+
+    let cancelled = false;
+
+    const verify = (attempt: number): void => {
+      authApi.me()
+        .then((freshUser) => {
+          if (cancelled) return;
+          setUser(freshUser);
+          setIsLoading(false);
+          writeRememberedUser(freshUser);
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+
+          // Only the server may end a remembered session: a 401/403 verdict
+          // from /me (access token dead AND refresh rejected). Offline,
+          // timeouts, 429, and 5xx keep the session — retry instead.
+          if (isSessionEndingFailure(error)) {
+            clearSession();
+            clearEntitlementToken();
+            setUser(null);
+            setIsLoading(false);
+            // Wave 12.5.A (Group 3) — the fail-closed logout keeps its single
+            // honest toast: this really is "session ended, log in again".
+            notifySessionExpired();
+            return;
+          }
+
+          // Transport/server fault: keep the (possibly cached) session UI.
+          if (attempt < RESTORE_VERIFY_MAX_ATTEMPTS - 1) {
+            setTimeout(() => { if (!cancelled) verify(attempt + 1); }, RETRY_BASE_DELAY_MS * (attempt + 1));
+            return;
+          }
+
+          // Exhausted retries while offline: leave the cached session in
+          // place. The next authenticated API call walks the normal
+          // 401 → refresh → retry path and resolves the question honestly.
+          setIsLoading(false);
+        });
+    };
+
+    verify(0);
+
+    return () => { cancelled = true; };
   }, []);
 
   const completeAuthentication = (response: { accessToken: string; refreshToken: string; user: User }, options?: { remember?: boolean }) => {
@@ -37,6 +104,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Default OFF (privacy-safe): only an explicit «تذكّرني» opt-in persists.
       options?.remember === true,
     );
+    // Wave A — refresh the profile cache on every successful auth so the
+    // next reopen hydrates from current data (remembered sessions only).
+    writeRememberedUser(response.user);
     setUser(response.user);
   };
 
@@ -66,10 +136,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Rotations write back to whichever store holds the session, preserving
       // the student's «تذكّرني» choice (the flag survives reloads).
       writeRotatedTokens({ accessToken, refreshToken: newRefresh });
-    } catch {
-      // Wave 12.5.A (Group 3) — same single-toast contract as the api-client path.
-      notifySessionExpired();
-      await logout();
+    } catch (error: unknown) {
+      // Wave A — a transport fault on the refresh call is NOT a session
+      // verdict (Render cold start, offline reopen): the single-use refresh
+      // token was never consumed, so keep the session and let the next
+      // request retry. Only a 401/403 verdict ends the session.
+      if (isSessionEndingFailure(error)) {
+        notifySessionExpired();
+        await logout();
+      }
     }
   };
 

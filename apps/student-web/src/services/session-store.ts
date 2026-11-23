@@ -29,10 +29,21 @@ export const REFRESH_TOKEN_KEY = 'cms-refresh-token';
 /** localStorage flag recording the student's «تذكّرني» choice. Survives page
  *  reloads so mid-session token rotations keep writing to the right store. */
 export const REMEMBER_ME_FLAG = 'cms-remember-me';
+/** localStorage cache of the last /me profile — durable ONLY for remembered
+ *  sessions. Reopen hydrates the shell from it instantly while /me verifies
+ *  in the background, so the login form never flashes on a valid session. */
+export const REMEMBERED_USER_KEY = 'cms-remembered-user';
 
 export interface SessionTokens {
   accessToken: string;
   refreshToken: string;
+}
+
+/** Shape stored under [REMEMBERED_USER_KEY]: the /me profile plus the moment
+ *  it was cached, so consumers can reject a fossilized copy. */
+export interface RememberedUser {
+  user: unknown;
+  cachedAt: number;
 }
 
 export function isRememberMeEnabled(): boolean {
@@ -84,9 +95,11 @@ export function writeSession(tokens: SessionTokens, persistent: boolean): void {
       sessionStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
       sessionStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
       // A login WITHOUT «تذكّرني» must not resurrect an older remembered copy
-      // after this tab closes — drop any stale persistent tokens now.
+      // after this tab closes — drop any stale persistent tokens AND profile
+      // cache now (privacy: nothing durable may outlive the tab-scoped login).
       localStorage.removeItem(ACCESS_TOKEN_KEY);
       localStorage.removeItem(REFRESH_TOKEN_KEY);
+      localStorage.removeItem(REMEMBERED_USER_KEY);
     }
   } catch {
     /* best-effort: unreadable storage leaves the caller unauthenticated */
@@ -120,7 +133,53 @@ export function clearSession(): void {
     sessionStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(REMEMBERED_USER_KEY);
   } catch {
     /* best-effort */
   }
 }
+
+// ---------------------------------------------------------------------------
+// Wave A (remember-me hardening) — durable /me profile cache.
+//
+// Reopen previously blocked on a single /me call before anything rendered: on
+// a slow/cold API the student waited, then the catch-all wiped the session
+// and the login form appeared even though the refresh token was valid. The
+// cache below lets AuthProvider paint the authenticated shell immediately and
+// reconcile with /me in the background. Only tokens and the public profile
+// object are stored — never a password.
+// ---------------------------------------------------------------------------
+
+/** Cache the last known /me profile for remembered sessions. No-op when the
+ *  student did not opt in (the strict tab-scoped session stays minimal). */
+export function writeRememberedUser(user: unknown): void {
+  if (!isRememberMeEnabled()) return;
+  try {
+    const payload: RememberedUser = { user, cachedAt: Date.now() };
+    localStorage.setItem(REMEMBERED_USER_KEY, JSON.stringify(payload));
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Read the cached profile of a remembered session, or null. A stored copy
+ *  older than [maxAgeMs] is treated as absent (the background /me will
+ *  replace it) so a fossilized profile can never masquerade as a login. */
+export function readRememberedUser(maxAgeMs = REMEMBERED_USER_MAX_AGE_MS): unknown | null {
+  try {
+    if (!isRememberMeEnabled()) return null;
+    const raw = localStorage.getItem(REMEMBERED_USER_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as RememberedUser;
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.cachedAt !== 'number') return null;
+    if (Date.now() - parsed.cachedAt > maxAgeMs) return null;
+    return parsed.user ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Freshness window for the cached profile — one refresh lifetime (7 days,
+ *  see SessionService.RotateAsync). Within it the cached profile is rendered
+ *  immediately; beyond it only the live /me verdict counts. */
+export const REMEMBERED_USER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
