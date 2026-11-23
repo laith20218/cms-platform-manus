@@ -153,7 +153,7 @@ public sealed class NightTask6SearchScopeTests : IClassFixture<AdminEndpointFact
         await AssertNothingFromSubject(rows, otherId);
         rows.Should().Contain(r => r.kind == "question" && r.subjectId == grantedId, "questions are in scope");
         rows.Should().NotContain(r => r.kind == "lecture", "a QuestionsExams grant does not unlock lectures");
-        rows.Should().NotContain(r => r.kind is "pdf" or "video" or "file", "a QuestionsExams grant does not unlock files");
+        rows.Should().NotContain(r => r.kind == "pdf" || r.kind == "video" || r.kind == "file", "a QuestionsExams grant does not unlock files");
     }
 
     [Fact]
