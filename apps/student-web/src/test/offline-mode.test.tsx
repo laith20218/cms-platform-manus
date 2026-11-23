@@ -206,12 +206,15 @@ vi.mock('@/app/providers/useAuth', () => ({
 vi.mock('@/app/providers/useTheme', () => ({ useTheme: () => ({ theme: 'light', toggleTheme: () => {} }) }));
 
 import { Navbar } from '@/components/layouts/Navbar';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 function renderNavbar(): ReturnType<typeof render> {
   return render(
-    <MemoryRouter>
-      <Navbar />
-    </MemoryRouter>
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <MemoryRouter>
+        <Navbar />
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -232,8 +235,9 @@ describe('Navbar — «وضع بدون إنترنت» control', () => {
     expect(screen.queryByTestId('offline-panel')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('navbar-offline-mode'));
     expect(screen.getByTestId('offline-panel')).toBeInTheDocument();
-    // The bell stays a navigation link — untouched.
-    expect(screen.getByTestId('navbar-bell')).toHaveAttribute('href', '/notifications');
+    // Night Task 4: the bell is a dropdown trigger button (not a link) —
+    // the offline control still sits immediately before it.
+    expect(screen.getByTestId('navbar-bell').tagName).toBe('BUTTON');
   });
 });
 
