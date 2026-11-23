@@ -45,6 +45,40 @@ val apiSpkiPinsBase64 = providers.gradleProperty("OFFLINE_API_SPKI_PINS_BASE64")
     .also { requirePinList("OFFLINE_API_SPKI_PINS_BASE64", it) }
 
 // ---------------------------------------------------------------------------
+// Trusted offline (question packages) — Owner decision 2026-11-23.
+// Enablement is release-pipeline driven and FAILS CLOSED: the repo default is
+// OFF, and a build may enable it ONLY with the full public configuration —
+// API URL, manifest-signing PUBLIC key (SPKI), keystore alias. Any incomplete
+// combination refuses to build. Enable via -P flags, CI variables, or a
+// gitignored local gradle.properties; private keys never enter the repo.
+//   ./gradlew :app:assembleRelease \
+//     -POFFLINE_TRUSTED_CLIENT_IMPLEMENTED=true \
+//     -POFFLINE_API_BASE_URL=https://api.example.com \
+//     -POFFLINE_MANIFEST_SIGNING_PUBLIC_KEY_SPKI_BASE64=<base64 SPKI> \
+//     -POFFLINE_KEYSTORE_ALIAS=cms.offline.package.key
+// The server side must also enable Features:Offline* (see the enablement
+// checklist in docs/offline-program.md, Wave 5).
+// ---------------------------------------------------------------------------
+val offlineTrustedEnabled = providers.gradleProperty("OFFLINE_TRUSTED_CLIENT_IMPLEMENTED")
+    .orElse("").get().trim().lowercase() in setOf("true", "1", "yes")
+val offlineApiBaseUrl = providers.gradleProperty("OFFLINE_API_BASE_URL").orElse("").get().trim()
+val offlineSigningKeySpki = providers.gradleProperty("OFFLINE_MANIFEST_SIGNING_PUBLIC_KEY_SPKI_BASE64").orElse("").get().trim()
+val offlineKeystoreAlias = providers.gradleProperty("OFFLINE_KEYSTORE_ALIAS").orElse("cms.offline.package.key").get().trim()
+if (offlineTrustedEnabled) {
+    val effectiveApiUrl = offlineApiBaseUrl.ifBlank { apiBaseUrl }
+    listOf(
+        effectiveApiUrl to "OFFLINE_API_BASE_URL (or the API_BASE_URL fallback)",
+        offlineSigningKeySpki to "OFFLINE_MANIFEST_SIGNING_PUBLIC_KEY_SPKI_BASE64",
+        offlineKeystoreAlias to "OFFLINE_KEYSTORE_ALIAS"
+    ).forEach { (value, name) ->
+        if (value.isBlank()) {
+            throw GradleException("Trusted offline is enabled but $name is missing — failing closed (Owner decision 2026-11-23).")
+        }
+    }
+    requireHttpsUrl("OFFLINE_API_BASE_URL", effectiveApiUrl)
+}
+
+// ---------------------------------------------------------------------------
 // Optional release signing (student pilot APKs) — see docs/android-signing-notes.md.
 // Resolution order:
 //   1) keystore.properties in the Gradle root (apps/android/, GITIGNORED; template:
@@ -103,10 +137,12 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Safe defaults: release pipeline may inject public configuration only; never a private key.
-        buildConfigField("boolean", "OFFLINE_TRUSTED_CLIENT_IMPLEMENTED", "false")
-        buildConfigField("String", "OFFLINE_API_BASE_URL", "\"\"")
-        buildConfigField("String", "OFFLINE_MANIFEST_SIGNING_PUBLIC_KEY_SPKI_BASE64", "\"\"")
-        buildConfigField("String", "OFFLINE_KEYSTORE_ALIAS", "\"cms.offline.package.key\"")
+        // Repo default OFF; -POFFLINE_TRUSTED_CLIENT_IMPLEMENTED=true (with full public
+        // configuration, validated fail-closed above) flips this to true at build time.
+        buildConfigField("boolean", "OFFLINE_TRUSTED_CLIENT_IMPLEMENTED", offlineTrustedEnabled.toString())
+        buildConfigField("String", "OFFLINE_API_BASE_URL", "\"$offlineApiBaseUrl\"")
+        buildConfigField("String", "OFFLINE_MANIFEST_SIGNING_PUBLIC_KEY_SPKI_BASE64", "\"$offlineSigningKeySpki\"")
+        buildConfigField("String", "OFFLINE_KEYSTORE_ALIAS", "\"$offlineKeystoreAlias\"")
         // Hybrid WebView shell (Batch 0): HTTPS-only student web + API endpoints.
         // Defaults are the documented placeholder domains in deploy/; release or local
         // builds override them with -PSTUDENT_WEB_BASE_URL=... / -PAPI_BASE_URL=...

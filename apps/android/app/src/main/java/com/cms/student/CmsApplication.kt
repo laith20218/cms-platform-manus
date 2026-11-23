@@ -12,6 +12,7 @@ import com.cms.student.media.MediaCacheService
 import com.cms.student.media.MediaFileStore
 import com.cms.student.media.NativeMediaOpener
 import com.cms.student.security.AndroidKeystorePackageKeyProvider
+import com.cms.student.security.AndroidOfflineBuildConfiguration
 import com.cms.student.security.AuthenticatedOfflinePackageStatusApi
 import com.cms.student.security.CachedOfflineRevocationStatusProvider
 import com.cms.student.security.EncryptedOfflinePackageStore
@@ -35,8 +36,15 @@ import java.util.concurrent.Executors
 
 class CmsApplication : Application() {
     companion object {
-        /** Offline is deliberately disabled unless a release pipeline explicitly enables trusted configuration. */
-        const val offlineEnabled = false
+        /**
+         * Trusted offline (question packages) is BuildConfig-driven (Owner decision
+         * 2026-11-23): the repo default is OFF, and a release pipeline enables it by
+         * building with OFFLINE_TRUSTED_CLIENT_IMPLEMENTED=true plus the full public
+         * configuration — gradle fails closed on incomplete combinations, and the
+         * runtime reader throws as a backstop. No private key material ever enters
+         * the repo or the APK.
+         */
+        const val offlineEnabled = BuildConfig.OFFLINE_TRUSTED_CLIENT_IMPLEMENTED
     }
 
     private lateinit var installationId: String
@@ -49,7 +57,9 @@ class CmsApplication : Application() {
     private val sessionManager by lazy { NativeSessionManager(tokenStore) { mediaCacheService.wipe() } }
     @Volatile private var sessionVerifiedThisProcess = false
     private val apiClient: HttpsOfflinePackageClient? by lazy {
-        AndroidOfflineBuildConfiguration.apiBaseUrl().takeIf(String::isNotBlank)?.let { baseUrl ->
+        AndroidOfflineBuildConfiguration
+            .apiBaseUrl(BuildConfig.OFFLINE_API_BASE_URL, BuildConfig.API_BASE_URL)
+            .takeIf(String::isNotBlank)?.let { baseUrl ->
             HttpsOfflinePackageClient(
                 baseUrl,
                 OfflineCertificatePinning.parsePins(BuildConfig.OFFLINE_API_SPKI_PINS_BASE64)
@@ -150,7 +160,7 @@ class CmsApplication : Application() {
     private val mediaFileStore: MediaFileStore by lazy { EncryptedMediaFileStore(this) }
 
     private val mediaCacheService: MediaCacheService by lazy {
-        val baseApiUrl = AndroidOfflineBuildConfiguration.apiBaseUrl()
+        val baseApiUrl = AndroidOfflineBuildConfiguration.apiBaseUrl(BuildConfig.OFFLINE_API_BASE_URL, BuildConfig.API_BASE_URL)
         check(baseApiUrl.isNotBlank()) { "Media cache requires the HTTPS API base URL (BuildConfig validation guarantees one)" }
         MediaCacheService(
             index = CacheIndex(EncryptedMediaCachePersistence(this)),
@@ -201,7 +211,13 @@ class CmsApplication : Application() {
     }
 
     private fun createRuntimeOrNull(): OfflineRuntimeCoordinator? {
-        val configuration = AndroidOfflineBuildConfiguration.trustConfiguration()
+        val configuration = AndroidOfflineBuildConfiguration.trustConfiguration(
+            enabled = BuildConfig.OFFLINE_TRUSTED_CLIENT_IMPLEMENTED,
+            offlineApiBaseUrl = BuildConfig.OFFLINE_API_BASE_URL,
+            fallbackApiBaseUrl = BuildConfig.API_BASE_URL,
+            manifestSigningPublicKeySpkiBase64 = BuildConfig.OFFLINE_MANIFEST_SIGNING_PUBLIC_KEY_SPKI_BASE64,
+            keystoreAlias = BuildConfig.OFFLINE_KEYSTORE_ALIAS
+        )
         if (!configuration.offlineEnabled) return null
         val cache = CachedOfflineRevocationStatusProvider()
         val verifier = TrustedOfflineVerifierFactory.create(configuration, cache) ?: return null
@@ -236,24 +252,4 @@ class AuthenticatedOfflineRuntime internal constructor(
     fun pendingAnswers(packageId: UUID) = coordinator.pendingAnswers(session, packageId)
     fun sync(packageId: UUID, examSessionId: UUID? = null) = coordinator.sync(session, packageId, examSessionId)
     fun refreshStatus(packageId: UUID) = coordinator.refreshStatus(session, packageId)
-}
-
-private object AndroidOfflineBuildConfiguration {
-    /**
-     * Native login/refresh base URL (Batch 2): the release pipeline keeps
-     * OFFLINE_API_BASE_URL, and builds without it fall back to the Batch 0
-     * API_BASE_URL (HTTPS-only validated) so the native session path is reachable
-     * the moment a real API host is configured.
-     */
-    fun apiBaseUrl(): String = BuildConfig.OFFLINE_API_BASE_URL.trim().ifBlank { BuildConfig.API_BASE_URL.trim() }
-
-    fun trustConfiguration(): OfflineTrustConfiguration {
-        val enabled = BuildConfig.OFFLINE_TRUSTED_CLIENT_IMPLEMENTED
-        val publicKey = BuildConfig.OFFLINE_MANIFEST_SIGNING_PUBLIC_KEY_SPKI_BASE64.trim().ifBlank { null }
-        val alias = BuildConfig.OFFLINE_KEYSTORE_ALIAS.trim()
-        if (enabled && (apiBaseUrl().isBlank() || publicKey == null || alias.isBlank())) {
-            throw IllegalStateException("Trusted Offline cannot start without API URL, pinned public key, and keystore alias")
-        }
-        return OfflineTrustConfiguration(enabled, publicKey, alias)
-    }
 }

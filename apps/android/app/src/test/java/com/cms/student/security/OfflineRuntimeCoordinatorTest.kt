@@ -65,14 +65,34 @@ class OfflineRuntimeCoordinatorTest {
         assertEquals(0, fixture.downloadCalls)
     }
 
-    private inner class Fixture(active: Boolean, enabled: Boolean = true) {
+    @Test fun `offline continuation is bound to the embedded server expiry, not a short window`() {
+        // Five hours after the confirmation — far past the retired 15-minute gate;
+        // the manifest stays valid for 7 days, mirroring the server's issued expiry.
+        val longLived = Fixture(active = true, manifestValiditySeconds = 60L * 60L * 24L * 7L)
+        assertEquals(packageId, longLived.coordinator.download(session, subjectId))
+        val questions = longLived.coordinator.continueOffline(
+            session, packageId, subjectId, now.plusSeconds(60L * 60L * 5L)
+        )
+        assertNotNull(questions)
+        assertEquals(questionId, questions!!.single().id)
+    }
+
+    @Test fun `offline continuation refuses a package past its embedded expiry`() {
+        val fixture = Fixture(active = true) // manifest expires 600 s after `now`
+        assertEquals(packageId, fixture.coordinator.download(session, subjectId))
+        assertNull(fixture.coordinator.continueOffline(session, packageId, subjectId, now.plusSeconds(601)))
+        // The confirmation timestamp alone never extends rights once the expiry passed.
+        assertNull(fixture.coordinator.continueOffline(session, packageId, subjectId, now.plusSeconds(60L * 60L * 24L)))
+    }
+
+    private inner class Fixture(active: Boolean, enabled: Boolean = true, manifestValiditySeconds: Long = 600) {
         var active = active
         var statusFailure = false
         var downloadCalls = 0
         val store = InMemoryStore()
         val syncRequests = mutableListOf<OfflineSyncRequest>()
         private val cache = CachedOfflineRevocationStatusProvider()
-        private val envelope = envelope()
+        private val envelope = envelope(validitySeconds = manifestValiditySeconds)
         private val client = object : IOfflinePackageClient, ISyncClient {
             override fun issueEntitlement(session: OfflineSession) = "entitlement"
             override fun download(session: OfflineSession, entitlementToken: String, request: OfflinePackageRequest, devicePublicKeySpkiBase64: String): OfflinePackageEnvelope {
@@ -137,8 +157,8 @@ class OfflineRuntimeCoordinatorTest {
         override fun invalidate(packageId: UUID, userId: UUID, installationId: String) { records.remove(packageId) }
     }
 
-    private fun envelope() = OfflinePackageEnvelope(
-        OfflinePackageManifest(packageId, userId, session.installationId, 1, listOf(subjectId), now.minusSeconds(10), now.plusSeconds(600), "nonce", "aad", "signature"),
+    private fun envelope(validitySeconds: Long = 600) = OfflinePackageEnvelope(
+        OfflinePackageManifest(packageId, userId, session.installationId, 1, listOf(subjectId), now.minusSeconds(10), now.plusSeconds(validitySeconds), "nonce", "aad", "signature"),
         "ciphertext", "tag", "wrapped", "receipt"
     )
 
