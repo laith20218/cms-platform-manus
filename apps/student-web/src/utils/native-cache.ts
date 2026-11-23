@@ -21,8 +21,35 @@ interface CmsNativeCacheBridge {
   cacheStatus(contentId: string): string;
 }
 
+/** Night Task 3 — the catalog surface (listCached/removeCached) the Batch-4
+ *  bridge also carries; feature-detected independently so older shells that
+ *  expose only the trio above keep working. */
+interface CmsNativeCatalogBridge {
+  listCached(): string;
+  removeCached(contentId: string): string;
+}
+
 const NATIVE_BRIDGE_NAME = 'CmsNative';
 const CACHE_METHODS: Array<keyof CmsNativeCacheBridge> = ['ensureLocal', 'openLocal', 'cacheStatus'];
+const CATALOG_METHODS: Array<keyof CmsNativeCatalogBridge> = ['listCached', 'removeCached'];
+
+/** One cached-object row exactly as the native side reports it (safe metadata only). */
+export interface NativeCachedItem {
+  contentId: string;
+  type: string;
+  title?: string;
+  bytes?: number;
+  createdAt?: string;
+  lastAccessAt?: string;
+}
+
+function readCatalogBridge(): CmsNativeCatalogBridge | null {
+  const candidate = (globalThis as unknown as Record<string, unknown>)[NATIVE_BRIDGE_NAME];
+  if (!candidate || typeof candidate !== 'object') return null;
+  const bridge = candidate as unknown as Record<string, unknown>;
+  if (CATALOG_METHODS.some((method) => typeof bridge[method] !== 'function')) return null;
+  return candidate as unknown as CmsNativeCatalogBridge;
+}
 
 /** Viewer kinds that map onto a native cache type. */
 const CACHEABLE_KINDS: Record<string, NativeCacheType> = {
@@ -120,6 +147,63 @@ export function nativeCacheStatus(contentId: string): string | null {
 export function nativeCachePercent(status: string): number | null {
   const match = /^downloading:(\d{1,3})$/.exec(status);
   return match ? Number(match[1]) : null;
+}
+
+// ===== Night Task 3 — offline catalog surface (feature-detected) =====
+
+/** True when the shell can enumerate + delete cached objects (Batch-4 catalog). */
+export function isNativeCatalogActive(): boolean {
+  if (!hasNativeShell()) return false;
+  return readCatalogBridge() !== null;
+}
+
+/**
+ * Lists every cached object (safe metadata rows). Returns null outside the
+ * shell, on bridge errors, or on a malformed payload — callers fall back to
+ * the honest browser empty state.
+ */
+export function nativeListCached(): NativeCachedItem[] | null {
+  const bridge = readCatalogBridge();
+  if (!bridge) return null;
+  try {
+    const raw = bridge.listCached();
+    if (typeof raw !== 'string' || raw.length === 0) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const rows: NativeCachedItem[] = [];
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') continue;
+      const row = entry as Record<string, unknown>;
+      const contentId = typeof row.contentId === 'string' ? row.contentId.trim() : '';
+      const type = typeof row.type === 'string' ? row.type.trim() : '';
+      if (!contentId || contentId.length > MAX_CONTENT_ID_LENGTH || !type) continue;
+      rows.push({
+        contentId,
+        type,
+        title: typeof row.title === 'string' ? row.title : undefined,
+        bytes: typeof row.bytes === 'number' ? row.bytes : undefined,
+        createdAt: typeof row.createdAt === 'string' ? row.createdAt : undefined,
+        lastAccessAt: typeof row.lastAccessAt === 'string' ? row.lastAccessAt : undefined,
+      });
+    }
+    return rows;
+  } catch {
+    return null;
+  }
+}
+
+/** Deletes one cached object; returns the native code or null outside the shell. */
+export function nativeRemoveCached(contentId: string): string | null {
+  const bridge = readCatalogBridge();
+  if (!bridge) return null;
+  const id = contentId.trim();
+  if (!id || id.length > MAX_CONTENT_ID_LENGTH) return null;
+  try {
+    const code = bridge.removeCached(id);
+    return typeof code === 'string' && code.length > 0 ? code : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Arabic-first denial/error messages for every deny code the bridge can return. */

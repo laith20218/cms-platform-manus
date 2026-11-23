@@ -1,15 +1,21 @@
 // CMS student navigation: quiet clinical blue, fast utility actions, and profile-first account access.
 import { Link, useNavigate } from 'react-router-dom';
-import { Bell, Search, Moon, Sun } from 'lucide-react';
+import { Bell, CloudOff, Search, Moon, Sun } from 'lucide-react';
 import { useState } from 'react';
 import { useTheme } from '@/app/providers/useTheme';
 import { useAuth } from '@/app/providers/useAuth';
+// Night Task 3 — «وضع بدون إنترنت»: the control beside the notifications bell
+// opens the offline panel (cached-content review) even while online.
+import { OfflinePanel } from '@/features/offline/OfflinePanel';
+import { useOfflineStatus } from '@/features/offline/useOfflineStatus';
 
 export function Navbar() {
   const { theme, toggleTheme } = useTheme();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
+  const [offlineOpen, setOfflineOpen] = useState(false);
+  const offline = useOfflineStatus();
 
   const submitSearch = () => {
     const normalized = query.trim();
@@ -43,9 +49,24 @@ export function Navbar() {
           <Search className="w-5 h-5" />
         </Link>
         <button onClick={toggleTheme} data-testid="navbar-theme-toggle" className="w-10 h-10 rounded-[10px] flex items-center justify-center text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] transition-colors" aria-label="تبديل الوضع الليلي">{theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}</button>
+        {/* Night Task 3 — «وضع بدون إنترنت» beside the bell: opens the offline
+            panel (native cached-content review) even while online; pulses when
+            the browser reports no connection so the student knows where to go. */}
+        <button
+          type="button"
+          onClick={() => setOfflineOpen(true)}
+          data-testid="navbar-offline-mode"
+          aria-label="وضع بدون إنترنت — المحتوى المحفوظ"
+          aria-pressed={offlineOpen}
+          className={`w-10 h-10 rounded-[10px] flex items-center justify-center transition-colors ${offline ? 'text-[var(--c-danger-500)] bg-[rgba(255,82,82,0.08)] animate-pulse' : 'text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)]'}`}
+        >
+          <CloudOff className="w-5 h-5" />
+        </button>
         <Link to="/notifications" data-testid="navbar-bell" aria-label="الإشعارات" className="w-10 h-10 rounded-[10px] flex items-center justify-center text-[var(--c-text-soft)] hover:bg-[var(--c-primary-50)] hover:text-[var(--c-primary-700)] transition-colors"><Bell className="w-5 h-5" /></Link>
         <Link to="/profile" data-testid="navbar-avatar" aria-label="فتح الملف الشخصي" className="flex items-center gap-2.5 py-1 ps-3 pe-1 rounded-3xl border backdrop-blur-md transition-all hover:bg-[var(--c-glass-strong)]" style={{ background: 'var(--c-glass)', borderColor: 'var(--c-border-glass)' }}><div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-[13px]" style={{ background: 'var(--grad-primary)' }}>{user?.fullName?.charAt(0) || 'ط'}</div><span className="hidden sm:block text-[13px] font-semibold text-[var(--c-text-soft)]">{user?.fullName?.split(' ')[0] || 'طالب'}</span></Link>
       </div>
+
+      <OfflinePanel open={offlineOpen} onClose={() => setOfflineOpen(false)} />
     </header>
   );
 }
