@@ -10,6 +10,7 @@ import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.time.Instant
 import javax.net.ssl.HttpsURLConnection
 
 /**
@@ -26,6 +27,14 @@ interface MediaContentTransport {
 
     /** Signed entitlement token for the current session, or null when it cannot be obtained. */
     fun currentEntitlementToken(): String?
+
+    /**
+     * Server-issued expiry (`expiresAt` claim) of the current signed entitlement, or
+     * null when the token carries none / cannot be obtained. Persisted with the cache
+     * entry as [MediaCacheEntry.entitlementExpiresAt] — the ONLY offline-open bound
+     * under the durable policy (Owner decision 2026-11-23).
+     */
+    fun currentEntitlementExpiresAt(): Instant?
 
     /**
      * HEAD-style authorization check for `GET {base}/library/{contentId}/content`.
@@ -92,6 +101,11 @@ class HttpsMediaContentTransport(
             token
         }.getOrNull()
     }
+
+    override fun currentEntitlementExpiresAt(): Instant? = runCatching {
+        val token = currentEntitlementToken() ?: return null
+        parseEntitlementExpiresAt(token)
+    }.getOrNull()
 
     override fun isAuthorized(contentId: String): AuthorizationResult = runCatching {
         val session = sessionProvider() ?: return AuthorizationResult.DENIED
@@ -231,16 +245,24 @@ class HttpsMediaContentTransport(
         /** JWT-shaped signed entitlement: `payload.signature`; the payload carries `expiresAt`. */
         fun parseEntitlementExpiryMs(token: String): Long {
             return runCatching {
+                val expiresAt = parseEntitlementExpiresAt(token) ?: return Long.MAX_VALUE
+                val parsedExpiry = expiresAt.toEpochMilli()
+                if (parsedExpiry <= 0) Long.MAX_VALUE else parsedExpiry - CachePolicy.ENTITLEMENT_RENEWAL_SKEW_SECONDS * 1000
+            }.getOrDefault(0L)
+        }
+
+        /** Raw server-issued `expiresAt` claim (no renewal skew) — the durable offline bound. */
+        fun parseEntitlementExpiresAt(token: String): Instant? {
+            return runCatching {
                 val payloadSegment = token.substringBefore('.')
                 val normalized = payloadSegment.replace('-', '+').replace('_', '/')
                 val padded = normalized.padEnd((normalized.length + 3) / 4 * 4, '=')
                 val decoded = java.util.Base64.getDecoder().decode(padded).toString(Charsets.UTF_8)
                 val parsed = JsonParser.parseString(decoded).asJsonObject
-                val expiresAt = parsed.get("expiresAt")?.takeUnless { it.isJsonNull }?.asString
-                    ?: return Long.MAX_VALUE
-                val parsedExpiry = java.time.Instant.parse(expiresAt).toEpochMilli()
-                if (parsedExpiry <= 0) Long.MAX_VALUE else parsedExpiry - CachePolicy.ENTITLEMENT_RENEWAL_SKEW_SECONDS * 1000
-            }.getOrDefault(0L)
+                parsed.get("expiresAt")?.takeUnless { it.isJsonNull }?.asString
+                    ?.takeIf(String::isNotBlank)
+                    ?.let { Instant.parse(it) }
+            }.getOrNull()
         }
     }
 }

@@ -72,7 +72,7 @@ class ShellActivity : AppCompatActivity() {
 
         // Batch 4 — owner lock 6: when the shell cannot reach the student service, the
         // error screen carries an entry to the native offline catalog «وضع بدون إنترنت»
-        // listing every cached object that can still open under the 72h window.
+        // listing every cached object that can still open under the durable offline policy.
         findViewById<Button>(R.id.shell_offline_catalog_button).setOnClickListener {
             runCatching { startActivity(Intent(this, OfflineCatalogActivity::class.java)) }
         }

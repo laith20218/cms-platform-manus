@@ -235,7 +235,7 @@ class MediaCacheServiceTest {
     }
 
     @Test
-    fun `an unreachable verify endpoint falls back to the offline window rule`() {
+    fun `an unreachable verify endpoint falls back to the offline durability rule`() {
         transport.authorize = AuthorizationResult.UNAVAILABLE
         val service = newService()
         service.ensureLocal(contentId, "pdf", null)
@@ -243,24 +243,57 @@ class MediaCacheServiceTest {
     }
 
     @Test
-    fun `an offline open inside the 72h window opens without any network`() {
+    fun `an offline open with a future stored entitlement expiry opens without any network`() {
         val service = newService()
+        transport.entitlementExpiresAt = now.plusSeconds(60L * 60L * 72)
         service.ensureLocal(contentId, "pdf", null)
         online = false
         session = null
-        now = now.plusSeconds(60L * 60L * 71) // still within 72h
+        now = now.plusSeconds(60L * 60L * 71) // still before the stored server-issued expiry
         assertEquals(CacheStatus.OPENED, service.openLocal(contentId))
         assertEquals(contentId, openedEntries.single().contentId)
     }
 
     @Test
-    fun `an offline open outside the 72h window answers denied_stale`() {
+    fun `an offline open past the stored entitlement expiry answers denied_stale`() {
         val service = newService()
+        transport.entitlementExpiresAt = now.plusSeconds(60L * 60L)
         service.ensureLocal(contentId, "pdf", null)
         online = false
-        now = now.plusSeconds(60L * 60L * 73) // 73h later
+        session = null
+        now = now.plusSeconds(60L * 60L * 2) // past the stored server-issued expiry
         assertEquals(CacheStatus.DENIED_STALE, service.openLocal(contentId))
         assertTrue(openedEntries.isEmpty())
+    }
+
+    @Test
+    fun `an entry without stored expiry stays openable offline - durable ciphertext policy`() {
+        val service = newService()
+        transport.entitlementExpiresAt = null // server issued no expiry claim with the token
+        service.ensureLocal(contentId, "pdf", null)
+        online = false
+        session = null
+        now = now.plusSeconds(60L * 60L * 24 * 90) // 90 days later — no hour-count gate exists
+        assertEquals(CacheStatus.OPENED, service.openLocal(contentId))
+        assertEquals(contentId, openedEntries.single().contentId)
+    }
+
+    @Test
+    fun `offline ensureLocal with an expired stored expiry answers denied_stale`() {
+        val service = newService()
+        transport.entitlementExpiresAt = now.plusSeconds(60L)
+        service.ensureLocal(contentId, "pdf", null)
+        online = false
+        now = now.plusSeconds(120L)
+        assertEquals(CacheStatus.DENIED_STALE, service.ensureLocal(contentId, "pdf", null))
+    }
+
+    @Test
+    fun `a downloaded entry persists the entitlement expiry it was granted with`() {
+        val service = newService()
+        transport.entitlementExpiresAt = Instant.parse("2026-03-05T00:00:00Z")
+        service.ensureLocal(contentId, "pdf", null)
+        assertEquals(Instant.parse("2026-03-05T00:00:00Z"), service.catalogEntries().single().entitlementExpiresAt)
     }
 
     @Test
@@ -366,8 +399,11 @@ class MediaCacheServiceTest {
         var betweenChunks: () -> Unit = {}
         val downloadCalls = AtomicInteger(0)
         var lastDownloadedBytes = -1L
+        var entitlementExpiresAt: Instant? = null
 
         override fun currentEntitlementToken(): String? = "signed-entitlement-token"
+
+        override fun currentEntitlementExpiresAt(): Instant? = entitlementExpiresAt
 
         override fun isAuthorized(contentId: String): AuthorizationResult = authorize
 

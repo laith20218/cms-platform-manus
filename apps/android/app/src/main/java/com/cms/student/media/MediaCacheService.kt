@@ -4,7 +4,6 @@ import com.cms.student.bridge.CmsNativeCacheApi
 import com.cms.student.security.OfflineSession
 import com.google.gson.JsonParser
 import java.time.Instant
-import java.time.temporal.ChronoUnit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 
@@ -48,7 +47,13 @@ internal class DownloadState(val contentId: String) {
  *    the whole media cache.
  *  - 403 from the entitlement/content gates is an entitlement denial for THIS
  *    student, not a dead token: no wipe, just `denied_auth`.
- *  - Over-cap (1 GiB) downloads evict LRU completed entries; protected (in-flight)
+ *  - Durable offline policy (Owner decision 2026-11-23): offline opens are NOT
+ *    gated by an hour count. The local ciphertext stays openable until a wipe
+ *    (logout / auth rejection / user clear) or until the server-issued entitlement
+ *    expiry stored with the entry ([MediaCacheEntry.entitlementExpiresAt]) has
+ *    passed (`denied_stale`). Entries without stored expiry stay usable offline —
+ *    an online open still re-checks the server, so rights are never faked.
+ *  - Over-cap (5 GiB) downloads evict LRU completed entries; protected (in-flight)
  *    entries are never evicted; an un-trimmable plan refuses the download (`quota`).
  */
 class MediaCacheService(
@@ -93,9 +98,13 @@ class MediaCacheService(
 
         val entry = index.get(id)
         if (!networkAvailability()) {
-            return if (entry != null && withinConfirmationWindow(entry)) CacheStatus.READY else CacheStatus.DENIED_OFFLINE
+            return when {
+                entry == null -> CacheStatus.DENIED_OFFLINE
+                isOfflineUsable(entry) -> CacheStatus.READY
+                else -> CacheStatus.DENIED_STALE
+            }
         }
-        if (entry != null && withinConfirmationWindow(entry)) return CacheStatus.READY
+        if (entry != null && isOfflineUsable(entry)) return CacheStatus.READY
         if (sessionProvider() == null) return CacheStatus.DENIED_NATIVE_SESSION
 
         val state = DownloadState(id)
@@ -124,7 +133,7 @@ class MediaCacheService(
                 }
             }
         }
-        return if (withinConfirmationWindow(entry)) {
+        return if (isOfflineUsable(entry)) {
             if (opener.open(entry)) CacheStatus.OPENED else CacheStatus.ERROR
         } else {
             CacheStatus.DENIED_STALE
@@ -179,8 +188,8 @@ class MediaCacheService(
     /** True when a native session exists (the offline catalog offers a login entry when false). */
     fun hasNativeSession(): Boolean = sessionProvider() != null
 
-    /** Whether a cached entry is within the 72h offline-open window (catalog badge). */
-    fun isWithinWindow(contentId: String): Boolean = index.get(contentId)?.let { withinConfirmationWindow(it) } ?: false
+    /** Whether a cached entry is usable offline under the durable policy (catalog badge). */
+    fun isUsableOffline(contentId: String): Boolean = index.get(contentId)?.let { isOfflineUsable(it) } ?: false
 
     /** Synchronous wipe of every cached file + the index — logout / auth-reject / clearCache. */
     @Synchronized
@@ -218,7 +227,8 @@ class MediaCacheService(
                     lastConfirmedAt = now,
                     lastAccessAt = now,
                     displayName = hints.title?.takeIf { it.isNotBlank() },
-                    subjectId = hints.subjectId?.takeIf { it.isNotBlank() }
+                    subjectId = hints.subjectId?.takeIf { it.isNotBlank() },
+                    entitlementExpiresAt = transport.currentEntitlementExpiresAt()
                 )
             )
             trimToQuota(contentId)
@@ -294,8 +304,14 @@ class MediaCacheService(
         progressBus.publish(contentId, CacheProgressBus.Phase.CANCELED)
     }
 
-    private fun withinConfirmationWindow(entry: MediaCacheEntry): Boolean {
-        val expiresAt = entry.lastConfirmedAt.plus(CachePolicy.CONFIRMATION_WINDOW_HOURS.toLong(), ChronoUnit.HOURS)
+    /**
+     * Durable offline rule (Owner decision 2026-11-23): no hour-count gate. An entry
+     * stays openable offline until the server-issued entitlement expiry stored with
+     * it has passed; entries without stored expiry stay usable until an online
+     * re-check (or a logout/auth wipe) says otherwise — rights are never faked.
+     */
+    private fun isOfflineUsable(entry: MediaCacheEntry): Boolean {
+        val expiresAt = entry.entitlementExpiresAt ?: return true
         return clock().isBefore(expiresAt)
     }
 

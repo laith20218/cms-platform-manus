@@ -166,9 +166,9 @@ class OfflineCatalogActivity : MediaViewerActivity() {
             val subtitleView = row.getChildAt(1) as TextView
             titleView.text = entry.displayName ?: entry.contentId
             val kindLabel = kindLabelFor(entry.kind)
-            val withinWindow = service?.isWithinWindow(entry.contentId) ?: false
+            val usableOffline = service?.isUsableOffline(entry.contentId) ?: false
             val badge = getString(
-                if (withinWindow) R.string.offline_catalog_available else R.string.offline_catalog_needs_refresh
+                if (usableOffline) R.string.offline_catalog_available else R.string.offline_catalog_needs_refresh
             )
             subtitleView.text = "$kindLabel — ${formatSize(entry.bytes)} — $badge"
             return row

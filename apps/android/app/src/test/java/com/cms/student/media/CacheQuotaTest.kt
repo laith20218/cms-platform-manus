@@ -8,8 +8,8 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * Batch 4 — LRU/1 GiB quota planner tests (owner lock 4): eviction order, protected
- * entries, projected bytes math, and the un-trimmable refusal.
+ * Batch 4 — LRU/5 GiB quota planner tests (Owner decision 2026-11-23): eviction
+ * order, protected entries, projected bytes math, and the un-trimmable refusal.
  */
 class CacheQuotaTest {
 
@@ -27,9 +27,9 @@ class CacheQuotaTest {
         )
 
     @Test
-    fun `the cap is exactly 1 GiB`() {
-        assertEquals(1_073_741_824L, CachePolicy.MAX_CACHE_BYTES)
-        assertEquals(1_073_741_824L, CacheQuota().capBytes())
+    fun `the cap is exactly 5 GiB`() {
+        assertEquals(5_368_709_120L, CachePolicy.MAX_CACHE_BYTES)
+        assertEquals(5_368_709_120L, CacheQuota().capBytes())
     }
 
     @Test
