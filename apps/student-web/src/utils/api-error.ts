@@ -48,6 +48,24 @@ export function isNetworkError(error: unknown): boolean {
   return status === undefined || status === 408 || (status ?? 0) >= 500;
 }
 
+/**
+ * Wave A (remember-me hardening) — the ONLY failures allowed to end a session.
+ *
+ * A remembered session must be wiped exactly when the SERVER ruled it dead:
+ * a 401/403 verdict from an authenticated call (the api-client interceptor
+ * surfaces refresh rejections this way). Everything else keeps the session:
+ *   • transport faults (no response — offline, DNS, timeout): the API on Render
+ *     cold-starts; a slow first request is NOT a session verdict.
+ *   • 408 / 429 / 5xx: the request never reached an auth decision, and the
+ *     single-use refresh token was NOT consumed — retrying later is correct.
+ *   • non-axios errors (an unexpected client bug): fail closed like before.
+ */
+export function isSessionEndingFailure(error: unknown): boolean {
+  if (!isAxiosError(error)) return true;
+  const status = error.response?.status;
+  return status === 401 || status === 403;
+}
+
 /** R69 §2.E — the 403 denial reason: ProblemDetails `detail`, then `title`,
  *  then the X-Entitlement-Error header, else 'unknown'. Single source of truth
  *  for api-client's broadcast and the feature denial cards (D-13). */
