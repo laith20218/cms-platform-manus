@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>خريطة تنقل منصة الطالب — CMS student-web functional navigation</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">◍</div>
+    <div>
+      خريطة تنقل منصة الطالب
+      <small>CMS student-web — functional navigation graph · 37/37 routes · fully offline</small>
+    </div>
+  </div>
+  <div class="searchwrap">
+    <span class="icon">⌕</span>
+    <input id="search-input" type="search" placeholder="ابحث بالاسم العربي أو المسار أو المكوّن…" aria-label="بحث في العقد">
+    <span id="search-count" style="position:absolute;left:10px;top:9px;font-size:10px;color:#9fb8c8"></span>
+  </div>
+  <button id="btn-export" title="تصدير المشهد الحالي SVG" style="background:rgba(94,234,212,.12);border:1px solid rgba(94,234,212,.5);color:#ccfbf1;border-radius:9px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer">⬇ تصدير SVG</button>
+  <div class="hint"><kbd>/</kbd> بحث · <kbd>Esc</kbd> إغلاق اللوحة · عجلة الفأرة تقريب · سحب للتحريك</div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="المرشحات والمفتاح"></aside>
+  <main class="stage" id="stage" aria-label="الخريطة">
+    <div class="stage-toolbar">
+      <button id="z-in" title="تقريب +">＋</button>
+      <button id="z-out" title="تبعيد −">－</button>
+      <button id="z-1" title="حجم 100%">1:1</button>
+      <button id="z-fit" title="ملاءمة الشاشة">⤢</button>
+      <span class="zoomlabel" id="zoomlabel">100%</span>
+    </div>
+    <div class="stats-chip" id="stats-chip"></div>
+  </main>
+  <aside class="detail" id="detail" aria-label="تفاصيل العقدة"></aside>
+</div>
+
+<script src="data/graph.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

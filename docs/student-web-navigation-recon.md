@@ -7,6 +7,14 @@
 
 ---
 
+> **🗺️ الأداة التفاعلية:** يوجد الآن مخزون تفاعلي كامل لهذه الخريطة تحت
+> [`docs/diagrams/student-web-nav-functional/`](./diagrams/student-web-nav-functional/) —
+> افتح `index.html` مباشرة (يعمل بلا خادم): تصفية بالتصنيف ونوع الحافة، بحث، لوحة تفاصيل لكل عقدة/حافة،
+> وضع «الأحمر فقط»، وتصدير SVG. مصدر بياناته `data/graph.json` (53 عقدة / 115 حافة / 15 حمراء)
+> **مصالَح مع main بعد مهمة الليلة**: الجرس صار لوحة منسدلة مع «عرض الكل» (المهمة 4)، وأُضيف
+> زر «وضع بدون إنترنت» بجانبه (المهمة 3) ونافذة «تنويه» قبل التدريب (المهمة 8) — الجداول أدناه
+> تبقى المخزون المرجعي التاريخي الكامل كما كُتبت عند الأساس `18741845`.
+
 ## 1. Route Inventory (A) — كل المسارات
 
 The ONLY production route table is `src/app/router.tsx` (`AppRoutes`), mounted via `<BrowserRouter>` in `src/app/App.tsx`. No `createBrowserRouter`/`useRoutes`/nested routers exist elsewhere (verified by grep).
