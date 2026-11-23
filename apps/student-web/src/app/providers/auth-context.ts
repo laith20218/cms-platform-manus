@@ -14,10 +14,10 @@ export interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (phone: string, password: string) => Promise<void>;
+  login: (phone: string, password: string, options?: { remember?: boolean }) => Promise<void>;
   logout: () => Promise<void>;
   refreshToken: () => Promise<void>;
-  completeAuthentication: (response: { accessToken: string; refreshToken: string; user: User }) => void;
+  completeAuthentication: (response: { accessToken: string; refreshToken: string; user: User }, options?: { remember?: boolean }) => void;
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);

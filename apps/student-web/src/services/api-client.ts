@@ -1,6 +1,9 @@
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 import { getOrCreateInstallationId } from '@/utils';
 import { notifySessionExpired } from '@/services/session-expiry';
+// Task 2 (Night) — «تذكّرني»: rotations must write back to whichever store
+// holds the active session (sessionStorage default / localStorage opt-in).
+import { readSession, writeRotatedTokens, clearSession } from '@/services/session-store';
 // Wave 18.1 — the 403 reason extraction lives in one place (utils/api-error) so
 // the broadcast here and the feature denial cards can never drift apart.
 import { getEntitlementReason } from '@/utils/api-error';
@@ -21,7 +24,7 @@ export const apiClient: AxiosInstance = axios.create({
 async function refreshAccessToken(): Promise<string> {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
-      const refreshToken = sessionStorage.getItem('cms-refresh-token');
+      const refreshToken = readSession()?.refreshToken;
       if (!refreshToken) throw new Error('لا يوجد رمز تحديث للجلسة');
 
       const installationId = getOrCreateInstallationId();
@@ -33,8 +36,7 @@ async function refreshAccessToken(): Promise<string> {
       const { accessToken, refreshToken: newRefresh } = response.data;
       if (!accessToken || !newRefresh) throw new Error('رموز الجلسة الجديدة غير صالحة');
 
-      sessionStorage.setItem('cms-access-token', accessToken);
-      sessionStorage.setItem('cms-refresh-token', newRefresh);
+      writeRotatedTokens({ accessToken, refreshToken: newRefresh });
       return accessToken;
     })().finally(() => {
       refreshInFlight = null;
@@ -47,7 +49,7 @@ async function refreshAccessToken(): Promise<string> {
 // Request interceptor - add auth token
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    const token = sessionStorage.getItem('cms-access-token');
+    const token = readSession()?.accessToken;
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -81,8 +83,7 @@ apiClient.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         return apiClient(originalRequest);
       } catch {
-        sessionStorage.removeItem('cms-access-token');
-        sessionStorage.removeItem('cms-refresh-token');
+        clearSession();
         // Wave 12.5.A (Group 3) — the forced logout stays fail-closed, but it is no
         // longer SILENT: one shared toast explains why the student landed on /login
         // (a transient refresh-network failure used to log the student out invisibly).
