@@ -14,9 +14,7 @@ public sealed class OfflinePackageCryptoService : IOfflinePackageCryptoService
     private readonly string? _wrappingKeyValue;
     private readonly string? _manifestKeyValue;
     private readonly string? _manifestSigningPrivateKeyPkcs8Value;
-    private byte[]? _wrappingKey;
-    private byte[]? _manifestKey;
-    private byte[]? _manifestSigningPrivateKeyPkcs8;
+    private Keys? _keys;
 
     public OfflinePackageCryptoService(IConfiguration configuration)
     {
@@ -38,14 +36,14 @@ public sealed class OfflinePackageCryptoService : IOfflinePackageCryptoService
         _manifestSigningPrivateKeyPkcs8Value = configuration["Security:Offline:ManifestSigningPrivateKeyPkcs8"];
     }
 
+    /// <summary>The parsed key material, guaranteed non-null after <see cref="EnsureKeys"/> (which throws with the exact configuration key name when incomplete or invalid).</summary>
+    private sealed record Keys(byte[] WrappingKey, byte[] ManifestKey, byte[]? ManifestSigningPrivateKeyPkcs8);
+
     /// <summary>Parses and validates key material on first cryptographic use (idempotent). Throws with the exact configuration key name when incomplete or invalid.</summary>
-    private void EnsureKeys()
-    {
-        if (_wrappingKey is null) _wrappingKey = ReadKey(_wrappingKeyValue, "Security:Offline:KeyWrappingKey");
-        if (_manifestKey is null) _manifestKey = ReadKey(_manifestKeyValue, "Security:Offline:ManifestSigningKey");
-        if (_manifestSigningPrivateKeyPkcs8 is null && !string.IsNullOrWhiteSpace(_manifestSigningPrivateKeyPkcs8Value))
-            _manifestSigningPrivateKeyPkcs8 = ReadOptionalPrivateKey(_manifestSigningPrivateKeyPkcs8Value);
-    }
+    private Keys EnsureKeys() => _keys ??= new Keys(
+        ReadKey(_wrappingKeyValue, "Security:Offline:KeyWrappingKey"),
+        ReadKey(_manifestKeyValue, "Security:Offline:ManifestSigningKey"),
+        string.IsNullOrWhiteSpace(_manifestSigningPrivateKeyPkcs8Value) ? null : ReadOptionalPrivateKey(_manifestSigningPrivateKeyPkcs8Value));
 
     public OfflineEncryptedPackage Encrypt(
         Guid userId,
@@ -57,10 +55,11 @@ public sealed class OfflinePackageCryptoService : IOfflinePackageCryptoService
         ReadOnlySpan<byte> plaintext,
         string? devicePublicKeySpki = null)
     {
-        EnsureKeys();
+    {
+        var keys = EnsureKeys();
         if (userId == Guid.Empty || string.IsNullOrWhiteSpace(installationId)) throw new ArgumentException("Ownership is required");
         if (contentVersion < 1 || expiresAt <= issuedAt) throw new ArgumentException("Invalid package version or expiry");
-        if (!string.IsNullOrWhiteSpace(devicePublicKeySpki) && _manifestSigningPrivateKeyPkcs8 is null)
+        if (!string.IsNullOrWhiteSpace(devicePublicKeySpki) && keys.ManifestSigningPrivateKeyPkcs8 is null)
             throw new InvalidOperationException("Trusted offline issuance requires Security:Offline:ManifestSigningPrivateKeyPkcs8");
         if (expiresAt > issuedAt.AddDays(7)) throw new ArgumentException("Offline expiry exceeds policy");
 
@@ -72,7 +71,7 @@ public sealed class OfflinePackageCryptoService : IOfflinePackageCryptoService
         var aad = Encoding.UTF8.GetBytes(Canonical(provisional with { AadHashBase64Url = string.Empty, SignatureBase64Url = string.Empty }));
         var aadHash = B64(SHA256.HashData(aad));
         var manifest = provisional with { AadHashBase64Url = aadHash };
-        var signedManifest = manifest with { SignatureBase64Url = Sign(manifest) };
+        var signedManifest = manifest with { SignatureBase64Url = Sign(manifest, keys) };
         var finalAad = Encoding.UTF8.GetBytes(Canonical(signedManifest with { SignatureBase64Url = string.Empty }));
 
         var ciphertext = new byte[plaintext.Length];
@@ -86,7 +85,7 @@ public sealed class OfflinePackageCryptoService : IOfflinePackageCryptoService
             var wrapNonce = RandomNumberGenerator.GetBytes(NonceBytes);
             var wrappedCiphertext = new byte[KeyBytes];
             var wrappedTag = new byte[TagBytes];
-            using (var aes = new AesGcm(_wrappingKey, TagBytes)) aes.Encrypt(wrapNonce, packageKey, wrappedCiphertext, wrappedTag, finalAad);
+            using (var aes = new AesGcm(keys.WrappingKey, TagBytes)) aes.Encrypt(wrapNonce, packageKey, wrappedCiphertext, wrappedTag, finalAad);
             wrapped = wrapNonce.Concat(wrappedCiphertext).Concat(wrappedTag).ToArray();
         }
         else
@@ -101,32 +100,34 @@ public sealed class OfflinePackageCryptoService : IOfflinePackageCryptoService
             }
             catch (FormatException exception) { throw new CryptographicException("Invalid offline device public key", exception); }
         }
-        var releaseToken = SignRelease(signedManifest, B64(wrapped));
+        var releaseToken = SignRelease(signedManifest, B64(wrapped), keys);
 
         return new OfflineEncryptedPackage(signedManifest, B64(ciphertext), B64(tag), B64(wrapped), releaseToken);
     }
 
     public byte[] ReleaseKey(OfflineEncryptedPackage package, Guid expectedUserId, string expectedInstallationId, DateTime utcNow)
     {
+        var keys = EnsureKeys();
         var manifest = package.Manifest;
         if (!VerifyManifest(manifest) || manifest.UserId != expectedUserId || !CryptographicOperations.FixedTimeEquals(
                 Encoding.UTF8.GetBytes(manifest.InstallationId), Encoding.UTF8.GetBytes(expectedInstallationId)) ||
             utcNow >= manifest.ExpiresAt || !CryptographicOperations.FixedTimeEquals(
-                Encoding.UTF8.GetBytes(package.KeyReleaseToken), Encoding.UTF8.GetBytes(SignRelease(manifest, package.WrappedKeyBase64Url))))
+                Encoding.UTF8.GetBytes(package.KeyReleaseToken), Encoding.UTF8.GetBytes(SignRelease(manifest, package.WrappedKeyBase64Url, keys))))
             throw new UnauthorizedAccessException("Offline key release denied");
 
         var wrapped = FromB64(package.WrappedKeyBase64Url);
         if (wrapped.Length != NonceBytes + KeyBytes + TagBytes) throw new CryptographicException("Invalid wrapped key");
         var finalAad = Encoding.UTF8.GetBytes(Canonical(manifest with { SignatureBase64Url = string.Empty }));
         var key = new byte[KeyBytes];
-        using var aes = new AesGcm(_wrappingKey, TagBytes);
+        using var aes = new AesGcm(keys.WrappingKey, TagBytes);
         aes.Decrypt(wrapped.AsSpan(0, NonceBytes), wrapped.AsSpan(NonceBytes, KeyBytes), wrapped.AsSpan(wrapped.Length - TagBytes, TagBytes), key, finalAad);
         return key;
     }
 
     public byte[] Decrypt(OfflineEncryptedPackage package, ReadOnlySpan<byte> packageKey)
     {
-        EnsureKeys();
+        // EnsureKeys (via VerifyManifest below) throws with the exact configuration
+        // key name before any decryption when key material is incomplete.
         if (packageKey.Length != KeyBytes || !VerifyManifest(package.Manifest)) throw new CryptographicException("Invalid package key or manifest");
         var nonce = FromB64(package.Manifest.NonceBase64Url);
         var ciphertext = FromB64(package.CiphertextBase64Url);
@@ -140,7 +141,7 @@ public sealed class OfflinePackageCryptoService : IOfflinePackageCryptoService
 
     public bool VerifyManifest(OfflinePackageManifest manifest)
     {
-        EnsureKeys();
+        var keys = EnsureKeys();
         if (manifest.PackageId == Guid.Empty || manifest.UserId == Guid.Empty || string.IsNullOrWhiteSpace(manifest.InstallationId) ||
             manifest.ContentVersion < 1 || manifest.ExpiresAt <= manifest.IssuedAt || manifest.ExpiresAt > manifest.IssuedAt.AddDays(7)) return false;
         try
@@ -149,31 +150,30 @@ public sealed class OfflinePackageCryptoService : IOfflinePackageCryptoService
             var expectedHash = B64(SHA256.HashData(Encoding.UTF8.GetBytes(Canonical(manifest with { AadHashBase64Url = string.Empty, SignatureBase64Url = string.Empty }))));
             var signature = FromB64(manifest.SignatureBase64Url);
             var canonical = Encoding.UTF8.GetBytes(Canonical(manifest with { SignatureBase64Url = string.Empty }));
-            var signatureIsValid = _manifestSigningPrivateKeyPkcs8 is null
-                ? CryptographicOperations.FixedTimeEquals(signature, HMACSHA256.HashData(_manifestKey, canonical))
-                : VerifyEcdsa(canonical, signature);
+            var signatureIsValid = keys.ManifestSigningPrivateKeyPkcs8 is null
+                ? CryptographicOperations.FixedTimeEquals(signature, HMACSHA256.HashData(keys.ManifestKey, canonical))
+                : VerifyEcdsa(canonical, signature, keys.ManifestSigningPrivateKeyPkcs8);
             return nonce.Length == NonceBytes && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(manifest.AadHashBase64Url), Encoding.UTF8.GetBytes(expectedHash)) && signatureIsValid;
         }
         catch (FormatException) { return false; }
     }
 
-    private string Sign(OfflinePackageManifest manifest)
+    private string Sign(OfflinePackageManifest manifest, Keys keys)
     {
         var canonical = Encoding.UTF8.GetBytes(Canonical(manifest with { SignatureBase64Url = string.Empty }));
-        if (_manifestSigningPrivateKeyPkcs8 is null) return B64(HMACSHA256.HashData(_manifestKey, canonical));
+        if (keys.ManifestSigningPrivateKeyPkcs8 is null) return B64(HMACSHA256.HashData(keys.ManifestKey, canonical));
         using var signer = ECDsa.Create();
-        signer.ImportPkcs8PrivateKey(_manifestSigningPrivateKeyPkcs8, out _);
+        signer.ImportPkcs8PrivateKey(keys.ManifestSigningPrivateKeyPkcs8, out _);
         return B64(signer.SignData(canonical, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence));
     }
 
-    private bool VerifyEcdsa(byte[] canonical, byte[] signature)
+    private static bool VerifyEcdsa(byte[] canonical, byte[] signature, byte[] manifestSigningPrivateKeyPkcs8)
     {
-        if (_manifestSigningPrivateKeyPkcs8 is null) return false;
         using var signer = ECDsa.Create();
-        signer.ImportPkcs8PrivateKey(_manifestSigningPrivateKeyPkcs8, out _);
+        signer.ImportPkcs8PrivateKey(manifestSigningPrivateKeyPkcs8, out _);
         return signer.VerifyData(canonical, signature, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
     }
-    private string SignRelease(OfflinePackageManifest manifest, string wrapped) => B64(HMACSHA256.HashData(_manifestKey, Encoding.UTF8.GetBytes($"{manifest.PackageId:N}|{manifest.UserId:N}|{manifest.InstallationId}|{manifest.ExpiresAt:O}|{wrapped}")));
+    private static string SignRelease(OfflinePackageManifest manifest, string wrapped, Keys keys) => B64(HMACSHA256.HashData(keys.ManifestKey, Encoding.UTF8.GetBytes($"{manifest.PackageId:N}|{manifest.UserId:N}|{manifest.InstallationId}|{manifest.ExpiresAt:O}|{wrapped}")));
     private static string Canonical(OfflinePackageManifest m) => JsonSerializer.Serialize(new { m.PackageId, m.UserId, m.InstallationId, m.ContentVersion, AllowedSubjects = m.AllowedSubjects.OrderBy(id => id), m.IssuedAt, m.ExpiresAt, m.NonceBase64Url, m.AadHashBase64Url }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
     private static byte[]? ReadOptionalPrivateKey(string? value)
     {
