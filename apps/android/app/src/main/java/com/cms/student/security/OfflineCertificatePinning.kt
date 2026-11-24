@@ -12,7 +12,7 @@ import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 /**
- * Batch 2 optional HTTPS certificate pinning hook for the native offline clients.
+ * Batch 2 HTTPS certificate pinning hook for the native offline clients.
  *
  * Pins are SPKI SHA-256 hashes (the same format used by student-web/ops tooling),
  * supplied through `BuildConfig.OFFLINE_API_SPKI_PINS_BASE64` as a comma-separated
@@ -26,6 +26,13 @@ import javax.net.ssl.X509TrustManager
  * domains keep working; non-empty = enforced fail-closed on top of normal system
  * CA validation. Ops supplies production pins at release time — pins are public
  * hashes of the server public key, never secrets.
+ *
+ * D-PIN closure (2026-11-24): store/release pipelines build with
+ * `-POFFLINE_API_SPKI_PINS_MANDATORY=true`, which fails the release build at
+ * task-graph time when the pin set is empty; the runtime backstop is
+ * [AndroidOfflineBuildConfiguration.enforcePins]. Debug/dev builds keep the
+ * optional behavior (empty = system trust) unless pins are explicitly set.
+ * Pin extraction and rotation-with-overlap live in docs/security/CERTIFICATE-PINNING.md.
  *
  * To compute a pin for a host:
  * `openssl s_client -connect host:443 </dev/null 2>/dev/null | openssl x509 -pubkey -noout \
