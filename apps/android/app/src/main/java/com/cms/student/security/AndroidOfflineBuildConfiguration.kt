@@ -18,6 +18,26 @@ object AndroidOfflineBuildConfiguration {
         offlineUrl.trim().ifBlank { fallbackUrl.trim() }
 
     /**
+     * D-PIN closure (debt register, 2026-11-24): parses the SPKI pin set for the
+     * native HTTPS clients and fails closed when pinning is mandatory but the set
+     * is empty. Store/release pipelines build with OFFLINE_API_SPKI_PINS_MANDATORY=true;
+     * gradle already refuses release variants with an empty mandatory pin set — this
+     * is the runtime backstop so a tampered or hand-wired configuration can never
+     * degrade a mandatory-pinning build into system-trust-only native HTTPS.
+     * Malformed entries still fail loudly at parse time (IllegalArgumentException).
+     */
+    fun enforcePins(mandatory: Boolean, pinsBase64: String): Set<String> {
+        val pins = OfflineCertificatePinning.parsePins(pinsBase64)
+        if (mandatory && pins.isEmpty()) {
+            throw IllegalStateException(
+                "Mandatory certificate pinning is enabled but OFFLINE_API_SPKI_PINS_BASE64 is empty — " +
+                "failing closed (D-PIN); supply SPKI SHA-256 pins or unset OFFLINE_API_SPKI_PINS_MANDATORY"
+            )
+        }
+        return pins
+    }
+
+    /**
      * Builds the trust configuration from BuildConfig values. Fail-closed: when
      * [enabled] is true, a blank effective API URL, signing key, or alias throws
      * rather than degrading into a half-trusted runtime (gradle already refuses

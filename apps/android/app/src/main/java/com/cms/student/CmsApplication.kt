@@ -22,7 +22,6 @@ import com.cms.student.security.OfflineRuntimeCoordinator
 import com.cms.student.security.OfflineSession
 import com.cms.student.security.OfflineTransportException
 import com.cms.student.security.OfflineTrustConfiguration
-import com.cms.student.security.OfflineCertificatePinning
 import com.cms.student.security.TrustedOfflineVerifierFactory
 import com.cms.student.session.EncryptedInstallationIdStore
 import com.cms.student.session.EncryptedTokenStore
@@ -56,14 +55,23 @@ class CmsApplication : Application() {
     private val tokenStore: TokenStore by lazy { EncryptedTokenStore(this) }
     private val sessionManager by lazy { NativeSessionManager(tokenStore) { mediaCacheService.wipe() } }
     @Volatile private var sessionVerifiedThisProcess = false
+    /**
+     * D-PIN (debt closure, 2026-11-24): the SPKI pin set parsed ONCE for every
+     * native HTTPS client (session/offline + media). Fail-closed at first use when
+     * mandatory pinning is compiled in but the set is empty — the runtime backstop
+     * behind the gradle release gate (see AndroidOfflineBuildConfiguration.enforcePins).
+     */
+    private val apiCertificatePins: Set<String> by lazy {
+        AndroidOfflineBuildConfiguration.enforcePins(
+            BuildConfig.OFFLINE_API_SPKI_PINS_MANDATORY,
+            BuildConfig.OFFLINE_API_SPKI_PINS_BASE64
+        )
+    }
     private val apiClient: HttpsOfflinePackageClient? by lazy {
         AndroidOfflineBuildConfiguration
             .apiBaseUrl(BuildConfig.OFFLINE_API_BASE_URL, BuildConfig.API_BASE_URL)
             .takeIf(String::isNotBlank)?.let { baseUrl ->
-            HttpsOfflinePackageClient(
-                baseUrl,
-                OfflineCertificatePinning.parsePins(BuildConfig.OFFLINE_API_SPKI_PINS_BASE64)
-            )
+            HttpsOfflinePackageClient(baseUrl, apiCertificatePins)
         }
     }
 
@@ -167,7 +175,7 @@ class CmsApplication : Application() {
             fileStore = mediaFileStore,
             transport = HttpsMediaContentTransport(
                 baseApiUrl,
-                OfflineCertificatePinning.parsePins(BuildConfig.OFFLINE_API_SPKI_PINS_BASE64)
+                apiCertificatePins
             ) { activeSessionForMedia() },
             quota = CacheQuota(),
             progressBus = mediaProgressBus,

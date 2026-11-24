@@ -14,8 +14,10 @@ import javax.net.ssl.HttpsURLConnection
  * HTTPS-only implementation of every backend endpoint consumed by the Android Offline flow.
  * Callers must invoke it off the Android main thread. Tokens and envelopes are never logged.
  *
- * @param certificatePins optional SPKI SHA-256 pins (Batch 2); empty disables pinning so
- *   debug builds against placeholder domains keep working, non-empty enforces fail-closed.
+ * @param certificatePins SPKI SHA-256 pins (Batch 2); empty disables pinning so
+ *   debug builds against placeholder domains keep working, non-empty enforces
+ *   fail-closed. Release pipelines set OFFLINE_API_SPKI_PINS_MANDATORY=true so an
+ *   empty set fails the build + runtime backstop instead (D-PIN closure, 2026-11-24).
  */
 class HttpsOfflinePackageClient(
     baseApiUrl: String,

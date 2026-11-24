@@ -48,7 +48,7 @@ snapshot — some of its numbers are superseded here).
   -POFFLINE_KEYSTORE_ALIAS=cms.offline.package.key
 ```
 - Any missing value → `GradleException` ("failing closed"); HTTPS enforced; keys/URLs come from `-P` flags, CI variables, or a gitignored gradle properties file. No private key ever enters the repo or the APK.
-- Certificate pins stay **optional** (`-POFFLINE_API_SPKI_PINS_BASE64`) — DEBT `D-PIN`.
+- Certificate pins: store/release builds pass `-POFFLINE_API_SPKI_PINS_MANDATORY=true -POFFLINE_API_SPKI_PINS_BASE64=sha256/...,sha256/...` (fail-closed on an empty set; debug stays pin-optional) — D-PIN **closed** 2026-11-24, see `docs/security/CERTIFICATE-PINNING.md` for extraction, CI usage, and the rotation-overlap procedure.
 - Without the flag the build is identical to the historical Batch-4 build: packages disabled, media cache fully functional.
 
 **Verification of fail-closed:** run the command above minus any one value — the build must refuse. Runtime backstop: `AndroidOfflineBuildConfiguration.trustConfiguration` throws on enabled-but-incomplete (unit-tested).
@@ -72,7 +72,7 @@ snapshot — some of its numbers are superseded here).
 
 - **Temp decrypt-for-view**: PDF/video/audio openers decrypt into an app-private temp file deleted in `onDestroy`; a force-kill mid-view may leave the temp file until the OS clears the cache dir. FLAG_SECURE blocks screenshots/recents only — **it is not DRM** and makes no promise against recording, root, or an external camera (DEBT `D-ABSURD`).
 - **Revocation latency** under expiry-bound offline rights: revocation takes effect at the next online contact (accepted; see §4).
-- **No pinning by default** (DEBT `D-PIN`); Play Integrity is still a stub (`NOT_CONFIGURED`).
+- **Pinning is mandatory-capable but off by default**: the repo default keeps pins optional for debug/dev; store/release pipelines must build with `OFFLINE_API_SPKI_PINS_MANDATORY=true` (fail-closed) — D-PIN **closed** 2026-11-24, residual: a release pipeline that forgets the mandatory flag ships system-trust-only (pipeline discipline). Play Integrity is still a stub (`NOT_CONFIGURED`).
 - WebView DOM-storage tokens are not file-encrypted (DEBT `D-JS-AUTH`).
 - The server never learns which library files a device has cached (downloads are stateless + audited); the ledger exists for question packages only.
 

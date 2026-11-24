@@ -44,6 +44,28 @@ val apiSpkiPinsBase64 = providers.gradleProperty("OFFLINE_API_SPKI_PINS_BASE64")
     .orElse("").get().trim()
     .also { requirePinList("OFFLINE_API_SPKI_PINS_BASE64", it) }
 
+// D-PIN closure (debt register, 2026-11-24): MANDATORY pinning for store/release
+// builds. The repo default is OFF (debug/dev keeps the optional-pins behavior:
+// empty = system trust only); the release pipeline opts in with
+// -POFFLINE_API_SPKI_PINS_MANDATORY=true. When ON, any release-variant task with
+// an EMPTY pin set fails closed at task-graph time — a store build must never
+// silently fall back to system trust alone. The runtime backstop is
+// AndroidOfflineBuildConfiguration.enforcePins (throws on mandatory + empty).
+// Rotation: keep old + new pins OVERLAPPING in the set during key rotation —
+// see docs/security/CERTIFICATE-PINNING.md.
+val apiSpkiPinsMandatory = providers.gradleProperty("OFFLINE_API_SPKI_PINS_MANDATORY")
+    .orElse("").get().trim().lowercase() in setOf("true", "1", "yes")
+gradle.taskGraph.whenReady {
+    if (apiSpkiPinsMandatory && apiSpkiPinsBase64.isEmpty() &&
+        allTasks.any { it.project == project && it.name.contains("Release", ignoreCase = true) }) {
+        throw GradleException(
+            "OFFLINE_API_SPKI_PINS_MANDATORY=true requires a non-empty OFFLINE_API_SPKI_PINS_BASE64 " +
+            "pin set — refusing to build a release variant without certificate pinning (D-PIN, fail closed). " +
+            "See docs/security/CERTIFICATE-PINNING.md."
+        )
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Trusted offline (question packages) — Owner decision 2026-11-23.
 // Enablement is release-pipeline driven and FAILS CLOSED: the repo default is
@@ -149,7 +171,10 @@ android {
         buildConfigField("String", "STUDENT_WEB_BASE_URL", "\"$studentWebBaseUrl\"")
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         // Batch 2: optional SPKI SHA-256 pin set for the native offline clients (empty = off).
+        // D-PIN: release pipelines set OFFLINE_API_SPKI_PINS_MANDATORY=true so an empty
+        // set fails the release build instead of silently disabling pinning.
         buildConfigField("String", "OFFLINE_API_SPKI_PINS_BASE64", "\"$apiSpkiPinsBase64\"")
+        buildConfigField("boolean", "OFFLINE_API_SPKI_PINS_MANDATORY", apiSpkiPinsMandatory.toString())
     }
 
     val releaseSigningConfig = if (releaseSigningReady) {
