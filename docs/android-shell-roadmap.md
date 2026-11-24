@@ -244,12 +244,16 @@ A dead access token triggers ONE rotation via `/auth/refresh` before denying.
   document; atomic tmp-then-rename writes; app-private `filesDir/media-cache` (G6:
   no plaintext media at rest; openers decrypt transiently into an app-private temp
   file deleted on viewer close).
-- **Quota**: `CachePolicy.MAX_CACHE_BYTES` = 1 GiB; LRU eviction (by `lastAccessAt`)
-  on insert, never evicting in-flight/open ids; an un-trimmable plan refuses the
-  download (`quota`).
-- **Offline window**: `CachePolicy.CONFIRMATION_WINDOW_HOURS` = 72 — offline opens
-  require `lastConfirmedAt` within 72h; stale objects answer `denied_stale`. While
-  online, `openLocal` re-checks entitlement with a bounded (2.5s) HEAD through the
+- **Quota** (Owner decision 2026-11-23): `CachePolicy.MAX_CACHE_BYTES` = 5 GiB
+  (5_368_709_120 exact); LRU eviction (by `lastAccessAt`) on insert, never evicting
+  in-flight/open ids; an un-trimmable plan refuses the download (`quota`).
+- **Durable offline policy** (Owner decision 2026-11-23, supersedes the 72h-only
+  gate): offline opens are NO LONGER denied because hours passed. The ciphertext
+  stays openable until a logout/auth-rejection wipe, `clearCache`, or the
+  server-issued entitlement expiry captured at download
+  (`MediaCacheEntry.entitlementExpiresAt`) passes (`denied_stale`); entries without
+  stored expiry stay usable offline. While online, `openLocal` still re-checks
+  entitlement with a bounded (2.5s) HEAD through the
   same authorized+entitlement headers (owner lock 9).
 - **Wipe integration**: `NativeSessionManager.onTokensCleared` (fires on logout,
   auth rejection, refresh-401) wipes every encrypted media file + index synchronously
@@ -307,6 +311,28 @@ native routing.
 - student-web vitest: `native-cache.test.ts` (14) — inactive in browser, Batch-3-only
   shell degrades, throwing bridge fails closed, kind mapping incl. YouTube refusal,
   hints JSON, deny-message map, wait-loop outcomes (fake timers).
+
+## Offline program wave — Owner decisions 2026-11-23 (status: DONE, PRs #182–#186)
+
+Supersedes parts of Batch 4 above; full policy, enablement checklist, manual test
+plan and residual risks live in `docs/offline-program.md`; open engineering debts
+in `docs/security/OFFLINE-DEBT-REGISTER.md`.
+
+1. **Media cache**: quota 1 GiB → **5 GiB**; the 72h-only offline gate replaced by a
+   **durable policy** — ciphertext opens offline until logout/401 wipe or the
+   server-issued entitlement expiry stored per entry (`entitlementExpiresAt`);
+   online opens still re-check (PR #182).
+2. **Question packages**: trusted offline is **release-pipeline enabled and
+   fail-closed** (`OFFLINE_TRUSTED_CLIENT_IMPLEMENTED=true` + API URL + manifest
+   signing PUBLIC key + keystore alias; gradle refuses incomplete combos); offline
+   use is bound to the **server-issued manifest expiry** (the 15-minute window is
+   retired) with ACTIVE-confirmation + revocation preserved (PR #183).
+3. **Student UX**: offline panel storage meter (used / 5 GiB), Arabic honesty note
+   (YouTube + course episodes never offline-cacheable), explicit disabled-vs-ready
+   package messaging in the Android console (PR #184).
+4. **Admin**: `AdminOfflineController` (lifecycle-only visibility + idempotent
+   revoke, SuperAdmin) + admin-web «الحزم دون اتصال» center with confirm-gated
+   revocation (PR #185). Docs + debt register (PR #186).
 
 ## Batch 5 — next (ONLY when Owner asks)
 
