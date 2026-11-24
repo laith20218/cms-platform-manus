@@ -82,6 +82,35 @@ if [ -z "$APK_PATH" ]; then
     exit 1
 fi
 
+# RC1 — identify the artifact so a build can never ship mislabeled: applicationId +
+# versionName/versionCode are read from the app build script, and when aapt is
+# reachable (ANDROID_HOME or apps/android/local.properties sdk.dir=...) the values
+# are VERIFIED against the built APK itself (dump badging).
+APP_GRADLE="$REPO_ROOT/apps/android/app/build.gradle.kts"
+APP_ID="$(sed -nE 's/^[[:space:]]*applicationId = "([^"]+)".*/\1/p' "$APP_GRADLE" | head -1)"
+VERSION_NAME="$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' "$APP_GRADLE" | head -1)"
+VERSION_CODE="$(sed -nE 's/^[[:space:]]*versionCode = ([0-9]+).*/\1/p' "$APP_GRADLE" | head -1)"
+echo
+echo "Identity: applicationId=${APP_ID:-?} versionName=${VERSION_NAME:-?} versionCode=${VERSION_CODE:-?}"
+
+SDK_DIR="${ANDROID_HOME:-}"
+if [ -z "$SDK_DIR" ] && [ -f "$REPO_ROOT/apps/android/local.properties" ]; then
+    SDK_DIR="$(sed -nE 's/^sdk\.dir=(.*)$/\1/p' "$REPO_ROOT/apps/android/local.properties" | head -1)"
+fi
+AAPT=""
+if [ -n "$SDK_DIR" ] && [ -d "$SDK_DIR/build-tools" ]; then
+    AAPT="$(ls "$SDK_DIR"/build-tools/*/aapt 2>/dev/null | sort -V | tail -1)"
+fi
+if [ -n "$AAPT" ] && [ -x "$AAPT" ]; then
+    BADGING="$("$AAPT" dump badging "$APK_PATH" 2>/dev/null | sed -n '1p')"
+    echo "Verified (aapt): $BADGING"
+    if [ -n "$APP_ID" ] && [ -n "$BADGING" ] && ! printf '%s' "$BADGING" | grep -q "name='$APP_ID'"; then
+        echo "WARNING: the APK's packaged applicationId does not match $APP_ID — do not distribute this build." >&2
+    fi
+else
+    echo "Note: aapt not found — identity above is from build.gradle.kts (not verified against the APK)."
+fi
+
 echo
 echo "APK ready: $APK_PATH"
 case "$APK_PATH" in
