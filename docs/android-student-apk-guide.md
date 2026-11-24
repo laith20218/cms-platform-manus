@@ -119,7 +119,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - **أول تشغيل يحتاج اتصال إنترنت**: التطبيق يفتح واجهة الطالب مباشرة، وعند تعذر الاتصال تظهر رسالة خطأ عربية صريحة مع زر إعادة محاولة — لا يوجد وضع «دون اتصال» زائف.
 - **تسجيل الدخول يجري داخل التطبيق** (WebView آمن يستضيف واجهة الطالب) بنفس حساب الطالب المعتاد.
 - **التحميل دون اتصال يحتاج جلسة أصلية**: قد يُطلب من الطالب تسجيل دخول أصلي (Native) عبر زر الدخول المحلي في فهرس «وضع بدون إنترنت» — نفس البريد وكلمة المرور اللذين يستخدمهما في الواجهة — قبل أن يصبح تنزيل الوسائط للاستخدام دون اتصال متاحاً.
-- مساحة التخزين المشفّر دون اتصال محدودة (1 GiB مع إزالة تلقائية للأقدم)، والمحتوى المنزّل يتطلب تأكيداً حديثاً (خلال 72 ساعة) كي يُفتح دون اتصال.
+- سعة التخزين المشفّر دون اتصال **5 GiB** مع إزالة تلقائية للأقدم (LRU)، والمحتوى المحفوظ يظل قابلاً للفتح دون اتصال حتى **انتهاء الصلاحية الصادرة عن الخادم** (entitlement expiry) أو تسجيل الخروج أو الإبطال — لا يوجد حد زمني ثابت بالساعات (قرار المالك 2026-11-23؛ انظر `docs/offline-program.md`).
 
 ## 9) السلامة وأسرار التوقيع
 
@@ -138,6 +138,27 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | Play Protect يحذّر عند التثبيت | متوقع مع التحميل الجانبي — اختر «تثبيت على أي حال» |
 | الهاتف يرفض التثبيت | فعّل «تثبيت تطبيقات غير معروفة» للتطبيق الذي تفتح منه الملف (القسم 7) |
 | `app-release-unsigned.apk` لا يُثبّت | Release غير موقّعة — اتبع `docs/android-signing-notes.md` ثم أعد البناء |
+
+## 11) قائمة تجهيز إصدار المرشح RC1 — Release Candidate
+
+قائمة مرتّبة لبناء حزمة قابلة للتوزيع على مجموعة الطلاب (Pilot). القائمة الكاملة
+للإطلاق (الخادم + الويب + الأندرويد + التراجع) في `docs/RELEASE-CANDIDATE-CHECKLIST.md`.
+
+1. **سجّل SHA الالتزام**: `git rev-parse HEAD` من فرع `main` — يُدوَّن مع الحزمة (راجع القائمة الكاملة، البند A).
+2. **ابنِ Debug بروابط الإنتاج أولاً** (تحقق سريع من الروابط وتسجيل الدخول على هاتف واحد):
+   ```bash
+   scripts/android-assemble-student-apk.sh https://student.your-domain.com https://api.your-domain.com debug
+   ```
+   الناتج: `apps/android/app/build/outputs/apk/debug/app-debug.apk`.
+3. **تحقق من هوية الحزمة**: يطبع السكربت `applicationId` و`versionName` و`versionCode` ويتحقق منها عبر `aapt dump badging` عند توفر SDK — يجب أن تكون `com.cms.student` (والإصدار المتوقع، مثلاً `0.1.0` / `1`).
+4. **ابنِ Release موقّعة للتوزيع**: أنشئ مفتاحك خارج المستودع واضبط `apps/android/keystore.properties` (محجوب في git — القالب `keystore.properties.example`)، ثم:
+   ```bash
+   scripts/android-assemble-student-apk.sh https://student.your-domain.com https://api.your-domain.com release
+   ```
+   الناتج: `apps/android/app/build/outputs/apk/release/app-release.apk` (موقّعة وقابلة للتثبيت). لا أسرار في المستودع إطلاقاً (`docs/android-signing-notes.md`).
+5. **ملاحظة تثبيت الشهادات (للنشر في المتجر لاحقاً فقط)**: نشر Google Play يستلزم تشغيل التثبيت الإلزامي للشهادات — `-POFFLINE_API_SPKI_PINS_MANDATORY=true` مع مجموعة pins حقيقية (أسرار خط الإنتاج، لا توضع في المستودع). للتوزيع الجانبي في RC1 تبقى الاختيارية. التفاصيل: `docs/security/CERTIFICATE-PINNING.md`.
+6. **حزم الأسئلة دون اتصال متوقفة افتراضياً** (`OFFLINE_TRUSTED_CLIENT_IMPLEMENTED` يساوي OFF في الإعدادات الافتراضية للمستودع) — كاش المكتبة المشفّر («وضع بدون إنترنت») يعمل بلا علم؛ لا تفعّل الحزم إلا بقرار المالك وبالإعداد الكامل (`docs/offline-program.md` §3).
+7. **نفّذ فحص التدخين RC1** على هاتف حقيقي واحد على الأقل قبل التوزيع: `docs/RC1-SMOKE-TEST.md`، وسجّل النتيجة مع SHA الحزمة.
 
 ---
 
@@ -158,8 +179,12 @@ cd apps/android && ./gradlew :app:assembleRelease \
   -PAPI_BASE_URL=https://api.your-domain.com
 # -> apps/android/app/build/outputs/apk/release/app-release.apk (signed)
 
-# Thin helper (validates HTTPS, prints the APK path)
+# Thin helper (validates HTTPS, prints the APK path + identity echo:
+# applicationId / versionName / versionCode, aapt-verified when available)
 scripts/android-assemble-student-apk.sh https://student.your-domain.com https://api.your-domain.com debug
+
+# RC1 build checklist (Arabic, ordered): §11 above + docs/RELEASE-CANDIDATE-CHECKLIST.md
+# RC1 device smoke test: docs/RC1-SMOKE-TEST.md
 
 # Unit tests
 cd apps/android && ./gradlew :app:testDebugUnitTest
