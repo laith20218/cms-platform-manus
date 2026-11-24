@@ -3,6 +3,7 @@ package com.cms.student.bridge
 import android.webkit.JavascriptInterface
 import com.cms.student.media.CachePolicy
 import com.cms.student.media.CacheStatus
+import com.cms.student.session.TokenSeal
 import com.cms.student.shell.ShellUrlPolicy
 
 /**
@@ -25,6 +26,8 @@ import com.cms.student.shell.ShellUrlPolicy
  * window.CmsNative.cancelDownload(id)   // cancel an in-flight download
  * window.CmsNative.removeCached(id)     // delete one cached object
  * window.CmsNative.clearCache()         // delete every cached object
+ * window.CmsNative.sealForLocalPersistence(blob)     // D-JS-AUTH: AES-GCM seal of a page-owned blob
+ * window.CmsNative.unsealForLocalPersistence(sealed)  // D-JS-AUTH: inverse of the seal
  * ```
  *
  * Origin guard (mandatory): every method body resolves the WebView's current URL via
@@ -46,6 +49,14 @@ import com.cms.student.shell.ShellUrlPolicy
  * student's content, cannot exfiltrate a token, cannot execute strings, and cannot
  * drive navigation. `openLocal` only opens viewers for ids the cache already holds.
  *
+ * D-JS-AUTH (debt closure, 2026-11-24): the two seal methods handle OPAQUE BLOBS
+ * the page already owns (the remember-me token pair) so durable WebView storage
+ * holds AndroidKeyStore-bound ciphertext instead of plaintext tokens. They do NOT
+ * widen token exposure: the page supplies the plaintext it already holds, and
+ * sealing protects against at-rest extraction (disk dump / backup) only — code
+ * running in the page can always read its own live session (see
+ * docs/security/PROTECTION-LIMITS.md).
+ *
  * Forbidden and absent: token accessors (getAccessToken/getRefreshToken), password
  * APIs, raw filesystem paths, arbitrary URL fetch (the native side derives the
  * allowlisted API content URL itself from the UUID — a JS-supplied URL is never
@@ -56,7 +67,8 @@ class CmsJsBridge(
     private val currentUrl: () -> String?,
     private val installationId: () -> String,
     private val appVersion: () -> String,
-    private val cacheApi: CmsNativeCacheApi
+    private val cacheApi: CmsNativeCacheApi,
+    private val tokenSeal: TokenSeal
 ) {
 
     /**
@@ -132,6 +144,35 @@ class CmsJsBridge(
     fun clearCache(): String =
         if (isOriginAllowed()) guarded({ cacheApi.clearCache() }, CacheStatus.ERROR) else CacheStatus.DENIED_ORIGIN
 
+    // ===== D-JS-AUTH (debt closure, 2026-11-24) — remember-me token seal =====
+
+    /**
+     * Seals an opaque page-owned blob (the student-web remember-me token pair) for
+     * durable WebView storage: AES-256-GCM via AndroidKeyStore, envelope
+     * `v1:<base64(iv||ciphertext)>`. Empty string when the origin is not
+     * allowlisted, the input is blank/oversized, or the seal fails — the web side
+     * then keeps its pre-existing raw-storage behavior (sealing is best-effort).
+     */
+    @JavascriptInterface
+    fun sealForLocalPersistence(plaintext: String?): String =
+        if (isOriginAllowed()) {
+            if (plaintext.isNullOrEmpty() || plaintext.length > MAX_SEAL_PLAINTEXT_CHARS) ""
+            else guarded({ tokenSeal.seal(plaintext) ?: "" }, "")
+        } else ""
+
+    /**
+     * Inverse of [sealForLocalPersistence]: returns the plaintext of a blob sealed
+     * by this install's key, or "" when the origin is not allowlisted, the input is
+     * blank/oversized, or the blob was not sealed here / failed authentication.
+     * The web side only calls this for values it first saw with the `v1:` prefix.
+     */
+    @JavascriptInterface
+    fun unsealForLocalPersistence(sealed: String?): String =
+        if (isOriginAllowed()) {
+            if (sealed.isNullOrEmpty() || sealed.length > MAX_SEALED_CHARS) ""
+            else guarded({ tokenSeal.unseal(sealed) ?: "" }, "")
+        } else ""
+
     /** The bridge never propagates an exception to JS — every call degrades to [fallback]. */
     private inline fun guarded(action: () -> String, fallback: String): String =
         runCatching(action).getOrDefault(fallback)
@@ -142,5 +183,15 @@ class CmsJsBridge(
 
         /** Stable platform identifier returned by [getPlatform]. */
         const val PLATFORM = "android"
+
+        /**
+         * Seal input bounds. A token pair JSON is a few KiB (two JWTs); 16 KiB of
+         * plaintext / 32 KiB of envelope keeps the surface useless as a bulk
+         * encryption-oracle while never rejecting a legitimate token payload.
+         */
+        const val MAX_SEAL_PLAINTEXT_CHARS = 16 * 1024
+
+        /** Sealed envelope bound: base64 of (iv 12 + ct + tag 16) over the cap above, plus prefix slack. */
+        const val MAX_SEALED_CHARS = 32 * 1024
     }
 }

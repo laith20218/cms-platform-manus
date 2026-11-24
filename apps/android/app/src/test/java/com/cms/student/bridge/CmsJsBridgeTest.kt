@@ -4,6 +4,7 @@ import android.webkit.JavascriptInterface
 import com.cms.student.media.CachePolicy
 import com.cms.student.media.CacheStatus
 import com.cms.student.media.MediaKind
+import com.cms.student.session.TokenSeal
 import com.cms.student.shell.ShellUrlPolicy
 import java.util.UUID
 import org.junit.Assert.assertEquals
@@ -54,13 +55,39 @@ class CmsJsBridgeTest {
         override fun clearCache(): String = CacheStatus.CLEARED
     }
 
-    private fun bridge(currentUrl: () -> String?): CmsJsBridge =
+    /** D-JS-AUTH fakes: identity-style seal for round trips, plus failing/throwing variants. */
+    private val sealCalls = mutableListOf<String>()
+    private val fakeSeal = object : TokenSeal {
+        override fun seal(plaintext: String): String? {
+            sealCalls.add("seal:$plaintext")
+            return "v1:$plaintext"
+        }
+        override fun unseal(sealed: String): String? {
+            sealCalls.add("unseal:$sealed")
+            return sealed.removePrefix("v1:").takeIf { sealed.startsWith("v1:") }
+        }
+    }
+    private val failingSeal = object : TokenSeal {
+        override fun seal(plaintext: String): String? = null
+        override fun unseal(sealed: String): String? = null
+    }
+    private val throwingSeal = object : TokenSeal {
+        override fun seal(plaintext: String): String? = error("boom")
+        override fun unseal(sealed: String): String? = error("boom")
+    }
+
+    private fun bridge(
+        cacheApi: CmsNativeCacheApi = fakeCacheApi,
+        tokenSeal: TokenSeal = fakeSeal,
+        currentUrl: () -> String?
+    ): CmsJsBridge =
         CmsJsBridge(
             urlPolicy = policy,
             currentUrl = currentUrl,
             installationId = { installationId },
             appVersion = { appVersion },
-            cacheApi = fakeCacheApi
+            cacheApi = cacheApi,
+            tokenSeal = tokenSeal
         )
 
     @Test
@@ -110,8 +137,12 @@ class CmsJsBridgeTest {
             assertEquals("cancelDownload must be absent for '$url'", CacheStatus.ABSENT, bridge.cancelDownload("11111111-2222-4333-8444-555555555555"))
             assertEquals("removeCached must be absent for '$url'", CacheStatus.ABSENT, bridge.removeCached("11111111-2222-4333-8444-555555555555"))
             assertEquals("clearCache must be denied for '$url'", CacheStatus.DENIED_ORIGIN, bridge.clearCache())
+            // D-JS-AUTH: the seal must answer empty outside the allowlisted origin.
+            assertEquals("seal must be empty for '$url'", "", bridge.sealForLocalPersistence("token-blob"))
+            assertEquals("unseal must be empty for '$url'", "", bridge.unsealForLocalPersistence("v1:token-blob"))
         }
         assertTrue(cacheCalls.isEmpty())
+        assertTrue(sealCalls.isEmpty())
     }
 
     @Test
@@ -122,7 +153,8 @@ class CmsJsBridgeTest {
             currentUrl = { "https://app.cms.example.com/" },
             installationId = { installationId },
             appVersion = { appVersion },
-            cacheApi = fakeCacheApi
+            cacheApi = fakeCacheApi,
+            tokenSeal = fakeSeal
         )
         assertFalse(bridge.hasNativeShell())
         assertEquals("", bridge.getPlatform())
@@ -130,10 +162,12 @@ class CmsJsBridgeTest {
         assertEquals("", bridge.getInstallationId())
         assertEquals(CacheStatus.EMPTY_LIST_JSON, bridge.listCached())
         assertEquals(CacheStatus.DENIED_ORIGIN, bridge.clearCache())
+        assertEquals("", bridge.sealForLocalPersistence("token-blob"))
+        assertEquals("", bridge.unsealForLocalPersistence("v1:token-blob"))
     }
 
     @Test
-    fun `the js surface is exactly the eleven approved methods`() {
+    fun `the js surface is exactly the thirteen approved methods`() {
         val jsMethodNames = CmsJsBridge::class.java.methods
             .filter { it.isAnnotationPresent(JavascriptInterface::class.java) }
             .map { it.name }
@@ -142,10 +176,20 @@ class CmsJsBridgeTest {
             setOf(
                 "hasNativeShell", "getPlatform", "getAppVersion", "getInstallationId",
                 "listCached", "ensureLocal", "openLocal", "cacheStatus",
-                "cancelDownload", "removeCached", "clearCache"
+                "cancelDownload", "removeCached", "clearCache",
+                "sealForLocalPersistence", "unsealForLocalPersistence"
             ),
             jsMethodNames
         )
+        // D1 / D-JS-AUTH: no method may expose tokens, passwords, or native session
+        // material — the seal pair handles page-owned blobs only.
+        val forbidden = listOf(
+            "getAccessToken", "getRefreshToken", "getToken", "getTokens",
+            "getPassword", "getNativeSession", "setAccessToken", "setRefreshToken"
+        )
+        forbidden.forEach { name ->
+            assertFalse("bridge must never expose '$name'", jsMethodNames.contains(name))
+        }
     }
 
     @Test
@@ -193,7 +237,8 @@ class CmsJsBridgeTest {
             currentUrl = { "https://app.cms.example.com/" },
             installationId = { installationId },
             appVersion = { appVersion },
-            cacheApi = throwingCache
+            cacheApi = throwingCache,
+            tokenSeal = throwingSeal
         )
         assertEquals(CacheStatus.EMPTY_LIST_JSON, bridge.listCached())
         assertEquals(CacheStatus.ERROR, bridge.ensureLocal("11111111-2222-4333-8444-555555555555", "pdf", null))
@@ -202,5 +247,47 @@ class CmsJsBridgeTest {
         assertEquals(CacheStatus.ABSENT, bridge.cancelDownload("11111111-2222-4333-8444-555555555555"))
         assertEquals(CacheStatus.ABSENT, bridge.removeCached("11111111-2222-4333-8444-555555555555"))
         assertEquals(CacheStatus.ERROR, bridge.clearCache())
+        // A throwing seal degrades to empty strings, never an exception to JS.
+        assertEquals("", bridge.sealForLocalPersistence("token-blob"))
+        assertEquals("", bridge.unsealForLocalPersistence("v1:token-blob"))
+    }
+
+    // ------------------------------------------------------------------
+    // D-JS-AUTH (debt closure, 2026-11-24) — the remember-me token seal.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `seal and unseal round trip on the allowlisted origin`() {
+        val bridge = bridge { "https://app.cms.example.com/" }
+        val sealed = bridge.sealForLocalPersistence("""{"accessToken":"a","refreshToken":"r"}""")
+        assertEquals("v1:" + """{"accessToken":"a","refreshToken":"r"}""", sealed)
+        assertEquals("""{"accessToken":"a","refreshToken":"r"}""", bridge.unsealForLocalPersistence(sealed))
+    }
+
+    @Test
+    fun `seal failures degrade to the empty string so the web keeps its raw fallback`() {
+        val bridge = bridge(tokenSeal = failingSeal) { "https://app.cms.example.com/" }
+        assertEquals("", bridge.sealForLocalPersistence("token-blob"))
+        assertEquals("", bridge.unsealForLocalPersistence("v1:token-blob"))
+    }
+
+    @Test
+    fun `blank or oversized seal inputs never reach the seal`() {
+        val bridge = bridge { "https://app.cms.example.com/" }
+        assertEquals("", bridge.sealForLocalPersistence(null))
+        assertEquals("", bridge.sealForLocalPersistence(""))
+        assertEquals("", bridge.sealForLocalPersistence("x".repeat(CmsJsBridge.MAX_SEAL_PLAINTEXT_CHARS + 1)))
+        assertEquals("", bridge.unsealForLocalPersistence(null))
+        assertEquals("", bridge.unsealForLocalPersistence(""))
+        assertEquals("", bridge.unsealForLocalPersistence("v1:" + "x".repeat(CmsJsBridge.MAX_SEALED_CHARS + 1)))
+        assertTrue(sealCalls.isEmpty())
+    }
+
+    @Test
+    fun `seal input bounds accept any realistic token pair payload`() {
+        val bridge = bridge { "https://app.cms.example.com/" }
+        // Two long-lived JWTs are a few KiB each — 16 KiB of plaintext must pass.
+        val realisticPair = "x".repeat(CmsJsBridge.MAX_SEAL_PLAINTEXT_CHARS)
+        assertEquals("v1:$realisticPair", bridge.sealForLocalPersistence(realisticPair))
     }
 }
