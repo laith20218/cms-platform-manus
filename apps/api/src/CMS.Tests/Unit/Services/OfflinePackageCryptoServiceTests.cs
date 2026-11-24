@@ -113,4 +113,64 @@ public sealed class OfflinePackageCryptoServiceTests
         config["Features:OfflineManifestImplemented"].Should().BeNull();
         config["Features:OfflineKeyReleaseImplemented"].Should().BeNull();
     }
+
+    // Wave O (offline go-live) — key material is validated LAZILY so the
+    // handlers' explicit 403 «التنزيل دون اتصال معطّل…» wins whenever
+    // Features:Offline* is off, instead of a constructor 500 (observed live on
+    // Render 2026-11-24). Fail-closed is preserved: every public entry that
+    // needs key material throws with the exact configuration key name.
+
+    private static OfflinePackageCryptoService CreateBareService(params (string Key, string? Value)[] settings)
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>(settings.Select(s => new KeyValuePair<string, string?>(s.Key, s.Value))))
+        .Build();
+        return new OfflinePackageCryptoService(config);
+    }
+
+    [Fact]
+    public void Constructor_WithoutAnyKeyMaterial_NoLongerThrows()
+    {
+        // The Render-deployed state today: Features:Offline* off, Security:Offline:* absent.
+        // Constructing the handler graph must not crash; the handlers answer the explicit 403.
+        var act = () => CreateBareService();
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Encrypt_WithMissingKeyWrappingKey_FailsClosedWithExactKeyName()
+    {
+        var service = CreateBareService(
+            ("Security:Offline:ManifestSigningKey", Convert.ToBase64String(Enumerable.Range(33, 32).Select(i => (byte)i).ToArray())));
+        var act = () => service.Encrypt(UserId, Device, 1, new[] { SubjectId }, DateTime.UtcNow, DateTime.UtcNow.AddHours(1), new byte[] { 1 });
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("Security:Offline:KeyWrappingKey must be configured");
+    }
+
+    [Fact]
+    public void VerifyManifest_WithMissingKeyMaterial_FailsClosedWithExactKeyName()
+    {
+        var service = CreateBareService();
+        var act = () => service.VerifyManifest(new OfflinePackageManifest(
+            Guid.NewGuid(), UserId, Device, 1, new[] { SubjectId },
+            DateTime.UtcNow, DateTime.UtcNow.AddHours(1), "AAAA", "AAAA", "AAAA"));
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("Security:Offline:KeyWrappingKey must be configured");
+    }
+
+    [Fact]
+    public void LazyValidation_StillRoundTripsWhenKeysArePresent()
+    {
+        // Same happy path as Encrypt_UsesAes256GcmAndRoundTripsAfterBoundKeyRelease but through
+        // the lazy path — proves deferring validation does not weaken the crypto contract.
+        using var manifestSigner = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var service = CreateBareService(
+            ("Security:Offline:KeyWrappingKey", Convert.ToBase64String(Enumerable.Range(1, 32).Select(i => (byte)i).ToArray())),
+            ("Security:Offline:ManifestSigningKey", Convert.ToBase64String(Enumerable.Range(33, 32).Select(i => (byte)i).ToArray())),
+            ("Security:Offline:ManifestSigningPrivateKeyPkcs8", Convert.ToBase64String(manifestSigner.ExportPkcs8PrivateKey())));
+        var issued = DateTime.UtcNow.AddMinutes(-1);
+        var package = service.Encrypt(UserId, Device, 2, new[] { SubjectId }, issued, issued.AddHours(2), Encoding.UTF8.GetBytes("lazy-key-content"));
+        var key = service.ReleaseKey(package, UserId, Device, DateTime.UtcNow);
+        service.Decrypt(package, key).Should().Equal(Encoding.UTF8.GetBytes("lazy-key-content"));
+    }
 }

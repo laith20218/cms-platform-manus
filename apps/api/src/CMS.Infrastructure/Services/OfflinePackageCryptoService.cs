@@ -11,15 +11,40 @@ public sealed class OfflinePackageCryptoService : IOfflinePackageCryptoService
     private const int KeyBytes = 32;
     private const int NonceBytes = 12;
     private const int TagBytes = 16;
-    private readonly byte[] _wrappingKey;
-    private readonly byte[] _manifestKey;
-    private readonly byte[]? _manifestSigningPrivateKeyPkcs8;
+    private readonly string? _wrappingKeyValue;
+    private readonly string? _manifestKeyValue;
+    private readonly string? _manifestSigningPrivateKeyPkcs8Value;
+    private byte[]? _wrappingKey;
+    private byte[]? _manifestKey;
+    private byte[]? _manifestSigningPrivateKeyPkcs8;
 
     public OfflinePackageCryptoService(IConfiguration configuration)
     {
-        _wrappingKey = ReadKey(configuration["Security:Offline:KeyWrappingKey"], "Security:Offline:KeyWrappingKey");
-        _manifestKey = ReadKey(configuration["Security:Offline:ManifestSigningKey"], "Security:Offline:ManifestSigningKey");
-        _manifestSigningPrivateKeyPkcs8 = ReadOptionalPrivateKey(configuration["Security:Offline:ManifestSigningPrivateKeyPkcs8"]);
+        // Wave O (offline go-live) — key material is validated LAZILY, on first
+        // cryptographic use, instead of at construction. Reason (observed live
+        // on Render 2026-11-24): this scoped service is constructor-injected
+        // into the offline handlers, so with Features:Offline* off AND
+        // Security:Offline:* absent, ANY request to /api/v1/offline/* crashed
+        // at handler construction with "Security:Offline:KeyWrappingKey must be
+        // configured" — a generic HTTP 500 that hid the handlers' explicit 403
+        // «التنزيل دون اتصال معطّل…» (EnsureOfflineIsExplicitlyEnabled).
+        // Lazy validation keeps fail-closed semantics — nothing is encrypted,
+        // released, decrypted or verified without complete valid key material —
+        // while the explicit disabled answer wins whenever the feature is off.
+        // Misconfiguration with the feature ON still fails loudly, with the
+        // exact configuration key name.
+        _wrappingKeyValue = configuration["Security:Offline:KeyWrappingKey"];
+        _manifestKeyValue = configuration["Security:Offline:ManifestSigningKey"];
+        _manifestSigningPrivateKeyPkcs8Value = configuration["Security:Offline:ManifestSigningPrivateKeyPkcs8"];
+    }
+
+    /// <summary>Parses and validates key material on first cryptographic use (idempotent). Throws with the exact configuration key name when incomplete or invalid.</summary>
+    private void EnsureKeys()
+    {
+        if (_wrappingKey is null) _wrappingKey = ReadKey(_wrappingKeyValue, "Security:Offline:KeyWrappingKey");
+        if (_manifestKey is null) _manifestKey = ReadKey(_manifestKeyValue, "Security:Offline:ManifestSigningKey");
+        if (_manifestSigningPrivateKeyPkcs8 is null && !string.IsNullOrWhiteSpace(_manifestSigningPrivateKeyPkcs8Value))
+            _manifestSigningPrivateKeyPkcs8 = ReadOptionalPrivateKey(_manifestSigningPrivateKeyPkcs8Value);
     }
 
     public OfflineEncryptedPackage Encrypt(
@@ -32,6 +57,7 @@ public sealed class OfflinePackageCryptoService : IOfflinePackageCryptoService
         ReadOnlySpan<byte> plaintext,
         string? devicePublicKeySpki = null)
     {
+        EnsureKeys();
         if (userId == Guid.Empty || string.IsNullOrWhiteSpace(installationId)) throw new ArgumentException("Ownership is required");
         if (contentVersion < 1 || expiresAt <= issuedAt) throw new ArgumentException("Invalid package version or expiry");
         if (!string.IsNullOrWhiteSpace(devicePublicKeySpki) && _manifestSigningPrivateKeyPkcs8 is null)
@@ -100,6 +126,7 @@ public sealed class OfflinePackageCryptoService : IOfflinePackageCryptoService
 
     public byte[] Decrypt(OfflineEncryptedPackage package, ReadOnlySpan<byte> packageKey)
     {
+        EnsureKeys();
         if (packageKey.Length != KeyBytes || !VerifyManifest(package.Manifest)) throw new CryptographicException("Invalid package key or manifest");
         var nonce = FromB64(package.Manifest.NonceBase64Url);
         var ciphertext = FromB64(package.CiphertextBase64Url);
@@ -113,6 +140,7 @@ public sealed class OfflinePackageCryptoService : IOfflinePackageCryptoService
 
     public bool VerifyManifest(OfflinePackageManifest manifest)
     {
+        EnsureKeys();
         if (manifest.PackageId == Guid.Empty || manifest.UserId == Guid.Empty || string.IsNullOrWhiteSpace(manifest.InstallationId) ||
             manifest.ContentVersion < 1 || manifest.ExpiresAt <= manifest.IssuedAt || manifest.ExpiresAt > manifest.IssuedAt.AddDays(7)) return false;
         try
