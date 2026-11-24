@@ -1,11 +1,12 @@
 # Offline Program — سياسة العمل دون اتصال (Owner decisions 2026-11-23)
 
-State: **implemented on main** (PRs #182–#186). This document is the single
-pointer for the offline policy: what changed, the exact constants, how to enable
-question packages for a release, the admin entry points, the manual acceptance
-test, and the residual risks. Historical background: `android-shell-roadmap.md`
-(Batches 0–4) and `CMS-Android-Content-Session-Protection-Report.md` (a dated
-snapshot — some of its numbers are superseded here).
+State: **implemented on main** (PRs #182–#186; security debts closed by PRs
+#187–#189, see §7). This document is the single pointer for the offline policy:
+what changed, the exact constants, how to enable question packages for a release,
+the admin entry points, the manual acceptance test, and the residual risks.
+Historical background: `android-shell-roadmap.md` (Batches 0–4) and
+`CMS-Android-Content-Session-Protection-Report.md` (a dated snapshot — some of
+its numbers are superseded here).
 
 ## 1. The six locked owner decisions (as implemented)
 
@@ -70,12 +71,12 @@ snapshot — some of its numbers are superseded here).
 
 ## 6. Residual risks (honest)
 
-- **Temp decrypt-for-view**: PDF/video/audio openers decrypt into an app-private temp file deleted in `onDestroy`; a force-kill mid-view may leave the temp file until the OS clears the cache dir. FLAG_SECURE blocks screenshots/recents only — **it is not DRM** and makes no promise against recording, root, or an external camera (DEBT `D-ABSURD`).
+- **Temp decrypt-for-view**: PDF/video/audio openers decrypt into an app-private temp file deleted in `onDestroy`; a force-kill mid-view may leave the temp file until the OS clears the cache dir. FLAG_SECURE blocks screenshots/recents only — **it is not DRM** and makes no promise against recording, root, or an external camera; the limits are formalized in `docs/security/PROTECTION-LIMITS.md` (DEBT `D-ABSURD` **closed** 2026-11-24).
 - **Revocation latency** under expiry-bound offline rights: revocation takes effect at the next online contact (accepted; see §4).
 - **Pinning is mandatory-capable but off by default**: the repo default keeps pins optional for debug/dev; store/release pipelines must build with `OFFLINE_API_SPKI_PINS_MANDATORY=true` (fail-closed) — D-PIN **closed** 2026-11-24, residual: a release pipeline that forgets the mandatory flag ships system-trust-only (pipeline discipline). Play Integrity is still a stub (`NOT_CONFIGURED`).
-- WebView DOM-storage tokens are not file-encrypted (DEBT `D-JS-AUTH`).
+- WebView DOM-storage remember-me tokens are sealed at rest inside the shell (AndroidKeyStore `v1:` envelopes via the origin-guarded bridge) — D-JS-AUTH **closed** 2026-11-24; residual: shell-only (browsers/pre-upgrade shells keep raw storage, best-effort) and at-rest only, never vs. code already running in the page.
 - The server never learns which library files a device has cached (downloads are stateless + audited); the ledger exists for question packages only.
 
 ## 7. Debt register
 
-See `docs/security/OFFLINE-DEBT-REGISTER.md` — `D-PIN`, `D-JS-AUTH`, `D-ABSURD`, all OPEN, deliberately out of scope for this program.
+See `docs/security/OFFLINE-DEBT-REGISTER.md` — `D-PIN`, `D-JS-AUTH`, `D-ABSURD`: all **CLOSED** 2026-11-24 (PRs #187, #188, #189) with residual notes; protection limits are formalized in `docs/security/PROTECTION-LIMITS.md`.
