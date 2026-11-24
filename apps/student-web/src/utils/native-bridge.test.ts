@@ -4,6 +4,10 @@ import {
   getNativeInstallationId,
   getNativePlatform,
   hasNativeShell,
+  isSealedValue,
+  isTokenSealAvailable,
+  sealForLocalPersistence,
+  unsealForLocalPersistence,
 } from './native-bridge';
 import { getOrCreateInstallationId } from '@/utils';
 
@@ -21,6 +25,15 @@ function installNativeBridge(overrides: Record<string, unknown> = {}): void {
 
 function removeNativeBridge(): void {
   delete (globalThis as unknown as MutableGlobal).CmsNative;
+}
+
+/** D-JS-AUTH fixture: a fake seal shaped like the real AndroidKeyStore envelope. */
+function installSealingBridge(overrides: Record<string, unknown> = {}): void {
+  installNativeBridge({
+    sealForLocalPersistence: (plaintext: string) => `v1:${plaintext}`,
+    unsealForLocalPersistence: (sealed: string) => sealed.slice(3),
+    ...overrides,
+  });
 }
 
 describe('native shell bridge helper (Batch 3)', () => {
@@ -115,5 +128,55 @@ describe('native shell bridge helper (Batch 3)', () => {
 
     expect(installationId).toMatch(/^web-[a-f0-9]{32}$/i);
     expect(localStorage.getItem('cms-device-fingerprint')).toBe(installationId);
+  });
+});
+
+describe('native token seal helpers (D-JS-AUTH)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    removeNativeBridge();
+  });
+
+  afterEach(() => {
+    removeNativeBridge();
+    localStorage.clear();
+  });
+
+  it('reports the seal unavailable in a plain browser and on pre-upgrade shells', () => {
+    expect(isTokenSealAvailable()).toBe(false);
+    expect(sealForLocalPersistence('blob')).toBeNull();
+    expect(unsealForLocalPersistence('v1:blob')).toBeNull();
+
+    // Old shell: four required methods, no seal pair — availability must stay false.
+    installNativeBridge();
+    expect(isTokenSealAvailable()).toBe(false);
+    expect(sealForLocalPersistence('blob')).toBeNull();
+    expect(unsealForLocalPersistence('v1:blob')).toBeNull();
+  });
+
+  it('seals and unseals page-owned blobs when the shell exposes the pair', () => {
+    installSealingBridge();
+
+    expect(isTokenSealAvailable()).toBe(true);
+    const sealed = sealForLocalPersistence('{"accessToken":"a","refreshToken":"r"}');
+    expect(sealed).toBe('v1:{"accessToken":"a","refreshToken":"r"}');
+    expect(unsealForLocalPersistence(sealed!)).toBe('{"accessToken":"a","refreshToken":"r"}');
+    expect(isSealedValue(sealed!)).toBe(true);
+    expect(isSealedValue('raw-legacy-token')).toBe(false);
+  });
+
+  it('treats empty answers, wrong envelopes, and throwing bridges as absent (fail closed)', () => {
+    installSealingBridge({ sealForLocalPersistence: () => '' });
+    expect(sealForLocalPersistence('blob')).toBeNull();
+
+    installSealingBridge({ sealForLocalPersistence: () => 'not-v1-envelope' });
+    expect(sealForLocalPersistence('blob')).toBeNull();
+
+    installSealingBridge({
+      sealForLocalPersistence: () => { throw new Error('keystore gone'); },
+      unsealForLocalPersistence: () => { throw new Error('keystore gone'); },
+    });
+    expect(sealForLocalPersistence('blob')).toBeNull();
+    expect(unsealForLocalPersistence('v1:blob')).toBeNull();
   });
 });

@@ -11,6 +11,19 @@
  *    browser restarts and Android WebView restarts (DOM storage is enabled in
  *    the shell), so an opted-in student resumes without re-login.
  *
+ * D-JS-AUTH (debt closure, 2026-11-24): inside the Android shell, the DURABLE
+ * (localStorage) token values are sealed via the origin-guarded native bridge
+ * (`CmsNative.sealForLocalPersistence` — AndroidKeyStore AES-256-GCM) before
+ * they are written, and unsealed on read. A disk dump of the WebView storage
+ * now sees `v1:` ciphertext rows instead of raw JWTs. Best-effort by design:
+ * in a plain browser, a pre-upgrade shell, or on any seal failure the store
+ * keeps its previous raw behavior — the seal NEVER blocks a login. Values
+ * without the `v1:` prefix are legacy raw tokens and pass through unchanged
+ * (they get re-sealed on the next write). The tab-scoped sessionStorage mirror
+ * stays raw by design: it dies with the tab and is the freshest copy. The
+ * seal protects tokens AT REST only — code running in the page always holds
+ * the live session (see docs/security/PROTECTION-LIMITS.md).
+ *
  * Server contract (unchanged, see SessionService.RotateAsync): refresh tokens
  * are single-use and every rotation opens a fresh 7-day sliding window, so a
  * remembered client that visits at least once a week keeps its session alive;
@@ -21,8 +34,10 @@
  *  - ONLY the tokens the app already uses are stored. The password is never
  *    persisted or logged.
  *  - clearSession() always wipes BOTH stores + the flag, so logout and forced
- *    session-expiry paths can never leave a stale copy behind.
+ *    session-expiry paths can never leave a stale copy behind — sealed or raw.
  */
+
+import { isSealedValue, sealForLocalPersistence, unsealForLocalPersistence } from '@/utils/native-bridge';
 
 export const ACCESS_TOKEN_KEY = 'cms-access-token';
 export const REFRESH_TOKEN_KEY = 'cms-refresh-token';
@@ -64,6 +79,29 @@ export function setRememberMe(enabled: boolean): void {
   }
 }
 
+/** Reads one token key from a store. Sealed (`v1:`) values are unsealed; legacy
+ *  raw values pass through so pre-upgrade installs keep their session. A sealed
+ *  value that cannot be unsealed (seal gone / tampered) reads as null — fail
+ *  closed, the caller treats it as "no session". */
+function readTokenFrom(storage: Storage, key: string): string | null {
+  let raw: string | null;
+  try {
+    raw = storage.getItem(key);
+  } catch {
+    return null;
+  }
+  if (raw === null) return null;
+  if (!isSealedValue(raw)) return raw;
+  return unsealForLocalPersistence(raw);
+}
+
+/** Writes one token key to a store, sealed via the native seal when available.
+ *  A failed seal falls back to the raw value (the pre-D-JS-AUTH behavior) —
+ *  sealing is best-effort and must never block a login. */
+function writeTokenTo(storage: Storage, key: string, token: string): void {
+  storage.setItem(key, sealForLocalPersistence(token) ?? token);
+}
+
 /** Read the active session. sessionStorage wins when both exist (the active
  *  tab's copy is always the freshest — it is where a non-persistent login
  *  lives and where rotations are mirrored for the current tab). */
@@ -71,8 +109,8 @@ export function readSession(): SessionTokens | null {
   let accessToken: string | null = null;
   let refreshToken: string | null = null;
   try {
-    accessToken = sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? localStorage.getItem(ACCESS_TOKEN_KEY);
-    refreshToken = sessionStorage.getItem(REFRESH_TOKEN_KEY) ?? localStorage.getItem(REFRESH_TOKEN_KEY);
+    accessToken = readTokenFrom(sessionStorage, ACCESS_TOKEN_KEY) ?? readTokenFrom(localStorage, ACCESS_TOKEN_KEY);
+    refreshToken = readTokenFrom(sessionStorage, REFRESH_TOKEN_KEY) ?? readTokenFrom(localStorage, REFRESH_TOKEN_KEY);
   } catch {
     return null;
   }
@@ -85,8 +123,10 @@ export function writeSession(tokens: SessionTokens, persistent: boolean): void {
   setRememberMe(persistent);
   try {
     if (persistent) {
-      localStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
-      localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+      // D-JS-AUTH: the durable copies are sealed; the tab-scoped mirror stays
+      // raw (fastest path, dies with the tab).
+      writeTokenTo(localStorage, ACCESS_TOKEN_KEY, tokens.accessToken);
+      writeTokenTo(localStorage, REFRESH_TOKEN_KEY, tokens.refreshToken);
       // Also mirror into sessionStorage: the active tab keeps a fast copy and
       // a mid-session flag flip can never strand the running tab.
       sessionStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
@@ -117,8 +157,9 @@ export function writeRotatedTokens(tokens: SessionTokens): void {
       sessionStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
     }
     if (persistent) {
-      localStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
-      localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+      // D-JS-AUTH: rotations re-seal the durable copies too.
+      writeTokenTo(localStorage, ACCESS_TOKEN_KEY, tokens.accessToken);
+      writeTokenTo(localStorage, REFRESH_TOKEN_KEY, tokens.refreshToken);
     }
   } catch {
     /* best-effort */

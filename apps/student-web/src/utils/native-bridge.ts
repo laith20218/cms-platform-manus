@@ -3,13 +3,16 @@
  * `window.CmsNative` injected by the hardened Android WebView shell
  * (apps/android `com.cms.student.bridge.CmsJsBridge`).
  *
- * The bridge surface is fixed to exactly four read-only methods; this module is the
- * ONLY place that touches it, so the contract stays auditable in one file:
+ * The bridge surface is fixed to exactly four read-only methods plus the
+ * optional D-JS-AUTH seal pair; this module is the ONLY place that touches it,
+ * so the contract stays auditable in one file:
  *
  *   window.CmsNative.hasNativeShell()    -> true
  *   window.CmsNative.getPlatform()       -> "android"
  *   window.CmsNative.getAppVersion()     -> versionName
  *   window.CmsNative.getInstallationId()  -> per-install device identity (UUID)
+ *   window.CmsNative.sealForLocalPersistence?(blob)      -> "v1:<base64>"  (D-JS-AUTH, optional)
+ *   window.CmsNative.unsealForLocalPersistence?(sealed)  -> blob           (D-JS-AUTH, optional)
  *
  * Everything is feature-detected: in a plain browser (no `window.CmsNative`) every
  * helper returns a falsy value and callers keep their existing web behavior, so the
@@ -24,6 +27,10 @@ export interface CmsNativeBridge {
   getPlatform(): string;
   getAppVersion(): string;
   getInstallationId(): string;
+  /** D-JS-AUTH (2026-11-24): present only in shells that ship the token seal. */
+  sealForLocalPersistence?(plaintext: string): string;
+  /** D-JS-AUTH (2026-11-24): inverse of sealForLocalPersistence. */
+  unsealForLocalPersistence?(sealed: string): string;
 }
 
 const NATIVE_BRIDGE_NAME = 'CmsNative';
@@ -35,6 +42,11 @@ const REQUIRED_METHODS: Array<keyof CmsNativeBridge> = [
 ];
 /** Sanity cap so a broken/hostile injection can never smuggle a huge value into headers. */
 const MAX_INSTALLATION_ID_LENGTH = 64;
+/**
+ * Envelope prefix the native seal puts on every sealed blob. Values without it
+ * are legacy raw tokens (written before the seal shipped) and must pass through.
+ */
+export const SEALED_ENVELOPE_PREFIX = 'v1:';
 
 function readNativeBridge(): CmsNativeBridge | null {
   const candidate = (globalThis as unknown as Record<string, unknown>)[NATIVE_BRIDGE_NAME];
@@ -97,4 +109,56 @@ export function getNativeInstallationId(): string | null {
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// D-JS-AUTH (debt closure, 2026-11-24) — the optional remember-me token seal.
+//
+// Inside the Android shell, durable «تذكّرني» tokens are sealed with an
+// AndroidKeyStore-bound AES-256-GCM key before they reach localStorage, so a
+// disk dump / backup extraction of the WebView storage sees ciphertext only.
+// The seal methods are OPTIONAL on the bridge (older shells lack them); every
+// helper returns null when they are absent, so browser builds and pre-upgrade
+// shells keep the previous raw-storage behavior. The native side re-checks the
+// origin allowlist on every call; a denied origin answers "" → treated as null.
+// ---------------------------------------------------------------------------
+
+/** True when the shell exposes BOTH seal methods (availability probe, no data flows). */
+export function isTokenSealAvailable(): boolean {
+  const bridge = readNativeBridge();
+  if (!bridge) return false;
+  return (
+    typeof bridge.sealForLocalPersistence === 'function' &&
+    typeof bridge.unsealForLocalPersistence === 'function'
+  );
+}
+
+/** Seals a page-owned blob for durable storage; null outside the shell / on any failure. */
+export function sealForLocalPersistence(plaintext: string): string | null {
+  const bridge = readNativeBridge();
+  if (!bridge || typeof bridge.sealForLocalPersistence !== 'function') return null;
+  try {
+    const sealed = bridge.sealForLocalPersistence(plaintext);
+    if (typeof sealed !== 'string' || sealed.length === 0) return null;
+    return sealed.startsWith(SEALED_ENVELOPE_PREFIX) ? sealed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Unseals a sealed blob; null when not sealed here / on any failure. */
+export function unsealForLocalPersistence(sealed: string): string | null {
+  const bridge = readNativeBridge();
+  if (!bridge || typeof bridge.unsealForLocalPersistence !== 'function') return null;
+  try {
+    const plaintext = bridge.unsealForLocalPersistence(sealed);
+    return typeof plaintext === 'string' && plaintext.length > 0 ? plaintext : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True for values carrying the native seal envelope prefix (v1:). */
+export function isSealedValue(value: string): boolean {
+  return value.startsWith(SEALED_ENVELOPE_PREFIX);
 }

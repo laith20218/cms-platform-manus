@@ -26,8 +26,10 @@ import com.cms.student.security.TrustedOfflineVerifierFactory
 import com.cms.student.session.EncryptedInstallationIdStore
 import com.cms.student.session.EncryptedTokenStore
 import com.cms.student.session.InstallationIdProvider
+import com.cms.student.session.KeystoreTokenSeal
 import com.cms.student.session.NativeSessionManager
 import com.cms.student.session.StoredNativeSession
+import com.cms.student.session.TokenSeal
 import com.cms.student.session.TokenStore
 import java.time.Instant
 import java.util.UUID
@@ -158,6 +160,16 @@ class CmsApplication : Application() {
 
     /** Session identity provider for header injection (X-Installation-Id); not exposed to JS. */
     fun installationIdProvider(): InstallationIdProvider = installationIdProvider
+
+    /**
+     * D-JS-AUTH (debt closure, 2026-11-24): AndroidKeyStore-backed seal the bridge
+     * uses for the student-web remember-me token blobs. Sealing tokens at rest is
+     * the seal's ONLY purpose — never a token getter (D1 unchanged).
+     */
+    private val webViewTokenSeal: TokenSeal by lazy { KeystoreTokenSeal() }
+
+    /** The bridge-facing token seal (window.CmsNative D-JS-AUTH methods). */
+    fun webTokenSeal(): TokenSeal = webViewTokenSeal
 
     // =====================================================================
     // Batch 4 — encrypted media cache graph (files + index + quota + transport)
