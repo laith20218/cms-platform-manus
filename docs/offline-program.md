@@ -79,4 +79,4 @@ its numbers are superseded here).
 
 ## 7. Debt register
 
-See `docs/security/OFFLINE-DEBT-REGISTER.md` — `D-PIN`, `D-JS-AUTH`, `D-ABSURD`: all **CLOSED** 2026-11-24 (PRs #187, #188, #189) with residual notes; protection limits are formalized in `docs/security/PROTECTION-LIMITS.md`. Release readiness for the student pilot runs on a single source: `docs/RELEASE-CANDIDATE-CHECKLIST.md`.
+See `docs/security/OFFLINE-DEBT-REGISTER.md` — `D-PIN`, `D-JS-AUTH`, `D-ABSURD`: all **CLOSED** 2026-11-24 (PRs #187, #188, #189) with residual notes; protection limits are formalized in `docs/security/PROTECTION-LIMITS.md`. Release readiness for the student pilot runs on a single source: `docs/RELEASE-CANDIDATE-CHECKLIST.md`. Going live with question packages (RC2, versionCode 2) follows the ordered operator runbook: `docs/OFFLINE-PACKAGES-GO-LIVE.md`.
