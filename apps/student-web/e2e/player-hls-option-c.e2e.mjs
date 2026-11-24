@@ -224,6 +224,19 @@ async function newStudentContext(browser, viewport) {
   // /my-subjects case documented above. Empty object = default preferences.
   await context.route('**/api/v1/student/preferences', (route) =>
     route.fulfill({ json: {} }));
+  // RC1 (R1) — the shared Navbar bell is another authenticated-page fixture:
+  // it useQuery()s GET /notifications/unread-count (staleTime 30 s; the
+  // notifications page keeps the same cache key warm on its own 30 s poll).
+  // Unmocked, the catch-all above aborts the call and the console gate
+  // correctly flags the resulting net::ERR_FAILED — the third occurrence of
+  // the same class after /my-subjects (W14.4) and /student/preferences
+  // (W16.4), and the actual signature of the "CI frontend e2e flake" that
+  // kept main red (run 45302047848: nonB2NetworkFailures=2, both on
+  // /api/v1/notifications/unread-count, all 12 functional checks green).
+  // Bare 0 = the real backend contract (NotificationsController
+  // .GetUnreadCount → Ok(count), a bare JSON number — zero unread).
+  await context.route('**/api/v1/notifications/unread-count', (route) =>
+    route.fulfill({ json: 0 }));
   await context.route('**/api/v1/entitlements/issue', (route) =>
     route.fulfill({ json: { token: ENTITLEMENT_TOKEN } }));
 
