@@ -26,6 +26,7 @@ import {
   Menu,
   Minus,
   Moon,
+  PackageX,
   ScrollText,
   PanelLeftClose,
   PanelLeftOpen,
@@ -47,6 +48,8 @@ import { AdminsCenter, DialogLayer } from './components/AdminsCenter';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { AuditCenter } from './components/AuditCenter';
 import { CodesCenter } from './components/CodesCenter';
+// Wave 4 (Owner decision 2026-11-23) — offline package ledger visibility + revocation.
+import { OfflineCenter } from './components/OfflineCenter';
 import { ReportsCenter } from './components/ReportsCenter';
 import { RolesCenter } from './components/RolesCenter';
 import { StudentsCenter } from './components/StudentsCenter';
@@ -68,7 +71,7 @@ const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 
 type Locale = 'ar' | 'en';
 type Theme = 'light' | 'dark';
-type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'exam-courses' | 'library' | 'reports' | 'settings' | 'content';
+type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'exam-courses' | 'library' | 'reports' | 'settings' | 'content' | 'offline';
 type Dialog =
   | { kind: 'create-admin' }
   | { kind: 'edit-admin'; admin: AdminRecord }
@@ -534,6 +537,8 @@ function App() {
         { key: 'admins', label: copy.admins, icon: UsersRound, superOnly: true },
         { key: 'roles', label: copy.roles, icon: KeyRound, superOnly: true },
         { key: 'audit', label: isArabic ? 'السجل الأمني' : 'Security Audit', icon: ShieldCheck, superOnly: true },
+        // Wave 4 (Owner decision 2026-11-23): offline package ledger + revocation.
+        { key: 'offline', label: isArabic ? 'الحزم دون اتصال' : 'Offline Packages', icon: PackageX, superOnly: true },
         { key: 'settings', label: isArabic ? 'إعدادات النظام' : 'System Settings', icon: Settings, superOnly: true },
         { key: 'content', label: isArabic ? 'صفحات المحتوى' : 'Content Pages', icon: ScrollText, superOnly: true },
       ],
@@ -542,6 +547,7 @@ function App() {
 
   const viewTitle = view === 'admins' ? copy.adminList
     : view === 'roles' ? copy.rolesTitle
+    : view === 'offline' ? (isArabic ? 'الحزم دون اتصال' : 'Offline Packages')
     : view === 'audit' ? (isArabic ? 'السجل الأمني' : 'Security Audit')
     : view === 'reports' ? (isArabic ? 'التقارير والتحليلات' : 'Reports & Analytics')
     : view === 'settings' ? (isArabic ? 'إعدادات النظام' : 'System Settings')
@@ -741,6 +747,9 @@ function App() {
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
               {view === 'audit' && isSuperAdmin && (can('view:audit')
                 ? <AuditCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {view === 'offline' && isSuperAdmin && (can('view:audit')
+                ? <OfflineCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
               {view === 'reports' && isSuperAdmin && (can('view:reports')
                 ? <ReportsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
