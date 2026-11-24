@@ -55,7 +55,6 @@ public sealed class OfflinePackageCryptoService : IOfflinePackageCryptoService
         ReadOnlySpan<byte> plaintext,
         string? devicePublicKeySpki = null)
     {
-    {
         var keys = EnsureKeys();
         if (userId == Guid.Empty || string.IsNullOrWhiteSpace(installationId)) throw new ArgumentException("Ownership is required");
         if (contentVersion < 1 || expiresAt <= issuedAt) throw new ArgumentException("Invalid package version or expiry");
