@@ -73,7 +73,7 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
   const t = isArabic
     ? {
         title: 'صلاحيات الواجهة المتقدمة',
-        desc: 'حدد ما يظهر للمدراء المعيّنين لهذا الدور في لوحة الإدارة (62 مفتاحاً: مشاهد + أقسام + أزرار).',
+        desc: 'حدد ما يظهر للمدراء المعيّنين لهذا الدور في لوحة الإدارة (63 مفتاحاً: مشاهد + أقسام + أزرار).',
         close: 'إغلاق',
         loading: 'جارٍ التحميل...',
         configured: 'مُهيأ',
@@ -98,7 +98,7 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
       }
     : {
         title: 'Advanced UI Permissions',
-        desc: 'Choose what assigned administrators see in the console (62 keys: views + tabs + buttons).',
+        desc: 'Choose what assigned administrators see in the console (63 keys: views + tabs + buttons).',
         close: 'Close',
         loading: 'Loading...',
         configured: 'Configured',

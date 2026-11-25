@@ -15,8 +15,9 @@
  */
 import { useEffect, useState } from 'react';
 import {
-  Search, ChevronLeft, ChevronRight, X, LoaderCircle, ShieldCheck, AlertTriangle, CheckCircle,
+  Search, ChevronLeft, ChevronRight, X, LoaderCircle, ShieldCheck, AlertTriangle, CheckCircle, UserCheck,
 } from 'lucide-react';
+import { Dialog, Select } from '@cms/ui';
 import { ApiError, apiRequest } from '../lib/api';
 
 type Props = {
@@ -109,6 +110,16 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
   const [transitionTarget, setTransitionTarget] = useState('');
   const [transitionNotes, setTransitionNotes] = useState('');
   const [busy, setBusy] = useState(false);
+  // W5 (admin-ui): report assignment (PUT /admin/reports/{id}/assign — existed
+  // with no UI, matrix row 16). Non-destructive: direct action, no confirm gate.
+  const [assignTarget, setAssignTarget] = useState<Report | null>(null);
+  const [assignAdminId, setAssignAdminId] = useState('');
+  const [adminsList, setAdminsList] = useState<Array<{ id: string; fullName: string }>>([]);
+  const [assignBusy, setAssignBusy] = useState(false);
+  const [adminsLoading, setAdminsLoading] = useState(false);
+  // W5: refresh driver — setPage(page) is a no-op when already on page 1, so
+  // post-action refreshes bump this counter instead.
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     const t = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 300);
@@ -132,7 +143,7 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [token, page, debouncedSearch, status, isArabic, onError]);
+  }, [token, page, debouncedSearch, status, isArabic, onError, refreshTick]);
 
   const submitTransition = async () => {
     if (!transitioningReport || !transitionTarget) return;
@@ -165,6 +176,9 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
         noTransitions: 'لا توجد انتقالات متاحة', noNotes: 'لا توجد ملاحظات',
         prev: 'السابق', next: 'التالي', page: 'صفحة', of: 'من', showing: 'عرض', results: 'نتائج',
         noData: 'لا توجد بلاغات', loading: 'جارٍ التحميل...', resolvedBy: 'حلّه', reviewedBy: 'راجعه',
+        assign: 'تعيين', assignTitle: 'تعيين البلاغ لمدير',
+        assignBody: 'اختر المدير المسؤول عن مراجعة هذا البلاغ. سيظهر اسمه في عمود «المسؤول».',
+        selectAdmin: 'اختر المدير', assignOk: 'تم تعيين المسؤول للبلاغ', assignFail: 'فشل التعيين',
       }
     : {
         title: 'Reports Moderation', desc: 'Review reports + transition status + assign',
@@ -175,7 +189,40 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
         noTransitions: 'No transitions available', noNotes: 'No notes',
         prev: 'Previous', next: 'Next', page: 'Page', of: 'of', showing: 'Showing', results: 'results',
         noData: 'No reports found', loading: 'Loading...', resolvedBy: 'Resolved by', reviewedBy: 'Reviewed by',
+        assign: 'Assign', assignTitle: 'Assign report to an administrator',
+        assignBody: 'Choose the administrator responsible for reviewing this report. Their name shows in the Assigned column.',
+        selectAdmin: 'Select administrator', assignOk: 'Report assigned', assignFail: 'Assign failed',
       };
+
+  // W5: load the administrator directory once when the assign dialog opens.
+  useEffect(() => {
+    if (!assignTarget || adminsList.length > 0) return;
+    setAdminsLoading(true);
+    apiRequest<{ items: Array<{ id: string; fullName: string }> }>('/api/v1/admin/admins?page=1&pageSize=100', token)
+      .then(res => setAdminsList(res.items ?? []))
+      .catch(() => { onError(isArabic ? 'تعذّر تحميل قائمة المدراء' : 'Could not load administrators'); setAssignTarget(null); })
+      .finally(() => setAdminsLoading(false));
+  }, [assignTarget, adminsList.length, token, onError]);
+
+  const submitAssign = async () => {
+    if (!assignTarget || !assignAdminId || assignBusy) return;
+    setAssignBusy(true);
+    try {
+      await apiRequest(`/api/v1/admin/reports/${assignTarget.id}/assign`, token, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminId: assignAdminId }),
+      });
+      onNotice(t.assignOk);
+      setAssignTarget(null);
+      setAssignAdminId('');
+      // Refresh data (the counter actually re-triggers the effect).
+      setRefreshTick(n => n + 1);
+    } catch (err: unknown) {
+      const msg = err instanceof ApiError ? err.message : t.assignFail;
+      onError(msg);
+    } finally { setAssignBusy(false); }
+  };
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -273,17 +320,28 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
                     </td>
                     <td className="py-2 px-3 whitespace-nowrap" style={{ color: 'var(--cms-text-muted)' }}>{dateLabel(r.createdAt, isArabic)}</td>
                     <td className="py-2 px-3">
-                      {transitions.length > 0 ? (
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <button
-                          onClick={() => { setTransitioningReport(r); setTransitionTarget(''); setTransitionNotes(r.resolutionNotes ?? ''); }}
+                          onClick={() => { setAssignTarget(r); setAssignAdminId(r.assignedTo ?? ''); }}
+                          title={t.assign}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-medium"
-                          style={{ borderColor: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)', background: 'var(--cms-teal-50)' }}
+                          style={{ borderColor: 'var(--cms-info-50)', color: 'var(--cms-info)', background: 'var(--cms-ivory-50)' }}
+                          data-testid={`report-assign-${r.id}`}
                         >
-                          <ShieldCheck size={11} /> {t.transition}
+                          <UserCheck size={11} /> {t.assign}
                         </button>
-                      ) : (
-                        <span className="text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>{t.noTransitions}</span>
-                      )}
+                        {transitions.length > 0 ? (
+                          <button
+                            onClick={() => { setTransitioningReport(r); setTransitionTarget(''); setTransitionNotes(r.resolutionNotes ?? ''); }}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-medium"
+                            style={{ borderColor: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)', background: 'var(--cms-teal-50)' }}
+                          >
+                            <ShieldCheck size={11} /> {t.transition}
+                          </button>
+                        ) : (
+                          <span className="text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>{t.noTransitions}</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -315,6 +373,59 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
             </button>
           </div>
         </div>
+      )}
+
+      {/* W5: assign modal — shared Dialog + Select (a11y contract for free). */}
+      {assignTarget && (
+        <Dialog
+          open
+          onOpenChange={(next) => { if (!next && !assignBusy) { setAssignTarget(null); setAssignAdminId(''); } }}
+          title={t.assignTitle}
+          description={t.assignBody}
+          dir={isArabic ? 'rtl' : 'ltr'}
+          size="sm"
+          dismissGuard={assignBusy}
+          testId="report-assign-dialog"
+        >
+          <div className="px-5 py-4 space-y-4">
+            {adminsLoading ? (
+              <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                <LoaderCircle size={14} className="animate-spin" /> {t.loading}
+              </div>
+            ) : (
+              <Select
+                label={t.selectAdmin}
+                value={assignAdminId}
+                onChange={(event) => setAssignAdminId(event.target.value)}
+                disabled={assignBusy}
+                testId="report-assign-admin"
+                options={adminsList.map((admin) => ({ value: admin.id, label: admin.fullName }))}
+              />
+            )}
+          </div>
+          <div className="flex justify-end gap-2 rounded-b-2xl border-t border-[color:var(--c-border)] bg-[color:var(--c-bg-elevated)] px-5 py-3.5">
+            <button
+              type="button"
+              onClick={() => { setAssignTarget(null); setAssignAdminId(''); }}
+              disabled={assignBusy}
+              className="px-3 py-1.5 rounded-lg border text-xs"
+              style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+            >
+              {t.cancel}
+            </button>
+            <button
+              type="button"
+              onClick={() => void submitAssign()}
+              disabled={!assignAdminId || assignBusy || adminsLoading}
+              data-testid="report-assign-save"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-white disabled:opacity-50"
+              style={{ background: 'var(--cms-teal-700)' }}
+            >
+              {assignBusy ? <LoaderCircle size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+              {t.save}
+            </button>
+          </div>
+        </Dialog>
       )}
 
       {/* Transition modal */}

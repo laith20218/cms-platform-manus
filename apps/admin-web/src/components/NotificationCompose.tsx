@@ -61,11 +61,26 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
   // For target selection when targetType needs a specific ID
   const [universities, setUniversities] = useState<Array<{ id: string; nameAr: string; nameEn?: string | null }>>([]);
   const [students, setStudents] = useState<Array<{ id: string; fullName: string; phone: string }>>([]);
+  // W5 (admin-ui): the audience cascade previously only loaded University and
+  // Student target lists — picking College/Year/Semester/Subject left a raw
+  // UUID input and a silently-disabled Send (debt D-22). Now a real cascade
+  // resolves the target id from the hierarchy.
+  const [cascadeUniversityId, setCascadeUniversityId] = useState('');
+  const [cascadeCollegeId, setCascadeCollegeId] = useState('');
+  const [cascadeYearId, setCascadeYearId] = useState('');
+  const [cascadeSemesterId, setCascadeSemesterId] = useState('');
+  const [colleges, setColleges] = useState<Array<{ id: string; nameAr: string; nameEn?: string | null }>>([]);
+  const [years, setYears] = useState<Array<{ id: string; nameAr: string; nameEn?: string | null }>>([]);
+  const [semesters, setSemesters] = useState<Array<{ id: string; nameAr: string; nameEn?: string | null }>>([]);
+  const [subjects, setSubjects] = useState<Array<{ id: string; nameAr: string; nameEn?: string | null }>>([]);
 
   const audience = AUDIENCE_OPTIONS.find(a => a.value === targetType)!;
 
   useEffect(() => {
-    if (targetType === 'University' && universities.length === 0) {
+    // W5: universities also feed the cascade context for College/Year/Semester/Subject.
+    const needsUniversities = targetType === 'University'
+      || targetType === 'College' || targetType === 'Year' || targetType === 'Semester' || targetType === 'Subject';
+    if (needsUniversities && universities.length === 0) {
       apiRequest<{ items: typeof universities } | typeof universities>('/api/v1/universities?Page=1&PageSize=100', token)
         .then(res => setUniversities(Array.isArray(res) ? res : (res.items ?? [])))
         .catch(() => {});
@@ -78,6 +93,35 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
     // W23.3 (A2): the length guards are now declared deps — refetch only on
     // empty→filled transitions (the guard itself no-ops the refetch).
   }, [targetType, token, universities.length, students.length]);
+
+  // W5: cascade loaders for the College/Year/Semester/Subject audiences.
+  useEffect(() => {
+    if (!cascadeUniversityId) { setColleges([]); return; }
+    apiRequest<typeof colleges>(`/api/v1/universities/${cascadeUniversityId}/colleges`, token)
+      .then(res => setColleges(Array.isArray(res) ? res : []))
+      .catch(() => setColleges([]));
+  }, [cascadeUniversityId, token]);
+
+  useEffect(() => {
+    if (!cascadeCollegeId) { setYears([]); return; }
+    apiRequest<typeof years>(`/api/v1/colleges/${cascadeCollegeId}/years`, token)
+      .then(res => setYears(Array.isArray(res) ? res : []))
+      .catch(() => setYears([]));
+  }, [cascadeCollegeId, token]);
+
+  useEffect(() => {
+    if (!cascadeYearId) { setSemesters([]); return; }
+    apiRequest<typeof semesters>(`/api/v1/years/${cascadeYearId}/semesters`, token)
+      .then(res => setSemesters(Array.isArray(res) ? res : []))
+      .catch(() => setSemesters([]));
+  }, [cascadeYearId, token]);
+
+  useEffect(() => {
+    if (!cascadeSemesterId) { setSubjects([]); return; }
+    apiRequest<typeof subjects>(`/api/v1/semesters/${cascadeSemesterId}/subjects`, token)
+      .then(res => setSubjects(Array.isArray(res) ? res : []))
+      .catch(() => setSubjects([]));
+  }, [cascadeSemesterId, token]);
 
   const canSend = title.trim() && body.trim() && (!audience.needsTarget || targetId);
 
@@ -117,6 +161,11 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
         expiry: 'تاريخ الانتهاء (اختياري)',
         preview: 'معاينة', send: 'إرسال', cancel: 'إلغاء',
         selectTarget: 'اختر الهدف', noTarget: 'لا يحتاج هدفاً',
+        contextUniversity: 'الجامعة (للوصول إلى الهدف)',
+        contextCollege: 'الكلية (للوصول إلى الهدف)',
+        contextYear: 'السنة (للوصول إلى الهدف)',
+        contextSemester: 'الفصل (للوصول إلى المادة)',
+        needTargetHint: 'اختر الهدف من القائمة أعلاه لإتاحة زر الإرسال — الإرسال لا يعمل بدون هدف صالح.',
         placeholder_title: 'اكتب عنوان الإشعار...', placeholder_body: 'اكتب نص الإشعار...',
       }
     : {
@@ -127,6 +176,11 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
         expiry: 'Expiry date (optional)',
         preview: 'Preview', send: 'Send', cancel: 'Cancel',
         selectTarget: 'Select target', noTarget: 'No target needed',
+        contextUniversity: 'University (to reach the target)',
+        contextCollege: 'College (to reach the target)',
+        contextYear: 'Year (to reach the target)',
+        contextSemester: 'Semester (to reach the subject)',
+        needTargetHint: 'Pick the target above to enable Send — sending requires a valid target.',
         placeholder_title: 'Enter notification title...', placeholder_body: 'Enter notification body...',
       };
 
@@ -180,40 +234,111 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
               <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>
                 <Users size={11} className="inline mr-1" />{t.audience}
               </label>
-              <select value={targetType} onChange={(e) => { setTargetType(e.target.value); setTargetId(''); }} disabled={busy}
+              <select value={targetType} aria-label={t.audience} onChange={(e) => {
+                setTargetType(e.target.value);
+                setTargetId('');
+                setCascadeUniversityId(''); setCascadeCollegeId(''); setCascadeYearId(''); setCascadeSemesterId('');
+              }} disabled={busy}
                 className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
                 style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
                 {AUDIENCE_OPTIONS.map(a => <option key={a.value} value={a.value}>{isArabic ? a.ar : a.en}</option>)}
               </select>
             </div>
 
-            {/* Target selector */}
+            {/* Target selector — W5: every audience resolves through a real
+                picker. College/Year/Semester/Subject walk the hierarchy with
+                context selects above the target level (previously a raw UUID
+                input + silently-disabled Send, debt D-22). */}
             <div>
               <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t.target}</label>
-              {audience.needsTarget ? (
-                targetType === 'University' ? (
-                  <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={busy || universities.length === 0}
-                    className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
-                    style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
-                    <option value="">{t.selectTarget}</option>
-                    {universities.map(u => <option key={u.id} value={u.id}>{isArabic ? u.nameAr : (u.nameEn || u.nameAr)}</option>)}
-                  </select>
-                ) : targetType === 'Student' ? (
-                  <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={busy || students.length === 0}
-                    className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
-                    style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
-                    <option value="">{t.selectTarget}</option>
-                    {students.map(s => <option key={s.id} value={s.id}>{s.fullName} ({s.phone})</option>)}
-                  </select>
-                ) : (
-                  <input value={targetId} onChange={(e) => setTargetId(e.target.value)} placeholder={`${t.selectTarget} (UUID)`} disabled={busy}
-                    className="w-full h-9 rounded-lg border text-xs px-2 font-mono disabled:opacity-50"
-                    style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }} />
-                )
-              ) : (
+              {!audience.needsTarget ? (
                 <div className="h-9 flex items-center px-3 rounded-lg border text-xs" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)', color: 'var(--cms-text-muted)' }}>
                   {t.noTarget}
                 </div>
+              ) : targetType === 'University' ? (
+                <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={busy || universities.length === 0}
+                  className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
+                  style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
+                  <option value="">{t.selectTarget}</option>
+                  {universities.map(u => <option key={u.id} value={u.id}>{isArabic ? u.nameAr : (u.nameEn || u.nameAr)}</option>)}
+                </select>
+              ) : targetType === 'Student' ? (
+                <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={busy || students.length === 0}
+                  className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
+                  style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
+                  <option value="">{t.selectTarget}</option>
+                  {students.map(s => <option key={s.id} value={s.id}>{s.fullName} ({s.phone})</option>)}
+                </select>
+              ) : (
+                <div className="space-y-1.5">
+                  <select value={cascadeUniversityId} onChange={(e) => {
+                    setCascadeUniversityId(e.target.value); setCascadeCollegeId(''); setCascadeYearId(''); setCascadeSemesterId('');
+                    if (targetType !== 'College') setTargetId('');
+                  }} disabled={busy} aria-label={t.contextUniversity}
+                    className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
+                    style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
+                    <option value="">{t.contextUniversity}</option>
+                    {universities.length === 0 ? null : universities.map(u => <option key={u.id} value={u.id}>{isArabic ? u.nameAr : (u.nameEn || u.nameAr)}</option>)}
+                  </select>
+                  {(targetType === 'Year' || targetType === 'Semester' || targetType === 'Subject') && (
+                    <select value={cascadeCollegeId} onChange={(e) => {
+                      setCascadeCollegeId(e.target.value); setCascadeYearId(''); setCascadeSemesterId('');
+                      if (targetType !== 'Year') setTargetId('');
+                    }} disabled={busy || !cascadeUniversityId} aria-label={t.contextCollege}
+                      className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
+                      style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
+                      <option value="">{t.contextCollege}</option>
+                      {colleges.map(c => <option key={c.id} value={c.id}>{isArabic ? c.nameAr : (c.nameEn || c.nameAr)}</option>)}
+                    </select>
+                  )}
+                  {(targetType === 'Semester' || targetType === 'Subject') && (
+                    <select value={cascadeYearId} onChange={(e) => {
+                      setCascadeYearId(e.target.value); setCascadeSemesterId('');
+                      if (targetType !== 'Semester') setTargetId('');
+                    }} disabled={busy || !cascadeCollegeId} aria-label={t.contextYear}
+                      className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
+                      style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
+                      <option value="">{t.contextYear}</option>
+                      {years.map(y => <option key={y.id} value={y.id}>{isArabic ? y.nameAr : (y.nameEn || y.nameAr)}</option>)}
+                    </select>
+                  )}
+                  {targetType === 'Subject' && (
+                    <select value={cascadeSemesterId} onChange={(e) => {
+                      setCascadeSemesterId(e.target.value); setTargetId('');
+                    }} disabled={busy || !cascadeYearId} aria-label={t.contextSemester}
+                      className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
+                      style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
+                      <option value="">{t.contextSemester}</option>
+                      {semesters.map(s => <option key={s.id} value={s.id}>{isArabic ? s.nameAr : (s.nameEn || s.nameAr)}</option>)}
+                    </select>
+                  )}
+                  {/* The final select IS the target (its value is targetId). */}
+                  <select
+                    value={targetId}
+                    onChange={(e) => setTargetId(e.target.value)}
+                    disabled={busy || !cascadeUniversityId
+                      || (targetType !== 'College' && !cascadeCollegeId)
+                      || ((targetType === 'Semester' || targetType === 'Subject') && !cascadeYearId)
+                      || (targetType === 'Subject' && !cascadeSemesterId)}
+                    data-testid="notification-target-select"
+                    className="w-full h-9 rounded-lg border text-xs px-2 font-medium disabled:opacity-50"
+                    style={{ borderColor: 'var(--cms-teal-700)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+                  >
+                    <option value="">{t.selectTarget}</option>
+                    {(targetType === 'College' ? colleges
+                      : targetType === 'Year' ? years
+                      : targetType === 'Semester' ? semesters
+                      : subjects).map(item => (
+                      <option key={item.id} value={item.id}>{isArabic ? item.nameAr : (item.nameEn || item.nameAr)}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {/* W5: visible Arabic validation instead of a silently-disabled Send. */}
+              {audience.needsTarget && !targetId && (
+                <p className="text-[10px] mt-1" style={{ color: 'var(--cms-warning)' }} data-testid="notification-target-hint">
+                  {t.needTargetHint}
+                </p>
               )}
             </div>
           </div>
