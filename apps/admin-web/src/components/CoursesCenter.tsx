@@ -25,7 +25,8 @@ import {
   AlertCircle, Archive, Ban, CheckCircle2, ChevronDown, ChevronUp, Film, GraduationCap,
   AlertTriangle, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, Upload, X, Youtube,
 } from 'lucide-react';
-import { ConfirmDialog, Drawer } from '@cms/ui';
+import { ConfirmDialog, Drawer, RowActionsMenu } from '@cms/ui';
+import { HardDeleteDialog, type HardDeleteTarget } from './HardDeleteDialog';
 import {
   apiRequest, type ApiError, type PagedResult, type AdminCourseListItem, type CourseDetail,
   type CourseEpisode, type InitiateUploadResponse,
@@ -74,7 +75,10 @@ const formatBytes = (bytes?: number | null) => {
 const VIDEO_MIME_ALLOWLIST = ['video/mp4', 'video/webm', 'video/quicktime', 'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/webm'];
 
 export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, refreshSignal }: Props) {
-  const { can } = useUiPermissions();
+  const { can, bundle } = useUiPermissions();
+  // Command Center P1: hard delete is a SuperAdmin-only system action (backend-gated too).
+  const isSuperAdmin = bundle?.isSuperAdmin ?? false;
+  const [hardTarget, setHardTarget] = useState<HardDeleteTarget | null>(null);
   const [courses, setCourses] = useState<AdminCourseListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -350,6 +354,18 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
         testId="course-delete-confirm"
       />
 
+      {/* Command Center P1 (D-4): physical delete, SuperAdmin + re-auth + loud-fail on children. */}
+      <HardDeleteDialog
+        token={token}
+        isArabic={isArabic}
+        target={hardTarget}
+        consequence={isArabic
+          ? 'سيُحذف الكورس نهائيًا مع جميع حلقاته (تجاوز الأرشفة).'
+          : 'The course is physically deleted with all its episodes (bypassing archive).'}
+        onDone={() => { void loadCourses({ silent: true }); }}
+        onClose={() => setHardTarget(null)}
+      />
+
       {/* Courses table */}
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -390,31 +406,62 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
                   {new Date(course.createdAt).toLocaleDateString(isArabic ? 'ar' : 'en')}
                 </span>
                 <div className="flex items-center gap-1">
-                  {can('btn:library.course.edit') && (
-                    <button type="button" title={copy.edit} disabled={busy}
-                      onClick={() => { setEditCourse(course); setEditForm({ title: course.title, description: '', coverImageUrl: '' }); setShowCreate(false); }}
-                      className="p-1.5 rounded-md hover:bg-slate-100 transition-colors" style={{ color: 'var(--cms-teal-700)' }}>
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                  )}
-                  {course.status === 'Draft' && can('btn:library.course.publish') && (
-                    <button type="button" title={copy.publish} disabled={busy} onClick={() => setLifecycleTarget({ course, action: 'publish' })}
-                      className="p-1.5 rounded-md text-emerald-600 hover:bg-emerald-50 transition-colors">
-                      <CheckCircle2 className="w-4 h-4" />
-                    </button>
-                  )}
-                  {course.status === 'Published' && can('btn:library.course.archive') && (
-                    <button type="button" title={copy.archive} disabled={busy} onClick={() => setLifecycleTarget({ course, action: 'archive' })}
-                      className="p-1.5 rounded-md text-amber-600 hover:bg-amber-50 transition-colors">
-                      <Archive className="w-4 h-4" />
-                    </button>
-                  )}
-                  {can('btn:library.course.delete') && (
-                    <button type="button" title={copy.delete} disabled={busy} onClick={() => setDeleteTarget(course)}
-                      className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
+                  {/* Command Center P1: row-action ⋮ menu — edit/publish/archive/delete
+                      grouped into one trigger. Destructive entries stay confirm-gated
+                      downstream (lifecycleTarget / deleteTarget dialogs). */}
+                  <RowActionsMenu
+                    label={isArabic ? `إجراءات ${course.title}` : `Actions for ${course.title}`}
+                    dir={isArabic ? 'rtl' : 'ltr'}
+                    items={[
+                      ...(can('btn:library.course.edit')
+                        ? [{
+                            key: 'edit',
+                            label: copy.edit,
+                            icon: <Pencil className="w-4 h-4" />,
+                            disabled: busy,
+                            onSelect: () => { setEditCourse(course); setEditForm({ title: course.title, description: '', coverImageUrl: '' }); setShowCreate(false); },
+                          }]
+                        : []),
+                      ...(course.status === 'Draft' && can('btn:library.course.publish')
+                        ? [{
+                            key: 'publish',
+                            label: copy.publish,
+                            icon: <CheckCircle2 className="w-4 h-4" />,
+                            disabled: busy,
+                            onSelect: () => setLifecycleTarget({ course, action: 'publish' }),
+                          }]
+                        : []),
+                      ...(course.status === 'Published' && can('btn:library.course.archive')
+                        ? [{
+                            key: 'archive',
+                            label: copy.archive,
+                            icon: <Archive className="w-4 h-4" />,
+                            disabled: busy,
+                            onSelect: () => setLifecycleTarget({ course, action: 'archive' }),
+                          }]
+                        : []),
+                      ...(can('btn:library.course.delete')
+                        ? [{
+                            key: 'delete',
+                            label: copy.delete,
+                            danger: true,
+                            icon: <Trash2 className="w-4 h-4" />,
+                            disabled: busy,
+                            dividerBefore: true,
+                            onSelect: () => setDeleteTarget(course),
+                          }]
+                        : []),
+                      ...(isSuperAdmin
+                        ? [{
+                            key: 'hard-delete',
+                            label: isArabic ? 'حذف نهائي (تجاوز الأرشفة)' : 'Hard delete (bypass archive)',
+                            danger: true,
+                            icon: <Trash2 className="w-4 h-4" />,
+                            onSelect: () => setHardTarget({ module: 'course', targetId: course.id, label: course.title }),
+                          }]
+                        : []),
+                    ]}
+                  />
                   <span className="p-1" style={{ color: 'var(--cms-text-muted)' }}>
                     {expandedId === course.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </span>

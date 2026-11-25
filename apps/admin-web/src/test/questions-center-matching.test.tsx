@@ -276,7 +276,8 @@ describe('W21.1 — Matching (وصل) in the admin question editor', () => {
   it('duplicate calls the admin duplicate endpoint for the وصل row (W20.5 API fix)', async () => {
     renderCenter();
     const row = (await screen.findByText('سؤال وصل عن المسببات')).closest('tr') as HTMLElement;
-    fireEvent.click(within(row).getByTitle('تكرار'));
+    fireEvent.click(within(row).getByRole('button', { name: /إجراءات/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /تكرار/ }));
 
     await waitFor(() => {
       expect(apiRequestMock.mock.calls.some(

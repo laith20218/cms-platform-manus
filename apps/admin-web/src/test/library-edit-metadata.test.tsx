@@ -63,7 +63,8 @@ describe('W-coverage — library metadata edit (row 21)', () => {
     renderCenter();
     await loadFileList();
 
-    fireEvent.click(document.querySelector('[data-testid="library-edit-f1"]') as HTMLButtonElement);
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات ملف منهاج تشريح' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'تعديل البيانات' }));
     await waitFor(() => expect(screen.getByTestId('library-edit-dialog')).toBeInTheDocument());
     expect(screen.getByRole('dialog', { name: 'تعديل بيانات الملف' })).toBeInTheDocument();
     expect((screen.getByTestId('library-edit-title') as HTMLInputElement).value).toBe('ملف منهاج تشريح');
@@ -95,7 +96,8 @@ describe('W-coverage — library metadata edit (row 21)', () => {
   it('sends difficulty/targetQuality only when the operator picks a value', async () => {
     renderCenter();
     await loadFileList();
-    fireEvent.click(document.querySelector('[data-testid="library-edit-f1"]') as HTMLButtonElement);
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات ملف منهاج تشريح' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'تعديل البيانات' }));
     await screen.findByTestId('library-edit-dialog');
 
     fireEvent.change(screen.getByTestId('library-edit-difficulty'), { target: { value: 'Hard' } });
@@ -111,7 +113,8 @@ describe('W-coverage — library metadata edit (row 21)', () => {
   it('cancel closes the modal without any PUT', async () => {
     renderCenter();
     await loadFileList();
-    fireEvent.click(document.querySelector('[data-testid="library-edit-f1"]') as HTMLButtonElement);
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات ملف منهاج تشريح' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'تعديل البيانات' }));
     await screen.findByTestId('library-edit-dialog');
     fireEvent.click(screen.getByTestId('library-edit-cancel'));
     await waitFor(() => expect(screen.queryByTestId('library-edit-dialog')).not.toBeInTheDocument());

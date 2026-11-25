@@ -1,7 +1,8 @@
 /** غرفة القيادة المؤسسية: navy authority, ivory work surface, teal clinical signal.
  *  Navigation grouped by domain; status indicator verifies API health;
  *  skeleton loading + trend chips on the overview dashboard. */
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster, toast } from 'sonner';
 import {
@@ -76,6 +77,33 @@ const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 type Locale = 'ar' | 'en';
 type Theme = 'light' | 'dark';
 type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'exam-courses' | 'library' | 'reports' | 'settings' | 'content' | 'offline';
+
+// D-26 (Command Center P1) — every view is a real URL: browser back/forward
+// and page refresh work, and views are directly shareable. BrowserRouter is
+// already mounted in main.tsx and vercel.json rewrites every non-asset path
+// to index.html, so no deploy change is needed. Unknown paths resolve to the
+// overview view (single-shell admin — no 404 page).
+const VIEW_PATHS: Record<View, string> = {
+  overview: '/',
+  admins: '/admins',
+  roles: '/roles',
+  audit: '/audit',
+  academic: '/academic',
+  codes: '/codes',
+  students: '/students',
+  questions: '/questions',
+  exams: '/exams',
+  'exam-courses': '/exam-courses',
+  library: '/library',
+  reports: '/reports',
+  settings: '/settings',
+  content: '/content',
+  offline: '/offline',
+};
+const PATH_VIEWS = new Map<string, View>(
+  (Object.entries(VIEW_PATHS) as [View, string][]).map(([view, path]) => [path, view]),
+);
+
 type Dialog =
   | { kind: 'create-admin' }
   | { kind: 'edit-admin'; admin: AdminRecord }
@@ -114,7 +142,19 @@ function App() {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<View>('overview');
+  // D-26: view state is DERIVED from the URL (source of truth = location bar).
+  // setView keeps the historical signature so nav items, the command palette,
+  // cross-center navigation and the login redirect all work unchanged.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const view: View = PATH_VIEWS.get(location.pathname) ?? 'overview';
+  const setView = useCallback((next: View) => {
+    navigate(VIEW_PATHS[next]);
+  }, [navigate]);
+  // A view change is a fresh page arrival: start at the top (matches a reload).
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return localStorage.getItem('cms-admin-sidebar-collapsed') === 'true'; } catch { return false; }
@@ -1033,11 +1073,16 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
   ];
 
   // Monthly revenue uses the real change-percent from the API; other metrics show a flat placeholder.
-  const revenueTrend: Trend = stats && stats.revenueChangePercent > 0 ? 'up' : stats && stats.revenueChangePercent < 0 ? 'down' : 'flat';
-  const revenueTrendLabel = stats ? `${stats.revenueChangePercent > 0 ? '+' : ''}${stats.revenueChangePercent.toFixed(1)}%` : '—';
+  // D-26 note: the router can paint one intermediate render between sign-in state updates and
+  // the navigation commit, so a partial/garbage payload must not crash the card grid.
+  const revenueChange = typeof stats?.revenueChangePercent === 'number' ? stats.revenueChangePercent : null;
+  const revenueTrend: Trend = revenueChange !== null && revenueChange > 0 ? 'up' : revenueChange !== null && revenueChange < 0 ? 'down' : 'flat';
+  const revenueTrendLabel = revenueChange !== null ? `${revenueChange > 0 ? '+' : ''}${revenueChange.toFixed(1)}%` : '—';
   cards.push({
     label: copy.statRevenue,
-    value: stats ? new Intl.NumberFormat(localeTag, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(stats.monthlyRevenue) : '—',
+    value: typeof stats?.monthlyRevenue === 'number'
+      ? new Intl.NumberFormat(localeTag, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(stats.monthlyRevenue)
+      : '—',
     tint: 'rgba(25,133,102,0.12)',
     iconColor: 'var(--cms-success)',
     icon: Activity,

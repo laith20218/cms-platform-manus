@@ -22,6 +22,7 @@ import {
   Settings as SettingsIcon, LoaderCircle, Search, X, Check, Pencil, RotateCcw, ShieldCheck,
 } from 'lucide-react';
 import { ConfirmDialog } from '@cms/ui';
+import { DangerZone } from './DangerZone';
 import { ApiError, apiRequest } from '../lib/api';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
@@ -390,6 +391,12 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
         onConfirm={() => { if (resetTarget) void resetSetting(resetTarget); }}
         testId="settings-reset-confirm"
       />
+
+      {/* Command Center P1 (D-3): SuperAdmin-only module wipes with dry-run preview,
+          typed confirmation (DELETE / حذف) and acting-admin re-auth. */}
+      {isSuperAdmin && (
+        <DangerZone token={token} isArabic={isArabic} onError={onError} onNotice={onNotice} />
+      )}
     </section>
   );
 }

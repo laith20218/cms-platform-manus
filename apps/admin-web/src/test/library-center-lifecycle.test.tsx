@@ -65,7 +65,8 @@ describe('LibraryCenter file lifecycle — W2 confirm gates + pager', () => {
     await loadFileList();
 
     // Clicking publish (draft + clean) must NOT fire the request immediately.
-    const publishBtn = document.querySelector('[title="نشر"]') as HTMLButtonElement;
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات ملف منهاج تشريح' }));
+    const publishBtn = await screen.findByRole('menuitem', { name: 'نشر' });
     fireEvent.click(publishBtn);
     expect(screen.getByTestId('library-publish-confirm')).toBeInTheDocument();
     expect(screen.getByRole('dialog', { name: 'نشر الملف' })).toBeInTheDocument();
@@ -82,7 +83,8 @@ describe('LibraryCenter file lifecycle — W2 confirm gates + pager', () => {
     renderCenter();
     await loadFileList();
 
-    const archiveBtn = document.querySelector('[title="أرشفة"]') as HTMLButtonElement;
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات ملف محاضرة فيسيولوجي' }));
+    const archiveBtn = await screen.findByRole('menuitem', { name: 'أرشفة' });
     fireEvent.click(archiveBtn);
     expect(screen.getByRole('dialog', { name: 'أرشفة الملف' })).toBeInTheDocument();
     expect(screen.getByText(/سيُخفى الملف/)).toBeInTheDocument();
@@ -98,7 +100,8 @@ describe('LibraryCenter file lifecycle — W2 confirm gates + pager', () => {
     renderCenter();
     await loadFileList();
 
-    const deleteBtn = document.querySelector('[title="حذف"]') as HTMLButtonElement;
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات ملف منهاج تشريح' }));
+    const deleteBtn = await screen.findByRole('menuitem', { name: 'حذف' });
     fireEvent.click(deleteBtn);
     expect(screen.getByRole('dialog', { name: 'تأكيد الحذف' })).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('confirm-dialog-cancel'));

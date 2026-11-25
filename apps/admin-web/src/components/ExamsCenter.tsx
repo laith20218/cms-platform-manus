@@ -42,7 +42,8 @@ import {
   Pencil, Plus, Search, Send, Timer, Trash2, TrendingUp, Users, X, XCircle, CloudOff,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
-import { Dialog, Pagination } from '@cms/ui';
+import { Dialog, Pagination, RowActionsMenu } from '@cms/ui';
+import { HardDeleteDialog, type HardDeleteTarget } from './HardDeleteDialog';
 import { questionDifficultyLabel, questionTypeLabel } from '../lib/questionLabels';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
@@ -239,7 +240,10 @@ const reportStatusBadgeClass = (status: string) => {
 
 export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQuestions }: Props) {
   // Push 3: cosmetic gating — the API policies remain the real boundary.
-  const { can } = useUiPermissions();
+  const { can, bundle } = useUiPermissions();
+  // Command Center P1: hard delete is a SuperAdmin-only system action (backend-gated too).
+  const isSuperAdmin = bundle?.isSuperAdmin ?? false;
+  const [hardTarget, setHardTarget] = useState<HardDeleteTarget | null>(null);
   // === Academic hierarchy state ===
   const [universities, setUniversities] = useState<University[]>([]);
   const [colleges, setColleges] = useState<College[]>([]);
@@ -1079,104 +1083,96 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            title={isArabic ? 'الإحصائيات' : 'Stats'}
-                            aria-label={isArabic ? 'الإحصائيات' : 'Stats'}
-                            onClick={() => void showStats(exam)}
-                            disabled={busy}
-                            className="p-1.5 rounded-md transition-colors"
-                            style={{ color: 'var(--cms-text-muted)' }}
-                            onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
-                            onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
-                          >
-                            <TrendingUp className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            title={isArabic ? 'النتائج' : 'Results'}
-                            onClick={() => void showResults(exam)}
-                            disabled={busy}
-                            className="p-1.5 rounded-md transition-colors"
-                            style={{ color: 'var(--cms-text-muted)' }}
-                            onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
-                            onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
-                          >
-                            <BarChart3 className="w-4 h-4" />
-                          </button>
-                          {/* Push 3 census: exams edit pencil stays ungated (out-of-census
-                              control, like lecture-publish/copy-code) — backend policy is the gate. */}
-                          <button
-                            type="button"
-                            title={isArabic ? 'تعديل' : 'Edit'}
-                            onClick={() => void openEdit(exam)}
-                            disabled={busy}
-                            className="p-1.5 rounded-md transition-colors"
-                            style={{ color: 'var(--cms-text-muted)' }}
-                            onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
-                            onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          {exam.status !== 'Published' && exam.status !== 'Archived' && can('btn:exams.publish') && (
-                            <button
-                              type="button"
-                              title={isArabic ? 'نشر' : 'Publish'}
-                              onClick={() => setConfirm({ exam, action: 'publish' })}
-                              disabled={busy}
-                              className="p-1.5 rounded-md text-teal-600 hover:bg-teal-50 transition-colors disabled:opacity-50"
-                            >
-                              <Send className="w-4 h-4" />
-                            </button>
-                          )}
-                          {exam.status === 'Published' && can('btn:exams.publish') && (
-                            <button
-                              type="button"
-                              title={isArabic ? 'إلغاء النشر (إعادة إلى مسودة)' : 'Unpublish (revert to draft)'}
-                              data-testid={`exam-unpublish-${exam.id}`}
-                              onClick={() => setConfirm({ exam, action: 'unpublish' })}
-                              disabled={busy}
-                              className="p-1.5 rounded-md text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-50"
-                            >
-                              <CloudOff className="w-4 h-4" />
-                            </button>
-                          )}
-                          {exam.status !== 'Archived' && can('btn:exams.archive') && (
-                            <button
-                              type="button"
-                              title={isArabic ? 'أرشفة' : 'Archive'}
-                              onClick={() => setConfirm({ exam, action: 'archive' })}
-                              disabled={busy}
-                              className="p-1.5 rounded-md text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-50"
-                            >
-                              <Archive className="w-4 h-4" />
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            title={isArabic ? 'معاينة كطالب' : 'Preview as student'}
-                            data-testid={`exam-preview-${exam.id}`}
-                            onClick={() => void showPreview(exam)}
-                            disabled={busy}
-                            className="p-1.5 rounded-md transition-colors disabled:opacity-50"
-                            style={{ color: 'var(--cms-info)' }}
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          {can('btn:exams.delete') && (
-                            <button
-                              type="button"
-                              title={isArabic ? 'حذف' : 'Delete'}
-                              onClick={() => setConfirm({ exam, action: 'delete' })}
-                              disabled={busy}
-                              className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
+                        {/* Command Center P1: row-action ⋮ menu — all six exam actions
+                            (stats, results, edit, publish, archive, delete) grouped into
+                            one trigger instead of the 6-button cluster. Destructive
+                            entries stay confirm-gated downstream via setConfirm. */}
+                        <RowActionsMenu
+                          label={isArabic ? `إجراءات ${exam.titleAr}` : `Actions for ${exam.titleAr}`}
+                          dir={isArabic ? 'rtl' : 'ltr'}
+                          items={[
+                            {
+                              key: 'stats',
+                              label: isArabic ? 'الإحصائيات' : 'Stats',
+                              icon: <TrendingUp className="w-4 h-4" />,
+                              disabled: busy,
+                              onSelect: () => void showStats(exam),
+                            },
+                            {
+                              key: 'results',
+                              label: isArabic ? 'النتائج' : 'Results',
+                              icon: <BarChart3 className="w-4 h-4" />,
+                              disabled: busy,
+                              onSelect: () => void showResults(exam),
+                            },
+                            {
+                              // Push 3 census: exams edit stays ungated (out-of-census
+                              // control, like lecture-publish/copy-code) — backend policy is the gate.
+                              key: 'edit',
+                              label: isArabic ? 'تعديل' : 'Edit',
+                              icon: <Pencil className="w-4 h-4" />,
+                              disabled: busy,
+                              onSelect: () => void openEdit(exam),
+                            },
+                            {
+                              // W6 (complete API coverage): student-view preview joins the menu.
+                              key: 'preview',
+                              label: isArabic ? 'معاينة كطالب' : 'Preview as student',
+                              icon: <Eye className="w-4 h-4" />,
+                              disabled: busy,
+                              onSelect: () => void showPreview(exam),
+                            },
+                            ...(exam.status !== 'Published' && exam.status !== 'Archived' && can('btn:exams.publish')
+                              ? [{
+                                  key: 'publish',
+                                  label: isArabic ? 'نشر' : 'Publish',
+                                  icon: <Send className="w-4 h-4" />,
+                                  disabled: busy,
+                                  dividerBefore: true,
+                                  onSelect: () => setConfirm({ exam, action: 'publish' }),
+                                }]
+                              : []),
+                            // W6 (complete API coverage): unpublish reverts a published exam to draft.
+                            ...(exam.status === 'Published' && can('btn:exams.publish')
+                              ? [{
+                                  key: 'unpublish',
+                                  label: isArabic ? 'إلغاء النشر (إعادة إلى مسودة)' : 'Unpublish (revert to draft)',
+                                  icon: <CloudOff className="w-4 h-4" />,
+                                  disabled: busy,
+                                  onSelect: () => setConfirm({ exam, action: 'unpublish' }),
+                                }]
+                              : []),
+                            ...(exam.status !== 'Archived' && can('btn:exams.archive')
+                              ? [{
+                                  key: 'archive',
+                                  label: isArabic ? 'أرشفة' : 'Archive',
+                                  icon: <Archive className="w-4 h-4" />,
+                                  disabled: busy,
+                                  onSelect: () => setConfirm({ exam, action: 'archive' }),
+                                }]
+                              : []),
+                            ...(can('btn:exams.delete')
+                              ? [{
+                                  key: 'delete',
+                                  label: isArabic ? 'حذف' : 'Delete',
+                                  danger: true,
+                                  icon: <Trash2 className="w-4 h-4" />,
+                                  disabled: busy,
+                                  onSelect: () => setConfirm({ exam, action: 'delete' }),
+                                }]
+                              : []),
+                            ...(isSuperAdmin
+                              ? [{
+                                  key: 'hard-delete',
+                                  label: isArabic ? 'حذف نهائي (تجاوز الأرشفة)' : 'Hard delete (bypass archive)',
+                                  danger: true,
+                                  dividerBefore: true,
+                                  icon: <Trash2 className="w-4 h-4" />,
+                                  onSelect: () => setHardTarget({ module: 'exam', targetId: exam.id, label: exam.titleAr }),
+                                }]
+                              : []),
+                          ]}
+                        />                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -2205,6 +2201,18 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
           </div>
         </Dialog>
       )}
+
+{/* Command Center P1 (D-4): physical delete, SuperAdmin + re-auth + loud-fail on children. */}
+      <HardDeleteDialog
+        token={token}
+        isArabic={isArabic}
+        target={hardTarget}
+        consequence={isArabic
+          ? 'سيُحذف الاختبار نهائيًا من قاعدة البيانات (تجاوز الأرشفة) مع جلساته ونتائجه المرتبطة.'
+          : 'The exam is physically deleted (bypassing archive) with its sessions and results.'}
+        onDone={() => { void loadExams(); }}
+        onClose={() => setHardTarget(null)}
+      />
     </section>
   );
 }

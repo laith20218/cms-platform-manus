@@ -23,7 +23,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { ApiError, apiRequest, type PagedResult } from '../lib/api';
-import { ConfirmDialog } from '@cms/ui';
+import { ConfirmDialog, RowActionsMenu } from '@cms/ui';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
 // ===== W3 (admin-ui): Arabic glossaries — raw enum wire values must never
@@ -834,19 +834,6 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--cms-text-soft)' }}>{dateLabel(student.lastLogin, isArabic)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        {/* P1-01: Edit profile button. Push 3: gated by btn:students.edit. */}
-                        {can('btn:students.edit') && (
-                          <button
-                            title={isArabic ? 'تعديل الملف' : 'Edit profile'}
-                            onClick={() => { setEditStudent(student); setEditForm({ fullName: student.fullName, gender: student.gender ?? '' }); }}
-                            className="p-1.5 rounded-md transition-colors"
-                            style={{ color: 'var(--cms-text-muted)' }}
-                            onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
-                            onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                        )}
                         <button
                           title={isArabic ? 'عرض الملف والسجل الأمني' : 'View profile and security log'}
                           onClick={() => void openStudent(student)}
@@ -857,29 +844,42 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        {active ? (
-                          can('btn:students.ban') ? (
-                            <button
-                              className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors"
-                              title={isArabic ? 'حظر الحساب' : 'Ban account'}
-                              disabled={busy}
-                              onClick={() => openDialog({ kind: 'ban', student })}
-                            >
-                              <Ban className="w-4 h-4" />
-                            </button>
-                          ) : null
-                        ) : (
-                          can('btn:students.ban') ? (
-                            <button
-                              className="p-1.5 rounded-md text-emerald-600 hover:bg-emerald-50 transition-colors"
-                              title={isArabic ? 'إعادة التفعيل' : 'Reactivate'}
-                              disabled={busy}
-                              onClick={() => setConfirmUnban(student)}
-                            >
-                              <RotateCcw className="w-4 h-4" />
-                            </button>
-                          ) : null
-                        )}
+                        {/* Command Center P1: row-action ⋮ menu — edit / ban / reactivate
+                            grouped instead of a per-row button cluster. Ban stays
+                            confirm-gated downstream (ban dialog + unban ConfirmDialog). */}
+                        <RowActionsMenu
+                          label={isArabic ? `إجراءات ${student.fullName}` : `Actions for ${student.fullName}`}
+                          dir={isArabic ? 'rtl' : 'ltr'}
+                          items={[
+                            ...(can('btn:students.edit')
+                              ? [{
+                                  key: 'edit',
+                                  label: isArabic ? 'تعديل الملف' : 'Edit profile',
+                                  icon: <Pencil className="w-4 h-4" />,
+                                  onSelect: () => { setEditStudent(student); setEditForm({ fullName: student.fullName, gender: student.gender ?? '' }); },
+                                }]
+                              : []),
+                            ...(can('btn:students.ban') && active
+                              ? [{
+                                  key: 'ban',
+                                  label: isArabic ? 'حظر الحساب' : 'Ban account',
+                                  danger: true,
+                                  icon: <Ban className="w-4 h-4" />,
+                                  disabled: busy,
+                                  onSelect: () => openDialog({ kind: 'ban', student }),
+                                }]
+                              : []),
+                            ...(can('btn:students.ban') && !active
+                              ? [{
+                                  key: 'unban',
+                                  label: isArabic ? 'إعادة التفعيل' : 'Reactivate',
+                                  icon: <RotateCcw className="w-4 h-4" />,
+                                  disabled: busy,
+                                  onSelect: () => setConfirmUnban(student),
+                                }]
+                              : []),
+                          ]}
+                        />
                       </div>
                     </td>
                   </tr>
