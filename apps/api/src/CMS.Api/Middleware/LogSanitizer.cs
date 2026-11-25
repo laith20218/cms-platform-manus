@@ -19,6 +19,9 @@ public static class LogSanitizer
 {
     private const int DefaultMaxLength = 256;
 
+    // Control characters (C0 + DEL), matched by the regex pass below.
+    private const string ControlCharPattern = "[\\x00-\\x1F\\x7F]";
+
     /// <summary>
     /// Returns a log-safe rendering of <paramref name="value"/>: every control
     /// character (CR, LF, NUL, …) replaced with a space and the result capped
@@ -27,30 +30,17 @@ public static class LogSanitizer
     public static string Clean(string? value, int maxLength = DefaultMaxLength)
     {
         if (string.IsNullOrEmpty(value)) return string.Empty;
-        if (value.Length <= maxLength && !ContainsControlChar(value)) return value;
 
-        var builder = new System.Text.StringBuilder(value.Length);
-        var kept = 0;
-        foreach (var ch in value)
-        {
-            if (kept >= maxLength) break;
-            if (char.IsControl(ch))
-            {
-                builder.Append(' ');
-                kept++;
-            }
-            else
-            {
-                builder.Append(ch);
-                kept++;
-            }
-        }
-        return builder.ToString();
+        // Three independent sanitisation barriers, in order:
+        //  1. constant Replace of CR — a recognised log-injection barrier,
+        //  2. constant Replace of LF — likewise,
+        //  3. a regex pass that rewrites every remaining control character.
+        // Layering matters: the first two are the canonical modelled
+        // sanitizers; the regex pass is defense-in-depth for NUL/tab/DEL and
+        // any other C0 character that could still disturb log structure.
+        var flattened = value.Replace("\r", " ").Replace("\n", " ");
+        var stripped = System.Text.RegularExpressions.Regex.Replace(flattened, ControlCharPattern, " ");
+        return stripped.Length <= maxLength ? stripped : stripped[..maxLength];
     }
 
-    private static bool ContainsControlChar(string value)
-    {
-        foreach (var ch in value) if (char.IsControl(ch)) return true;
-        return false;
-    }
 }
