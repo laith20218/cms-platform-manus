@@ -25,6 +25,7 @@ import {
   AlertCircle, Archive, Ban, CheckCircle2, ChevronDown, ChevronUp, Film, GraduationCap,
   AlertTriangle, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, Upload, X, Youtube,
 } from 'lucide-react';
+import { ConfirmDialog, Drawer } from '@cms/ui';
 import {
   apiRequest, type ApiError, type PagedResult, type AdminCourseListItem, type CourseDetail,
   type CourseEpisode, type InitiateUploadResponse,
@@ -83,6 +84,11 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
   const [createForm, setCreateForm] = useState({ title: '', description: '', coverImageUrl: '' });
   const [editCourse, setEditCourse] = useState<AdminCourseListItem | null>(null);
   const [editForm, setEditForm] = useState({ title: '', description: '', coverImageUrl: '' });
+  // W2 (admin-ui): destructive/lifecycle course actions were single-click or
+  // native window.confirm (debt D-03 + publish/archive no-confirm) — now gated
+  // by the shared ConfirmDialog with consequence text.
+  const [deleteTarget, setDeleteTarget] = useState<AdminCourseListItem | null>(null);
+  const [lifecycleTarget, setLifecycleTarget] = useState<{ course: AdminCourseListItem; action: 'publish' | 'archive' } | null>(null);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
 
@@ -165,6 +171,7 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
       onNotice(action === 'publish'
         ? isArabic ? `تم نشر الكورس "${course.title}".` : `Course "${course.title}" published.`
         : isArabic ? `تمت أرشفة الكورس "${course.title}".` : `Course "${course.title}" archived.`);
+      setLifecycleTarget(null);
       await loadCourses();
     } catch (error) {
       onError(error instanceof Error ? error.message : isArabic ? 'فشل الإجراء.' : 'Action failed.');
@@ -172,13 +179,11 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
   };
 
   const handleDelete = async (course: AdminCourseListItem) => {
-    if (!window.confirm(isArabic
-      ? `حذف نهائي للكورس "${course.title}" وكل حلقاته وملفات الفيديو المخزنة؟`
-      : `Permanently delete course "${course.title}" with all episodes and stored videos?`)) return;
     setBusy(true);
     try {
       await request(`/api/v1/admin/courses/${course.id}`, { method: 'DELETE' });
       onNotice(isArabic ? `تم حذف الكورس "${course.title}".` : `Course "${course.title}" deleted.`);
+      setDeleteTarget(null);
       if (expandedId === course.id) setExpandedId(null);
       await loadCourses();
     } catch (error) {
@@ -236,55 +241,114 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
         </div>
       </div>
 
-      {/* Create course panel */}
-      {showCreate && subjectId && (
-        <div className="rounded-xl border bg-white p-4 space-y-3" style={{ borderColor: 'var(--cms-line)' }}>
-          <h4 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{copy.createCourse}</h4>
-          <div className="grid md:grid-cols-3 gap-3">
-            <input value={createForm.title} onChange={(e) => setCreateForm(f => ({ ...f, title: e.target.value }))}
-              placeholder={copy.formTitle} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
-            <input value={createForm.description} onChange={(e) => setCreateForm(f => ({ ...f, description: e.target.value }))}
-              placeholder={copy.formDesc} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
-            <input value={createForm.coverImageUrl} onChange={(e) => setCreateForm(f => ({ ...f, coverImageUrl: e.target.value }))}
-              placeholder={copy.formCover} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => void handleCreate()} disabled={busy}
-              className="px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50" style={{ background: 'var(--cms-teal-700)' }}>
-              {copy.save}
-            </button>
+      {/* ===== W2 (admin-ui): create/edit course in the shared accessible Drawer
+          (portal, focus trap, Esc close, logical side anchoring) — were inline
+          page-heavy panels. ===== */}
+      <Drawer
+        open={showCreate && subjectId !== ''}
+        onOpenChange={(next) => { if (!next) setShowCreate(false); }}
+        title={copy.createCourse}
+        side="start"
+        dir={dir}
+        size="md"
+        dismissGuard={busy}
+        testId="course-create-drawer"
+        footer={
+          <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setShowCreate(false)} disabled={busy}
               className="px-4 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}>
               {copy.cancel}
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Edit course panel */}
-      {editCourse && (
-        <div className="rounded-xl border bg-white p-4 space-y-3" style={{ borderColor: 'var(--cms-line)' }}>
-          <h4 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{copy.editCourse}: {editCourse.title}</h4>
-          <div className="grid md:grid-cols-3 gap-3">
-            <input value={editForm.title} onChange={(e) => setEditForm(f => ({ ...f, title: e.target.value }))}
-              placeholder={copy.formTitle} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
-            <input value={editForm.description} onChange={(e) => setEditForm(f => ({ ...f, description: e.target.value }))}
-              placeholder={copy.formDesc} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
-            <input value={editForm.coverImageUrl} onChange={(e) => setEditForm(f => ({ ...f, coverImageUrl: e.target.value }))}
-              placeholder={copy.formCover} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => void handleUpdate()} disabled={busy}
+            <button type="button" onClick={() => void handleCreate()} disabled={busy}
               className="px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50" style={{ background: 'var(--cms-teal-700)' }}>
               {copy.save}
             </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <input aria-label={copy.formTitle} value={createForm.title} onChange={(e) => setCreateForm(f => ({ ...f, title: e.target.value }))}
+            placeholder={copy.formTitle} className="w-full px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
+          <input aria-label={copy.formDesc} value={createForm.description} onChange={(e) => setCreateForm(f => ({ ...f, description: e.target.value }))}
+            placeholder={copy.formDesc} className="w-full px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
+          <input aria-label={copy.formCover} value={createForm.coverImageUrl} onChange={(e) => setCreateForm(f => ({ ...f, coverImageUrl: e.target.value }))}
+            placeholder={copy.formCover} className="w-full px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
+        </div>
+      </Drawer>
+
+      <Drawer
+        open={editCourse !== null}
+        onOpenChange={(next) => { if (!next) setEditCourse(null); }}
+        title={`${copy.editCourse}: ${editCourse?.title ?? ''}`}
+        side="start"
+        dir={dir}
+        size="md"
+        dismissGuard={busy}
+        testId="course-edit-drawer"
+        footer={
+          <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setEditCourse(null)} disabled={busy}
               className="px-4 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}>
               {copy.cancel}
             </button>
+            <button type="button" onClick={() => void handleUpdate()} disabled={busy}
+              className="px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50" style={{ background: 'var(--cms-teal-700)' }}>
+              {copy.save}
+            </button>
           </div>
+        }
+      >
+        <div className="space-y-3">
+          <input aria-label={copy.formTitle} value={editForm.title} onChange={(e) => setEditForm(f => ({ ...f, title: e.target.value }))}
+            placeholder={copy.formTitle} className="w-full px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
+          <input aria-label={copy.formDesc} value={editForm.description} onChange={(e) => setEditForm(f => ({ ...f, description: e.target.value }))}
+            placeholder={copy.formDesc} className="w-full px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
+          <input aria-label={copy.formCover} value={editForm.coverImageUrl} onChange={(e) => setEditForm(f => ({ ...f, coverImageUrl: e.target.value }))}
+            placeholder={copy.formCover} className="w-full px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
         </div>
-      )}
+      </Drawer>
+
+      {/* ===== W2 (admin-ui): explicit confirm gates for course lifecycle + delete ===== */}
+      <ConfirmDialog
+        open={lifecycleTarget !== null}
+        onOpenChange={(next) => { if (!next) setLifecycleTarget(null); }}
+        title={lifecycleTarget?.action === 'publish'
+          ? (isArabic ? 'نشر الكورس' : 'Publish course')
+          : (isArabic ? 'أرشفة الكورس' : 'Archive course')}
+        description={lifecycleTarget
+          ? (lifecycleTarget.action === 'publish'
+            ? (isArabic
+              ? `سيصبح الكورس "${lifecycleTarget.course.title}" مع جميع حلقاته مرئيًا لجميع الطلاب.`
+              : `"${lifecycleTarget.course.title}" and all its episodes will become visible to all students.`)
+            : (isArabic
+              ? `سيُخفى الكورس "${lifecycleTarget.course.title}" من اكتشاف الطلاب. يمكن استعادته بالنشر لاحقًا.`
+              : `"${lifecycleTarget.course.title}" will be hidden from student discovery. It can be re-published later.`))
+          : undefined}
+        confirmLabel={lifecycleTarget?.action === 'publish' ? copy.publish : copy.archive}
+        cancelLabel={copy.cancel}
+        dir={dir}
+        busy={busy}
+        onConfirm={() => { if (lifecycleTarget) void lifecycle(lifecycleTarget.course, lifecycleTarget.action); }}
+        testId="course-lifecycle-confirm"
+      />
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(next) => { if (!next) setDeleteTarget(null); }}
+        title={isArabic ? 'حذف الكورس نهائيًا' : 'Permanently delete course'}
+        description={deleteTarget
+          ? (isArabic
+            ? `سيُحذف الكورس "${deleteTarget.title}" نهائيًا مع جميع حلقاته وملفات الفيديو المخزنة. لا يمكن التراجع عن هذا الإجراء.`
+            : `"${deleteTarget.title}" will be permanently deleted together with all its episodes and stored videos. This cannot be undone.`)
+          : undefined}
+        confirmLabel={copy.delete}
+        cancelLabel={copy.cancel}
+        variant="danger"
+        requireAcknowledge={{ label: isArabic ? 'أفهم أن الحذف نهائي ولا يمكن التراجع عنه' : 'I understand this deletion is permanent and cannot be undone' }}
+        dir={dir}
+        busy={busy}
+        onConfirm={() => { if (deleteTarget) void handleDelete(deleteTarget); }}
+        testId="course-delete-confirm"
+      />
 
       {/* Courses table */}
       {loading ? (
@@ -334,19 +398,19 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
                     </button>
                   )}
                   {course.status === 'Draft' && can('btn:library.course.publish') && (
-                    <button type="button" title={copy.publish} disabled={busy} onClick={() => void lifecycle(course, 'publish')}
+                    <button type="button" title={copy.publish} disabled={busy} onClick={() => setLifecycleTarget({ course, action: 'publish' })}
                       className="p-1.5 rounded-md text-emerald-600 hover:bg-emerald-50 transition-colors">
                       <CheckCircle2 className="w-4 h-4" />
                     </button>
                   )}
                   {course.status === 'Published' && can('btn:library.course.archive') && (
-                    <button type="button" title={copy.archive} disabled={busy} onClick={() => void lifecycle(course, 'archive')}
+                    <button type="button" title={copy.archive} disabled={busy} onClick={() => setLifecycleTarget({ course, action: 'archive' })}
                       className="p-1.5 rounded-md text-amber-600 hover:bg-amber-50 transition-colors">
                       <Archive className="w-4 h-4" />
                     </button>
                   )}
                   {can('btn:library.course.delete') && (
-                    <button type="button" title={copy.delete} disabled={busy} onClick={() => void handleDelete(course)}
+                    <button type="button" title={copy.delete} disabled={busy} onClick={() => setDeleteTarget(course)}
                       className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors">
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -391,14 +455,14 @@ function buildCopy(isArabic: boolean) {
     episodeNumber: 'رقم الحلقة', duration: 'المدة (ثانية، اختياري)', add: 'إضافة', uploadVideo: 'رفع وسائط (فيديو/صوت)',
     uploading: 'جارٍ الرفع…', retry: 'إعادة المحاولة', abort: 'إلغاء الرفع',
     incomplete: 'لم يكتمل الرفع', ready: 'جاهز', close: 'إغلاق', selectFile: 'اختر ملف الفيديو أو الصوت',
-    deleteEpisode: 'حذف الحلقة', episodes: 'الحلقات', retrying: 'إعادة المحاولة…',
+    deleteEpisode: 'حذف الحلقة', episodes: 'الحلقات', retrying: 'إعادة المحاولة…', cancel: 'إلغاء',
     editEpisode: 'تعديل بيانات الحلقة', processingChip: 'المعالجة',
   } : {
     addEpisode: 'Add episode', youtubeId: 'YouTube video id', episodeTitle: 'Episode title',
     episodeNumber: 'Episode number', duration: 'Duration (seconds, optional)', add: 'Add', uploadVideo: 'Upload media (video/audio)',
     uploading: 'Uploading…', retry: 'Retry', abort: 'Abort upload',
     incomplete: 'Upload incomplete', ready: 'Ready', close: 'Close', selectFile: 'Choose a video or audio file',
-    deleteEpisode: 'Delete episode', episodes: 'Episodes', retrying: 'Retrying…',
+    deleteEpisode: 'Delete episode', episodes: 'Episodes', retrying: 'Retrying…', cancel: 'Cancel',
     editEpisode: 'Edit episode', processingChip: 'Processing',
   };
 }
@@ -433,6 +497,9 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
   /* Hotfix 10.6-2 (1.D): the poller watchdog window (see PROCESSING_POLL_TIMEOUT_MS). */
   const [pollStartedAt, setPollStartedAt] = useState<number | null>(null);
   const [pollTimedOut, setPollTimedOut] = useState(false);
+  // W2 (admin-ui): episode delete was a native window.confirm (debt D-04) —
+  // now an explicit danger ConfirmDialog (episode + stored video consequence).
+  const [deleteEpisodeTarget, setDeleteEpisodeTarget] = useState<CourseEpisode | null>(null);
 
   const watchEpisode = useCallback((episodeId: string) => {
     setWatched((prev) => {
@@ -547,11 +614,11 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
   };
 
   const deleteEpisode = async (episode: CourseEpisode) => {
-    if (!window.confirm(isArabic ? `حذف الحلقة "${episode.title}"${episode.sourceType === 'Upload' ? ' وملف الفيديو المخزن' : ''}؟` : `Delete episode "${episode.title}"${episode.sourceType === 'Upload' ? ' and its stored video' : ''}?`)) return;
     setBusy(true);
     try {
       await request(`/api/v1/admin/courses/episodes/${episode.id}`, { method: 'DELETE' });
       onNotice(isArabic ? 'تم حذف الحلقة.' : 'Episode deleted.');
+      setDeleteEpisodeTarget(null);
       await loadDetail();
       await onChanged();
     } catch (error) {
@@ -655,7 +722,7 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
               </button>
             )}
             {can('btn:library.course.episode.delete') && (
-              <button type="button" title={copy.deleteEpisode} disabled={busy} onClick={() => void deleteEpisode(episode)}
+              <button type="button" title={copy.deleteEpisode} disabled={busy} onClick={() => setDeleteEpisodeTarget(episode)}
                 className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors">
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -695,6 +762,26 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
         humanMessage={errorDialog?.humanMessage}
         technicalDetails={errorDialog?.technicalDetails}
         testId="manager-error-modal"
+      />
+
+      {/* W2 (admin-ui): explicit danger confirm before deleting an episode
+          (window.confirm before — English browser chrome, debt D-04). */}
+      <ConfirmDialog
+        open={deleteEpisodeTarget !== null}
+        onOpenChange={(next) => { if (!next) setDeleteEpisodeTarget(null); }}
+        title={isArabic ? 'حذف الحلقة' : 'Delete episode'}
+        description={deleteEpisodeTarget
+          ? (isArabic
+            ? `سيُحذف الحلقة "${deleteEpisodeTarget.title}"${deleteEpisodeTarget.sourceType === 'Upload' ? ' مع ملف الفيديو المخزن' : ''} نهائيًا. لا يمكن التراجع عن هذا الإجراء.`
+            : `"${deleteEpisodeTarget.title}"${deleteEpisodeTarget.sourceType === 'Upload' ? ' and its stored video' : ''} will be permanently deleted. This cannot be undone.`)
+          : undefined}
+        confirmLabel={isArabic ? 'حذف' : 'Delete'}
+        cancelLabel={copy.cancel}
+        variant="danger"
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => { if (deleteEpisodeTarget) void deleteEpisode(deleteEpisodeTarget); }}
+        testId="episode-delete-confirm"
       />
     </div>
   );

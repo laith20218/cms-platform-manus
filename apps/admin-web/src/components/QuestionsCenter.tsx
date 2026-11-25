@@ -46,6 +46,7 @@ import {
   Search, Send, Trash2, Undo2, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
+import { Pagination } from '@cms/ui';
 import { questionDifficultyLabel as difficultyLabel, questionTypeLabel as typeLabel } from '../lib/questionLabels';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import {
@@ -249,6 +250,10 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
 
   // === Questions state ===
   const [questions, setQuestions] = useState<QuestionSummary[]>([]);
+  // W2 (admin-ui): server-side pager state — the list was a fixed pageSize=100
+  // fetch with no controls (debt D-20).
+  const [questionsPage, setQuestionsPage] = useState(1);
+  const [questionsTotal, setQuestionsTotal] = useState(0);
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -322,16 +327,18 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   const isTrueFalse = form.type === 'TrueFalse';
   const isMatching = form.type === 'Matching';
 
-  async function loadQuestions() {
+  async function loadQuestions(targetPage = 1) {
     if (!subjectId) return;
     setLoading(true);
     try {
-      const params = new URLSearchParams({ subjectId, page: '1', pageSize: '100' });
+      const params = new URLSearchParams({ subjectId, page: String(targetPage), pageSize: '100' });
       if (query.trim()) params.set('search', query.trim());
       if (typeFilter) params.set('type', typeFilter);
       if (statusFilter) params.set('status', statusFilter);
       const result = await request<PagedResult<QuestionSummary>>(`/api/v1/admin/questions?${params.toString()}`);
       setQuestions(result.items);
+      setQuestionsPage(targetPage);
+      setQuestionsTotal(result.total);
     } catch (error) {
       onError(error instanceof Error ? error.message : 'تعذر تحميل الأسئلة.');
     } finally { setLoading(false); }
@@ -1159,6 +1166,22 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                 </tbody>
               </table>
             </div>
+          )}
+
+          {/* ===== W2 (admin-ui): shared pager for the question list ===== */}
+          {!loading && questionsTotal > 0 && (
+            <Pagination
+              page={questionsPage}
+              pageSize={100}
+              total={questionsTotal}
+              onPageChange={(next) => void loadQuestions(next)}
+              dir={isArabic ? 'rtl' : 'ltr'}
+              labels={isArabic ? undefined : {
+                prev: 'Previous', next: 'Next', navLabel: 'Question list pagination',
+                pageOf: (p, tp) => `Page ${p} of ${tp}`,
+              }}
+              testId="questions-list-pagination"
+            />
           )}
 
           {/* ===== Slide-in editor ===== */}

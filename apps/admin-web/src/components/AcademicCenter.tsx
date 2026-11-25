@@ -20,6 +20,7 @@ import {
   School, Send, Stethoscope, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
+import { ConfirmDialog } from '@cms/ui';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
@@ -90,6 +91,10 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
   const [lectureForm, setLectureForm] = useState<LectureForm>(emptyLectureForm());
   const [showLectureForm, setShowLectureForm] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState<{ kind: AcademicKind; id: string; restore: boolean; name: string } | null>(null);
+  // W2 (admin-ui): lecture publish fired on a single click with no confirmation
+  // (debt D-10) — publishing makes the lecture student-facing. Now gated by an
+  // explicit ConfirmDialog with consequence text.
+  const [publishLectureTarget, setPublishLectureTarget] = useState<{ id: string; title: string } | null>(null);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
 
@@ -197,6 +202,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
       await request(`/api/v1/lectures/${id}/publish`, { method: 'POST' });
       await refreshAfterLifecycle('lecture');
       onNotice(isArabic ? 'تم نشر المحاضرة وأصبحت متاحة للطلاب المخوّلين.' : 'Lecture published for entitled students.');
+      setPublishLectureTarget(null);
     } catch (error) {
       onError(error instanceof Error ? error.message : 'Request failed.');
     } finally {
@@ -654,7 +660,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                         type="button"
                         disabled={busy}
                         title={isArabic ? 'نشر' : 'Publish'}
-                        onClick={() => void publishLecture(lecture.id)}
+                        onClick={() => setPublishLectureTarget({ id: lecture.id, title: label(isArabic, lecture) })}
                         className="p-1.5 rounded-md transition-colors disabled:opacity-50"
                         style={{ color: 'var(--cms-teal-600)' }}
                       >
@@ -807,6 +813,25 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
           </div>
         </form>
       )}
+
+      {/* ===== W2 (admin-ui): explicit confirm before making a draft lecture
+          student-facing (was a single unconfirmed click, debt D-10) ===== */}
+      <ConfirmDialog
+        open={publishLectureTarget !== null}
+        onOpenChange={(next) => { if (!next) setPublishLectureTarget(null); }}
+        title={isArabic ? 'نشر المحاضرة' : 'Publish lecture'}
+        description={publishLectureTarget
+          ? (isArabic
+            ? `ستصبح المحاضرة "${publishLectureTarget.title}" متاحة للطلاب المخوّلين بالمادة، وستظهر في قائمة محاضراتها.`
+            : `"${publishLectureTarget.title}" will become available to students entitled to the subject and appear in its lecture list.`)
+          : undefined}
+        confirmLabel={isArabic ? 'نشر' : 'Publish'}
+        cancelLabel={isArabic ? 'إلغاء' : 'Cancel'}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => { if (publishLectureTarget) void publishLecture(publishLectureTarget.id); }}
+        testId="lecture-publish-confirm"
+      />
 
       {/* ===== Confirm archive / restore dialog ===== */}
       {confirmArchive && (

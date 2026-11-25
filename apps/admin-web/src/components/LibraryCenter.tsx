@@ -49,10 +49,11 @@
  */
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle, AlertTriangle, Archive, CheckCircle2, FileText, FileImage, FileVideo,
+  AlertTriangle, Archive, CheckCircle2, FileText, FileImage, FileVideo,
   FileAudio, FileCode, HelpCircle, Images, Library, LoaderCircle, MonitorPlay, Plus,
   RefreshCw, Search, ShieldCheck, Trash2, Upload, X, Film,
 } from 'lucide-react';
+import { ConfirmDialog, Pagination } from '@cms/ui';
 import { apiRequest, type PagedResult, type AdminLibraryFileListItem, type UploadUrlResponse } from '../lib/api';
 import { isPdfProcessingActive, pdfHealthBadge, pdfTimelineSteps } from '../lib/mediaProcessing';
 import { ProcessingErrorModal } from './ProcessingErrorModal';
@@ -316,6 +317,9 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
 
   const [files, setFiles] = useState<AdminLibraryFileListItem[]>([]);
   const [page, setPage] = useState(1);
+  // W2 (admin-ui): server-side total feeds the shared pager — the previous
+  // fixed pageSize=25 without controls made rows 26+ unreachable (debt D-19).
+  const [total, setTotal] = useState(0);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(false);
@@ -326,6 +330,11 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState<AdminLibraryFileListItem | null>(null);
+  // W2 (admin-ui): publish/archive were single-click, NO confirmation (debt
+  // D-07/D-08) — one click made content student-visible/hidden. Now gated by
+  // an explicit ConfirmDialog with consequence text.
+  const [publishTarget, setPublishTarget] = useState<AdminLibraryFileListItem | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<AdminLibraryFileListItem | null>(null);
   // Wave 11.9 — the file id the upload panel tracks through the Ghostscript
   // pipeline + the failure modal payload (raw GS stderr tail).
   const [trackingFileId, setTrackingFileId] = useState<string | null>(null);
@@ -421,6 +430,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       const data = await request<PagedResult<AdminLibraryFileListItem>>(`/api/v1/admin/content/files?${params.toString()}`);
       setFiles(data.items);
       setPage(targetPage);
+      setTotal(data.total);
     } catch (error) {
       onError(error instanceof Error ? error.message : 'تعذر تحميل الملفات.');
     } finally {
@@ -680,6 +690,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     try {
       await request<unknown>(`/api/v1/library/${file.id}/publish`, { method: 'POST' });
       onNotice(`تم نشر الملف "${file.title}".`);
+      setPublishTarget(null);
       await loadFiles(page);
     } catch (error) {
       onError(error instanceof Error ? error.message : 'فشل نشر الملف.');
@@ -693,6 +704,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     try {
       await request<unknown>(`/api/v1/library/${file.id}/archive`, { method: 'POST' });
       onNotice(`تمت أرشفة الملف "${file.title}".`);
+      setArchiveTarget(null);
       await loadFiles(page);
     } catch (error) {
       onError(error instanceof Error ? error.message : 'فشلت أرشفة الملف.');
@@ -1103,7 +1115,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                         {file.status === 'Draft' && file.virusScanStatus === 'Clean' && can('btn:library.publish') && (
                           <button
                             type="button"
-                            onClick={() => void handlePublish(file)}
+                            onClick={() => setPublishTarget(file)}
                             disabled={busy}
                             title={copy.publish}
                             className="p-1.5 rounded-md text-teal-600 hover:bg-teal-50 transition-colors disabled:opacity-50"
@@ -1114,7 +1126,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                         {file.status === 'Published' && can('btn:library.archive') && (
                           <button
                             type="button"
-                            onClick={() => void handleArchive(file)}
+                            onClick={() => setArchiveTarget(file)}
                             disabled={busy}
                             title={copy.archive}
                             className="p-1.5 rounded-md text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-50"
@@ -1141,6 +1153,22 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* ===== W2 (admin-ui): shared pager — rows beyond page 1 are reachable now ===== */}
+      {!loading && total > 0 && (
+        <Pagination
+          page={page}
+          pageSize={25}
+          total={total}
+          onPageChange={(next) => void loadFiles(next)}
+          dir={isArabic ? 'rtl' : 'ltr'}
+          labels={isArabic ? undefined : {
+            prev: 'Previous', next: 'Next', navLabel: 'File list pagination',
+            pageOf: (p, tp) => `Page ${p} of ${tp}`,
+          }}
+          testId="library-files-pagination"
+        />
       )}
       </>) : (
         /* Push 4: the Courses tab shares the academic cascade (subject scope) above. */
@@ -1671,65 +1699,57 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         </>
       )}
 
-      {/* ===== Delete confirmation modal ===== */}
-      {confirmDelete && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-          role="presentation"
-          onMouseDown={() => !busy && setConfirmDelete(null)}
-        >
-          <div
-            className="bg-white rounded-xl max-w-md w-full"
-            role="dialog"
-            aria-modal="true"
-            style={{ boxShadow: 'var(--cms-shadow-xl)' }}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start gap-3 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
-              <div
-                className="p-2 rounded-lg"
-                style={{ background: 'var(--cms-danger-50)', color: 'var(--cms-danger)' }}
-              >
-                <AlertCircle className="w-6 h-6" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
-                  {copy.deleteTitle}
-                </h3>
-                <p className="text-sm mt-1" style={{ color: 'var(--cms-text-soft)' }}>
-                  {copy.deleteText}
-                </p>
-                <p className="text-sm font-medium mt-2 truncate" style={{ color: 'var(--cms-text)' }}>
-                  &ldquo;{confirmDelete.title}&rdquo;
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-3 justify-end p-5">
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(null)}
-                disabled={busy}
-                className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50"
-                style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
-              >
-                {copy.cancel}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleDelete(confirmDelete)}
-                disabled={busy}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
-                style={{ background: 'var(--cms-danger)' }}
-                onMouseEnter={(event) => { if (!busy) event.currentTarget.style.background = '#9c3a31'; }}
-                onMouseLeave={(event) => { event.currentTarget.style.background = 'var(--cms-danger)'; }}
-              >
-                {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                {copy.confirmDelete}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ===== W2 (admin-ui): explicit confirm gates for every file lifecycle
+          action (publish / archive / delete) — previously publish+archive fired
+          on a single click with no confirmation (D-07/D-08) and delete used a
+          hand-rolled modal without Esc/focus trap (D-12). ===== */}
+      <ConfirmDialog
+        open={publishTarget !== null}
+        onOpenChange={(next) => { if (!next) setPublishTarget(null); }}
+        title={isArabic ? 'نشر الملف' : 'Publish file'}
+        description={publishTarget
+          ? (isArabic
+            ? `سيصبح الملف "${publishTarget.title}" مرئيًا لجميع الطلاب ضمن المادة وسيظهر في نتائج البحث.`
+            : `"${publishTarget.title}" will become visible to all students of the subject and appear in search results.`)
+          : undefined}
+        confirmLabel={copy.publish}
+        cancelLabel={copy.cancel}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => { if (publishTarget) void handlePublish(publishTarget); }}
+        testId="library-publish-confirm"
+      />
+      <ConfirmDialog
+        open={archiveTarget !== null}
+        onOpenChange={(next) => { if (!next) setArchiveTarget(null); }}
+        title={isArabic ? 'أرشفة الملف' : 'Archive file'}
+        description={archiveTarget
+          ? (isArabic
+            ? `سيُخفى الملف "${archiveTarget.title}" من اكتشاف الطلاب. يمكن استعادته بالنشر لاحقًا ولا يُحذف نهائيًا.`
+            : `"${archiveTarget.title}" will be hidden from student discovery. It can be re-published later and is not permanently deleted.`)
+          : undefined}
+        confirmLabel={copy.archive}
+        cancelLabel={copy.cancel}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => { if (archiveTarget) void handleArchive(archiveTarget); }}
+        testId="library-archive-confirm"
+      />
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        onOpenChange={(next) => { if (!next) setConfirmDelete(null); }}
+        title={copy.deleteTitle}
+        description={confirmDelete
+          ? `${copy.deleteText} "${confirmDelete.title}"`
+          : undefined}
+        confirmLabel={copy.confirmDelete}
+        cancelLabel={copy.cancel}
+        variant="danger"
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => { if (confirmDelete) void handleDelete(confirmDelete); }}
+        testId="library-delete-confirm"
+      />
 
       {/* ===== Wave 11.9 / R22.3 — PDF font-processing failure modal ===== */}
       <ProcessingErrorModal
