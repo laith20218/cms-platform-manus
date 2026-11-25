@@ -6,7 +6,9 @@ import android.os.Looper
 import com.cms.student.media.CacheIndex
 import com.cms.student.media.CacheProgressBus
 import com.cms.student.media.CacheQuota
+import com.cms.student.media.ChunkedFileStore
 import com.cms.student.media.ConnectivityNetworkAvailability
+import com.cms.student.media.EncryptedChunkedFileStore
 import com.cms.student.media.EncryptedMediaCachePersistence
 import com.cms.student.media.EncryptedMediaFileStore
 import com.cms.student.media.HttpsMediaContentTransport
@@ -14,6 +16,8 @@ import com.cms.student.media.MediaCacheService
 import com.cms.student.media.MediaFileStore
 import com.cms.student.media.NativeMediaOpener
 import com.cms.student.bridge.AuthenticatedOfflineRuntimeFacade
+import com.cms.student.bridge.HttpsCourseEpisodeDownloadFacade
+import com.cms.student.bridge.OfflineCourseBridgeService
 import com.cms.student.bridge.OfflinePackageBridgeService
 import com.cms.student.bridge.WebSessionEndApi
 import com.cms.student.security.AndroidKeystorePackageKeyProvider
@@ -136,12 +140,16 @@ class CmsApplication : Application() {
      * onTokensCleared hook; here the question-package envelopes go too
      * ([EncryptedOfflinePackageStore.wipeAll]) along with the W2/W3 bridge
      * runtime state (download states, package-id map, the last web-student
-     * binding). Nothing offline outlives a dead native session.
+     * binding), and Wave 5b-i adds the hosted-course chunk store: the course
+     * bridge state resets and `media-chunks` is wiped wholesale. Nothing
+     * offline outlives a dead native session.
      */
     private fun wipeOfflineStoresForNativeSessionDeath() {
         offlinePackageBridgeService.reset()
         runCatching { offlinePackageStore.wipeAll() }
         lastWebStudentId = null
+        offlineCourseBridgeService.reset()
+        runCatching { courseChunkStore.deleteAll() }
     }
 
     // =====================================================================
@@ -242,16 +250,24 @@ class CmsApplication : Application() {
     private val mediaProgressBus by lazy { CacheProgressBus() }
     private val mediaFileStore: MediaFileStore by lazy { EncryptedMediaFileStore(this) }
 
-    private val mediaCacheService: MediaCacheService by lazy {
+    /**
+     * ONE shared HTTPS media transport — the library cache AND the Wave 5b-i
+     * course-episode adapter (same session provider, same pins, same base URL).
+     */
+    private val mediaTransport: HttpsMediaContentTransport by lazy {
         val baseApiUrl = AndroidOfflineBuildConfiguration.apiBaseUrl(BuildConfig.OFFLINE_API_BASE_URL, BuildConfig.API_BASE_URL)
         check(baseApiUrl.isNotBlank()) { "Media cache requires the HTTPS API base URL (BuildConfig validation guarantees one)" }
+        HttpsMediaContentTransport(
+            baseApiUrl,
+            apiCertificatePins
+        ) { activeSessionForMedia() }
+    }
+
+    private val mediaCacheService: MediaCacheService by lazy {
         MediaCacheService(
             index = CacheIndex(EncryptedMediaCachePersistence(this)),
             fileStore = mediaFileStore,
-            transport = HttpsMediaContentTransport(
-                baseApiUrl,
-                apiCertificatePins
-            ) { activeSessionForMedia() },
+            transport = mediaTransport,
             quota = CacheQuota(),
             progressBus = mediaProgressBus,
             executor = mediaExecutor,
@@ -269,6 +285,36 @@ class CmsApplication : Application() {
 
     /** The encrypted object store, shared with the viewer activities. */
     fun mediaFileStore(): MediaFileStore = mediaFileStore
+
+    // =====================================================================
+    // Wave 5b-i — hosted course-episode chunked AV bridge graph
+    // =====================================================================
+
+    /** Encrypted CHUNKED store for hosted course episodes (Phase Q: 4 MiB chunks). */
+    private val courseChunkStore: ChunkedFileStore by lazy { EncryptedChunkedFileStore(this) }
+
+    /** Dedicated single-thread executor for course-episode downloads (never the media/package executors). */
+    private val courseExecutor by lazy { Executors.newSingleThreadExecutor() }
+
+    private val offlineCourseBridgeService: OfflineCourseBridgeService by lazy {
+        OfflineCourseBridgeService(
+            // Pure JVM adapter over the SHARED media transport's course-episode
+            // overload — the sink callback is bridged into the ChunkWriter so
+            // no complete clear media file ever exists on disk.
+            transport = HttpsCourseEpisodeDownloadFacade(mediaTransport),
+            chunkStore = courseChunkStore,
+            sessionProvider = ::activeSessionForMedia,
+            installationId = { installationId },
+            executor = courseExecutor,
+            clock = Instant::now,
+            // Honest combined cap: the library cache bytes + the chunked episode
+            // bytes share the 5 GiB CachePolicy.MAX_CACHE_BYTES budget.
+            mediaBytesUsed = { mediaCache().catalogEntries().sumOf { it.bytes } }
+        )
+    }
+
+    /** The bridge-facing hosted-course surface (window.CmsNative Wave 5b-i methods). */
+    fun offlineCourseBridge(): OfflineCourseBridgeService = offlineCourseBridgeService
 
     /** Native session for media downloads: the in-memory session, else the stored pair. */
     private fun activeSessionForMedia(): OfflineSession? {
@@ -364,7 +410,13 @@ class CmsApplication : Application() {
             // session is a full wipe — this seam lets the bridge service order the
             // media cache wipe in the same instant (the cache is installation-scoped,
             // so it is wiped from the application graph, not from inside the service).
-            onFullWipe = { mediaCacheService.wipe() }
+            // Wave 5b-i: the hosted-course chunk store joins the full wipe (state
+            // reset + wholesale media-chunks deletion).
+            onFullWipe = {
+                mediaCacheService.wipe()
+                offlineCourseBridgeService.reset()
+                runCatching { courseChunkStore.deleteAll() }
+            }
         )
     }
 

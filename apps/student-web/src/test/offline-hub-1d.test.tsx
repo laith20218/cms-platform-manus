@@ -633,3 +633,19 @@ describe('offline packages wrapper — Wave 2 interim open code (native-packages
     expect(nativePackageDenyMessage('error:disk')).toBe('حدث خطأ أثناء تجهيز الحزمة دون اتصال.');
   });
 });
+
+// ---------------------------------------------------------------------
+// Wave 5b-i — the honest interim code for openOfflineCourseEpisode until
+// Wave 5b-ii ships chunked playback: 'error:playback_pending' must map to
+// its dedicated Arabic message while generic error:* codes keep theirs.
+// ---------------------------------------------------------------------
+describe('offline courses wrapper — Wave 5b-i interim open code (native-courses.ts)', () => {
+  it('maps error:playback_pending to the dedicated upcoming-update message', async () => {
+    const { nativeCourseDenyMessage } = await import('@/utils/native-courses');
+    expect(nativeCourseDenyMessage('error:playback_pending')).toBe(
+      'تشغيل حلقات الكورس دون اتصال يتوفر في تحديثٍ قادم للتطبيق.',
+    );
+    // The generic error family is untouched by the specific case.
+    expect(nativeCourseDenyMessage('error:network')).toBe('حدث خطأ أثناء تجهيز الحلقة دون اتصال.');
+  });
+});

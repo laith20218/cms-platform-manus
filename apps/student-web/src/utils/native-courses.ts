@@ -58,6 +58,10 @@ export interface NativeOfflineCourseEpisodeRow {
 export interface NativeCourseEpisodeDownloadInput {
   episodeId: string;
   courseId?: string;
+  /** Subject scope of the course (CourseDetail.subjectId) — required by the
+   *  native entitlement issuance for course episodes; when absent the native
+   *  side answers the honest `error:subject_required` code. */
+  subjectId?: string;
   title?: string;
   assetType?: string;
 }
@@ -143,8 +147,9 @@ export function nativeListOfflineCourseEpisodes(): NativeOfflineCourseEpisodeRow
 
 /**
  * Starts an async hosted-episode download. Serializes the episode JSON itself
- * ({episodeId, courseId?, title?, assetType?}) and returns the native status
- * code, or null outside the shell / on a call failure / on an invalid episode id.
+ * ({episodeId, courseId?, subjectId?, title?, assetType?}) and returns the
+ * native status code, or null outside the shell / on a call failure / on an
+ * invalid episode id.
  */
 export function nativeEnsureCourseEpisodeLocal(input: NativeCourseEpisodeDownloadInput): string | null {
   const bridge = readCourseBridge();
@@ -154,6 +159,8 @@ export function nativeEnsureCourseEpisodeLocal(input: NativeCourseEpisodeDownloa
   const request: Record<string, string> = { episodeId };
   const courseId = input.courseId?.trim();
   if (courseId) request.courseId = courseId;
+  const subjectId = input.subjectId?.trim();
+  if (subjectId) request.subjectId = subjectId;
   const title = input.title?.trim();
   if (title) request.title = title.slice(0, MAX_EPISODE_TITLE_LENGTH);
   const assetType = input.assetType?.trim();
@@ -226,6 +233,10 @@ export function nativeCourseDenyMessage(code: string): string | null {
       return 'مساحة التخزين دون اتصال ممتلئة — احذف بعض الحلقات أو الملفات من «وضع بدون إنترنت».';
     case 'invalid_args':
       return null; // our own request shape is at fault — silent fallback, no user-facing noise
+    case 'error:playback_pending':
+      // Wave 5b-i interim: chunked offline PLAYBACK lands in Wave 5b-ii — the
+      // download itself is real, the player is not shipped yet (honest, dated).
+      return 'تشغيل حلقات الكورس دون اتصال يتوفر في تحديثٍ قادم للتطبيق.';
     default:
       if (code.startsWith('error')) return 'حدث خطأ أثناء تجهيز الحلقة دون اتصال.';
       return null;

@@ -158,6 +158,7 @@ function CoursePlayerContent() {
       ) : (
         <EpisodeStage
           episodes={playableEpisodes}
+          subjectId={course.subjectId}
           fallbackName={user?.fullName || ''}
           fallbackPhone={user?.phone || ''}
         />
@@ -168,8 +169,11 @@ function CoursePlayerContent() {
 
 // ===== Episode stage: player + episode list =====
 
-function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
+function EpisodeStage({ episodes, subjectId, fallbackName, fallbackPhone }: {
   episodes: CourseEpisode[];
+  /** W5b-i: the course's subject — the offline CTA threads it so the native
+   *  entitlement issuance for course episodes is subject-scoped. */
+  subjectId: string;
   fallbackName: string;
   fallbackPhone: string;
 }) {
@@ -465,13 +469,18 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
                   </span>
                 </button>
                 {/* W1 (UX 1D) — hosted (Upload) episodes only: YouTube episodes get
-                    NO button — the courses-tab note covers their honesty instead. */}
+                    NO button — the courses-tab note covers their honesty instead.
+                    W5b-i: the CTA carries the course's subjectId (CourseDetail.subjectId)
+                    so the native entitlement issuance for course episodes is
+                    subject-scoped; without it the native side answers the honest
+                    error:subject_required code. */}
                 {!isYouTubeEpisode(episode) && (
                   <OfflineDownloadCta
                     kind="episode"
                     variant="icon"
                     episodeId={episode.id}
                     courseId={episode.courseId}
+                    subjectId={subjectId}
                     title={episode.title}
                     assetType={(episode.contentType ?? '').startsWith('audio/') ? 'audio' : 'video'}
                     label="تحميل الحلقة دون اتصال"

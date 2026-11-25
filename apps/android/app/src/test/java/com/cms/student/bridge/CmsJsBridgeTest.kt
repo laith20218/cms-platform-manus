@@ -13,10 +13,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Batch 3 + Batch 4 + W2 (UX 3C) + Phase P JVM tests for [CmsJsBridge] — pure
- * logic, no Robolectric (the project does not use it). The current-URL provider
- * is a fake lambda standing in for `webView.url`, exactly like the wiring in
- * ShellActivity; the cache + packages + web-session-end APIs are fakes recording calls.
+ * Batch 3 + Batch 4 + W2 (UX 3C) + Phase P + Wave 5b-i JVM tests for [CmsJsBridge]
+ * — pure logic, no Robolectric (the project does not use it). The current-URL
+ * provider is a fake lambda standing in for `webView.url`, exactly like the
+ * wiring in ShellActivity; the cache + packages + courses + web-session-end
+ * APIs are fakes recording calls.
  */
 class CmsJsBridgeTest {
 
@@ -25,6 +26,7 @@ class CmsJsBridgeTest {
     private val installationId = UUID.randomUUID().toString()
     private val appVersion = "0.1.0"
     private val packageId = "55555555-5555-5555-5555-555555555555"
+    private val episodeId = "66666666-6666-4666-8666-666666666666"
 
     private val cacheCalls = mutableListOf<String>()
     private val fakeCacheApi = object : CmsNativeCacheApi {
@@ -99,6 +101,28 @@ class CmsJsBridgeTest {
         }
     }
 
+    /** Wave 5b-i fake courses surface — records calls, answers canned codes. */
+    private val courseCalls = mutableListOf<String>()
+    private val fakeCourseApi = object : OfflineCourseBridgeSurface {
+        override fun listOfflineCourseEpisodes(): String = "[]"
+        override fun ensureCourseEpisodeLocal(episodeJson: String?): String {
+            courseCalls.add("ensure:$episodeJson")
+            return OfflineCourseBridgeService.QUEUED
+        }
+        override fun courseEpisodeStatus(episodeId: String?): String {
+            courseCalls.add("status:$episodeId")
+            return OfflineCourseBridgeService.READY
+        }
+        override fun removeOfflineCourseEpisode(episodeId: String?): String {
+            courseCalls.add("remove:$episodeId")
+            return OfflineCourseBridgeService.REMOVED
+        }
+        override fun openOfflineCourseEpisode(episodeId: String?): String {
+            courseCalls.add("open:$episodeId")
+            return OfflineCourseBridgeService.PLAYBACK_PENDING
+        }
+    }
+
     /** Phase P fake — counts calls, answers a canned wipe code. */
     private var webSessionEndCalls = 0
     private val fakeWebSessionEnd = WebSessionEndApi {
@@ -109,6 +133,7 @@ class CmsJsBridgeTest {
     private fun bridge(
         cacheApi: CmsNativeCacheApi = fakeCacheApi,
         packageApi: OfflinePackageBridgeSurface = fakePackageApi,
+        courseApi: OfflineCourseBridgeSurface = fakeCourseApi,
         tokenSeal: TokenSeal = fakeSeal,
         webSessionEnd: WebSessionEndApi = fakeWebSessionEnd,
         currentUrl: () -> String?
@@ -120,6 +145,7 @@ class CmsJsBridgeTest {
             appVersion = { appVersion },
             cacheApi = cacheApi,
             packageApi = packageApi,
+            courseApi = courseApi,
             tokenSeal = tokenSeal,
             webSessionEnd = webSessionEnd
         )
@@ -182,10 +208,17 @@ class CmsJsBridgeTest {
             assertEquals("openOfflineExam must be denied for '$url'", CacheStatus.DENIED_ORIGIN, bridge.openOfflineExam(packageId))
             // Phase P: a foreign page must NEVER trigger the web-session-end wipe.
             assertEquals("notifyWebSessionEnded must be denied for '$url'", CacheStatus.DENIED_ORIGIN, bridge.notifyWebSessionEnded())
+            // Wave 5b-i courses surface: listing stays empty, queries absent, actions denied.
+            assertEquals("listOfflineCourseEpisodes must be empty for '$url'", OfflineCourseBridgeService.EMPTY_LIST_JSON, bridge.listOfflineCourseEpisodes())
+            assertEquals("ensureCourseEpisodeLocal must be denied for '$url'", CacheStatus.DENIED_ORIGIN, bridge.ensureCourseEpisodeLocal("""{"episodeId":"$episodeId"}"""))
+            assertEquals("courseEpisodeStatus must be absent for '$url'", OfflineCourseBridgeService.ABSENT, bridge.courseEpisodeStatus(episodeId))
+            assertEquals("removeOfflineCourseEpisode must be absent for '$url'", OfflineCourseBridgeService.ABSENT, bridge.removeOfflineCourseEpisode(episodeId))
+            assertEquals("openOfflineCourseEpisode must be denied for '$url'", CacheStatus.DENIED_ORIGIN, bridge.openOfflineCourseEpisode(episodeId))
         }
         assertTrue(cacheCalls.isEmpty())
         assertTrue(sealCalls.isEmpty())
         assertTrue(packageCalls.isEmpty())
+        assertTrue(courseCalls.isEmpty())
         assertEquals(0, webSessionEndCalls)
     }
 
@@ -199,6 +232,7 @@ class CmsJsBridgeTest {
             appVersion = { appVersion },
             cacheApi = fakeCacheApi,
             packageApi = fakePackageApi,
+            courseApi = fakeCourseApi,
             tokenSeal = fakeSeal,
             webSessionEnd = fakeWebSessionEnd
         )
@@ -213,12 +247,16 @@ class CmsJsBridgeTest {
         assertEquals(OfflinePackageBridgeService.EMPTY_LIST_JSON, bridge.listOfflinePackages())
         assertEquals(CacheStatus.DENIED_ORIGIN, bridge.downloadOfflinePackage("""{"subjectId":"$packageId"}"""))
         assertEquals(CacheStatus.DENIED_ORIGIN, bridge.notifyWebSessionEnded())
+        assertEquals(OfflineCourseBridgeService.EMPTY_LIST_JSON, bridge.listOfflineCourseEpisodes())
+        assertEquals(CacheStatus.DENIED_ORIGIN, bridge.ensureCourseEpisodeLocal("""{"episodeId":"$episodeId"}"""))
+        assertEquals(CacheStatus.DENIED_ORIGIN, bridge.openOfflineCourseEpisode(episodeId))
         assertTrue(packageCalls.isEmpty())
+        assertTrue(courseCalls.isEmpty())
         assertEquals(0, webSessionEndCalls)
     }
 
     @Test
-    fun `the js surface is exactly the nineteen approved methods`() {
+    fun `the js surface is exactly the twenty four approved methods`() {
         val jsMethodNames = CmsJsBridge::class.java.methods
             .filter { it.isAnnotationPresent(JavascriptInterface::class.java) }
             .map { it.name }
@@ -230,17 +268,22 @@ class CmsJsBridgeTest {
                 "cancelDownload", "removeCached", "clearCache",
                 "sealForLocalPersistence", "unsealForLocalPersistence",
                 "listOfflinePackages", "downloadOfflinePackage", "offlinePackageStatus",
-                "removeOfflinePackage", "openOfflineExam", "notifyWebSessionEnded"
+                "removeOfflinePackage", "openOfflineExam", "notifyWebSessionEnded",
+                "listOfflineCourseEpisodes", "ensureCourseEpisodeLocal", "courseEpisodeStatus",
+                "removeOfflineCourseEpisode", "openOfflineCourseEpisode"
             ),
             jsMethodNames
         )
-        // D1 / D-JS-AUTH / W2 / Phase P: no method may expose tokens, passwords, or
-        // native session material — the seal pair handles page-owned blobs, the
-        // packages surface only ever ACCEPTS a web token (never returns one), and
-        // the Phase P wipe notification carries no arguments and no data back.
+        // D1 / D-JS-AUTH / W2 / Phase P / W5b-i: no method may expose tokens,
+        // passwords, or native session material — the seal pair handles
+        // page-owned blobs, the packages surface only ever ACCEPTS a web token
+        // (never returns one), the Phase P wipe notification carries no
+        // arguments and no data back, and the courses surface returns only
+        // status codes and safe metadata rows (never chunk bytes or paths).
         val forbidden = listOf(
             "getAccessToken", "getRefreshToken", "getToken", "getTokens",
-            "getPassword", "getNativeSession", "setAccessToken", "setRefreshToken"
+            "getPassword", "getNativeSession", "setAccessToken", "setRefreshToken",
+            "readChunk", "getChunk", "getEpisodePath"
         )
         forbidden.forEach { name ->
             assertFalse("bridge must never expose '$name'", jsMethodNames.contains(name))
@@ -294,6 +337,7 @@ class CmsJsBridgeTest {
             appVersion = { appVersion },
             cacheApi = throwingCache,
             packageApi = fakePackageApi,
+            courseApi = fakeCourseApi,
             tokenSeal = throwingSeal,
             webSessionEnd = fakeWebSessionEnd
         )
@@ -395,6 +439,59 @@ class CmsJsBridgeTest {
         assertEquals(OfflinePackageBridgeService.ABSENT, bridge.offlinePackageStatus(packageId))
         assertEquals(OfflinePackageBridgeService.ABSENT, bridge.removeOfflinePackage(packageId))
         assertEquals(OfflinePackageBridgeService.ERROR, bridge.openOfflineExam(packageId))
+    }
+
+    // ------------------------------------------------------------------
+    // Wave 5b-i — the hosted course-episode surface.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `course calls reach the service with the request json and trimmed ids on the allowlisted origin`() {
+        val bridge = bridge { "https://app.cms.example.com/courses" }
+        val request = """{"episodeId":"$episodeId","courseId":"c1","subjectId":"s1","title":"الحلقة","assetType":"video"}"""
+        assertEquals(OfflineCourseBridgeService.QUEUED, bridge.ensureCourseEpisodeLocal(request))
+        assertEquals(OfflineCourseBridgeService.READY, bridge.courseEpisodeStatus("  $episodeId "))
+        assertEquals(OfflineCourseBridgeService.REMOVED, bridge.removeOfflineCourseEpisode("\t$episodeId\n"))
+        assertEquals(OfflineCourseBridgeService.PLAYBACK_PENDING, bridge.openOfflineCourseEpisode(" $episodeId "))
+        assertEquals(
+            listOf("ensure:$request", "status:$episodeId", "remove:$episodeId", "open:$episodeId"),
+            courseCalls
+        )
+    }
+
+    @Test
+    fun `malformed course inputs answer invalid_args and never reach the service`() {
+        val bridge = bridge { "https://app.cms.example.com/courses" }
+        assertEquals(OfflineCourseBridgeService.INVALID_ARGS, bridge.ensureCourseEpisodeLocal(null))
+        assertEquals(OfflineCourseBridgeService.INVALID_ARGS, bridge.ensureCourseEpisodeLocal(""))
+        assertEquals(OfflineCourseBridgeService.INVALID_ARGS, bridge.ensureCourseEpisodeLocal("   "))
+        assertEquals(
+            OfflineCourseBridgeService.INVALID_ARGS,
+            bridge.ensureCourseEpisodeLocal("x".repeat(CmsJsBridge.MAX_EPISODE_REQUEST_JSON_CHARS + 1))
+        )
+        assertEquals(OfflineCourseBridgeService.INVALID_ARGS, bridge.courseEpisodeStatus(""))
+        assertEquals(OfflineCourseBridgeService.INVALID_ARGS, bridge.courseEpisodeStatus(null))
+        assertEquals(OfflineCourseBridgeService.INVALID_ARGS, bridge.removeOfflineCourseEpisode("not-a-uuid"))
+        assertEquals(OfflineCourseBridgeService.INVALID_ARGS, bridge.removeOfflineCourseEpisode("x".repeat(300)))
+        assertEquals(OfflineCourseBridgeService.INVALID_ARGS, bridge.openOfflineCourseEpisode("../../etc/passwd"))
+        assertTrue(courseCalls.isEmpty())
+    }
+
+    @Test
+    fun `a throwing courses api degrades to the documented fallbacks instead of surfacing to js`() {
+        val throwingCourses = object : OfflineCourseBridgeSurface {
+            override fun listOfflineCourseEpisodes(): String = error("boom")
+            override fun ensureCourseEpisodeLocal(episodeJson: String?): String = error("boom")
+            override fun courseEpisodeStatus(episodeId: String?): String = error("boom")
+            override fun removeOfflineCourseEpisode(episodeId: String?): String = error("boom")
+            override fun openOfflineCourseEpisode(episodeId: String?): String = error("boom")
+        }
+        val bridge = bridge(courseApi = throwingCourses) { "https://app.cms.example.com/" }
+        assertEquals(OfflineCourseBridgeService.EMPTY_LIST_JSON, bridge.listOfflineCourseEpisodes())
+        assertEquals(OfflineCourseBridgeService.ERROR, bridge.ensureCourseEpisodeLocal("""{"episodeId":"$episodeId"}"""))
+        assertEquals(OfflineCourseBridgeService.ABSENT, bridge.courseEpisodeStatus(episodeId))
+        assertEquals(OfflineCourseBridgeService.ABSENT, bridge.removeOfflineCourseEpisode(episodeId))
+        assertEquals(OfflineCourseBridgeService.ERROR, bridge.openOfflineCourseEpisode(episodeId))
     }
 
     // ------------------------------------------------------------------
