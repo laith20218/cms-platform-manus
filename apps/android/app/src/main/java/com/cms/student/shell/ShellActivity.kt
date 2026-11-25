@@ -48,14 +48,16 @@ class ShellActivity : AppCompatActivity() {
         host = WebViewHost(webView, urlPolicy, ::showError)
         host.attach()
 
-        // Batch 3 + Batch 4 + D-JS-AUTH: the single audited JS bridge
+        // Batch 3 + Batch 4 + D-JS-AUTH + W2 (UX 3C): the single audited JS bridge
         // (window.CmsNative) — attached strictly AFTER host.attach() applied the
         // hardening settings. Four read-only identity methods, the origin-guarded
         // encrypted-media-cache surface (listCached/ensureLocal/openLocal/
-        // cacheStatus/cancelDownload/removeCached/clearCache), and the origin-guarded
+        // cacheStatus/cancelDownload/removeCached/clearCache), the origin-guarded
         // remember-me token seal (sealForLocalPersistence/unsealForLocalPersistence —
-        // opaque blobs only, no token getters); see CmsJsBridge for the surface,
-        // origin guard, and threat model.
+        // opaque blobs only, no token getters), and the origin-guarded offline
+        // question-packages surface (listOfflinePackages/downloadOfflinePackage/
+        // offlinePackageStatus/removeOfflinePackage/openOfflineExam); see
+        // CmsJsBridge for the surface, origin guard, and threat model.
         host.attachJsBridge(
             CmsJsBridge(
                 urlPolicy = urlPolicy,
@@ -65,6 +67,7 @@ class ShellActivity : AppCompatActivity() {
                 },
                 appVersion = { resolveAppVersion() },
                 cacheApi = (application as CmsApplication).mediaCache(),
+                packageApi = (application as CmsApplication).offlinePackageBridge(),
                 tokenSeal = (application as CmsApplication).webTokenSeal()
             )
         )

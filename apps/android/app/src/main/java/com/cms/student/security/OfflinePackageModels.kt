@@ -123,12 +123,21 @@ data class StoredOfflinePackage(
     val envelope: OfflinePackageEnvelope,
     val lastConfirmedStatus: RevocationStatus,
     val lastConfirmedAt: Instant?,
-    val answers: List<OfflineAnswer>
+    val answers: List<OfflineAnswer>,
+    /** Question ids written by the first decrypt/open; empty until then (W2 listing rows omit the count). */
+    val questionIds: List<UUID> = emptyList()
 )
 
 interface IOfflinePackageStore {
     fun saveEnvelope(envelope: OfflinePackageEnvelope, userId: UUID, installationId: String)
     fun load(packageId: UUID, userId: UUID, installationId: String): StoredOfflinePackage?
+
+    /**
+     * Every persisted package bound to `userId` + `installationId`, newest first
+     * (manifest.issuedAt descending). W2 (UX 3C) — rows for the bridge package
+     * listing; unparseable store files are skipped silently (fail closed, never throw).
+     */
+    fun listAll(userId: UUID, installationId: String): List<StoredOfflinePackage>
     fun replaceQuestionIndex(packageId: UUID, questionIds: Collection<UUID>, userId: UUID, installationId: String)
     fun recordAnswer(answer: OfflineAnswer, userId: UUID, installationId: String): Boolean
     fun pendingAnswers(packageId: UUID, userId: UUID, installationId: String): List<OfflineAnswer>

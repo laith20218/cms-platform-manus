@@ -11,6 +11,8 @@ import com.cms.student.media.HttpsMediaContentTransport
 import com.cms.student.media.MediaCacheService
 import com.cms.student.media.MediaFileStore
 import com.cms.student.media.NativeMediaOpener
+import com.cms.student.bridge.AuthenticatedOfflineRuntimeFacade
+import com.cms.student.bridge.OfflinePackageBridgeService
 import com.cms.student.security.AndroidKeystorePackageKeyProvider
 import com.cms.student.security.AndroidOfflineBuildConfiguration
 import com.cms.student.security.AuthenticatedOfflinePackageStatusApi
@@ -248,7 +250,7 @@ class CmsApplication : Application() {
             verifier = verifier,
             packageClient = client,
             syncClient = client,
-            packageStore = EncryptedOfflinePackageStore(this),
+            packageStore = offlinePackageStore,
             revocationCache = cache,
             revocationRefresher = com.cms.student.security.OfflineRevocationRefresher(
                 AuthenticatedOfflinePackageStatusApi(client) { activeSession },
@@ -257,6 +259,37 @@ class CmsApplication : Application() {
             publicKeyProvider = { OfflineKeystoreKeyManager.getOrCreatePublicKeySpki(alias) }
         )
     }
+
+    // =====================================================================
+    // W2 (UX 3C) — offline question packages bridge graph
+    // =====================================================================
+
+    /** ONE shared encrypted envelope store — the runtime AND the packages bridge read the same bytes. */
+    private val offlinePackageStore by lazy { EncryptedOfflinePackageStore(this) }
+
+    /** Dedicated single-thread executor for package downloads (never the media executor). */
+    private val packageExecutor by lazy { Executors.newSingleThreadExecutor() }
+
+    private val offlinePackageBridgeService: OfflinePackageBridgeService by lazy {
+        OfflinePackageBridgeService(
+            // Null runtime (BuildConfig OFF) → the whole packages surface fails closed.
+            runtime = {
+                runtime?.let { coordinator ->
+                    AuthenticatedOfflineRuntimeFacade { session, subjectId, examId ->
+                        coordinator.download(session, subjectId, examId)
+                    }
+                }
+            },
+            packageStore = offlinePackageStore,
+            sessionProvider = ::activeSessionForMedia,
+            installationId = { installationId },
+            executor = packageExecutor,
+            clock = Instant::now
+        )
+    }
+
+    /** The bridge-facing offline packages surface (window.CmsNative W2 methods). */
+    fun offlinePackageBridge(): OfflinePackageBridgeService = offlinePackageBridgeService
 }
 
 /** Session-bound facade used by Activities and ViewModels; raw JWT is never exposed after binding. */

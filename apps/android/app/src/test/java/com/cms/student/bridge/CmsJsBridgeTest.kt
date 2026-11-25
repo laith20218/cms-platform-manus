@@ -13,10 +13,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Batch 3 + Batch 4 JVM tests for [CmsJsBridge] — pure logic, no Robolectric (the
- * project does not use it). The current-URL provider is a fake lambda standing in
- * for `webView.url`, exactly like the wiring in ShellActivity; the cache API is a
- * fake [CmsNativeCacheApi] recording calls.
+ * Batch 3 + Batch 4 + W2 (UX 3C) JVM tests for [CmsJsBridge] — pure logic, no
+ * Robolectric (the project does not use it). The current-URL provider is a fake
+ * lambda standing in for `webView.url`, exactly like the wiring in ShellActivity;
+ * the cache + packages APIs are fakes recording calls.
  */
 class CmsJsBridgeTest {
 
@@ -24,6 +24,7 @@ class CmsJsBridgeTest {
         ?: error("fixture base URL must be usable")
     private val installationId = UUID.randomUUID().toString()
     private val appVersion = "0.1.0"
+    private val packageId = "55555555-5555-5555-5555-555555555555"
 
     private val cacheCalls = mutableListOf<String>()
     private val fakeCacheApi = object : CmsNativeCacheApi {
@@ -76,8 +77,31 @@ class CmsJsBridgeTest {
         override fun unseal(sealed: String): String? = error("boom")
     }
 
+    /** W2 (UX 3C) fake packages surface — records calls, answers canned codes. */
+    private val packageCalls = mutableListOf<String>()
+    private val fakePackageApi = object : OfflinePackageBridgeSurface {
+        override fun listOfflinePackages(): String = "[]"
+        override fun downloadOfflinePackage(requestJson: String?): String {
+            packageCalls.add("download:$requestJson")
+            return OfflinePackageBridgeService.QUEUED
+        }
+        override fun offlinePackageStatus(packageId: String?): String {
+            packageCalls.add("status:$packageId")
+            return OfflinePackageBridgeService.READY
+        }
+        override fun removeOfflinePackage(packageId: String?): String {
+            packageCalls.add("remove:$packageId")
+            return OfflinePackageBridgeService.REMOVED
+        }
+        override fun openOfflineExam(packageId: String?): String {
+            packageCalls.add("open:$packageId")
+            return OfflinePackageBridgeService.ERROR_EXAM_UI_PENDING
+        }
+    }
+
     private fun bridge(
         cacheApi: CmsNativeCacheApi = fakeCacheApi,
+        packageApi: OfflinePackageBridgeSurface = fakePackageApi,
         tokenSeal: TokenSeal = fakeSeal,
         currentUrl: () -> String?
     ): CmsJsBridge =
@@ -87,6 +111,7 @@ class CmsJsBridgeTest {
             installationId = { installationId },
             appVersion = { appVersion },
             cacheApi = cacheApi,
+            packageApi = packageApi,
             tokenSeal = tokenSeal
         )
 
@@ -140,9 +165,16 @@ class CmsJsBridgeTest {
             // D-JS-AUTH: the seal must answer empty outside the allowlisted origin.
             assertEquals("seal must be empty for '$url'", "", bridge.sealForLocalPersistence("token-blob"))
             assertEquals("unseal must be empty for '$url'", "", bridge.unsealForLocalPersistence("v1:token-blob"))
+            // W2 packages surface: listing stays empty, queries absent, actions denied.
+            assertEquals("listOfflinePackages must be empty for '$url'", OfflinePackageBridgeService.EMPTY_LIST_JSON, bridge.listOfflinePackages())
+            assertEquals("downloadOfflinePackage must be denied for '$url'", CacheStatus.DENIED_ORIGIN, bridge.downloadOfflinePackage("""{"subjectId":"$packageId"}"""))
+            assertEquals("offlinePackageStatus must be absent for '$url'", OfflinePackageBridgeService.ABSENT, bridge.offlinePackageStatus(packageId))
+            assertEquals("removeOfflinePackage must be absent for '$url'", OfflinePackageBridgeService.ABSENT, bridge.removeOfflinePackage(packageId))
+            assertEquals("openOfflineExam must be denied for '$url'", CacheStatus.DENIED_ORIGIN, bridge.openOfflineExam(packageId))
         }
         assertTrue(cacheCalls.isEmpty())
         assertTrue(sealCalls.isEmpty())
+        assertTrue(packageCalls.isEmpty())
     }
 
     @Test
@@ -154,6 +186,7 @@ class CmsJsBridgeTest {
             installationId = { installationId },
             appVersion = { appVersion },
             cacheApi = fakeCacheApi,
+            packageApi = fakePackageApi,
             tokenSeal = fakeSeal
         )
         assertFalse(bridge.hasNativeShell())
@@ -164,10 +197,13 @@ class CmsJsBridgeTest {
         assertEquals(CacheStatus.DENIED_ORIGIN, bridge.clearCache())
         assertEquals("", bridge.sealForLocalPersistence("token-blob"))
         assertEquals("", bridge.unsealForLocalPersistence("v1:token-blob"))
+        assertEquals(OfflinePackageBridgeService.EMPTY_LIST_JSON, bridge.listOfflinePackages())
+        assertEquals(CacheStatus.DENIED_ORIGIN, bridge.downloadOfflinePackage("""{"subjectId":"$packageId"}"""))
+        assertTrue(packageCalls.isEmpty())
     }
 
     @Test
-    fun `the js surface is exactly the thirteen approved methods`() {
+    fun `the js surface is exactly the eighteen approved methods`() {
         val jsMethodNames = CmsJsBridge::class.java.methods
             .filter { it.isAnnotationPresent(JavascriptInterface::class.java) }
             .map { it.name }
@@ -177,12 +213,15 @@ class CmsJsBridgeTest {
                 "hasNativeShell", "getPlatform", "getAppVersion", "getInstallationId",
                 "listCached", "ensureLocal", "openLocal", "cacheStatus",
                 "cancelDownload", "removeCached", "clearCache",
-                "sealForLocalPersistence", "unsealForLocalPersistence"
+                "sealForLocalPersistence", "unsealForLocalPersistence",
+                "listOfflinePackages", "downloadOfflinePackage", "offlinePackageStatus",
+                "removeOfflinePackage", "openOfflineExam"
             ),
             jsMethodNames
         )
-        // D1 / D-JS-AUTH: no method may expose tokens, passwords, or native session
-        // material — the seal pair handles page-owned blobs only.
+        // D1 / D-JS-AUTH / W2: no method may expose tokens, passwords, or native session
+        // material — the seal pair handles page-owned blobs and the packages surface
+        // only ever ACCEPTS a web token, never returns one.
         val forbidden = listOf(
             "getAccessToken", "getRefreshToken", "getToken", "getTokens",
             "getPassword", "getNativeSession", "setAccessToken", "setRefreshToken"
@@ -238,6 +277,7 @@ class CmsJsBridgeTest {
             installationId = { installationId },
             appVersion = { appVersion },
             cacheApi = throwingCache,
+            packageApi = fakePackageApi,
             tokenSeal = throwingSeal
         )
         assertEquals(CacheStatus.EMPTY_LIST_JSON, bridge.listCached())
@@ -289,5 +329,54 @@ class CmsJsBridgeTest {
         // Two long-lived JWTs are a few KiB each — 16 KiB of plaintext must pass.
         val realisticPair = "x".repeat(CmsJsBridge.MAX_SEAL_PLAINTEXT_CHARS)
         assertEquals("v1:$realisticPair", bridge.sealForLocalPersistence(realisticPair))
+    }
+
+    // ------------------------------------------------------------------
+    // W2 (UX 3C) — the offline question packages surface.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `package calls reach the service with the request json intact on the allowlisted origin`() {
+        val bridge = bridge { "https://app.cms.example.com/exams" }
+        val request = """{"subjectId":"$packageId","examId":null,"accessToken":"web.jwt.value","title":"حزمة"}"""
+        assertEquals(OfflinePackageBridgeService.QUEUED, bridge.downloadOfflinePackage(request))
+        assertEquals(OfflinePackageBridgeService.READY, bridge.offlinePackageStatus("  $packageId "))
+        assertEquals(OfflinePackageBridgeService.REMOVED, bridge.removeOfflinePackage("\t$packageId\n"))
+        assertEquals(OfflinePackageBridgeService.ERROR_EXAM_UI_PENDING, bridge.openOfflineExam(" $packageId "))
+        assertEquals(
+            listOf("download:$request", "status:$packageId", "remove:$packageId", "open:$packageId"),
+            packageCalls
+        )
+    }
+
+    @Test
+    fun `malformed package inputs answer invalid_args and never reach the service`() {
+        val bridge = bridge { "https://app.cms.example.com/exams" }
+        assertEquals(OfflinePackageBridgeService.INVALID_ARGS, bridge.downloadOfflinePackage(null))
+        assertEquals(OfflinePackageBridgeService.INVALID_ARGS, bridge.downloadOfflinePackage(""))
+        assertEquals(OfflinePackageBridgeService.INVALID_ARGS, bridge.downloadOfflinePackage("   "))
+        assertEquals(OfflinePackageBridgeService.INVALID_ARGS, bridge.downloadOfflinePackage("x".repeat(CmsJsBridge.MAX_PACKAGE_REQUEST_JSON_CHARS + 1)))
+        assertEquals(OfflinePackageBridgeService.INVALID_ARGS, bridge.offlinePackageStatus(""))
+        assertEquals(OfflinePackageBridgeService.INVALID_ARGS, bridge.offlinePackageStatus(null))
+        assertEquals(OfflinePackageBridgeService.INVALID_ARGS, bridge.removeOfflinePackage("x".repeat(300)))
+        assertEquals(OfflinePackageBridgeService.INVALID_ARGS, bridge.openOfflineExam("../../etc/passwd"))
+        assertTrue(packageCalls.isEmpty())
+    }
+
+    @Test
+    fun `a throwing packages api degrades to the documented fallbacks instead of surfacing to js`() {
+        val throwingPackages = object : OfflinePackageBridgeSurface {
+            override fun listOfflinePackages(): String = error("boom")
+            override fun downloadOfflinePackage(requestJson: String?): String = error("boom")
+            override fun offlinePackageStatus(packageId: String?): String = error("boom")
+            override fun removeOfflinePackage(packageId: String?): String = error("boom")
+            override fun openOfflineExam(packageId: String?): String = error("boom")
+        }
+        val bridge = bridge(packageApi = throwingPackages) { "https://app.cms.example.com/" }
+        assertEquals(OfflinePackageBridgeService.EMPTY_LIST_JSON, bridge.listOfflinePackages())
+        assertEquals(OfflinePackageBridgeService.ERROR, bridge.downloadOfflinePackage("""{"subjectId":"$packageId"}"""))
+        assertEquals(OfflinePackageBridgeService.ABSENT, bridge.offlinePackageStatus(packageId))
+        assertEquals(OfflinePackageBridgeService.ABSENT, bridge.removeOfflinePackage(packageId))
+        assertEquals(OfflinePackageBridgeService.ERROR, bridge.openOfflineExam(packageId))
     }
 }

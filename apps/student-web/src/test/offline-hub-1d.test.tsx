@@ -617,3 +617,19 @@ describe('ExamPage — «تحميل دون اتصال» CTA', () => {
     expect(toastMessageMock).toHaveBeenCalledWith('بدأ تحميل حزمة الأسئلة… تابع التقدم من لوحة «وضع بدون إنترنت».');
   });
 });
+
+// ---------------------------------------------------------------------
+// W2 (UX 3C) — the honest interim code for openOfflineExam until Wave 3
+// ships the offline exam player: 'error:exam_ui_pending' must map to its
+// dedicated Arabic message while generic error:* codes keep theirs.
+// ---------------------------------------------------------------------
+describe('offline packages wrapper — Wave 2 interim open code (native-packages.ts)', () => {
+  it('maps error:exam_ui_pending to the dedicated upcoming-update message', async () => {
+    const { nativePackageDenyMessage } = await import('@/utils/native-packages');
+    expect(nativePackageDenyMessage('error:exam_ui_pending')).toBe(
+      'بدء الامتحان دون اتصال يتوفر في تحديثٍ قادم للتطبيق.',
+    );
+    // The generic error family is untouched by the specific case.
+    expect(nativePackageDenyMessage('error:disk')).toBe('حدث خطأ أثناء تجهيز الحزمة دون اتصال.');
+  });
+});

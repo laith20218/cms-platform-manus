@@ -7,10 +7,10 @@ import com.cms.student.session.TokenSeal
 import com.cms.student.shell.ShellUrlPolicy
 
 /**
- * Batch 3 + Batch 4 — the single, audited `@JavascriptInterface` bridge between
- * student-web (running inside the hardened shell WebView) and Kotlin. [WebViewHost]
- * injects it under [JS_NAME] ("CmsNative") only AFTER every hardening setting is
- * applied.
+ * Batch 3 + Batch 4 + W2 (UX 3C) — the single, audited `@JavascriptInterface`
+ * bridge between student-web (running inside the hardened shell WebView) and
+ * Kotlin. [WebViewHost] injects it under [JS_NAME] ("CmsNative") only AFTER
+ * every hardening setting is applied.
  *
  * Exact JS surface — nothing else is reachable from JavaScript:
  *
@@ -28,6 +28,11 @@ import com.cms.student.shell.ShellUrlPolicy
  * window.CmsNative.clearCache()         // delete every cached object
  * window.CmsNative.sealForLocalPersistence(blob)     // D-JS-AUTH: AES-GCM seal of a page-owned blob
  * window.CmsNative.unsealForLocalPersistence(sealed)  // D-JS-AUTH: inverse of the seal
+ * window.CmsNative.listOfflinePackages()   // W2: JSON array of safe package rows (no paths/tokens)
+ * window.CmsNative.downloadOfflinePackage(requestJson) // W2: start a question-package download
+ * window.CmsNative.offlinePackageStatus(packageId)      // W2: queued|downloading|ready|denied_auth|error:*|absent
+ * window.CmsNative.removeOfflinePackage(packageId)      // W2: delete one stored package
+ * window.CmsNative.openOfflineExam(packageId)           // W2: open the offline exam player (Wave 3)
  * ```
  *
  * Origin guard (mandatory): every method body resolves the WebView's current URL via
@@ -38,16 +43,24 @@ import com.cms.student.shell.ShellUrlPolicy
  * instead of data or an action. The bridge never throws and never leaks partial
  * values.
  *
- * Threat model (student-web XSS, updated for Batch 4): the readable surface is still
- * only installation id + platform + app version plus CACHE METADATA (ids, types,
- * titles, byte counts, timestamps) — no content bytes, no filesystem paths, no
- * source URLs, no tokens. The action surface can fill the encrypted cache with
- * content the student is ALREADY entitled to (the server re-validates the student's
- * own native session + signed entitlement on every download), read/burn the
- * per-installation rate-limit quota, or delete cached rows — a nuisance, not an
- * escalation: it cannot authenticate as anyone else, cannot reach another
- * student's content, cannot exfiltrate a token, cannot execute strings, and cannot
- * drive navigation. `openLocal` only opens viewers for ids the cache already holds.
+ * Threat model (student-web XSS, updated for Batch 4 and W2): the readable surface
+ * is still only installation id + platform + app version plus CACHE METADATA (ids,
+ * types, titles, byte counts, timestamps) and PACKAGE METADATA (ids, subject ids,
+ * status, expiry, counts) — no content bytes, no filesystem paths, no source URLs,
+ * no tokens. The action surface can fill the encrypted cache with content the
+ * student is ALREADY entitled to (the server re-validates the student's own native
+ * session + signed entitlement on every download), read/burn the per-installation
+ * rate-limit quota, or delete cached rows — a nuisance, not an escalation: it cannot
+ * authenticate as anyone else, cannot reach another student's content, cannot
+ * exfiltrate a token, cannot execute strings, and cannot drive navigation.
+ * `openLocal` only opens viewers for ids the cache already holds.
+ *
+ * W2 (UX 3C) token direction: the web page may SUPPLY its own session token
+ * inside a package download request — the same trust direction as
+ * `sealForLocalPersistence` (the page hands native something the page already
+ * owns). The bridge still never RETURNS a token (D1 unchanged): the supplied
+ * token lives in memory only for the duration of one download, and the SERVER
+ * remains its verifier (entitlement + package + status calls all re-present it).
  *
  * D-JS-AUTH (debt closure, 2026-11-24): the two seal methods handle OPAQUE BLOBS
  * the page already owns (the remember-me token pair) so durable WebView storage
@@ -68,6 +81,7 @@ class CmsJsBridge(
     private val installationId: () -> String,
     private val appVersion: () -> String,
     private val cacheApi: CmsNativeCacheApi,
+    private val packageApi: OfflinePackageBridgeSurface,
     private val tokenSeal: TokenSeal
 ) {
 
@@ -173,6 +187,61 @@ class CmsJsBridge(
             else guarded({ tokenSeal.unseal(sealed) ?: "" }, "")
         } else ""
 
+    // ===== W2 (UX 3C) — offline question packages surface (origin-guarded, string codes) =====
+
+    /** Safe package rows only: packageId/subjectIds/status/expiresAt/counts — never paths or tokens. */
+    @JavascriptInterface
+    fun listOfflinePackages(): String =
+        if (isOriginAllowed()) guarded({ packageApi.listOfflinePackages() }, OfflinePackageBridgeService.EMPTY_LIST_JSON)
+        else OfflinePackageBridgeService.EMPTY_LIST_JSON
+
+    /**
+     * Starts (or answers) a question-package download. The serialized request may
+     * carry the page's own web session token (see the W2 paragraph in the class
+     * doc); the bridge NEVER returns token material in any answer code or row.
+     */
+    @JavascriptInterface
+    fun downloadOfflinePackage(requestJson: String?): String =
+        if (isOriginAllowed()) {
+            if (requestJson.isNullOrBlank() || requestJson.length > MAX_PACKAGE_REQUEST_JSON_CHARS) OfflinePackageBridgeService.INVALID_ARGS
+            else guarded({ packageApi.downloadOfflinePackage(requestJson) }, OfflinePackageBridgeService.ERROR)
+        } else CacheStatus.DENIED_ORIGIN
+
+    /** `absent | queued | downloading | ready | denied_auth | error:<code>` for one packageId. */
+    @JavascriptInterface
+    fun offlinePackageStatus(packageId: String?): String =
+        if (isOriginAllowed()) {
+            if (!isPackageIdArgument(packageId)) OfflinePackageBridgeService.INVALID_ARGS
+            else guarded({ packageApi.offlinePackageStatus(packageId!!.trim()) }, OfflinePackageBridgeService.ABSENT)
+        } else OfflinePackageBridgeService.ABSENT
+
+    /** Deletes one stored package (encrypted store invalidation). */
+    @JavascriptInterface
+    fun removeOfflinePackage(packageId: String?): String =
+        if (isOriginAllowed()) {
+            if (!isPackageIdArgument(packageId)) OfflinePackageBridgeService.INVALID_ARGS
+            else guarded({ packageApi.removeOfflinePackage(packageId!!.trim()) }, OfflinePackageBridgeService.ABSENT)
+        } else OfflinePackageBridgeService.ABSENT
+
+    /** Opens the offline exam player; Wave 3 delivers it (interim: `error:exam_ui_pending`). */
+    @JavascriptInterface
+    fun openOfflineExam(packageId: String?): String =
+        if (isOriginAllowed()) {
+            if (!isPackageIdArgument(packageId)) OfflinePackageBridgeService.INVALID_ARGS
+            else guarded({ packageApi.openOfflineExam(packageId!!.trim()) }, OfflinePackageBridgeService.ERROR)
+        } else CacheStatus.DENIED_ORIGIN
+
+    /**
+     * Package ids are ALWAYS canonical hyphenated UUIDs — anything else (blank,
+     * oversized, path-shaped) is rejected at the bridge, before the service.
+     * Defense-in-depth on top of the service-level [OfflinePackageBridgeService]
+     * pattern check.
+     */
+    private fun isPackageIdArgument(raw: String?): Boolean {
+        val trimmed = raw?.trim() ?: return false
+        return trimmed.length <= CachePolicy.MAX_INPUT_LENGTH && OfflinePackageBridgeService.PACKAGE_ID_PATTERN.matches(trimmed)
+    }
+
     /** The bridge never propagates an exception to JS — every call degrades to [fallback]. */
     private inline fun guarded(action: () -> String, fallback: String): String =
         runCatching(action).getOrDefault(fallback)
@@ -183,6 +252,13 @@ class CmsJsBridge(
 
         /** Stable platform identifier returned by [getPlatform]. */
         const val PLATFORM = "android"
+
+        /**
+         * W2 (UX 3C) — request payload bound for `downloadOfflinePackage`. The
+         * service enforces the same cap; the bridge rejects earlier so a hostile
+         * page cannot push unbounded JSON onto the JavaBridge thread.
+         */
+        const val MAX_PACKAGE_REQUEST_JSON_CHARS = 8 * 1024
 
         /**
          * Seal input bounds. A token pair JSON is a few KiB (two JWTs); 16 KiB of
