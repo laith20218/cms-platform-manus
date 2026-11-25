@@ -49,6 +49,7 @@ export const TAB_KEYS = [
 // ===== 47 buttons =====
 export const BUTTON_KEYS = [
   'btn:questions.create',
+  'btn:questions.import',
   'btn:questions.publish',
   'btn:questions.archive',
   'btn:questions.delete',
@@ -112,7 +113,7 @@ export const UI_PERMISSIONS_TREE: Record<string, readonly string[]> = {
     'btn:academic.add-lecture',
     'btn:academic.archive',
   ],
-  'view:questions': ['btn:questions.create', 'btn:questions.publish', 'btn:questions.archive', 'btn:questions.delete', 'btn:questions.edit'],
+  'view:questions': ['btn:questions.create', 'btn:questions.import', 'btn:questions.publish', 'btn:questions.archive', 'btn:questions.delete', 'btn:questions.edit'],
   'view:exams': ['btn:exams.create', 'btn:exams.publish', 'btn:exams.archive', 'btn:exams.delete'],
   'view:library': [
     'tab:library.courses',
@@ -175,6 +176,7 @@ export const UI_PERMISSION_LABELS: Record<string, { ar: string; en: string }> = 
   'tab:library.courses': { ar: 'تبويب الكورسات (داخل المكتبة)', en: 'Courses tab (inside Library)' },
 
   'btn:questions.create': { ar: 'إنشاء سؤال (يشمل "حفظ وإضافة آخر")', en: 'New question (incl. Save & Add Another)' },
+  'btn:questions.import': { ar: 'استيراد أسئلة (CSV)', en: 'Import questions (CSV)' },
   'btn:questions.publish': { ar: 'نشر السؤال', en: 'Publish question' },
   'btn:questions.archive': { ar: 'أرشفة السؤال', en: 'Archive question' },
   'btn:questions.delete': { ar: 'حذف السؤال', en: 'Delete question' },

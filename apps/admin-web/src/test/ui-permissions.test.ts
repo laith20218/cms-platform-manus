@@ -14,14 +14,15 @@ import {
 
 /** Push 3 / Track 3: mirror-parity suite for the frontend UI permission registry (v2 — Push 4). */
 describe('uiPermissions mirror', () => {
-  it('carries exactly 70 keys', () => {
-    expect(ALL_UI_KEYS).toHaveLength(70);
+  it('carries exactly 71 keys', () => {
+    // W5: +btn:questions.import (bulk CSV import — was UI=none).
+    expect(ALL_UI_KEYS).toHaveLength(71);
   });
 
-  it('splits 12 views / 11 tabs / 47 buttons', () => {
+  it('splits 12 views / 11 tabs / 48 buttons', () => {
     expect(VIEW_KEYS).toHaveLength(12);
     expect(TAB_KEYS).toHaveLength(11);
-    expect(BUTTON_KEYS).toHaveLength(47);
+    expect(BUTTON_KEYS).toHaveLength(48);
     expect([...VIEW_KEYS, ...TAB_KEYS, ...BUTTON_KEYS]).toEqual([...ALL_UI_KEYS]);
   });
 
@@ -43,7 +44,7 @@ describe('uiPermissions mirror', () => {
   it('covers every key exactly once across the tree', () => {
     expect(Object.keys(UI_PERMISSIONS_TREE).sort()).toEqual([...VIEW_KEYS].slice().sort());
     const flattened = Object.values(UI_PERMISSIONS_TREE).flat();
-    expect(flattened).toHaveLength(70 - 12);
+    expect(flattened).toHaveLength(71 - 12);
     expect(new Set(flattened).size).toBe(flattened.length);
     const everything = [...Object.keys(UI_PERMISSIONS_TREE), ...flattened];
     expect(everything.sort()).toEqual([...ALL_UI_KEYS].sort());

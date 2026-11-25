@@ -42,11 +42,12 @@
 import { Fragment, FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle, Archive, CheckCircle2, ChevronLeft, ChevronRight, Copy, Eye,
-  FileText, ImagePlus, Link2, ListFilter, LoaderCircle, Pencil, Plus, PlusCircle,
+  FileText, ImagePlus, Link2, ListFilter, LoaderCircle, Pencil, Plus, PlusCircle, Upload,
   Search, Send, Trash2, Undo2, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
 import { Pagination } from '@cms/ui';
+import { QuestionImportModal } from './QuestionImportModal';
 import { questionDifficultyLabel as difficultyLabel, questionTypeLabel as typeLabel } from '../lib/questionLabels';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import {
@@ -254,6 +255,8 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   // fetch with no controls (debt D-20).
   const [questionsPage, setQuestionsPage] = useState(1);
   const [questionsTotal, setQuestionsTotal] = useState(0);
+  // W5 (admin-ui): bulk CSV import modal (matrix row 13 — was UI=none).
+  const [importOpen, setImportOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -791,6 +794,18 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
             {isArabic ? 'سؤال جديد' : 'New question'}
           </button>
         )}
+        {subjectId && can('btn:questions.import') && (
+          <button
+            type="button"
+            onClick={() => setImportOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
+            style={{ borderColor: 'var(--cms-teal-700)', color: 'var(--cms-teal-700)', background: 'var(--cms-surface)' }}
+            data-testid="open-question-import"
+          >
+            <Upload className="w-4 h-4" />
+            {isArabic ? 'استيراد أسئلة' : 'Import questions'}
+          </button>
+        )}
       </header>
 
       {/* ===== Academic hierarchy filter bar ===== */}
@@ -1184,7 +1199,20 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
             />
           )}
 
-          {/* ===== Slide-in editor ===== */}
+          {/* ===== W5 (admin-ui): bulk CSV import — explicit start step + honest result report ===== */}
+      {importOpen && subjectId && (
+        <QuestionImportModal
+          token={token}
+          isArabic={isArabic}
+          subjectId={subjectId}
+          onClose={() => setImportOpen(false)}
+          onError={onError}
+          onNotice={onNotice}
+          onImported={() => void loadQuestions()}
+        />
+      )}
+
+      {/* ===== Slide-in editor ===== */}
           {showEditor && (
             <>
               <div
