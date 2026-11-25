@@ -168,7 +168,7 @@ class OfflineExamBridge(
                     when (val state = payloadProvider()) {
                         is ExamPayloadState.Loading -> LOADING_JSON
                         is ExamPayloadState.Denied -> deniedJson(state.code)
-                        is ExamPayloadState.Ready -> state.json
+                        is ExamPayloadState.Ready -> readyJson(state.json)
                     }
                 },
                 deniedJson(DENIED)
@@ -226,6 +226,15 @@ class OfflineExamBridge(
             addProperty(PHASE, PHASE_DENIED)
             addProperty("code", code)
         }.toString()
+
+    /**
+     * `{"phase":"ready","payload":…}` — a plain concat around the payload JSON the
+     * [ExamPayloadState.Ready] state already serialized ONCE (Gson-escaped output of
+     * [serializeExamPayload]); the wrapper adds only our own ASCII constants, so the
+     * composite is valid JSON without re-serializing per poll.
+     */
+    private fun readyJson(payloadJson: String): String =
+        """{"$PHASE":"$PHASE_READY","payload":$payloadJson}"""
 
     companion object {
         /** The object name the exam WebView injects this bridge under: `window.CmsOfflineExam`. */
