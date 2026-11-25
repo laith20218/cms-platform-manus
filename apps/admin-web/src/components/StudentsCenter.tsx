@@ -23,7 +23,96 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { ApiError, apiRequest, type PagedResult } from '../lib/api';
+import { ConfirmDialog } from '@cms/ui';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
+
+// ===== W3 (admin-ui): Arabic glossaries — raw enum wire values must never
+// render on the Arabic surface (debt D-23). Unknown values fall back to an
+// explicit label (with the raw code kept as a title tooltip where useful). =====
+const securitySeverityLabel = (severity: string, isArabic: boolean) => {
+  switch (severity?.toLowerCase()) {
+    case 'info': return isArabic ? 'معلومة' : 'Info';
+    case 'warning': return isArabic ? 'تحذير' : 'Warning';
+    case 'critical': return isArabic ? 'حرج' : 'Critical';
+    default: return isArabic ? 'غير محدد' : severity;
+  }
+};
+
+const sessionStatusLabel = (status: string, isArabic: boolean) => {
+  switch (status) {
+    case 'Active': return isArabic ? 'نشطة' : 'Active';
+    case 'Revoked': return isArabic ? 'منتهية' : 'Revoked';
+    case 'Expired': return isArabic ? 'منتهية الصلاحية' : 'Expired';
+    default: return isArabic ? 'غير معروفة' : status;
+  }
+};
+
+const subscriptionScopeLabel = (scope: string, isArabic: boolean) => {
+  switch (scope) {
+    case 'Subject': return isArabic ? 'مادة' : 'Subject';
+    case 'Semester': return isArabic ? 'فصل' : 'Semester';
+    case 'Year': return isArabic ? 'سنة' : 'Year';
+    case 'College': return isArabic ? 'كلية' : 'College';
+    case 'University': return isArabic ? 'جامعة' : 'University';
+    default: return isArabic ? 'نطاق غير معروف' : scope;
+  }
+};
+
+const reportReasonLabel = (reason: string, isArabic: boolean) => {
+  switch (reason) {
+    case 'Scientific': return isArabic ? 'خطأ علمي' : 'Scientific';
+    case 'Typo': return isArabic ? 'خطأ إملائي' : 'Typo';
+    case 'MissingOption': return isArabic ? 'خيار ناقص' : 'Missing option';
+    case 'UnclearExplanation': return isArabic ? 'شرح غير واضح' : 'Unclear explanation';
+    default: return isArabic ? 'أخرى' : 'Other';
+  }
+};
+
+const reportStatusLabel = (status: string, isArabic: boolean) => {
+  switch (status) {
+    case 'Pending': return isArabic ? 'قيد الانتظار' : 'Pending';
+    case 'Reviewing': return isArabic ? 'قيد المراجعة' : 'Reviewing';
+    case 'Resolved': return isArabic ? 'تم الحل' : 'Resolved';
+    case 'Rejected': return isArabic ? 'مرفوض' : 'Rejected';
+    default: return isArabic ? 'مغلق' : 'Closed';
+  }
+};
+
+const eventTypeLabel = (eventType: string, isArabic: boolean) => {
+  if (!isArabic) return eventType.replace(/([A-Z])/g, ' $1').trim();
+  switch (eventType) {
+    case 'LoginSuccess': return 'تسجيل دخول ناجح';
+    case 'LoginFailed': return 'فشل تسجيل الدخول';
+    case 'Logout': return 'تسجيل خروج';
+    case 'SessionCreated': return 'إنشاء جلسة';
+    case 'SessionRevoked': return 'إنهاء جلسة';
+    case 'Refresh': case 'RefreshReuse': return 'تجديد رمز الجلسة';
+    case 'DeviceRegistered': return 'تسجيل جهاز';
+    case 'DeviceChange': return 'تغيير جهاز';
+    case 'DeviceBindingFailed': return 'فشل ربط الجهاز';
+    case 'DevtoolsDetected': return 'كشف أدوات المطوّرين';
+    case 'ScreenshotAttempt': return 'محاولة التقاط شاشة';
+    case 'CopyAttempt': return 'محاولة نسخ';
+    case 'DownloadAttempt': return 'محاولة تنزيل';
+    case 'PrintAttempt': return 'محاولة طباعة';
+    case 'MultipleAccountsSuspected': return 'اشتباه حسابات متعددة';
+    case 'BanIssued': return 'إصدار حظر';
+    case 'BanLifted': return 'رفع حظر';
+    case 'PasswordChanged': return 'تغيير كلمة المرور';
+    case 'PasswordResetRequested': return 'طلب استعادة كلمة المرور';
+    case 'MfaEnabled': return 'تفعيل المصادقة الثنائية';
+    case 'MfaFailed': return 'فشل المصادقة الثنائية';
+    case 'MfaDisabled': return 'تعطيل المصادقة الثنائية';
+    case 'SubscriptionActivated': return 'تفعيل اشتراك';
+    case 'SubscriptionRevoked': return 'إبطال اشتراك';
+    case 'FileAccess': return 'وصول لملف';
+    case 'EntitlementDenied': return 'رفض استحقاق';
+    case 'OtpSent': return 'إرسال رمز تحقق';
+    case 'OtpVerified': return 'تحقق رمز OTP';
+    case 'OtpFailed': return 'فشل رمز OTP';
+    default: return 'حدث أمني';
+  }
+};
 
 type StudentRecord = {
   id: string;
@@ -166,6 +255,9 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
   }>>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
+  // W3 (admin-ui): session revoke was a single unconfirmed click (debt D-11) —
+  // now gated by an explicit danger ConfirmDialog.
+  const [sessionRevokeTarget, setSessionRevokeTarget] = useState<{ id: string; deviceName?: string | null; deviceType?: string | null } | null>(null);
   // P1-01: student profile drawer — detail tabs data
   const [examSessions, setExamSessions] = useState<Array<{
     id: string; examId: string; examTitle: string; status: string;
@@ -180,6 +272,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     revocationReason: string | null; createdAt: string;
   }>>([]);
   const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
+  // W3 (admin-ui): subscription revoke action (POST /admin/subscriptions/{id}/revoke
+  // existed with no UI — matrix row #11), confirm-gated with a mandatory reason.
+  const [subscriptionRevokeTarget, setSubscriptionRevokeTarget] = useState<{ id: string; scopeType: string; expiresAt: string } | null>(null);
+  const [revokingSubscription, setRevokingSubscription] = useState(false);
   const [studentReports, setStudentReports] = useState<Array<{
     id: string; questionId: string; questionText: string; reason: string;
     description: string | null; status: string;
@@ -324,6 +420,28 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     setSelected(null);
     setDrawerTab('overview');
     setSecurityLogs([]);
+  };
+
+  // W3 (admin-ui): revoke a subscription with a recorded reason
+  // (POST /api/v1/admin/subscriptions/{id}/revoke — previously had no UI).
+  const revokeSubscription = async (subscriptionId: string, reason: string) => {
+    if (!selected) return;
+    setRevokingSubscription(true);
+    try {
+      await apiRequest(`/api/v1/admin/subscriptions/${subscriptionId}/revoke`, token, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      setSubscriptions(prev => (prev || []).map(s => s.id === subscriptionId
+        ? { ...s, revokedAt: new Date().toISOString(), revocationReason: reason }
+        : s));
+      setSubscriptionRevokeTarget(null);
+      onNotice(isArabic ? 'تم إبطال الاشتراك' : 'Subscription revoked');
+    } catch (err: unknown) {
+      const msg = err instanceof ApiError ? err.message : isArabic ? 'فشل إبطال الاشتراك' : 'Revoke failed';
+      onError(msg);
+    } finally { setRevokingSubscription(false); }
   };
 
   const openDialog = (next: Exclude<Dialog, null>) => {
@@ -1043,7 +1161,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       {(securityLogs || []).map((log) => (
                         <article key={log.id} className={`rounded-lg border p-3 ${eventToneClass(log.severity)}`}>
                           <div className="flex items-start justify-between gap-2">
-                            <strong className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>{log.eventType}</strong>
+                            <strong className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }} title={log.eventType}>{eventTypeLabel(log.eventType, isArabic)}</strong>
                             <small className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{dateLabel(log.createdAt, isArabic)}</small>
                           </div>
                           <p className="text-xs mt-1" style={{ color: 'var(--cms-text-soft)' }}>{log.description}</p>
@@ -1081,7 +1199,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                               )}
                             </div>
                           )}
-                          <em className={`mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide ${eventLabelClass(log.severity)}`}>{log.severity}</em>
+                          <em className={`mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide ${eventLabelClass(log.severity)}`}>{securitySeverityLabel(log.severity, isArabic)}</em>
                         </article>
                       ))}
                     </div>
@@ -1200,7 +1318,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                             <div key={s.id} className="flex items-center justify-between gap-2 py-2 border-b last:border-0" style={{ borderColor: 'var(--cms-line)' }}>
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${isActive ? 'text-emerald-700 bg-emerald-50' : s.status === 'Revoked' ? 'text-red-700 bg-red-50' : 'text-amber-700 bg-amber-50'}`}>{s.status}</span>
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${isActive ? 'text-emerald-700 bg-emerald-50' : s.status === 'Revoked' ? 'text-red-700 bg-red-50' : 'text-amber-700 bg-amber-50'}`}>{sessionStatusLabel(s.status, isArabic)}</span>
                                   <span className="text-xs font-medium" style={{ color: 'var(--cms-text)' }}>{s.role}</span>
                                   {s.deviceType && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>{s.deviceType}</span>}
                                   {s.deviceOs && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--cms-info-50)', color: 'var(--cms-info)' }}>{s.deviceOs}</span>}
@@ -1214,7 +1332,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                               </div>
                               {isActive && can('btn:students.revoke-session') && (
                                 <button
-                                  onClick={() => void revokeSession(s.id)}
+                                  onClick={() => setSessionRevokeTarget({ id: s.id, deviceName: s.deviceName, deviceType: s.deviceType })}
                                   disabled={revokingSession === s.id}
                                   className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-medium text-red-700 border-red-200 hover:bg-red-50 disabled:opacity-50"
                                   title={isArabic ? 'إنهاء هذه الجلسة' : 'Revoke this session'}
@@ -1348,7 +1466,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                         return (
                           <div key={s.id} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
                             <div className="flex items-center justify-between mb-1">
-                              <span className="text-xs font-medium" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'نطاق' : 'Scope'}: {isArabic ? s.scopeType.replace(/([A-Z])/g, ' $1').trim() : s.scopeType}</span>
+                              <span className="text-xs font-medium" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'نطاق' : 'Scope'}: {subscriptionScopeLabel(s.scopeType, isArabic)}</span>
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{
                                 background: isActive ? 'rgba(34,197,94,0.12)' : 'rgba(255,159,28,0.12)',
                                 color: isActive ? 'var(--cms-success)' : 'var(--cms-warning)'
@@ -1364,6 +1482,17 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                                 {isArabic ? 'ألغي في' : 'Revoked at'}: {new Date(s.revokedAt).toLocaleDateString(isArabic ? 'ar' : 'en')}
                                 {s.revocationReason ? ` — ${s.revocationReason}` : ''}
                               </div>
+                            )}
+                            {isActive && can('btn:codes.revoke') && (
+                              <button
+                                onClick={() => setSubscriptionRevokeTarget({ id: s.id, scopeType: s.scopeType, expiresAt: s.expiresAt })}
+                                disabled={revokingSubscription}
+                                className="mt-2 inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-medium text-red-700 border-red-200 hover:bg-red-50 disabled:opacity-50"
+                                title={isArabic ? 'إبطال هذا الاشتراك' : 'Revoke this subscription'}
+                              >
+                                <Ban className="w-3 h-3" />
+                                {isArabic ? 'إبطال الاشتراك' : 'Revoke subscription'}
+                              </button>
                             )}
                           </div>
                         );
@@ -1396,10 +1525,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{
                               background: r.status === 'Pending' ? 'rgba(255,159,28,0.12)' : r.status === 'Resolved' ? 'rgba(34,197,94,0.12)' : 'rgba(13,116,107,0.12)',
                               color: r.status === 'Pending' ? 'var(--cms-warning)' : r.status === 'Resolved' ? 'var(--cms-success)' : 'var(--cms-teal-600)'
-                            }}>{isArabic ? r.reason : r.reason}</span>
+                            }}>{reportReasonLabel(r.reason, isArabic)}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
-                            <span>{isArabic ? 'الحالة' : 'Status'}: {r.status}</span>
+                            <span>{isArabic ? 'الحالة' : 'Status'}: {reportStatusLabel(r.status, isArabic)}</span>
                             <span>·</span>
                             <span>{new Date(r.createdAt).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
                           </div>
@@ -1416,6 +1545,39 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
           </aside>
         </>
       )}
+
+      {/* ===== W3 (admin-ui): confirm gates for the drawer's destructive actions ===== */}
+      <ConfirmDialog
+        open={sessionRevokeTarget !== null}
+        onOpenChange={(next) => { if (!next) setSessionRevokeTarget(null); }}
+        title={isArabic ? 'إنهاء الجلسة' : 'Revoke session'}
+        description={isArabic
+          ? 'سيُنهى نشاط هذه الجلسة فورًا وسيُطلب من الطالب تسجيل الدخول مجددًا على ذلك الجهاز.'
+          : 'This session is terminated immediately; the student must sign in again on that device.'}
+        confirmLabel={isArabic ? 'إنهاء' : 'Revoke'}
+        cancelLabel={isArabic ? 'إلغاء' : 'Cancel'}
+        variant="danger"
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={sessionRevokeTarget != null && revokingSession === sessionRevokeTarget.id}
+        onConfirm={() => { if (sessionRevokeTarget) void revokeSession(sessionRevokeTarget.id); }}
+        testId="session-revoke-confirm"
+      />
+      <ConfirmDialog
+        open={subscriptionRevokeTarget !== null}
+        onOpenChange={(next) => { if (!next) setSubscriptionRevokeTarget(null); }}
+        title={isArabic ? 'إبطال الاشتراك' : 'Revoke subscription'}
+        description={isArabic
+          ? `سيفقد الطالب وصوله للمحتوى ضمن نطاق «${subscriptionScopeLabel(subscriptionRevokeTarget?.scopeType ?? '', true)}» حتى نهاية مدة الاشتراك. لا يمكن التراجع، وسيُسجَّل السبب في سجل التدقيق.`
+          : 'The student loses access to the content in this subscription\u2019s scope until it expires. This cannot be undone; the reason is recorded in the audit log.'}
+        confirmLabel={isArabic ? 'تأكيد الإبطال' : 'Confirm revoke'}
+        cancelLabel={isArabic ? 'إلغاء' : 'Cancel'}
+        variant="danger"
+        requireReason={{ label: isArabic ? 'سبب الإبطال' : 'Revoke reason', placeholder: isArabic ? 'سبب واضح وآمن للتدقيق.' : 'A clear, audit-safe reason.' }}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={revokingSubscription}
+        onConfirm={(reason) => { if (subscriptionRevokeTarget && reason) void revokeSubscription(subscriptionRevokeTarget.id, reason); }}
+        testId="subscription-revoke-confirm"
+      />
 
       {/* P1-01: Edit profile modal */}
       {editStudent && (
