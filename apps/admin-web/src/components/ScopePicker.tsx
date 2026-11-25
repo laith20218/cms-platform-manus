@@ -101,12 +101,19 @@ export function ScopePicker({ token, isArabic, value, onChange, existingNames }:
       .then(async res => {
         const sems = Array.isArray(res) ? res : [];
         setSemesters(sems);
-        // Auto-load subjects from the first semester (admin scope is subject-level, not semester-level)
+        // W4 (D-18): subjects are collected from EVERY semester of the year.
+        // The old behavior loaded only the first semester's subjects, which
+        // made subjects that exist solely in semester 2+ unassignable as an
+        // admin scope — a correctness bug, not a styling one.
         if (sems.length > 0) {
           setLoading('subjects');
           try {
-            const subs = await apiRequest<Subject[]>(`/api/v1/semesters/${sems[0].id}/subjects`, token);
-            setSubjects(Array.isArray(subs) ? subs : []);
+            const perSemester = await Promise.all(
+              sems.map(sem =>
+                apiRequest<Subject[]>(`/api/v1/semesters/${sem.id}/subjects`, token)
+                  .catch(() => [] as Subject[]))
+            );
+            setSubjects(perSemester.flat());
           } catch { setSubjects([]); }
         } else {
           setSubjects([]);
@@ -161,6 +168,7 @@ export function ScopePicker({ token, isArabic, value, onChange, existingNames }:
             {t.university}
           </label>
           <select
+            aria-label={t.university}
             value={value.universityId}
             onChange={(e) => onChange({ universityId: e.target.value, collegeId: '', yearId: '', subjectId: '' })}
             className={selectClass}
@@ -179,6 +187,7 @@ export function ScopePicker({ token, isArabic, value, onChange, existingNames }:
             {t.college}
           </label>
           <select
+            aria-label={t.college}
             value={value.collegeId}
             onChange={(e) => onChange({ universityId: value.universityId, collegeId: e.target.value, yearId: '', subjectId: '' })}
             className={selectClass}
@@ -197,6 +206,7 @@ export function ScopePicker({ token, isArabic, value, onChange, existingNames }:
             {t.year}
           </label>
           <select
+            aria-label={t.year}
             value={value.yearId}
             onChange={(e) => onChange({ ...value, yearId: e.target.value, subjectId: '' })}
             className={selectClass}
@@ -215,6 +225,7 @@ export function ScopePicker({ token, isArabic, value, onChange, existingNames }:
             {t.subject}
           </label>
           <select
+            aria-label={t.subject}
             value={value.subjectId}
             onChange={(e) => onChange({ ...value, subjectId: e.target.value })}
             className={selectClass}

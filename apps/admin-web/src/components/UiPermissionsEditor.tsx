@@ -23,6 +23,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Check, LoaderCircle, Lock, RotateCcw, Save, Search, SlidersHorizontal, X } from 'lucide-react';
+import { ConfirmDialog } from '@cms/ui';
 import { ApiError, clearRoleUiPermissions, fetchRoleUiPermissions, replaceRoleUiPermissions } from '../lib/api';
 import { ALL_UI_KEYS, ROLE_TEMPLATES, UI_PERMISSION_LABELS, UI_PERMISSIONS_TREE, VIEW_KEYS } from '../lib/uiPermissions';
 
@@ -45,6 +46,9 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
   const [roleState, setRoleState] = useState<RoleState>({ configured: false, allowedKeys: null });
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
+  // W4: reset-to-full was a native window.confirm (debt D-06) — now an explicit
+  // danger ConfirmDialog (this is the widest possible grant: NULL = full access).
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (!token || !roleId) return;
@@ -174,12 +178,12 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
   };
 
   const resetToFull = async () => {
-    if (!window.confirm(t.confirmReset)) return;
     setSaving(true);
     try {
       await clearRoleUiPermissions(token, roleId);
       setRoleState({ configured: false, allowedKeys: null });
       setSelection(new Set());
+      setResetConfirmOpen(false);
       onNotice(t.resetOk);
     } catch (error: unknown) {
       const message = error instanceof ApiError ? error.message : t.saveFail;
@@ -374,7 +378,7 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={resetToFull}
+              onClick={() => setResetConfirmOpen(true)}
               disabled={!roleState.configured || saving || isSystemRole}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}
@@ -395,6 +399,26 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
           </div>
         </div>
       </div>
+
+      {/* W4: explicit danger confirm for the reset-to-full grant (was window.confirm). */}
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        onOpenChange={(next) => { if (!next) setResetConfirmOpen(false); }}
+        title={t.resetToFull}
+        description={t.confirmReset}
+        confirmLabel={t.resetToFull}
+        cancelLabel={t.close}
+        variant="danger"
+        requireAcknowledge={{
+          label: isArabic
+            ? 'أفهم أن هذا يمنح وصولًا كاملًا لكل مدراء الدور ولا يمكن التراجع إلا بحفظ قائمة جديدة'
+            : 'I understand this grants full access to every administrator of the role and can only be undone by saving a new list',
+        }}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={saving}
+        onConfirm={() => void resetToFull()}
+        testId="ui-permissions-reset-confirm"
+      />
     </div>
   );
 }
