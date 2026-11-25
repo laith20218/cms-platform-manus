@@ -157,7 +157,7 @@ class OfflinePackageBridgeServiceTest {
         val fields = mutableListOf("\"subjectId\":\"$subject\"")
         examId?.let { fields += "\"examId\":\"$it\"" }
         accessToken?.let { fields += "\"accessToken\":\"$it\"" }
-        return "{${fields.joinToString(\",\")}}"
+        return "{${fields.joinToString(",")}}"
     }
 
     // ------------------------------------------------------------------
@@ -329,18 +329,27 @@ class OfflinePackageBridgeServiceTest {
             store.saveEnvelope(envelope(), session.studentId, session.installationId)
             packageId
         }
-        val executor = FrozenExecutor()
+        // Runs inline AND records — proves the second download enqueues nothing.
+        val executor = object : Executor {
+            val executed = mutableListOf<Runnable>()
+            override fun execute(command: Runnable) {
+                executed += command
+                command.run()
+            }
+        }
         val service = service(runtime = { facade }, store = store, nativeSession = null, executor = executor)
 
-        // First download carries the web token and binds the last web student.
+        // First download carries the web token, runs to completion, and binds
+        // the last web student on success.
         assertEquals(OfflinePackageBridgeService.QUEUED, service.downloadOfflinePackage(requestJson(subjectId, accessToken = token)))
+        assertEquals(1, facade.sessions.size)
 
         // The web page then drops its session (no token) and asks for the OTHER
         // subject — the last web-bound student still resolves the store binding
         // for the pure store read; no network, no executor.
         assertEquals(OfflinePackageBridgeService.READY, service.downloadOfflinePackage(requestJson(otherSubjectId)))
         assertEquals(1, facade.sessions.size)
-        assertEquals(1, executor.runnables.size) // only the first, token-carrying download ran
+        assertEquals(1, executor.executed.size) // only the first, token-carrying download ran
     }
 
     @Test

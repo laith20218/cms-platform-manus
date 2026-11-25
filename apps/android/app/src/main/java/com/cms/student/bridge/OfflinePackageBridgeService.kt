@@ -140,7 +140,15 @@ class OfflinePackageBridgeService(
         // "ready" with a PURE STORE READ — no network, no executor, no facade.
         // Exam-scoped requests are treated the same: manifest scope is by
         // subject; exam binding is a server-side concern.
-        if (readyPackageInStore(request)) return READY
+        if (readyPackageInStore(request)) {
+            // The fast path re-confirms the store binding for this student — a
+            // web-token-resolved student is remembered so status/list/remove
+            // keep answering without any live session (binding = memory only).
+            if (sessionProvider() == null) {
+                resolveSession(request.accessToken)?.let { lastWebStudentId = it.studentId }
+            }
+            return READY
+        }
 
         // Fail-closed feature gate first: a disabled runtime denies regardless of session.
         val facade = runtime() ?: return DENIED_DISABLED

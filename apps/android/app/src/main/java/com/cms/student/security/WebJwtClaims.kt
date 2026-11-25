@@ -41,8 +41,12 @@ object WebJwtClaims {
         if (!root.isJsonObject) return null
         val claims = root.asJsonObject
 
+        // `sub` must be a JSON STRING (a numeric or boolean subject is malformed
+        // for this platform's student ids and answers null — fail closed).
         val subject = runCatching {
-            claims.get("sub")?.takeIf { it.isJsonPrimitive }?.asString
+            claims.get("sub")
+                ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }
+                ?.asString
         }.getOrNull()?.trim()?.takeIf { it.isNotBlank() } ?: return null
 
         val expiresAt = runCatching {

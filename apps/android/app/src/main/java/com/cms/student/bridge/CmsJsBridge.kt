@@ -211,25 +211,36 @@ class CmsJsBridge(
     @JavascriptInterface
     fun offlinePackageStatus(packageId: String?): String =
         if (isOriginAllowed()) {
-            if (packageId.isNullOrBlank() || packageId.trim().length > CachePolicy.MAX_INPUT_LENGTH) OfflinePackageBridgeService.INVALID_ARGS
-            else guarded({ packageApi.offlinePackageStatus(packageId.trim()) }, OfflinePackageBridgeService.ABSENT)
+            if (!isPackageIdArgument(packageId)) OfflinePackageBridgeService.INVALID_ARGS
+            else guarded({ packageApi.offlinePackageStatus(packageId!!.trim()) }, OfflinePackageBridgeService.ABSENT)
         } else OfflinePackageBridgeService.ABSENT
 
     /** Deletes one stored package (encrypted store invalidation). */
     @JavascriptInterface
     fun removeOfflinePackage(packageId: String?): String =
         if (isOriginAllowed()) {
-            if (packageId.isNullOrBlank() || packageId.trim().length > CachePolicy.MAX_INPUT_LENGTH) OfflinePackageBridgeService.INVALID_ARGS
-            else guarded({ packageApi.removeOfflinePackage(packageId.trim()) }, OfflinePackageBridgeService.ABSENT)
+            if (!isPackageIdArgument(packageId)) OfflinePackageBridgeService.INVALID_ARGS
+            else guarded({ packageApi.removeOfflinePackage(packageId!!.trim()) }, OfflinePackageBridgeService.ABSENT)
         } else OfflinePackageBridgeService.ABSENT
 
     /** Opens the offline exam player; Wave 3 delivers it (interim: `error:exam_ui_pending`). */
     @JavascriptInterface
     fun openOfflineExam(packageId: String?): String =
         if (isOriginAllowed()) {
-            if (packageId.isNullOrBlank() || packageId.trim().length > CachePolicy.MAX_INPUT_LENGTH) OfflinePackageBridgeService.INVALID_ARGS
-            else guarded({ packageApi.openOfflineExam(packageId.trim()) }, OfflinePackageBridgeService.ERROR)
+            if (!isPackageIdArgument(packageId)) OfflinePackageBridgeService.INVALID_ARGS
+            else guarded({ packageApi.openOfflineExam(packageId!!.trim()) }, OfflinePackageBridgeService.ERROR)
         } else CacheStatus.DENIED_ORIGIN
+
+    /**
+     * Package ids are ALWAYS canonical hyphenated UUIDs — anything else (blank,
+     * oversized, path-shaped) is rejected at the bridge, before the service.
+     * Defense-in-depth on top of the service-level [OfflinePackageBridgeService]
+     * pattern check.
+     */
+    private fun isPackageIdArgument(raw: String?): Boolean {
+        val trimmed = raw?.trim() ?: return false
+        return trimmed.length <= CachePolicy.MAX_INPUT_LENGTH && OfflinePackageBridgeService.PACKAGE_ID_PATTERN.matches(trimmed)
+    }
 
     /** The bridge never propagates an exception to JS — every call degrades to [fallback]. */
     private inline fun guarded(action: () -> String, fallback: String): String =
