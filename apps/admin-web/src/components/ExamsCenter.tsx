@@ -42,6 +42,7 @@ import {
   Pencil, Plus, Search, Send, Timer, Trash2, TrendingUp, Users, X, XCircle,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
+import { Pagination } from '@cms/ui';
 import { questionDifficultyLabel, questionTypeLabel } from '../lib/questionLabels';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
@@ -157,6 +158,29 @@ const statusLabel = (status: string, isArabic: boolean) => {
   return isArabic ? 'مسودة' : 'Draft';
 };
 
+// W2 (admin-ui): attempt/result session statuses (ExamSessionStatus enum:
+// InProgress/Completed/Cancelled/TimedOut + legacy Abandoned/Expired aliases).
+// Raw enum values must never leak into the Arabic surface (debt D-23).
+const resultStatusLabel = (status: string, isArabic: boolean) => {
+  switch (status.toLowerCase()) {
+    case 'inprogress': return isArabic ? 'قيد الأداء' : 'In progress';
+    case 'completed': return isArabic ? 'مكتمل' : 'Completed';
+    case 'cancelled':
+    case 'abandoned': return isArabic ? 'ملغى' : 'Cancelled';
+    case 'timedout':
+    case 'expired': return isArabic ? 'انتهى وقته' : 'Timed out';
+    default: return isArabic ? 'غير معروف' : status;
+  }
+};
+
+const resultStatusBadgeClass = (status: string) => {
+  const value = status.toLowerCase();
+  if (value === 'completed') return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+  if (value === 'inprogress') return 'text-sky-700 bg-sky-50 border-sky-200';
+  if (value === 'timedout' || value === 'expired') return 'text-red-700 bg-red-50 border-red-200';
+  return 'text-slate-600 bg-slate-50 border-slate-200';
+};
+
 // ===== W14.3 Phase D (D12) — report classification labels (ReportType enum) =====
 const reportTypeLabel = (type: string, isArabic: boolean) => {
   switch (type) {
@@ -214,6 +238,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
   const [exams, setExams] = useState<ExamSummary[]>([]);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // W2 (admin-ui): server-side pager state — the list was a fixed pageSize=100
+  // fetch with no controls (debt D-20).
+  const [examsPage, setExamsPage] = useState(1);
+  const [examsTotal, setExamsTotal] = useState(0);
 
   // === Editor state ===
   const [loading, setLoading] = useState(false);
@@ -335,15 +363,17 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
     catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل المحاضرات.'); }
   }
 
-  async function loadExams() {
+  async function loadExams(targetPage = 1) {
     if (!subjectId) return;
     setLoading(true);
     try {
-      const params = new URLSearchParams({ subjectId, page: '1', pageSize: '100' });
+      const params = new URLSearchParams({ subjectId, page: String(targetPage), pageSize: '100' });
       if (query.trim()) params.set('search', query.trim());
       if (statusFilter) params.set('status', statusFilter);
       const data = await request<Page<ExamSummary>>(`/api/v1/admin/exams?${params.toString()}`);
       setExams(data.items);
+      setExamsPage(targetPage);
+      setExamsTotal(data.totalCount);
     } catch (error) {
       onError(error instanceof Error ? error.message : 'تعذر تحميل الاختبارات.');
     } finally { setLoading(false); }
@@ -1095,6 +1125,22 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
               </table>
             </div>
           ))}
+
+          {/* ===== W2 (admin-ui): shared pager for the exam list ===== */}
+          {!statsExam && !loading && examsTotal > 0 && (
+            <Pagination
+              page={examsPage}
+              pageSize={100}
+              total={examsTotal}
+              onPageChange={(next) => void loadExams(next)}
+              dir={isArabic ? 'rtl' : 'ltr'}
+              labels={isArabic ? undefined : {
+                prev: 'Previous', next: 'Next', navLabel: 'Exam list pagination',
+                pageOf: (p, tp) => `Page ${p} of ${tp}`,
+              }}
+              testId="exams-list-pagination"
+            />
+          )}
 
           {/* ===== W14.3 D12: question reports triage section ===== */}
           {showReports && (
@@ -1862,8 +1908,8 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                                 </div>
                               </td>
                               <td className="px-4 py-3">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${statusBadgeClass(result.status)}`}>
-                                  {result.status}
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${resultStatusBadgeClass(result.status)}`}>
+                                  {resultStatusLabel(result.status, isArabic)}
                                 </span>
                               </td>
                               <td className="px-4 py-3">
