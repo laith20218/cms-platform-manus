@@ -1,12 +1,22 @@
 # Offline Program — سياسة العمل دون اتصال (Owner decisions 2026-11-23)
 
 State: **implemented on main** (PRs #182–#186; security debts closed by PRs
-#187–#189, see §7). This document is the single pointer for the offline policy:
+#187–#189, see §7; **Waves 1–6 of the offline-platform build-out closed by
+PRs #196–#201** — offline hub UI, web-JWT package download, the React offline
+exam, Phase P wipes, and hosted course episodes with Phase Q chunked playback).
+This document is the single pointer for the offline policy:
 what changed, the exact constants, how to enable question packages for a release,
 the admin entry points, the manual acceptance test, and the residual risks.
 Historical background: `android-shell-roadmap.md` (Batches 0–4) and
 `CMS-Android-Content-Session-Protection-Report.md` (a dated snapshot — some of
 its numbers are superseded here).
+
+Wave-6 companions: **`OFFLINE-PLATFORM-COMPLETION.md`** (capability matrix,
+final bridge allowlists, release `-P` flags, ops state, residuals),
+**`OFFLINE-AIRPLANE-ACCEPTANCE.md`** (the full manual device acceptance —
+supersedes the abbreviated §5 below), **`OFFLINE-STUDENT-HOWTO-AR.md`**
+(Arabic-first student guide), **`security/PHASE-P-CONTAINMENT-AUDIT.md**`,
+and `scripts/ops/verify-offline-readiness.sh` (read-only API readiness probe).
 
 ## 1. The six locked owner decisions (as implemented)
 
