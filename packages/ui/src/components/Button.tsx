@@ -16,13 +16,13 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: 'bg-[var(--c-primary-700)] text-white shadow-md hover:bg-[var(--c-primary-600)] hover:shadow-lg active:bg-[var(--c-primary-800)]',
-        secondary: 'bg-transparent text-[var(--c-primary-700)] border border-[var(--c-primary-700)] hover:bg-[var(--c-primary-50)]',
-        ghost: 'bg-transparent text-[var(--c-primary-700)] hover:bg-[var(--c-primary-50)]',
-        danger: 'bg-[var(--c-danger-500)] text-white shadow-md hover:bg-[var(--c-danger-600)]',
-        success: 'bg-[var(--c-success-500)] text-white shadow-md hover:bg-[var(--c-success-600)]',
-        glass: 'bg-[var(--c-glass)] border border-[var(--c-border-glass)] text-[var(--c-primary-700)] backdrop-blur-xl',
-        link: 'bg-transparent text-[var(--c-primary-700)] underline-offset-4 hover:underline',
+        primary: 'bg-[color:var(--c-primary-700)] text-white shadow-md hover:bg-[color:var(--c-primary-600)] hover:shadow-lg active:bg-[color:var(--c-primary-800)]',
+        secondary: 'bg-transparent text-[color:var(--c-primary-700)] border border-[color:var(--c-primary-700)] hover:bg-[color:var(--c-primary-50)]',
+        ghost: 'bg-transparent text-[color:var(--c-primary-700)] hover:bg-[color:var(--c-primary-50)]',
+        danger: 'bg-[color:var(--c-danger-500)] text-white shadow-md hover:bg-[color:var(--c-danger-600)]',
+        success: 'bg-[color:var(--c-success-500)] text-white shadow-md hover:bg-[color:var(--c-success-600)]',
+        glass: 'bg-[color:var(--c-glass)] border border-[color:var(--c-border-glass)] text-[color:var(--c-primary-700)] backdrop-blur-xl',
+        link: 'bg-transparent text-[color:var(--c-primary-700)] underline-offset-4 hover:underline',
       },
       size: {
         xs: 'h-6 px-2 text-xs gap-1',
