@@ -13,7 +13,7 @@ The backend exposes **157 admin/operator endpoints across 20 controllers** (13 p
 
 The gaps are of four kinds:
 
-1. **9 capability groups with NO UI at all** (endpoint exists, zero call sites): admin **2FA enable/disable**, per-student **subscription revoke**, **question bulk import** (Excel/CSV), **exam student-view preview**, **library file metadata edit**, **sent-notifications list + delivery stats**, dashboard **recent-activity / top-subjects / reports-summary** feeds, **exam unpublish**, offline **package detail**.
+1. At W0, 9 capability groups had NO UI. **W3–W5 wired 4 of them** (subscription revoke, question bulk import, 2FA, report assign); remaining none-rows: **exam student-view preview**, **library file metadata edit**, **sent-notifications list + delivery stats**, dashboard **recent-activity / top-subjects / reports-summary** feeds, **exam unpublish**, **offline package detail** (all P2/P3).
 2. **Systemic interaction-model debt**: 6 `window.confirm` destructive actions, 6+ copy-pasted custom confirm modals (none with Esc/focus-trap), 5 destructive actions with **no confirmation at all** (library publish/archive, codes bulk revoke, lecture publish, session revoke).
 3. **Arabic-first violations**: 12+ call sites render raw English enum wire values (`Active`, `Critical`, `FullSubject`…); 10+ hardcoded English/Arabic-only strings break the locale toggle.
 4. **List completeness bugs**: 5 centers have no pagination (Questions/Exams/Codes fixed `pageSize=100`, Admins 50); **LibraryCenter fetches `pageSize=25` with no pager — rows 26+ are unreachable**.
@@ -29,21 +29,21 @@ Legend — UI: `full` / `partial` / `none` (capability-equivalent surface counte
 | # | Capability (endpoints) | UI | UX | Priority | Proposed surface |
 |---|---|---|---|---|---|
 | 1 | Admin login, refresh, `me/permissions`, `me/ui-permissions` (AdminAuth 3/5) | full | page (login) + boot-time fetch | — | Keep; drive sidebar gating (current) |
-| 2 | **Admin 2FA enable / disable** (AdminAuth 2/5) | none | — | **P1** | Security card in SettingsCenter (self-service): QR + backup-codes modal, disable w/ password re-check confirm |
+| 2 | **Admin 2FA enable / disable** (AdminAuth 2/5) | **full (W4)** | TwoFactorCard on لوحة القيادة — enable → QR + secret + one-time recovery codes; disable requires password per API | done | no status endpoint exists (documented deviation); card never fakes state |
 | 3 | Dashboard stats / revenue / student-growth (AdminDashboard 3/32) | full | charts | — | Keep |
 | 4 | **recent-activity / top-subjects / reports-summary** (AdminDashboard 3/32) | none | — | P2 | Overview feed cards (data exists; Overview already renders) |
 | 5 | Students list/search/filter/pagination, ban/unban/revoke-sessions, profile drawer tabs (AdminDashboard students + AdminStudents) | full | table + drawer + modals | — | Keep; P2 polish for raw enums in drawer tabs |
 | 6 | Manual student create + avatar upload (AdminStudents POST + avatar) | full | modal | — | Keep |
 | 7 | Admins CRUD, reset-password, status, delete w/ super-admin password (AdminDashboard admins 9) | full | modal (DialogLayer) | **P0** (a11y + native confirm) | Migrate DialogLayer onto shared `Dialog`; replace `window.confirm` on status (App.tsx:361) with `ConfirmDialog` |
-| 8 | Roles CRUD + permission matrix + UI-permissions editors (AdminDashboard roles 9) | full | modals | **P1** | Same migration; ScopePicker first-semester bug (see debt D-18) |
+| 8 | Roles CRUD + permission matrix + UI-permissions editors (AdminDashboard roles 9) | full | modals + shared ConfirmDialogs (W4) | — | D-18 fixed: subjects load from every semester; remaining dialog migration is P2 polish |
 | 9 | Codes ledger/generate/activate/redemptions/single revoke (AdminDashboard codes 5) | full | modals + mandatory reason | — (single revoke is best-in-class) | Keep; adopt shared ConfirmDialog |
 | 10 | **Bulk code revoke** (uses codes/{id}/revoke in loop) | partial | **broken**: no confirm, silent per-item failures, hardcoded English reason | **P0** | ConfirmDialog w/ count + mandatory Arabic reason + per-item failure report |
 | 11 | **Subscription revoke per student** (AdminDashboard subscriptions 1) | none | — | **P1** | Row action in StudentsCenter subscriptions tab (confirm + reason modal) |
 | 12 | Questions CRUD/publish/archive/unpublish/duplicate/preview/bulk-publish/bulk-archive (AdminQuestions + Questions admin) | full | drawer + confirm modal + bulk checkbox toolbar | — (best-in-app) | Keep; add pagination; adopt shared primitives |
-| 13 | **Question bulk import Excel/CSV** (Questions `/import`) | none | — | **P1** | Import modal in QuestionsCenter: file pick → preview → result report (created/skipped/failed) |
+| 13 | **Question bulk import** (Questions `/import`, CSV client-side parse → JSON rows) | **full (W5)** | QuestionImportModal: validation + explicit start + honest created/failed report | done | API takes JSON rows, not files — CSV is the client-side path; Excel users export CSV |
 | 14 | Error-report triage resolve/reject (AdminQuestions reports) | full | inline panel + notes modal | — | Keep |
 | 15 | Reports moderation list + status transitions (AdminReports 2/3) | full | table + modal | — | Keep |
-| 16 | **Report assign** (AdminReports `/assign`) | none | — | P2 | Assign action in ReportsModeration row menu (admin picker) |
+| 16 | **Report assign** (AdminReports `/assign`) | **full (W5)** | تعيين row action → Dialog + admin Select → PUT + refresh | done | — |
 | 17 | Exams CRUD/publish/archive/question-builder/results/stats/question-stats/candidates (AdminExams 14/15) | full | drawer + inline sections | — | Keep; P2: raw `result.status` enum (ExamsCenter:1866) |
 | 18 | **Exam unpublish** (AdminExams `/unpublish`) + **student-view preview** (`/preview`) | none | — | P2 | Row actions: «إلغاء النشر» + «معاينة كطالب» modal |
 | 19 | Exam-course bundles CRUD/publish/archive/exam attach/detach/reorder (AdminExamCourses 10) | full | panel + modals + confirm | — | Keep |
@@ -52,7 +52,7 @@ Legend — UI: `full` / `partial` / `none` (capability-equivalent surface counte
 | 22 | Courses + episodes CRUD, YouTube episodes, single-PUT uploads, abort flows (AdminCourses 14/15) | full | panels + EpisodeEditModal | **P0** | Replace `window.confirm` on course/episode delete (destroys videos) with danger ConfirmDialog |
 | 23 | Academic tree browse/create/archive/restore + lecture publish (Academic admin 16) | full | 5-column board + inline forms + confirm modal | **P1** | Lecture publish needs confirm; add loading skeletons |
 | 24 | Content pages list/upsert (AdminContentPages 2) | full | inline editor | P3 | EN-mode editor is Arabic-only (ContentCenter:146-173) |
-| 25 | Notification send (targeted audiences) | full | compose modal | **P1** | Audience cascade only implements University+Student — College/Year/Semester/Subject pickers missing (NotificationCompose:67-80); no Esc/focus trap |
+| 25 | Notification send (targeted audiences) | **full (W5)** | compose modal + full audience cascade | — | D-22 fixed: College/Year/Semester/Subject resolve through cascade selects with visible Arabic validation; compose modal Esc/focus trap remains P2 |
 | 26 | **Sent notifications list + delivery stats** (Notifications 2 admin) | none | — | P2 | Sent feed in notification center w/ stats drill-down |
 | 27 | Offline packages list/revoke (AdminOffline 2/3) | full | table + confirm modal | P3 | Package-detail endpoint unused; `--c-*` token drift (see D-31) |
 | 28 | Activity sessions/logs (AdminActivity 2) | full | tabs + pagination | — | Keep |
@@ -71,7 +71,7 @@ Legend — UI: `full` / `partial` / `none` (capability-equivalent surface counte
 ## 3. UX debt register (verified, with evidence)
 
 ### Interaction model (P0)
-- **D-01** `window.confirm` admin enable/disable — App.tsx:361
+- **D-01** ~~`window.confirm` admin enable/disable~~ **FIXED (W4)** — shared ConfirmDialog with consequence text
 - **D-02** `window.confirm` role status/delete — App.tsx:427, 441
 - **D-03** `window.confirm` course delete (destroys all episodes + stored videos) — CoursesCenter.tsx:175
 - **D-04** `window.confirm` episode delete (destroys stored video) — CoursesCenter.tsx:550
@@ -92,7 +92,7 @@ Legend — UI: `full` / `partial` / `none` (capability-equivalent surface counte
 - **D-17** Buttons implement hover via JS `onMouseEnter/Leave` inline-style swaps (~40 sites) instead of CSS classes — no keyboard-focus parity
 
 ### Correctness (P0/P1)
-- **D-18** ScopePicker loads subjects from the **first semester only** — subjects in semesters 2+ can never be assigned as admin scope (ScopePicker.tsx:104-113)
+- **D-18** ~~ScopePicker first-semester-only~~ **FIXED (W4)** — subjects load from every semester of the year; regression test locks both-semesters behavior
 - **D-19** LibraryCenter `pageSize=25`, no pager — **rows beyond 25 unreachable** (LibraryCenter.tsx:415)
 - **D-20** Fixed `pageSize` without pagination: Questions 100 (QuestionsCenter:329), Exams 100 (ExamsCenter:342), Codes 100 (CodesCenter:104), Admins 50 (App.tsx:246)
 - **D-21** Settings default value parsed from description string via `split(':').pop()` — key without `:` silently disables reset (SettingsCenter.tsx:152)
@@ -147,7 +147,11 @@ Deferred (P2/P3, with reason): URL routing for views D-26 (large refactor, no op
 
 ---
 
-## 6. Verified baselines (this wave)
+## 6. Verified baselines
+
+> **Waves 4–5 status (2026-11-25, this update)** — W4 (PR #206, merged `ec1aa1d`) and W5 (PR #207) flipped the
+> P1 rows above. admin-web vitest 120 → **136** (+16: 7 W4 + 9 W5); @cms/ui 39/39; eslint max-warnings=0 and
+> `tsc --noEmit` clean throughout; production build green. No new runtime dependencies; no API changes.
 
 | Gate | Result |
 |---|---|
