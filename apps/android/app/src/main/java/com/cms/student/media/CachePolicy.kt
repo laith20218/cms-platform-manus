@@ -20,6 +20,14 @@ object CachePolicy {
     /** Total on-device cap for completed cached media (5 GiB, exact bytes). */
     const val MAX_CACHE_BYTES: Long = 5_368_709_120L
 
+    /**
+     * Phase Q (Owner decision, hosted-course AV): chunk size of the encrypted
+     * CHUNKED episode store — 4 MiB, each chunk an INDEPENDENT AndroidX
+     * EncryptedFile object, so no complete clear media file ever exists on
+     * disk and casual file-manager discovery of playable episodes stays hard.
+     */
+    const val MAX_AV_CHUNK_BYTES: Long = 4 * 1024 * 1024
+
     /** Network timeout for the synchronous on-open entitlement re-check (keeps the bridge call bounded). */
     const val VERIFY_TIMEOUT_MILLIS: Int = 2_500
 

@@ -633,3 +633,58 @@ describe('offline packages wrapper — Wave 2 interim open code (native-packages
     expect(nativePackageDenyMessage('error:disk')).toBe('حدث خطأ أثناء تجهيز الحزمة دون اتصال.');
   });
 });
+
+// ---------------------------------------------------------------------
+// Wave 5b-i — the honest interim code for openOfflineCourseEpisode until
+// Wave 5b-ii ships chunked playback: 'error:playback_pending' must map to
+// its dedicated Arabic message while generic error:* codes keep theirs.
+// ---------------------------------------------------------------------
+describe('offline courses wrapper — Wave 5b-i interim open code (native-courses.ts)', () => {
+  it('maps error:playback_pending to the dedicated upcoming-update message', async () => {
+    const { nativeCourseDenyMessage } = await import('@/utils/native-courses');
+    expect(nativeCourseDenyMessage('error:playback_pending')).toBe(
+      'تشغيل حلقات الكورس دون اتصال يتوفر في تحديثٍ قادم للتطبيق.',
+    );
+    // The generic error family is untouched by the specific case.
+    expect(nativeCourseDenyMessage('error:network')).toBe('حدث خطأ أثناء تجهيز الحلقة دون اتصال.');
+  });
+});
+
+// ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// W5b-ii — opening a course episode surfaces bridge denials honestly
+// ---------------------------------------------------------------------
+describe('OfflinePanel course open (W5b-ii)', () => {
+  it('shows the Arabic deny toast when the bridge answers a denial code', async () => {
+    installFullBridge({
+      openOfflineCourseEpisode: () => 'denied_stale',
+      listOfflineCourseEpisodes: () =>
+        JSON.stringify([{ episodeId: EPISODE_ID, title: 'حلقة التشريح', type: 'video', bytes: 1024 }]),
+    });
+    renderPanel();
+    fireEvent.click(screen.getByTestId('offline-panel-tab-courses'));
+    await screen.findByTestId(`offline-course-episode-${EPISODE_ID}`);
+    fireEvent.click(screen.getByTestId(`offline-course-open-${EPISODE_ID}`));
+    expect(toastErrorMock).toHaveBeenCalledWith('انتهت صلاحية النسخة المحفوظة من هذه الحلقة.');
+  });
+
+  it('open stays silent for the success-shaped opening code', async () => {
+    const openSpy = vi.fn(() => 'opening');
+    installFullBridge({
+      openOfflineCourseEpisode: openSpy,
+      listOfflineCourseEpisodes: () =>
+        JSON.stringify([{ episodeId: EPISODE_ID, title: 'حلقة التشريح', type: 'video', bytes: 1024 }]),
+    });
+    renderPanel();
+    fireEvent.click(screen.getByTestId('offline-panel-tab-courses'));
+    await screen.findByTestId(`offline-course-episode-${EPISODE_ID}`);
+    fireEvent.click(screen.getByTestId(`offline-course-open-${EPISODE_ID}`));
+    expect(openSpy).toHaveBeenCalledWith(EPISODE_ID);
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('the deny map keeps opening success-shaped (no message)', async () => {
+    const { nativeCourseDenyMessage } = await import('@/utils/native-courses');
+    expect(nativeCourseDenyMessage('opening')).toBeNull();
+  });
+});

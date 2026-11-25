@@ -48,6 +48,10 @@ export type OfflineDownloadCtaProps =
       testId: string;
       episodeId: string;
       courseId?: string;
+      /** Subject scope of the course — REQUIRED by the native entitlement
+       *  issuance for course episodes (CourseDetail.subjectId); the page
+       *  threads it from the course it already loads. */
+      subjectId?: string;
       title?: string;
       assetType?: string;
       label?: string;
@@ -91,6 +95,7 @@ export function OfflineDownloadCta(props: OfflineDownloadCtaProps) {
     const code = nativeEnsureCourseEpisodeLocal({
       episodeId: props.episodeId,
       courseId: props.courseId,
+      subjectId: props.subjectId,
       title: props.title,
       assetType: props.assetType,
     });

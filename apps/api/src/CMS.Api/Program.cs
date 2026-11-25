@@ -190,6 +190,12 @@ try
         options.AddPolicy("static", context => FixedWindow(context, 600, TimeSpan.FromMinutes(1)));
         options.AddPolicy("admin", context => FixedWindow(context, 15, TimeSpan.FromMinutes(1)));
         options.AddPolicy("offline-package", context => FixedWindow(context, 5, TimeSpan.FromMinutes(15)));
+        // WAVE-5 (offline media content): GET /api/v1/media/{assetType}/{assetId}/content
+        // streams whole objects for the Android offline cache — 60 downloads / 5 minutes
+        // per installation (same RateLimitKey partition as every other policy) is one
+        // full course's episode set with retry headroom, without letting a runaway loop
+        // hammer storage bandwidth.
+        options.AddPolicy("media-offline", context => FixedWindow(context, 60, TimeSpan.FromMinutes(5)));
         options.AddPolicy("favorites", context => FixedWindow(context, 30, TimeSpan.FromMinutes(1)));
         options.AddPolicy("security-events", context => FixedWindow(context, 6, TimeSpan.FromMinutes(1)));
     });

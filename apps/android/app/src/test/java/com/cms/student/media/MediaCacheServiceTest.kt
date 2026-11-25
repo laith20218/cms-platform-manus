@@ -405,13 +405,18 @@ class MediaCacheServiceTest {
 
         override fun currentEntitlementExpiresAt(): Instant? = entitlementExpiresAt
 
-        override fun isAuthorized(contentId: String): AuthorizationResult = authorize
+        // Wave 5b-i: the source-aware overload is the single implementation point
+        // (the legacy library signatures are interface defaults delegating here).
+        override fun isAuthorized(source: ContentSource, contentId: String, subjectId: UUID?): AuthorizationResult = authorize
 
         override fun download(
+            source: ContentSource,
             contentId: String,
+            subjectId: UUID?,
             sink: () -> OutputStream,
             onProgress: (percent: Int) -> Unit,
-            isCanceled: () -> Boolean
+            isCanceled: () -> Boolean,
+            onContentType: (String) -> Unit
         ): Long {
             downloadCalls.incrementAndGet()
             if (always401 || respondWith401Once) {

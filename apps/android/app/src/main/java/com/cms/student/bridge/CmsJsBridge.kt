@@ -7,10 +7,11 @@ import com.cms.student.session.TokenSeal
 import com.cms.student.shell.ShellUrlPolicy
 
 /**
- * Batch 3 + Batch 4 + W2 (UX 3C) + Phase P (containment) — the single, audited
- * `@JavascriptInterface` bridge between student-web (running inside the
- * hardened shell WebView) and Kotlin. [WebViewHost] injects it under
- * [JS_NAME] ("CmsNative") only AFTER every hardening setting is applied.
+ * Batch 3 + Batch 4 + W2 (UX 3C) + Phase P (containment) + Wave 5b-i (hosted
+ * course episodes) — the single, audited `@JavascriptInterface` bridge between
+ * student-web (running inside the hardened shell WebView) and Kotlin.
+ * [WebViewHost] injects it under [JS_NAME] ("CmsNative") only AFTER every
+ * hardening setting is applied.
  *
  * Exact JS surface — nothing else is reachable from JavaScript:
  *
@@ -34,6 +35,11 @@ import com.cms.student.shell.ShellUrlPolicy
  * window.CmsNative.removeOfflinePackage(packageId)      // W2: delete one stored package
  * window.CmsNative.openOfflineExam(packageId)           // W3: launch the hardened offline exam webview
  * window.CmsNative.notifyWebSessionEnded()              // Phase P: the page reports its session ended -> "wiped"|"kept_native_session"
+ * window.CmsNative.listOfflineCourseEpisodes()          // W5b-i: JSON array of safe episode rows (no paths/tokens/bytes)
+ * window.CmsNative.ensureCourseEpisodeLocal(episodeJson) // W5b-i: start a chunked hosted-episode download
+ * window.CmsNative.courseEpisodeStatus(episodeId)        // W5b-i: absent|queued|downloading|ready|denied_auth|error:*
+ * window.CmsNative.removeOfflineCourseEpisode(episodeId) // W5b-i: delete one downloaded episode (chunks + meta)
+ * window.CmsNative.openOfflineCourseEpisode(episodeId)   // W5b-i: "error:playback_pending" until Wave 5b-ii
  * ```
  *
  * Origin guard (mandatory): every method body resolves the WebView's current URL via
@@ -81,6 +87,21 @@ import com.cms.student.shell.ShellUrlPolicy
  * non-allowlisted origin cannot even trigger that: the origin guard answers
  * `denied_origin` without touching the seam.
  *
+ * Wave 5b-i (hosted course episodes, methods #20–#24): the readable surface
+ * grows EPISODE METADATA ONLY (episodeId, courseId, title, type, byte counts,
+ * timestamps) — never content bytes, filesystem paths, chunk layouts, or
+ * tokens. The action surface can fill the encrypted chunk store with episodes
+ * the student is ALREADY entitled to: every download is entitlement-gated
+ * server-side (the native session + the subject-scoped signed entitlement are
+ * re-validated on every `GET media/course-episode/{id}/content`), and the
+ * subject of the entitlement comes from the page's own course data — a
+ * hostile page cannot reach another student's content, cannot exfiltrate
+ * anything (the answers are status strings, not data), and cannot choose an
+ * arbitrary URL (the native side derives the frozen API route from the
+ * UUID-validated episode id). Deletion is self-inflicted nuisance, same as
+ * the packages surface. `openOfflineCourseEpisode` answers the honest interim
+ * `error:playback_pending` — no viewer launches this wave.
+ *
  * Forbidden and absent: token accessors (getAccessToken/getRefreshToken), password
  * APIs, raw filesystem paths, arbitrary URL fetch (the native side derives the
  * allowlisted API content URL itself from the UUID — a JS-supplied URL is never
@@ -93,6 +114,7 @@ class CmsJsBridge(
     private val appVersion: () -> String,
     private val cacheApi: CmsNativeCacheApi,
     private val packageApi: OfflinePackageBridgeSurface,
+    private val courseApi: OfflineCourseBridgeSurface,
     private val tokenSeal: TokenSeal,
     private val webSessionEnd: WebSessionEndApi
 ) {
@@ -223,7 +245,7 @@ class CmsJsBridge(
     @JavascriptInterface
     fun offlinePackageStatus(packageId: String?): String =
         if (isOriginAllowed()) {
-            if (!isPackageIdArgument(packageId)) OfflinePackageBridgeService.INVALID_ARGS
+            if (!isUuidArgument(packageId)) OfflinePackageBridgeService.INVALID_ARGS
             else guarded({ packageApi.offlinePackageStatus(packageId!!.trim()) }, OfflinePackageBridgeService.ABSENT)
         } else OfflinePackageBridgeService.ABSENT
 
@@ -231,7 +253,7 @@ class CmsJsBridge(
     @JavascriptInterface
     fun removeOfflinePackage(packageId: String?): String =
         if (isOriginAllowed()) {
-            if (!isPackageIdArgument(packageId)) OfflinePackageBridgeService.INVALID_ARGS
+            if (!isUuidArgument(packageId)) OfflinePackageBridgeService.INVALID_ARGS
             else guarded({ packageApi.removeOfflinePackage(packageId!!.trim()) }, OfflinePackageBridgeService.ABSENT)
         } else OfflinePackageBridgeService.ABSENT
 
@@ -239,7 +261,7 @@ class CmsJsBridge(
     @JavascriptInterface
     fun openOfflineExam(packageId: String?): String =
         if (isOriginAllowed()) {
-            if (!isPackageIdArgument(packageId)) OfflinePackageBridgeService.INVALID_ARGS
+            if (!isUuidArgument(packageId)) OfflinePackageBridgeService.INVALID_ARGS
             else guarded({ packageApi.openOfflineExam(packageId!!.trim()) }, OfflinePackageBridgeService.ERROR)
         } else CacheStatus.DENIED_ORIGIN
 
@@ -259,15 +281,63 @@ class CmsJsBridge(
         if (isOriginAllowed()) guarded({ webSessionEnd.onWebSessionEnded() }, OfflinePackageBridgeService.ERROR)
         else CacheStatus.DENIED_ORIGIN
 
+    // ===== Wave 5b-i — hosted course-episode chunked AV surface =====
+
+    /** Safe episode rows only: episodeId/courseId?/title?/type/bytes/downloadedAt/lastAccessAt. */
+    @JavascriptInterface
+    fun listOfflineCourseEpisodes(): String =
+        if (isOriginAllowed()) guarded({ courseApi.listOfflineCourseEpisodes() }, OfflineCourseBridgeService.EMPTY_LIST_JSON)
+        else OfflineCourseBridgeService.EMPTY_LIST_JSON
+
     /**
-     * Package ids are ALWAYS canonical hyphenated UUIDs — anything else (blank,
-     * oversized, path-shaped) is rejected at the bridge, before the service.
-     * Defense-in-depth on top of the service-level [OfflinePackageBridgeService]
-     * pattern check.
+     * Starts (or answers) one hosted-episode chunked download from the serialized
+     * web request ({episodeId, courseId?, subjectId?, title?, assetType?}). The
+     * answer is a status code, never episode bytes or token material.
      */
-    private fun isPackageIdArgument(raw: String?): Boolean {
+    @JavascriptInterface
+    fun ensureCourseEpisodeLocal(episodeJson: String?): String =
+        if (isOriginAllowed()) {
+            if (episodeJson.isNullOrBlank() || episodeJson.length > MAX_EPISODE_REQUEST_JSON_CHARS) OfflineCourseBridgeService.INVALID_ARGS
+            else guarded({ courseApi.ensureCourseEpisodeLocal(episodeJson) }, OfflineCourseBridgeService.ERROR)
+        } else CacheStatus.DENIED_ORIGIN
+
+    /** `absent | queued | downloading | ready | denied_stale | denied_auth | error:<code>`. */
+    @JavascriptInterface
+    fun courseEpisodeStatus(episodeId: String?): String =
+        if (isOriginAllowed()) {
+            if (!isUuidArgument(episodeId)) OfflineCourseBridgeService.INVALID_ARGS
+            else guarded({ courseApi.courseEpisodeStatus(episodeId!!.trim()) }, OfflineCourseBridgeService.ABSENT)
+        } else OfflineCourseBridgeService.ABSENT
+
+    /** Deletes one downloaded episode (encrypted chunks + encrypted meta). */
+    @JavascriptInterface
+    fun removeOfflineCourseEpisode(episodeId: String?): String =
+        if (isOriginAllowed()) {
+            if (!isUuidArgument(episodeId)) OfflineCourseBridgeService.INVALID_ARGS
+            else guarded({ courseApi.removeOfflineCourseEpisode(episodeId!!.trim()) }, OfflineCourseBridgeService.ABSENT)
+        } else OfflineCourseBridgeService.ABSENT
+
+    /**
+     * Opens one downloaded episode — the honest interim Wave 5b-i answer is
+     * `error:playback_pending` (chunked playback lands in Wave 5b-ii).
+     */
+    @JavascriptInterface
+    fun openOfflineCourseEpisode(episodeId: String?): String =
+        if (isOriginAllowed()) {
+            if (!isUuidArgument(episodeId)) OfflineCourseBridgeService.INVALID_ARGS
+            else guarded({ courseApi.openOfflineCourseEpisode(episodeId!!.trim()) }, OfflineCourseBridgeService.ERROR)
+        } else CacheStatus.DENIED_ORIGIN
+
+    /**
+     * Ids are ALWAYS canonical hyphenated UUIDs — anything else (blank,
+     * oversized, path-shaped) is rejected at the bridge, before the service.
+     * Generalized from the W2 package-id validator (the shapes are the same
+     * canonical UUID regex): package ids AND episode ids route through here.
+     * Defense-in-depth on top of the service-level pattern checks.
+     */
+    private fun isUuidArgument(raw: String?): Boolean {
         val trimmed = raw?.trim() ?: return false
-        return trimmed.length <= CachePolicy.MAX_INPUT_LENGTH && OfflinePackageBridgeService.PACKAGE_ID_PATTERN.matches(trimmed)
+        return trimmed.length <= CachePolicy.MAX_INPUT_LENGTH && CachePolicy.CONTENT_ID_PATTERN.matches(trimmed)
     }
 
     /** The bridge never propagates an exception to JS — every call degrades to [fallback]. */
@@ -287,6 +357,12 @@ class CmsJsBridge(
          * page cannot push unbounded JSON onto the JavaBridge thread.
          */
         const val MAX_PACKAGE_REQUEST_JSON_CHARS = 8 * 1024
+
+        /**
+         * Wave 5b-i — request payload bound for `ensureCourseEpisodeLocal`
+         * (episode/course/subject UUIDs + title; the service enforces the same cap).
+         */
+        const val MAX_EPISODE_REQUEST_JSON_CHARS = 8 * 1024
 
         /**
          * Seal input bounds. A token pair JSON is a few KiB (two JWTs); 16 KiB of

@@ -35,6 +35,20 @@ public record HlsObjectDto(
     string CacheControl
 );
 
+/// <summary>
+/// WAVE-5 (offline media content) — one full media object streamed through the API for
+/// the offline cache. <see cref="Content"/> is the object stream from storage (the API
+/// layer owns disposal via the FileStreamResult); <see cref="ContentType"/> comes from
+/// the entity (CourseEpisode.ContentType / LibraryFile.FileFormat) with the video/audio
+/// fallbacks; <see cref="CacheControl"/> is the short private browser cache. Whole-object
+/// semantics: NO Range support — deliberate parity with the library /content route.
+/// </summary>
+public record MediaContentDto(
+    Stream Content,
+    string ContentType,
+    string CacheControl
+);
+
 /// <summary>A labeled time-range bookmark on a media asset, ordered by StartSeconds.</summary>
 public record MediaBookmarkDto(
     Guid Id,

@@ -21,6 +21,12 @@
             android:name=".OfflineExamWebActivity"
             android:exported="false"
             android:noHistory="true" />
+        <!-- W5b-ii (Phase Q): chunked offline course-episode player — FLAG_SECURE,
+             loopback-only reassembly channel, in-app only, never in recents. -->
+        <activity
+            android:name=".OfflineCoursePlayerActivity"
+            android:exported="false"
+            android:noHistory="true" />
         <!-- Batch 1: the phone/password offline entry is no longer the LAUNCHER.
              It stays reachable only via explicit intent from inside the app or
              adb (am start -n com.cms.student/.MainActivity). -->
