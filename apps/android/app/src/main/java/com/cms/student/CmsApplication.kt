@@ -15,6 +15,7 @@ import com.cms.student.media.MediaFileStore
 import com.cms.student.media.NativeMediaOpener
 import com.cms.student.bridge.AuthenticatedOfflineRuntimeFacade
 import com.cms.student.bridge.OfflinePackageBridgeService
+import com.cms.student.bridge.WebSessionEndApi
 import com.cms.student.security.AndroidKeystorePackageKeyProvider
 import com.cms.student.security.AndroidOfflineBuildConfiguration
 import com.cms.student.security.AuthenticatedOfflinePackageStatusApi
@@ -118,6 +119,7 @@ class CmsApplication : Application() {
         activeSession = null
         sessionVerifiedThisProcess = false
         sessionManager.onLoggedOut()
+        wipeOfflineStoresForNativeSessionDeath()
     }
 
     /** A 401 from any offline/API client means the stored tokens are dead; wipe them too. */
@@ -125,6 +127,21 @@ class CmsApplication : Application() {
         activeSession = null
         sessionVerifiedThisProcess = false
         sessionManager.onAuthRejected()
+        wipeOfflineStoresForNativeSessionDeath()
+    }
+
+    /**
+     * Phase P (containment): a NATIVE session death is a full offline wipe —
+     * sessionManager (above) already wiped the media cache through its
+     * onTokensCleared hook; here the question-package envelopes go too
+     * ([EncryptedOfflinePackageStore.wipeAll]) along with the W2/W3 bridge
+     * runtime state (download states, package-id map, the last web-student
+     * binding). Nothing offline outlives a dead native session.
+     */
+    private fun wipeOfflineStoresForNativeSessionDeath() {
+        offlinePackageBridgeService.reset()
+        runCatching { offlinePackageStore.wipeAll() }
+        lastWebStudentId = null
     }
 
     // =====================================================================
@@ -342,12 +359,24 @@ class CmsApplication : Application() {
                         startActivity(OfflineExamWebActivity.intent(this, UUID.fromString(packageId)))
                     }
                 }
-            }
+            },
+            // Phase P (containment): a web-session end with NO surviving native
+            // session is a full wipe — this seam lets the bridge service order the
+            // media cache wipe in the same instant (the cache is installation-scoped,
+            // so it is wiped from the application graph, not from inside the service).
+            onFullWipe = { mediaCacheService.wipe() }
         )
     }
 
     /** The bridge-facing offline packages surface (window.CmsNative W2 methods). */
     fun offlinePackageBridge(): OfflinePackageBridgeService = offlinePackageBridgeService
+
+    /**
+     * Phase P (containment) — the WebSessionEndApi the shell bridge delegates
+     * `notifyWebSessionEnded()` to: the full wipe policy for a dead WEB session
+     * (see [OfflinePackageBridgeService.onWebSessionEnded]).
+     */
+    fun webSessionEndApi(): WebSessionEndApi = WebSessionEndApi { offlinePackageBridgeService.onWebSessionEnded() }
 }
 
 /** Session-bound facade used by Activities and ViewModels; raw JWT is never exposed after binding. */

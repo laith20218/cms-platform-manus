@@ -160,6 +160,15 @@ class OfflineRuntimeCoordinatorTest {
             records[packageId] = current.copy(lastConfirmedStatus = status, lastConfirmedAt = confirmedAt)
         }
         override fun invalidate(packageId: UUID, userId: UUID, installationId: String) { records.remove(packageId) }
+
+        /** Phase P: records the wipe for assertions; the fake never throws. */
+        override fun wipeAll() {
+            wipeAllCalls++
+            records.clear()
+        }
+
+        var wipeAllCalls = 0
+            private set
     }
 
     private fun envelope(validitySeconds: Long = 600) = OfflinePackageEnvelope(

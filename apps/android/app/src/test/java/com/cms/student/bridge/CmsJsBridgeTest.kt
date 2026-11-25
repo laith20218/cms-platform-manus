@@ -13,10 +13,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Batch 3 + Batch 4 + W2 (UX 3C) JVM tests for [CmsJsBridge] — pure logic, no
- * Robolectric (the project does not use it). The current-URL provider is a fake
- * lambda standing in for `webView.url`, exactly like the wiring in ShellActivity;
- * the cache + packages APIs are fakes recording calls.
+ * Batch 3 + Batch 4 + W2 (UX 3C) + Phase P JVM tests for [CmsJsBridge] — pure
+ * logic, no Robolectric (the project does not use it). The current-URL provider
+ * is a fake lambda standing in for `webView.url`, exactly like the wiring in
+ * ShellActivity; the cache + packages + web-session-end APIs are fakes recording calls.
  */
 class CmsJsBridgeTest {
 
@@ -99,10 +99,18 @@ class CmsJsBridgeTest {
         }
     }
 
+    /** Phase P fake — counts calls, answers a canned wipe code. */
+    private var webSessionEndCalls = 0
+    private val fakeWebSessionEnd = WebSessionEndApi {
+        webSessionEndCalls++
+        OfflinePackageBridgeService.WIPED
+    }
+
     private fun bridge(
         cacheApi: CmsNativeCacheApi = fakeCacheApi,
         packageApi: OfflinePackageBridgeSurface = fakePackageApi,
         tokenSeal: TokenSeal = fakeSeal,
+        webSessionEnd: WebSessionEndApi = fakeWebSessionEnd,
         currentUrl: () -> String?
     ): CmsJsBridge =
         CmsJsBridge(
@@ -112,7 +120,8 @@ class CmsJsBridgeTest {
             appVersion = { appVersion },
             cacheApi = cacheApi,
             packageApi = packageApi,
-            tokenSeal = tokenSeal
+            tokenSeal = tokenSeal,
+            webSessionEnd = webSessionEnd
         )
 
     @Test
@@ -171,10 +180,13 @@ class CmsJsBridgeTest {
             assertEquals("offlinePackageStatus must be absent for '$url'", OfflinePackageBridgeService.ABSENT, bridge.offlinePackageStatus(packageId))
             assertEquals("removeOfflinePackage must be absent for '$url'", OfflinePackageBridgeService.ABSENT, bridge.removeOfflinePackage(packageId))
             assertEquals("openOfflineExam must be denied for '$url'", CacheStatus.DENIED_ORIGIN, bridge.openOfflineExam(packageId))
+            // Phase P: a foreign page must NEVER trigger the web-session-end wipe.
+            assertEquals("notifyWebSessionEnded must be denied for '$url'", CacheStatus.DENIED_ORIGIN, bridge.notifyWebSessionEnded())
         }
         assertTrue(cacheCalls.isEmpty())
         assertTrue(sealCalls.isEmpty())
         assertTrue(packageCalls.isEmpty())
+        assertEquals(0, webSessionEndCalls)
     }
 
     @Test
@@ -187,7 +199,8 @@ class CmsJsBridgeTest {
             appVersion = { appVersion },
             cacheApi = fakeCacheApi,
             packageApi = fakePackageApi,
-            tokenSeal = fakeSeal
+            tokenSeal = fakeSeal,
+            webSessionEnd = fakeWebSessionEnd
         )
         assertFalse(bridge.hasNativeShell())
         assertEquals("", bridge.getPlatform())
@@ -199,11 +212,13 @@ class CmsJsBridgeTest {
         assertEquals("", bridge.unsealForLocalPersistence("v1:token-blob"))
         assertEquals(OfflinePackageBridgeService.EMPTY_LIST_JSON, bridge.listOfflinePackages())
         assertEquals(CacheStatus.DENIED_ORIGIN, bridge.downloadOfflinePackage("""{"subjectId":"$packageId"}"""))
+        assertEquals(CacheStatus.DENIED_ORIGIN, bridge.notifyWebSessionEnded())
         assertTrue(packageCalls.isEmpty())
+        assertEquals(0, webSessionEndCalls)
     }
 
     @Test
-    fun `the js surface is exactly the eighteen approved methods`() {
+    fun `the js surface is exactly the nineteen approved methods`() {
         val jsMethodNames = CmsJsBridge::class.java.methods
             .filter { it.isAnnotationPresent(JavascriptInterface::class.java) }
             .map { it.name }
@@ -215,13 +230,14 @@ class CmsJsBridgeTest {
                 "cancelDownload", "removeCached", "clearCache",
                 "sealForLocalPersistence", "unsealForLocalPersistence",
                 "listOfflinePackages", "downloadOfflinePackage", "offlinePackageStatus",
-                "removeOfflinePackage", "openOfflineExam"
+                "removeOfflinePackage", "openOfflineExam", "notifyWebSessionEnded"
             ),
             jsMethodNames
         )
-        // D1 / D-JS-AUTH / W2: no method may expose tokens, passwords, or native session
-        // material — the seal pair handles page-owned blobs and the packages surface
-        // only ever ACCEPTS a web token, never returns one.
+        // D1 / D-JS-AUTH / W2 / Phase P: no method may expose tokens, passwords, or
+        // native session material — the seal pair handles page-owned blobs, the
+        // packages surface only ever ACCEPTS a web token (never returns one), and
+        // the Phase P wipe notification carries no arguments and no data back.
         val forbidden = listOf(
             "getAccessToken", "getRefreshToken", "getToken", "getTokens",
             "getPassword", "getNativeSession", "setAccessToken", "setRefreshToken"
@@ -278,7 +294,8 @@ class CmsJsBridgeTest {
             appVersion = { appVersion },
             cacheApi = throwingCache,
             packageApi = fakePackageApi,
-            tokenSeal = throwingSeal
+            tokenSeal = throwingSeal,
+            webSessionEnd = fakeWebSessionEnd
         )
         assertEquals(CacheStatus.EMPTY_LIST_JSON, bridge.listCached())
         assertEquals(CacheStatus.ERROR, bridge.ensureLocal("11111111-2222-4333-8444-555555555555", "pdf", null))
@@ -378,5 +395,22 @@ class CmsJsBridgeTest {
         assertEquals(OfflinePackageBridgeService.ABSENT, bridge.offlinePackageStatus(packageId))
         assertEquals(OfflinePackageBridgeService.ABSENT, bridge.removeOfflinePackage(packageId))
         assertEquals(OfflinePackageBridgeService.ERROR, bridge.openOfflineExam(packageId))
+    }
+
+    // ------------------------------------------------------------------
+    // Phase P (containment) — the web-session-end wipe notification.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `notifyWebSessionEnded delegates to the seam and returns its code on the allowlisted origin`() {
+        val bridge = bridge { "https://app.cms.example.com/library" }
+        assertEquals(OfflinePackageBridgeService.WIPED, bridge.notifyWebSessionEnded())
+        assertEquals(1, webSessionEndCalls)
+    }
+
+    @Test
+    fun `a throwing web session end seam degrades to the error code instead of surfacing to js`() {
+        val bridge = bridge(webSessionEnd = WebSessionEndApi { error("boom") }) { "https://app.cms.example.com/" }
+        assertEquals(OfflinePackageBridgeService.ERROR, bridge.notifyWebSessionEnded())
     }
 }

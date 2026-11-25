@@ -35,9 +35,17 @@
  *    persisted or logged.
  *  - clearSession() always wipes BOTH stores + the flag, so logout and forced
  *    session-expiry paths can never leave a stale copy behind — sealed or raw.
+ *  - Phase P (containment): clearSession() additionally notifies the Android
+ *    shell (best-effort) so its offline stores wipe with the web session; see
+ *    the note on the function itself for the honest version-skew gap.
  */
 
-import { isSealedValue, sealForLocalPersistence, unsealForLocalPersistence } from '@/utils/native-bridge';
+import {
+  isSealedValue,
+  nativeNotifyWebSessionEnded,
+  sealForLocalPersistence,
+  unsealForLocalPersistence,
+} from '@/utils/native-bridge';
 
 export const ACCESS_TOKEN_KEY = 'cms-access-token';
 export const REFRESH_TOKEN_KEY = 'cms-refresh-token';
@@ -177,6 +185,25 @@ export function clearSession(): void {
     localStorage.removeItem(REMEMBERED_USER_KEY);
   } catch {
     /* best-effort */
+  }
+  // Phase P (containment) wipe hook — logout AND the 401 verdict both end up
+  // here, so this is the single place the native offline stores learn the web
+  // session died (question packages + bridge runtime state; media cache when
+  // no native session survives). Best-effort, fires exactly ONCE per
+  // clearSession call, and NEVER throws: older shells without the method are
+  // an honest no-op (version-skew gap), and a plain browser has no bridge at
+  // all. No data crosses web→native — the only direction is native data
+  // destruction. Static import: native-bridge is a leaf util (imports nothing
+  // from services), so there is no import cycle.
+  notifyNativeSideOfSessionEnd();
+}
+
+/** Phase P: the wrapped, once-per-clearSession native wipe notification. */
+function notifyNativeSideOfSessionEnd(): void {
+  try {
+    nativeNotifyWebSessionEnded();
+  } catch {
+    /* never let the wipe hook break logout */
   }
 }
 

@@ -144,6 +144,16 @@ interface IOfflinePackageStore {
     fun markAnswersSynced(packageId: UUID, localAttemptIds: Collection<UUID>, userId: UUID, installationId: String)
     fun updateConfirmedStatus(packageId: UUID, status: RevocationStatus, confirmedAt: Instant?, userId: UUID, installationId: String)
     fun invalidate(packageId: UUID, userId: UUID, installationId: String)
+
+    /**
+     * Phase P (containment) — deletes EVERY persisted record in the store
+     * directory (all users, all packages: every `.bin` envelope plus any `.tmp`
+     * write leftovers), unconditionally — a session death is not
+     * binding-filterable. Never throws: a wipe is fail-closed, and any file
+     * that cannot be deleted is simply gone from the next read's perspective
+     * (the record was already rejected as unbound/orphaned by then).
+     */
+    fun wipeAll()
 }
 
 data class OfflinePackageRequest(val subjectId: UUID, val examId: UUID? = null, val idempotencyKey: String)

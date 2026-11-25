@@ -44,6 +44,10 @@ class OfflineExamSessionRunnerTest {
     private class FakeStore(initial: List<StoredOfflinePackage> = emptyList()) : com.cms.student.security.IOfflinePackageStore {
         private val records = initial.associateBy { it.envelope.manifest.packageId }.toMutableMap()
         var loadCalls = 0
+        var wipeAllCalls = 0
+            private set
+
+        val size: Int get() = records.size
 
         private fun binding(record: StoredOfflinePackage, userId: UUID, installationId: String) =
             record.envelope.manifest.userId == userId && record.envelope.manifest.installationId == installationId
@@ -71,6 +75,13 @@ class OfflineExamSessionRunnerTest {
         override fun updateConfirmedStatus(packageId: UUID, status: RevocationStatus, confirmedAt: Instant?, userId: UUID, installationId: String) = Unit
 
         override fun invalidate(packageId: UUID, userId: UUID, installationId: String) = Unit
+
+        /** Phase P (containment): counted wipe — the runner never calls it, the
+         *  count stays 0 and proves no hidden full-wipe path exists. */
+        override fun wipeAll() {
+            wipeAllCalls++
+            records.clear()
+        }
     }
 
     /** One recorded capture facade call (package, question, option, duration). */
@@ -358,5 +369,6 @@ class OfflineExamSessionRunnerTest {
         override fun markAnswersSynced(packageId: UUID, localAttemptIds: Collection<UUID>, userId: UUID, installationId: String) = Unit
         override fun updateConfirmedStatus(packageId: UUID, status: RevocationStatus, confirmedAt: Instant?, userId: UUID, installationId: String) = Unit
         override fun invalidate(packageId: UUID, userId: UUID, installationId: String) = Unit
+        override fun wipeAll() = Unit
     }
 }
