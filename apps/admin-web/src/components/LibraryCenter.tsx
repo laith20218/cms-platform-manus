@@ -51,9 +51,9 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, Archive, CheckCircle2, FileText, FileImage, FileVideo,
   FileAudio, FileCode, HelpCircle, Images, Library, LoaderCircle, MonitorPlay, Plus,
-  RefreshCw, Search, ShieldCheck, Trash2, Upload, X, Film,
+  Pencil, RefreshCw, Search, ShieldCheck, Trash2, Upload, X, Film,
 } from 'lucide-react';
-import { ConfirmDialog, Pagination } from '@cms/ui';
+import { ConfirmDialog, Dialog, Pagination } from '@cms/ui';
 import { apiRequest, type PagedResult, type AdminLibraryFileListItem, type UploadUrlResponse } from '../lib/api';
 import { isPdfProcessingActive, pdfHealthBadge, pdfTimelineSteps } from '../lib/mediaProcessing';
 import { ProcessingErrorModal } from './ProcessingErrorModal';
@@ -330,6 +330,14 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState<AdminLibraryFileListItem | null>(null);
+  // W-coverage (row 21): metadata edit (PUT /library/{id} — existed with no UI).
+  const [editTarget, setEditTarget] = useState<AdminLibraryFileListItem | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editTags, setEditTags] = useState('');
+  const [editLectureId, setEditLectureId] = useState('');
+  const [editDifficulty, setEditDifficulty] = useState('');
+  const [editTargetQuality, setEditTargetQuality] = useState('');
   // W2 (admin-ui): publish/archive were single-click, NO confirmation (debt
   // D-07/D-08) — one click made content student-visible/hidden. Now gated by
   // an explicit ConfirmDialog with consequence text.
@@ -708,6 +716,45 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       await loadFiles(page);
     } catch (error) {
       onError(error instanceof Error ? error.message : 'فشلت أرشفة الملف.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // W-coverage (row 21): metadata update — difficulty/targetQuality are PATCH-optional
+  // (empty selection = leave the stored value untouched per the DTO contract).
+  const openEdit = (file: AdminLibraryFileListItem) => {
+    setEditTarget(file);
+    setEditTitle(file.title);
+    setEditDescription('');
+    setEditTags('');
+    setEditLectureId(file.lectureId ?? '');
+    setEditDifficulty('');
+    setEditTargetQuality('');
+  };
+
+  const handleUpdateMetadata = async (event: { preventDefault: () => void }) => {
+    event.preventDefault();
+    if (!editTarget || !editTitle.trim() || busy) return;
+    setBusy(true);
+    try {
+      await request<unknown>(`/api/v1/library/${editTarget.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          description: editDescription.trim() || null,
+          tags: editTags.split(',').map((tag) => tag.trim()).filter(Boolean),
+          lectureId: editLectureId || null,
+          ...(editDifficulty ? { difficulty: editDifficulty } : {}),
+          ...(editTargetQuality ? { targetQuality: editTargetQuality } : {}),
+        }),
+      });
+      onNotice(`تم تحديث بيانات الملف "${editTitle.trim()}".`);
+      setEditTarget(null);
+      await loadFiles(page);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'فشل تحديث بيانات الملف.');
     } finally {
       setBusy(false);
     }
@@ -1110,6 +1157,19 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                             className="p-1.5 rounded-md text-violet-600 hover:bg-violet-50 transition-colors disabled:opacity-50"
                           >
                             <Images className="w-4 h-4" />
+                          </button>
+                        )}
+                        {can('btn:library.edit') && (
+                          <button
+                            type="button"
+                            onClick={() => openEdit(file)}
+                            disabled={busy}
+                            title={isArabic ? 'تعديل البيانات' : 'Edit metadata'}
+                            aria-label={isArabic ? 'تعديل البيانات' : 'Edit metadata'}
+                            data-testid={`library-edit-${file.id}`}
+                            className="p-1.5 rounded-md text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
+                          >
+                            <Pencil className="w-4 h-4" />
                           </button>
                         )}
                         {file.status === 'Draft' && file.virusScanStatus === 'Clean' && can('btn:library.publish') && (
@@ -1750,6 +1810,153 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         onConfirm={() => { if (confirmDelete) void handleDelete(confirmDelete); }}
         testId="library-delete-confirm"
       />
+
+      {/* ===== W-coverage (row 21): metadata edit modal (PUT /library/{id}) ===== */}
+      {editTarget && (
+        <Dialog
+          open
+          onOpenChange={(next) => { if (!next && !busy) setEditTarget(null); }}
+          title={isArabic ? 'تعديل بيانات الملف' : 'Edit file metadata'}
+          description={editTarget.title}
+          dir={isArabic ? 'rtl' : 'ltr'}
+          size="sm"
+          dismissGuard={busy}
+          testId="library-edit-dialog"
+        >
+          <form onSubmit={(event) => { event.preventDefault(); void handleUpdateMetadata(event); }} className="px-5 py-4 space-y-3.5">
+            <div className="space-y-1.5">
+              <label htmlFor="library-edit-title" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
+                {isArabic ? 'العنوان' : 'Title'} <span aria-hidden="true" style={{ color: 'var(--cms-danger)' }}>*</span>
+              </label>
+              <input
+                id="library-edit-title"
+                value={editTitle}
+                onChange={(event) => setEditTitle(event.target.value)}
+                required
+                maxLength={200}
+                disabled={busy}
+                data-testid="library-edit-title"
+                className="w-full h-10 px-3 rounded-lg border text-sm disabled:opacity-50"
+                style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="library-edit-description" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
+                {isArabic ? 'الوصف' : 'Description'}
+              </label>
+              <textarea
+                id="library-edit-description"
+                value={editDescription}
+                onChange={(event) => setEditDescription(event.target.value)}
+                rows={3}
+                maxLength={1000}
+                disabled={busy}
+                placeholder={isArabic ? 'اتركه فارغًا للمسح' : 'Leave empty to clear'}
+                data-testid="library-edit-description"
+                className="w-full rounded-lg border text-sm p-2.5 disabled:opacity-50"
+                style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="library-edit-tags" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
+                {isArabic ? 'الوسوم (فاصلة بين كل وسم)' : 'Tags (comma-separated)'}
+              </label>
+              <input
+                id="library-edit-tags"
+                value={editTags}
+                onChange={(event) => setEditTags(event.target.value)}
+                disabled={busy}
+                placeholder="مراجعة, نهائي"
+                data-testid="library-edit-tags"
+                className="w-full h-10 px-3 rounded-lg border text-sm disabled:opacity-50"
+                style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="library-edit-lecture" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
+                  {isArabic ? 'المحاضرة' : 'Lecture'}
+                </label>
+                <select
+                  id="library-edit-lecture"
+                  value={editLectureId}
+                  onChange={(event) => setEditLectureId(event.target.value)}
+                  disabled={busy}
+                  data-testid="library-edit-lecture"
+                  className="w-full h-10 px-3 rounded-lg border text-sm disabled:opacity-50"
+                  style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+                >
+                  <option value="">{isArabic ? 'بدون محاضرة' : 'No lecture'}</option>
+                  {lectures.map((l) => <option key={l.id} value={l.id}>{label(isArabic, l)}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="library-edit-difficulty" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
+                  {isArabic ? 'الصعوبة' : 'Difficulty'}
+                </label>
+                <select
+                  id="library-edit-difficulty"
+                  value={editDifficulty}
+                  onChange={(event) => setEditDifficulty(event.target.value)}
+                  disabled={busy}
+                  data-testid="library-edit-difficulty"
+                  className="w-full h-10 px-3 rounded-lg border text-sm disabled:opacity-50"
+                  style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+                >
+                  <option value="">{isArabic ? 'بدون تغيير' : 'Unchanged'}</option>
+                  <option value="Easy">{isArabic ? 'سهل' : 'Easy'}</option>
+                  <option value="Medium">{isArabic ? 'متوسط' : 'Medium'}</option>
+                  <option value="Hard">{isArabic ? 'صعب' : 'Hard'}</option>
+                </select>
+              </div>
+            </div>
+            {editTarget.type === 'Video' && (
+              <div className="space-y-1.5">
+                <label htmlFor="library-edit-quality" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
+                  {isArabic ? 'جودة التحويل المستهدفة' : 'Transcoding target quality'}
+                </label>
+                <select
+                  id="library-edit-quality"
+                  value={editTargetQuality}
+                  onChange={(event) => setEditTargetQuality(event.target.value)}
+                  disabled={busy}
+                  data-testid="library-edit-quality"
+                  className="w-full h-10 px-3 rounded-lg border text-sm disabled:opacity-50"
+                  style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+                >
+                  <option value="">{isArabic ? 'بدون تغيير' : 'Unchanged'}</option>
+                  <option value="Auto">Auto</option>
+                  <option value="P360">360p</option>
+                  <option value="P720">720p</option>
+                  <option value="P1080">1080p</option>
+                </select>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setEditTarget(null)}
+                disabled={busy}
+                data-testid="library-edit-cancel"
+                className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-50"
+                style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+              >
+                {isArabic ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                type="submit"
+                disabled={busy || !editTitle.trim()}
+                data-testid="library-edit-save"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50"
+                style={{ background: 'var(--cms-teal-700)' }}
+              >
+                {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                {isArabic ? 'حفظ' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </Dialog>
+      )}
 
       {/* ===== Wave 11.9 / R22.3 — PDF font-processing failure modal ===== */}
       <ProcessingErrorModal

@@ -13,7 +13,7 @@ The backend exposes **157 admin/operator endpoints across 20 controllers** (13 p
 
 The gaps are of four kinds:
 
-1. At W0, 9 capability groups had NO UI. **W3–W5 wired 4 of them** (subscription revoke, question bulk import, 2FA, report assign); remaining none-rows: **exam student-view preview**, **library file metadata edit**, **sent-notifications list + delivery stats**, dashboard **recent-activity / top-subjects / reports-summary** feeds, **exam unpublish**, **offline package detail** (all P2/P3).
+1. At W0, 9 capability groups had NO UI. **W3–W6 wired 9 of them** (subscription revoke, question bulk import, 2FA, report assign, exam unpublish + student-view preview, library metadata edit, sent-notifications ledger + stats, dashboard feeds). Remaining: **offline package detail** (P3 — deep offline-package internals, tracked in OFFLINE-DEBT-REGISTER).
 2. **Systemic interaction-model debt**: 6 `window.confirm` destructive actions, 6+ copy-pasted custom confirm modals (none with Esc/focus-trap), 5 destructive actions with **no confirmation at all** (library publish/archive, codes bulk revoke, lecture publish, session revoke).
 3. **Arabic-first violations**: 12+ call sites render raw English enum wire values (`Active`, `Critical`, `FullSubject`…); 10+ hardcoded English/Arabic-only strings break the locale toggle.
 4. **List completeness bugs**: 5 centers have no pagination (Questions/Exams/Codes fixed `pageSize=100`, Admins 50); **LibraryCenter fetches `pageSize=25` with no pager — rows 26+ are unreachable**.
@@ -31,7 +31,7 @@ Legend — UI: `full` / `partial` / `none` (capability-equivalent surface counte
 | 1 | Admin login, refresh, `me/permissions`, `me/ui-permissions` (AdminAuth 3/5) | full | page (login) + boot-time fetch | — | Keep; drive sidebar gating (current) |
 | 2 | **Admin 2FA enable / disable** (AdminAuth 2/5) | **full (W4)** | TwoFactorCard on لوحة القيادة — enable → QR + secret + one-time recovery codes; disable requires password per API | done | no status endpoint exists (documented deviation); card never fakes state |
 | 3 | Dashboard stats / revenue / student-growth (AdminDashboard 3/32) | full | charts | — | Keep |
-| 4 | **recent-activity / top-subjects / reports-summary** (AdminDashboard 3/32) | none | — | P2 | Overview feed cards (data exists; Overview already renders) |
+| 4 | **recent-activity / top-subjects / reports-summary** (AdminDashboard 3/32) | **full (W6)** | DashboardFeeds on لوحة القيادة (super-admin): 3 cards, per-card error/empty states | done | — |
 | 5 | Students list/search/filter/pagination, ban/unban/revoke-sessions, profile drawer tabs (AdminDashboard students + AdminStudents) | full | table + drawer + modals | — | Keep; P2 polish for raw enums in drawer tabs |
 | 6 | Manual student create + avatar upload (AdminStudents POST + avatar) | full | modal | — | Keep |
 | 7 | Admins CRUD, reset-password, status, delete w/ super-admin password (AdminDashboard admins 9) | full | modal (DialogLayer) | **P0** (a11y + native confirm) | Migrate DialogLayer onto shared `Dialog`; replace `window.confirm` on status (App.tsx:361) with `ConfirmDialog` |
@@ -45,15 +45,15 @@ Legend — UI: `full` / `partial` / `none` (capability-equivalent surface counte
 | 15 | Reports moderation list + status transitions (AdminReports 2/3) | full | table + modal | — | Keep |
 | 16 | **Report assign** (AdminReports `/assign`) | **full (W5)** | تعيين row action → Dialog + admin Select → PUT + refresh | done | — |
 | 17 | Exams CRUD/publish/archive/question-builder/results/stats/question-stats/candidates (AdminExams 14/15) | full | drawer + inline sections | — | Keep; P2: raw `result.status` enum (ExamsCenter:1866) |
-| 18 | **Exam unpublish** (AdminExams `/unpublish`) + **student-view preview** (`/preview`) | none | — | P2 | Row actions: «إلغاء النشر» + «معاينة كطالب» modal |
+| 18 | **Exam unpublish** (AdminExams `/unpublish`) + **student-view preview** (`/preview`) | **full (W6)** | unpublish = confirm w/ sessions-keep-snapshots text; preview = shared Dialog, ordered questions + options, no correctness flags | done | — |
 | 19 | Exam-course bundles CRUD/publish/archive/exam attach/detach/reorder (AdminExamCourses 10) | full | panel + modals + confirm | — | Keep |
 | 20 | Library upload pipeline (upload-url → PUT → complete-upload), publish/archive/delete (Library admin 6) | full | upload drawer + XHR progress + processing timeline | **P0** | Publish/archive need ConfirmDialog; **pagination missing — pageSize=25 cap makes rows 26+ unreachable** |
-| 21 | **Library file metadata edit** (PUT `/library/{id}`) | none | — | P2 | Edit modal from file row (title/description/tags/lecture/difficulty) |
+| 21 | **Library file metadata edit** (PUT `/library/{id}`) | **full (W6)** | edit modal: title/description/tags/lecture + PATCH-optional difficulty & targetQuality («بدون تغيير» = null) | done | new UI-permission key btn:library.edit (72 keys) |
 | 22 | Courses + episodes CRUD, YouTube episodes, single-PUT uploads, abort flows (AdminCourses 14/15) | full | panels + EpisodeEditModal | **P0** | Replace `window.confirm` on course/episode delete (destroys videos) with danger ConfirmDialog |
 | 23 | Academic tree browse/create/archive/restore + lecture publish (Academic admin 16) | full | 5-column board + inline forms + confirm modal | **P1** | Lecture publish needs confirm; add loading skeletons |
 | 24 | Content pages list/upsert (AdminContentPages 2) | full | inline editor | P3 | EN-mode editor is Arabic-only (ContentCenter:146-173) |
 | 25 | Notification send (targeted audiences) | **full (W5)** | compose modal + full audience cascade | — | D-22 fixed: College/Year/Semester/Subject resolve through cascade selects with visible Arabic validation; compose modal Esc/focus trap remains P2 |
-| 26 | **Sent notifications list + delivery stats** (Notifications 2 admin) | none | — | P2 | Sent feed in notification center w/ stats drill-down |
+| 26 | **Sent notifications list + delivery stats** (Notifications 2 admin) | **full (W6)** | SentNotificationsDialog (super-admin topbar «سجل الإشعارات»): paged ledger + per-row 5-counter stats panel | done | — |
 | 27 | Offline packages list/revoke (AdminOffline 2/3) | full | table + confirm modal | P3 | Package-detail endpoint unused; `--c-*` token drift (see D-31) |
 | 28 | Activity sessions/logs (AdminActivity 2) | full | tabs + pagination | — | Keep |
 | 29 | Analytics 7 tabs (AdminAnalytics 7) | full | charts + date presets + CSV | P2 | Hardcoded English loading/empty strings (ReportsTabs:158,169-170) |
@@ -152,6 +152,11 @@ Deferred (P2/P3, with reason): URL routing for views D-26 (large refactor, no op
 > **Waves 4–5 status (2026-11-25, this update)** — W4 (PR #206, merged `ec1aa1d`) and W5 (PR #207) flipped the
 > P1 rows above. admin-web vitest 120 → **136** (+16: 7 W4 + 9 W5); @cms/ui 39/39; eslint max-warnings=0 and
 > `tsc --noEmit` clean throughout; production build green. No new runtime dependencies; no API changes.
+>
+> **W6 (2026-11-25, coverage completion)** — rows 4/18/21/26 wired (dashboard feeds, exam unpublish + preview, library metadata edit,
+> sent notifications + stats); rows 10/11 flipped (stale — W3 had fixed them). admin-web vitest 136 → **149**; new UI-permission key
+> `btn:library.edit` (registry 71 → **72** keys). Security wave (same session): CodeQL log-forging ×6 closed + 41 dead-code alerts
+> fixed + obj/bin artifacts excluded — see PR #208.
 
 | Gate | Result |
 |---|---|

@@ -39,10 +39,10 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   AlertCircle, AlertTriangle, Archive, ArrowDown, ArrowUp, BarChart3, CheckCircle2,
   ClipboardCheck, Clock, Eye, FileText, Flag, GraduationCap, ListChecks, LoaderCircle,
-  Pencil, Plus, Search, Send, Timer, Trash2, TrendingUp, Users, X, XCircle,
+  Pencil, Plus, Search, Send, Timer, Trash2, TrendingUp, Users, X, XCircle, CloudOff,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
-import { Pagination } from '@cms/ui';
+import { Dialog, Pagination } from '@cms/ui';
 import { questionDifficultyLabel, questionTypeLabel } from '../lib/questionLabels';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
@@ -105,7 +105,25 @@ type ErrorReport = {
 type ReportPage = { items: ErrorReport[]; total: number; page: number; pageSize: number; totalPages: number };
 type Page<T> = { items: T[]; page: number; pageSize: number; totalCount: number };
 type Props = { token: string; isArabic: boolean; onError: (message: string) => void; onNotice: (message: string) => void; /** W14.3 D10: jump to the Question Bank — the D4 URL context already carries the subject. */ onNavigateToQuestions?: () => void };
-type ConfirmDialog = { exam: ExamSummary; action: 'publish' | 'archive' | 'delete' } | null;
+type ConfirmDialog = { exam: ExamSummary; action: 'publish' | 'archive' | 'delete' | 'unpublish' } | null;
+
+// W-coverage (row 18): student-view preview payload (AdminExams GET {id}/preview — no correctness flags).
+type ExamPreview = {
+  id: string;
+  titleAr: string;
+  durationMinutes: number;
+  totalQuestions: number;
+  status: string;
+  questions: Array<{
+    questionId: string;
+    order: number;
+    text: string;
+    type: string;
+    difficulty: string;
+    options: Array<{ id: string; letter: string; text: string; imageUrl?: string | null }>;
+    images: Array<{ imageUrl: string; alt?: string | null; order: number }>;
+  }>;
+};
 
 const blankForm = (subjectId = ''): ExamConfiguration => ({
   subjectId, lectureId: null, titleAr: '', titleEn: null, slug: '', description: null,
@@ -258,6 +276,21 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
   const [resultsLoading, setResultsLoading] = useState(false);
 
   const [confirm, setConfirm] = useState<ConfirmDialog>(null);
+
+  // W-coverage (row 18): student-view preview state.
+  const [preview, setPreview] = useState<{ exam: ExamSummary; data: ExamPreview | null; loading: boolean; error: string | null } | null>(null);
+
+  async function showPreview(exam: ExamSummary) {
+    setPreview({ exam, data: null, loading: true, error: null });
+    try {
+      const data = await request<ExamPreview>(`/api/v1/admin/exams/${exam.id}/preview`);
+      setPreview({ exam, data, loading: false, error: null });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : (isArabic ? 'تعذر تحميل معاينة الاختبار.' : 'Could not load the exam preview.');
+      onError(message);
+      setPreview({ exam, data: null, loading: false, error: message });
+    }
+  }
 
   // ===== W14.3 Phase D (D10): per-exam stats dashboard state =====
   const [statsExam, setStatsExam] = useState<ExamSummary | null>(null);
@@ -473,12 +506,14 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
     } finally { setBusy(false); }
   }
 
-  async function lifecycle(exam: ExamSummary, action: 'publish' | 'archive') {
+  async function lifecycle(exam: ExamSummary, action: 'publish' | 'archive' | 'unpublish') {
     setBusy(true);
     try {
       await request(`/api/v1/admin/exams/${exam.id}/${action}`, { method: 'POST' });
       onNotice(action === 'publish'
         ? (isArabic ? 'تم نشر الاختبار.' : 'Exam published.')
+        : action === 'unpublish'
+        ? (isArabic ? 'تم إلغاء نشر الاختبار وإعادته إلى مسودة.' : 'Exam unpublished and reverted to draft.')
         : (isArabic ? 'تمت أرشفة الاختبار.' : 'Exam archived.'));
       await loadExams();
     } catch (error) {
@@ -1095,6 +1130,18 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                               <Send className="w-4 h-4" />
                             </button>
                           )}
+                          {exam.status === 'Published' && can('btn:exams.publish') && (
+                            <button
+                              type="button"
+                              title={isArabic ? 'إلغاء النشر (إعادة إلى مسودة)' : 'Unpublish (revert to draft)'}
+                              data-testid={`exam-unpublish-${exam.id}`}
+                              onClick={() => setConfirm({ exam, action: 'unpublish' })}
+                              disabled={busy}
+                              className="p-1.5 rounded-md text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-50"
+                            >
+                              <CloudOff className="w-4 h-4" />
+                            </button>
+                          )}
                           {exam.status !== 'Archived' && can('btn:exams.archive') && (
                             <button
                               type="button"
@@ -1106,6 +1153,17 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                               <Archive className="w-4 h-4" />
                             </button>
                           )}
+                          <button
+                            type="button"
+                            title={isArabic ? 'معاينة كطالب' : 'Preview as student'}
+                            data-testid={`exam-preview-${exam.id}`}
+                            onClick={() => void showPreview(exam)}
+                            disabled={busy}
+                            className="p-1.5 rounded-md transition-colors disabled:opacity-50"
+                            style={{ color: 'var(--cms-info)' }}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
                           {can('btn:exams.delete') && (
                             <button
                               type="button"
@@ -1972,10 +2030,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
               <div
                 className="p-2 rounded-lg"
                 style={{
-                  background: confirm.action === 'archive' ? 'var(--cms-warning-50)'
+                  background: confirm.action === 'archive' || confirm.action === 'unpublish' ? 'var(--cms-warning-50)'
                     : confirm.action === 'delete' ? 'var(--cms-danger-50)'
                     : 'var(--cms-teal-50)',
-                  color: confirm.action === 'archive' ? 'var(--cms-warning)'
+                  color: confirm.action === 'archive' || confirm.action === 'unpublish' ? 'var(--cms-warning)'
                     : confirm.action === 'delete' ? 'var(--cms-danger)'
                     : 'var(--cms-teal-700)',
                 }}
@@ -1988,6 +2046,8 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     ? (isArabic ? 'نشر الاختبار' : 'Publish exam')
                     : confirm.action === 'archive'
                     ? (isArabic ? 'أرشفة الاختبار' : 'Archive exam')
+                    : confirm.action === 'unpublish'
+                    ? (isArabic ? 'إلغاء نشر الاختبار' : 'Unpublish exam')
                     : (isArabic ? 'حذف الاختبار' : 'Delete exam')}
                 </h3>
                 <p className="text-sm mt-1" style={{ color: 'var(--cms-text-soft)' }}>
@@ -1995,6 +2055,8 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     ? (isArabic ? 'لا يقبل النشر إلا الأسئلة المنشورة والمؤهلة.' : 'Only published, eligible questions can be used.')
                     : confirm.action === 'archive'
                     ? (isArabic ? 'سيُخفى الاختبار من قائمة الطلاب.' : 'The exam will be removed from student discovery.')
+                    : confirm.action === 'unpublish'
+                    ? (isArabic ? 'سيُعاد الاختبار إلى مسودة ويُخفى من الطلاب الجدد. الجلسات القائمة تحتفظ بلقطتها الحالية ولا تتأثر.' : 'The exam reverts to draft and disappears for new students. Existing sessions keep their snapshot and are unaffected.')
                     : (isArabic ? 'هذا الإجراء دائم. سيُحذف الاختبار نهائياً.' : 'This action is permanent. The exam will be removed permanently.')}
                 </p>
                 <p className="text-sm font-medium mt-2 truncate" style={{ color: 'var(--cms-text)' }}>
@@ -2022,17 +2084,17 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                 disabled={busy}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors"
                 style={{
-                  background: confirm.action === 'archive' ? 'var(--cms-warning)'
+                  background: confirm.action === 'archive' || confirm.action === 'unpublish' ? 'var(--cms-warning)'
                     : confirm.action === 'delete' ? 'var(--cms-danger)'
                     : 'var(--cms-teal-700)',
                 }}
                 onMouseEnter={(event) => {
-                  if (confirm.action === 'archive') event.currentTarget.style.background = '#8a5a18';
+                  if (confirm.action === 'archive' || confirm.action === 'unpublish') event.currentTarget.style.background = '#8a5a18';
                   else if (confirm.action === 'delete') event.currentTarget.style.background = '#9c3a31';
                   else event.currentTarget.style.background = 'var(--cms-teal-600)';
                 }}
                 onMouseLeave={(event) => {
-                  if (confirm.action === 'archive') event.currentTarget.style.background = 'var(--cms-warning)';
+                  if (confirm.action === 'archive' || confirm.action === 'unpublish') event.currentTarget.style.background = 'var(--cms-warning)';
                   else if (confirm.action === 'delete') event.currentTarget.style.background = 'var(--cms-danger)';
                   else event.currentTarget.style.background = 'var(--cms-teal-700)';
                 }}
@@ -2040,17 +2102,108 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                 {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : (
                   confirm.action === 'archive' ? <Archive className="w-4 h-4" />
                   : confirm.action === 'delete' ? <Trash2 className="w-4 h-4" />
+                  : confirm.action === 'unpublish' ? <CloudOff className="w-4 h-4" />
                   : <Send className="w-4 h-4" />
                 )}
                 {confirm.action === 'publish'
                   ? (isArabic ? 'نشر' : 'Publish')
                   : confirm.action === 'archive'
                   ? (isArabic ? 'أرشفة' : 'Archive')
+                  : confirm.action === 'unpublish'
+                  ? (isArabic ? 'إلغاء النشر' : 'Unpublish')
                   : (isArabic ? 'حذف' : 'Delete')}
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* ===== W-coverage (row 18): student-view preview — shared Dialog, no correctness flags ===== */}
+      {preview && (
+        <Dialog
+          open
+          onOpenChange={(next) => { if (!next) setPreview(null); }}
+          title={isArabic ? 'معاينة كطالب' : 'Preview as student'}
+          description={preview.exam.titleAr}
+          dir={isArabic ? 'rtl' : 'ltr'}
+          size="lg"
+          testId="exam-preview-dialog"
+        >
+          <div className="px-5 py-4 space-y-4">
+            {preview.loading && (
+              <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--cms-text-muted)' }}>
+                <LoaderCircle className="w-4 h-4 animate-spin" />
+                {isArabic ? 'جارٍ تحميل المعاينة…' : 'Loading preview…'}
+              </div>
+            )}
+            {preview.error && !preview.loading && (
+              <div className="rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--cms-danger)', background: 'var(--cms-danger-50)', color: 'var(--cms-danger)' }}>
+                {preview.error}
+              </div>
+            )}
+            {preview.data && !preview.loading && (
+              <>
+                <div className="flex flex-wrap gap-2 text-[11px]">
+                  <span className="px-2 py-1 rounded-full border" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
+                    {isArabic ? `المدة: ${preview.data.durationMinutes} دقيقة` : `Duration: ${preview.data.durationMinutes} min`}
+                  </span>
+                  <span className="px-2 py-1 rounded-full border" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
+                    {isArabic ? `الأسئلة: ${preview.data.totalQuestions}` : `Questions: ${preview.data.totalQuestions}`}
+                  </span>
+                  <span className="px-2 py-1 rounded-full border" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
+                    {preview.data.status}
+                  </span>
+                </div>
+                <ol className="space-y-3 max-h-[55vh] overflow-y-auto">
+                  {preview.data.questions.map((question) => (
+                    <li key={question.questionId} className="rounded-lg border p-3 space-y-2" style={{ borderColor: 'var(--cms-line)' }} data-testid="exam-preview-question">
+                      <div className="flex items-start gap-2">
+                        <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold"
+                          style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
+                          {question.order}
+                        </span>
+                        <p className="text-sm font-medium flex-1" style={{ color: 'var(--cms-text)' }}>{question.text}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 text-[10px] ms-8">
+                        <span className="px-1.5 py-0.5 rounded" style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}>{question.type}</span>
+                        <span className="px-1.5 py-0.5 rounded" style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}>{question.difficulty}</span>
+                      </div>
+                      <ul className="space-y-1.5 ms-8">
+                        {question.options.map((option) => (
+                          <li key={option.id} className="flex items-start gap-2 text-xs rounded-lg border px-2.5 py-1.5" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text)' }}>
+                            <span className="font-bold shrink-0" style={{ color: 'var(--cms-teal-700)' }}>{option.letter}</span>
+                            <span className="flex-1">{option.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      {question.images.length > 0 && (
+                        <div className="flex flex-wrap gap-2 ms-8">
+                          {question.images.map((image, index) => (
+                            <img key={`${image.imageUrl}-${index}`} src={image.imageUrl} alt={image.alt ?? ''} className="h-16 rounded border object-cover" style={{ borderColor: 'var(--cms-line)' }} loading="lazy" />
+                          ))}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+                <p className="text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
+                  {isArabic ? 'هذه المعاينة كما يراها الطالب: مرتبة الأسئلة وخياراتها دون أي مؤشر للإجابات الصحيحة.' : 'This is the student view: ordered questions and options, with no correctness indicators.'}
+                </p>
+              </>
+            )}
+          </div>
+          <div className="flex justify-end rounded-b-2xl border-t border-[color:var(--c-border)] bg-[color:var(--c-bg-elevated)] px-5 py-3.5">
+            <button
+              type="button"
+              onClick={() => setPreview(null)}
+              data-testid="exam-preview-close"
+              className="px-4 py-2 rounded-lg border text-sm font-medium"
+              style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+            >
+              {isArabic ? 'إغلاق' : 'Close'}
+            </button>
+          </div>
+        </Dialog>
       )}
     </section>
   );

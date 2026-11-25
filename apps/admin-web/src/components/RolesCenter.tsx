@@ -230,7 +230,7 @@ export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCre
                         disabled={busy}
                         className="inline-flex items-center justify-center gap-1.5 flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50"
                         style={{ borderColor: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)', background: 'var(--cms-surface)' }}
-                        title={isArabic ? 'صلاحيات الواجهة المتقدمة (63 مفتاحاً)' : 'Advanced UI permissions (62 keys)'}
+                        title={isArabic ? 'صلاحيات الواجهة المتقدمة (64 مفتاحاً)' : 'Advanced UI permissions (62 keys)'}
                       >
                         <SlidersHorizontal className="w-3.5 h-3.5" />
                         {isArabic ? 'الواجهة' : 'UI keys'}

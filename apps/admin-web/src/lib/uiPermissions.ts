@@ -59,6 +59,7 @@ export const BUTTON_KEYS = [
   'btn:exams.archive',
   'btn:exams.delete',
   'btn:library.upload',
+  'btn:library.edit',
   'btn:library.publish',
   'btn:library.archive',
   'btn:library.delete',
@@ -118,6 +119,7 @@ export const UI_PERMISSIONS_TREE: Record<string, readonly string[]> = {
   'view:library': [
     'tab:library.courses',
     'btn:library.upload',
+    'btn:library.edit',
     'btn:library.publish',
     'btn:library.archive',
     'btn:library.delete',
@@ -186,6 +188,7 @@ export const UI_PERMISSION_LABELS: Record<string, { ar: string; en: string }> = 
   'btn:exams.archive': { ar: 'أرشفة الاختبار', en: 'Archive exam' },
   'btn:exams.delete': { ar: 'حذف الاختبار', en: 'Delete exam' },
   'btn:library.upload': { ar: 'رفع ملف إلى المكتبة', en: 'Upload file' },
+  'btn:library.edit': { ar: 'تعديل بيانات الملف (عنوان/وصف/وسوم/محاضرة/صعوبة)', en: 'Edit file metadata' },
   'btn:library.publish': { ar: 'نشر الملف', en: 'Publish file' },
   'btn:library.archive': { ar: 'أرشفة الملف', en: 'Archive file' },
   'btn:library.delete': { ar: 'حذف الملف', en: 'Delete file' },
