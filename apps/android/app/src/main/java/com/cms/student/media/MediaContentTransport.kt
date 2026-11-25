@@ -7,14 +7,17 @@ import com.cms.student.security.OfflineTransportException
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.io.OutputStream
-import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
 import java.time.Instant
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import javax.net.ssl.HttpsURLConnection
 
 /**
- * Transport seam the [MediaCacheService] talks to; fakes drive the JVM tests.
+ * Transport seam the [MediaCacheService] (and, since Wave 5b-i, the hosted
+ * course-episode bridge service through its adapter) talks to; fakes drive the
+ * JVM tests.
  *
  * Contract (all methods run on the CALLER's thread — the service executor for
  * downloads, the WebView bridge thread for the bounded on-open re-check):
@@ -22,6 +25,17 @@ import javax.net.ssl.HttpsURLConnection
  *  - [isAuthorized] performs a bounded HEAD-style entitlement re-check of the content URL.
  *  - [download] streams the object to [sink] and reports progress; a 401/403 surfaces
  *    as [TransportAuthorizationException], any other failure as an exception.
+ *
+ * Wave 5b-i adds the frozen hosted-course route: [ContentSource.COURSE_EPISODE]
+ * targets `GET {base}/media/course-episode/{id}/content` — identical header and
+ * entitlement flow, with one extension: course entitlement issuance carries the
+ * EPISODE'S SUBJECT id (the library flow relies on the student-wide token; the
+ * course-episode gate validates the entitlement against the course's subject,
+ * so the issue call sends `{"subjectId":"<uuid>"}` — the caller supplies it via
+ * the [download]/[isAuthorized] subjectId parameter). The legacy four-argument
+ * [download]/[isAuthorized] signatures delegate to the new overloads with
+ * [ContentSource.LIBRARY] and no subject — the library path is byte-for-byte
+ * unchanged.
  */
 interface MediaContentTransport {
 
@@ -38,22 +52,75 @@ interface MediaContentTransport {
 
     /**
      * HEAD-style authorization check for `GET {base}/library/{contentId}/content`.
+     * Allowed/Denied/Unavailable; never throws. Delegates to the source-aware
+     * overload with [ContentSource.LIBRARY].
+     */
+    fun isAuthorized(contentId: String): AuthorizationResult =
+        isAuthorized(ContentSource.LIBRARY, contentId, subjectId = null)
+
+    /**
+     * HEAD-style authorization check for the content URL of [source]:
+     * LIBRARY → `library/{contentId}/content`; COURSE_EPISODE →
+     * `media/course-episode/{contentId}/content` (subject-scoped entitlement).
      * Allowed/Denied/Unavailable; never throws.
      */
-    fun isAuthorized(contentId: String): AuthorizationResult
+    fun isAuthorized(source: ContentSource, contentId: String, subjectId: UUID?): AuthorizationResult
 
     /**
      * Streams the object at `GET {base}/library/{contentId}/content` into [sink].
+     * Delegates to the source-aware overload with [ContentSource.LIBRARY].
      * [onProgress] receives 0..100; [isCanceled] is polled between chunks (cooperative
-     * cancel — [cancelDownload] sets the flag and the loop aborts with
-     * [MediaDownloadCanceledException]). Returns the copied byte count.
+     * cancel — the loop aborts with [MediaDownloadCanceledException]). Returns the
+     * copied byte count.
      */
     fun download(
         contentId: String,
         sink: () -> OutputStream,
         onProgress: (percent: Int) -> Unit,
         isCanceled: () -> Boolean
+    ): Long = download(ContentSource.LIBRARY, contentId, subjectId = null, sink = sink, onProgress = onProgress, isCanceled = isCanceled)
+
+    /**
+     * Streams the object of [source] into [sink] — same headers (Bearer,
+     * X-Installation-Id, X-Device-Fingerprint, X-Entitlement), same entitlement
+     * issue/renew flow, same 401/403 mapping, same cooperative cancel and 64 KB
+     * buffer loop as the library path. [subjectId] is REQUIRED-in-practice for
+     * COURSE_EPISODE (entitlement issuance is subject-scoped there); it is ignored
+     * for LIBRARY. [onContentType] receives the server MIME of the response (used
+     * for display metadata only). Returns the copied byte count.
+     */
+    fun download(
+        source: ContentSource,
+        contentId: String,
+        subjectId: UUID?,
+        sink: () -> OutputStream,
+        onProgress: (percent: Int) -> Unit,
+        isCanceled: () -> Boolean,
+        onContentType: (String) -> Unit = {}
     ): Long
+}
+
+/**
+ * Which frozen content route a download/authorization targets:
+ *  - [LIBRARY] → `GET {base}/library/{id}/content` (Batch 4 media cache).
+ *  - [COURSE_EPISODE] → `GET {base}/media/course-episode/{id}/content`
+ *    (Wave 5b-i hosted course episodes).
+ */
+enum class ContentSource(val pathPrefix: String) {
+    LIBRARY("library"),
+    COURSE_EPISODE("media/course-episode")
+}
+
+/**
+ * Pure URL builder for the two frozen content routes (JVM-tested):
+ * `LIBRARY` → `{base}/library/{id}/content`;
+ * `COURSE_EPISODE` → `{base}/media/course-episode/{id}/content`.
+ * The base is normalized to end with exactly one `/`; ids are UUID-validated
+ * upstream, so no path tricks can enter here.
+ */
+internal fun buildContentUrl(base: String, source: ContentSource, contentId: String): String {
+    val normalized = base.trim().let { if (it.endsWith('/')) it else "$it/" }
+    return "$normalized${source.pathPrefix}/$contentId/content"
 }
 
 enum class AuthorizationResult { ALLOWED, DENIED, UNAVAILABLE }
@@ -74,7 +141,10 @@ class MediaQuotaExceededException : RuntimeException("media cache quota exceeded
  * X-Device-Fingerprint — plus the `X-Entitlement` token the library controller requires.
  *
  * The entitlement token is cached in-process and renewed 60s before expiry, exactly
- * like the student-web sessionStorage cache (`entitlement-api.ts`).
+ * like the student-web sessionStorage cache (`entitlement-api.ts`). Wave 5b-i: the
+ * cache is keyed per entitlement scope — the library-wide token, plus one
+ * subject-scoped token per course subject (`POST entitlements/issue` with a
+ * `{"subjectId":"<uuid>"}` body for the course-episode route).
  */
 class HttpsMediaContentTransport(
     baseApiUrl: String,
@@ -85,32 +155,45 @@ class HttpsMediaContentTransport(
     private val baseUri: URI = normalizeBaseUri(baseApiUrl)
     private val pinnedSocketFactory = OfflineCertificatePinning.socketFactoryIfPinned(certificatePins)
 
-    @Volatile private var cachedEntitlementToken: String? = null
-    @Volatile private var cachedEntitlementExpiryMs: Long = 0L
+    /** Signed-token cache per entitlement scope ("library" | "subject:{uuid}"). */
+    private val entitlementCache = ConcurrentHashMap<String, CachedEntitlement>()
 
-    override fun currentEntitlementToken(): String? {
-        cachedEntitlementToken?.let { token ->
-            if (System.currentTimeMillis() < cachedEntitlementExpiryMs) return token
+    private class CachedEntitlement(val token: String, val renewalBoundaryMs: Long)
+
+    override fun currentEntitlementToken(): String? = currentEntitlementToken(null)
+
+    /**
+     * Subject-scoped token for the course-episode route (null subject = the
+     * library-wide token). Null when no session exists or issuance fails.
+     */
+    fun currentEntitlementToken(subjectId: UUID?): String? {
+        val scope = entitlementScope(subjectId)
+        entitlementCache[scope]?.let { cached ->
+            if (System.currentTimeMillis() < cached.renewalBoundaryMs) return cached.token
         }
         val session = sessionProvider() ?: return null
         return runCatching {
-            val response = jsonRequest("POST", "entitlements/issue", null, session, emptyMap())
+            val body = subjectId?.let { """{"subjectId":"$it"}""" }
+            val response = jsonRequest("POST", "entitlements/issue", body, session, emptyMap())
             val token = response["token"]?.takeUnless { it.isJsonNull }?.asString?.takeIf(String::isNotBlank)
                 ?: return null
-            cacheToken(token)
+            entitlementCache[scope] = CachedEntitlement(token, parseEntitlementExpiryMs(token))
             token
         }.getOrNull()
     }
 
-    override fun currentEntitlementExpiresAt(): Instant? = runCatching {
-        val token = currentEntitlementToken() ?: return null
+    override fun currentEntitlementExpiresAt(): Instant? = currentEntitlementExpiresAt(null)
+
+    /** Server-issued expiry of the subject-scoped (or library-wide) entitlement token. */
+    fun currentEntitlementExpiresAt(subjectId: UUID?): Instant? = runCatching {
+        val token = currentEntitlementToken(subjectId) ?: return null
         parseEntitlementExpiresAt(token)
     }.getOrNull()
 
-    override fun isAuthorized(contentId: String): AuthorizationResult = runCatching {
+    override fun isAuthorized(source: ContentSource, contentId: String, subjectId: UUID?): AuthorizationResult = runCatching {
         val session = sessionProvider() ?: return AuthorizationResult.DENIED
-        val token = currentEntitlementToken() ?: return AuthorizationResult.DENIED
-        val url = contentUrl(contentId)
+        val token = currentEntitlementToken(subjectId) ?: return AuthorizationResult.DENIED
+        val url = URI(buildContentUrl(baseUri.toString(), source, contentId)).toURL()
         val connection = (url.openConnection() as? HttpsURLConnection) ?: return AuthorizationResult.DENIED
         try {
             connection.requestMethod = "HEAD"
@@ -132,14 +215,17 @@ class HttpsMediaContentTransport(
     }.getOrDefault(AuthorizationResult.UNAVAILABLE)
 
     override fun download(
+        source: ContentSource,
         contentId: String,
+        subjectId: UUID?,
         sink: () -> OutputStream,
         onProgress: (percent: Int) -> Unit,
-        isCanceled: () -> Boolean
+        isCanceled: () -> Boolean,
+        onContentType: (String) -> Unit
     ): Long {
         val session = sessionProvider() ?: throw TransportAuthorizationException(401)
-        val token = currentEntitlementToken() ?: throw TransportAuthorizationException(401)
-        val url = contentUrl(contentId)
+        val token = currentEntitlementToken(subjectId) ?: throw TransportAuthorizationException(401)
+        val url = URI(buildContentUrl(baseUri.toString(), source, contentId)).toURL()
         val connection = (url.openConnection() as? HttpsURLConnection)
             ?: throw OfflineTransportException(message = "Media transport requires HTTPS")
         try {
@@ -157,6 +243,7 @@ class HttpsMediaContentTransport(
             if (code == 401 || code == 403) throw TransportAuthorizationException(code)
             if (code !in 200..299) throw OfflineTransportException(code, "Media endpoint rejected request with HTTP $code")
 
+            connection.getHeaderField("Content-Type")?.takeIf { it.isNotBlank() }?.let(onContentType)
             val expected = connection.contentLengthLong
             var copied = 0L
             connection.inputStream.use { input ->
@@ -185,13 +272,8 @@ class HttpsMediaContentTransport(
         }
     }
 
-    private fun cacheToken(token: String) {
-        val expiryMs = parseEntitlementExpiryMs(token)
-        cachedEntitlementToken = token
-        cachedEntitlementExpiryMs = expiryMs
-    }
-
-    private fun contentUrl(contentId: String): URL = baseUri.resolve("$CONTENT_PATH_PREFIX$contentId/content").toURL()
+    private fun entitlementScope(subjectId: UUID?): String =
+        subjectId?.let { "subject:$it" } ?: "library"
 
     private fun jsonRequest(
         method: String,
@@ -239,7 +321,6 @@ class HttpsMediaContentTransport(
 
     private companion object {
         const val HEADER_ENTITLEMENT = "X-Entitlement"
-        const val CONTENT_PATH_PREFIX = "library/"
         const val BUFFER_BYTES = 64 * 1024
 
         /** JWT-shaped signed entitlement: `payload.signature`; the payload carries `expiresAt`. */
