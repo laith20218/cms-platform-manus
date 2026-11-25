@@ -39,12 +39,14 @@ import {
   X,
 } from 'lucide-react';
 import { API_BASE_URL, apiRequest, ApiError, type AdminRecord, type AdminUser, type PagedResult, type RoleRecord, login, refreshAccessToken } from './lib/api';
+import { ConfirmDialog } from '@cms/ui';
 import { UiPermissionsProvider } from './hooks/useUiPermissions';
 import { useUiPermissions } from './hooks/uiPermissionsContext';
 import { useUiPermissionsBundle } from './hooks/useUiPermissionsBundle';
 import { createCanFunction } from './lib/uiPermissions';
 import { AcademicCenter } from './components/AcademicCenter';
 import { AdminsCenter, DialogLayer } from './components/AdminsCenter';
+import { TwoFactorCard } from './components/TwoFactorCard';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { AuditCenter } from './components/AuditCenter';
 import { CodesCenter } from './components/CodesCenter';
@@ -293,6 +295,13 @@ function App() {
     }
   }
 
+  // W4 (admin-ui): the last native window.confirm surfaces on admins/roles
+  // (debt D-01/D-02) — replaced by the shared ConfirmDialog. Targets hold the
+  // pending action; the request fires only on confirm.
+  const [adminStatusTarget, setAdminStatusTarget] = useState<{ admin: AdminRecord; isActive: boolean } | null>(null);
+  const [roleStatusTarget, setRoleStatusTarget] = useState<{ role: RoleRecord; isActive: boolean } | null>(null);
+  const [roleDeleteTarget, setRoleDeleteTarget] = useState<RoleRecord | null>(null);
+
   function signOut() {
     sessionStorage.removeItem('cms-admin-user');
     sessionStorage.removeItem('cms-admin-token');
@@ -357,12 +366,11 @@ function App() {
 
   async function setAccountStatus(admin: AdminRecord, isActive: boolean) {
     if (!token) return;
-    const prompt = isActive ? copy.activate : copy.deactivate;
-    if (!window.confirm(`${prompt}: ${admin.fullName}?`)) return;
     setBusy(true);
     try {
       await apiRequest<void>(`/api/v1/admin/admins/${admin.id}/status`, token, { method: 'POST', body: JSON.stringify({ isActive }) });
       notify(isActive ? (isArabic ? 'تم تفعيل الحساب.' : 'Account enabled.') : (isArabic ? 'تم تعطيل الحساب وإبطال جلساته.' : 'Account disabled and sessions revoked.'));
+      setAdminStatusTarget(null);
       await fetchManagementData();
     } catch (error) {
       reportError(error instanceof Error ? error.message : copy.dataError);
@@ -424,11 +432,12 @@ function App() {
   }
 
   async function setRoleStatus(role: RoleRecord, isActive: boolean) {
-    if (!token || !window.confirm(`${isActive ? copy.activate : copy.deactivate}: ${role.nameAr}?`)) return;
+    if (!token) return;
     setBusy(true);
     try {
       await apiRequest<void>(`/api/v1/admin/roles/${role.id}/status`, token, { method: 'POST', body: JSON.stringify({ isActive }) });
       notify(isActive ? (isArabic ? 'تم تفعيل الدور.' : 'Role enabled.') : (isArabic ? 'تم تعطيل الدور وإبطال جلسات المدراء المعيّنين.' : 'Role disabled and assigned sessions revoked.'));
+      setRoleStatusTarget(null);
       await fetchManagementData();
     } catch (error) {
       reportError(error instanceof Error ? error.message : copy.dataError);
@@ -438,11 +447,12 @@ function App() {
   }
 
   async function deleteRole(role: RoleRecord) {
-    if (!token || !window.confirm(`${copy.delete}: ${role.nameAr}?`)) return;
+    if (!token) return;
     setBusy(true);
     try {
       await apiRequest<void>(`/api/v1/admin/roles/${role.id}`, token, { method: 'DELETE' });
       notify(isArabic ? 'تم حذف الدور.' : 'Role deleted.');
+      setRoleDeleteTarget(null);
       await fetchManagementData();
     } catch (error) {
       reportError(error instanceof Error ? error.message : copy.dataError);
@@ -679,7 +689,13 @@ function App() {
               transition={{ duration: 0.2 }}
             >
               {view === 'overview' && (can('view:overview')
-                ? <Overview copy={copy} isArabic={isArabic} isSuperAdmin={isSuperAdmin} token={token} onNavigate={setView} />
+                ? (
+                  <>
+                    <Overview copy={copy} isArabic={isArabic} isSuperAdmin={isSuperAdmin} token={token} onNavigate={setView} />
+                    {/* W4: 2FA self-service — visible to every operator (API gates by role, not by UI permission). */}
+                    <TwoFactorCard token={token} isArabic={isArabic} adminName={user?.fullName} onError={reportError} onNotice={notify} />
+                  </>
+                )
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
               {view === 'students' && (can('view:students')
                 ? <StudentsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
@@ -724,7 +740,7 @@ function App() {
                     onEdit={openEditAdmin}
                     onReset={(admin) => setDialog({ kind: 'reset-password', admin })}
                     onDelete={(admin) => setDialog({ kind: 'delete-admin', admin })}
-                    onStatus={setAccountStatus}
+                    onStatus={(admin, isActive) => setAdminStatusTarget({ admin, isActive })}
                   />
                 )
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
@@ -738,8 +754,8 @@ function App() {
                     busy={busy}
                     loading={loadingData}
                     onCreate={() => setDialog({ kind: 'create-role' })}
-                    onStatus={setRoleStatus}
-                    onDelete={deleteRole}
+                    onStatus={(role, isActive) => setRoleStatusTarget({ role, isActive })}
+                    onDelete={(role) => setRoleDeleteTarget(role)}
                     onError={reportError}
                     onNotice={notify}
                   />
@@ -765,9 +781,73 @@ function App() {
           </AnimatePresence>
         </div>
       </section>
+      {/* ===== W4: shared confirm gates for admin/role status + role delete
+          (replaces the last window.confirm surfaces, debt D-01/D-02). The
+          super-admin password gate on admin delete is untouched (DialogLayer). ===== */}
+      <ConfirmDialog
+        open={adminStatusTarget !== null}
+        onOpenChange={(next) => { if (!next) setAdminStatusTarget(null); }}
+        title={adminStatusTarget?.isActive
+          ? (isArabic ? 'تفعيل حساب مدير' : 'Enable administrator account')
+          : (isArabic ? 'تعطيل حساب مدير' : 'Disable administrator account')}
+        description={adminStatusTarget
+          ? (adminStatusTarget.isActive
+            ? (isArabic
+              ? `سيُعاد تفعيل حساب "${adminStatusTarget.admin.fullName}" ويمكنه تسجيل الدخول من جديد.`
+              : `"${adminStatusTarget.admin.fullName}" will be re-enabled and can sign in again.`)
+            : (isArabic
+              ? `سيُعطَّل حساب "${adminStatusTarget.admin.fullName}" وتُبطل جميع جلساته النشطة فورًا.`
+              : `"${adminStatusTarget.admin.fullName}" will be disabled and all their live sessions revoked immediately.`))
+          : undefined}
+        confirmLabel={adminStatusTarget?.isActive ? copy.activate : copy.deactivate}
+        cancelLabel={isArabic ? 'إلغاء' : 'Cancel'}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => { if (adminStatusTarget) void setAccountStatus(adminStatusTarget.admin, adminStatusTarget.isActive); }}
+        testId="admin-status-confirm"
+      />
+      <ConfirmDialog
+        open={roleStatusTarget !== null}
+        onOpenChange={(next) => { if (!next) setRoleStatusTarget(null); }}
+        title={roleStatusTarget?.isActive
+          ? (isArabic ? 'تفعيل الدور' : 'Enable role')
+          : (isArabic ? 'تعطيل الدور' : 'Disable role')}
+        description={roleStatusTarget
+          ? (roleStatusTarget.isActive
+            ? (isArabic
+              ? `سيُفعَّل الدور "${roleStatusTarget.role.nameAr}" لجميع المدراء المعيّنين له.`
+              : `Role "${roleStatusTarget.role.nameAr ?? roleStatusTarget.role.name}" will be enabled for all assigned administrators.`)
+            : (isArabic
+              ? `سيُعطَّل الدور "${roleStatusTarget.role.nameAr}" وتُبطل جلسات جميع المدراء المعيّنين له حتى يُعاد تفعيله.`
+              : `Role "${roleStatusTarget.role.nameAr ?? roleStatusTarget.role.name}" will be disabled and every assigned administrator's sessions revoked until it is re-enabled.`))
+          : undefined}
+        confirmLabel={roleStatusTarget?.isActive ? copy.activate : copy.deactivate}
+        cancelLabel={isArabic ? 'إلغاء' : 'Cancel'}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => { if (roleStatusTarget) void setRoleStatus(roleStatusTarget.role, roleStatusTarget.isActive); }}
+        testId="role-status-confirm"
+      />
+      <ConfirmDialog
+        open={roleDeleteTarget !== null}
+        onOpenChange={(next) => { if (!next) setRoleDeleteTarget(null); }}
+        title={isArabic ? 'حذف الدور نهائيًا' : 'Permanently delete role'}
+        description={roleDeleteTarget
+          ? (isArabic
+            ? `سيُحذف الدور "${roleDeleteTarget.nameAr}" نهائيًا. يجب أن لا يكون معيّنًا لأي مدير حاليًا. لا يمكن التراجع عن هذا الإجراء.`
+            : `Role "${roleDeleteTarget.nameAr ?? roleDeleteTarget.name}" will be permanently deleted. It must not currently be assigned to any administrator. This cannot be undone.`)
+          : undefined}
+        confirmLabel={copy.delete}
+        cancelLabel={isArabic ? 'إلغاء' : 'Cancel'}
+        variant="danger"
+        requireAcknowledge={{ label: isArabic ? 'أفهم أن حذف الدور نهائي ولا يمكن التراجع عنه' : 'I understand this role deletion is permanent and cannot be undone' }}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => { if (roleDeleteTarget) void deleteRole(roleDeleteTarget); }}
+        testId="role-delete-confirm"
+      />
       {dialog && (
-        <DialogLayer
-          copy={copy}
+        <DialogLayer          copy={copy}
           isArabic={isArabic}
           token={token}
           dialog={dialog}
