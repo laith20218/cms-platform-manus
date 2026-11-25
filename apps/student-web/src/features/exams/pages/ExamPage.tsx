@@ -14,6 +14,8 @@ import { CenteredDialog } from '@/components/ui/Overlays';
 // ProblemDetails `detail` and keeps the Arabic fallback otherwise.
 import { getApiErrorMessage } from '@/utils/api-error';
 import { useLogicalBack } from '@/hooks/useLogicalBack';
+// W1 (UX 1D) — contextual «تحميل دون اتصال» CTA for the offline package hub.
+import { OfflineDownloadCta } from '@/features/offline/OfflineDownloadCta';
 import {
   isMatchingType,
   parseMatchingAnswer,
@@ -230,7 +232,9 @@ export default function ExamPage() {
   const isTimeLow = timeLeft < 300;
 
   return <div className="space-y-4 max-w-[880px] mx-auto">
-    <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border backdrop-blur-xl" style={{ background: 'var(--c-glass)', borderColor: 'var(--c-border-glass)' }}>
+    {/* flex-wrap keeps the action cluster at full touch targets on 375px —
+        the cluster drops below the title instead of squeezing it. */}
+    <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl border backdrop-blur-xl" style={{ background: 'var(--c-glass)', borderColor: 'var(--c-border-glass)' }}>
       <div className="flex-1"><h2 className="text-sm font-bold text-[var(--c-text)] truncate">{session.examTitle}</h2><div className="text-xs text-[var(--c-text-muted)] mt-0.5">مجاب: <span className="font-bold text-[var(--c-primary-700)]" lang="en">{answeredCount}</span> من <span lang="en">{session.totalQuestions}</span></div></div>
       <div className="flex items-center gap-2">
         {/* D-42 (Wave 18.3): the timer announces once per MINUTE (aria-live) — the
@@ -244,6 +248,17 @@ export default function ExamPage() {
           <span lang="en" aria-hidden="true">{String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}</span>
           <span className="sr-only" aria-live="polite">{isTimeLow ? `وقت حرج — متبقٍ ${minutes} دقيقة` : `متبقٍ ${minutes} دقيقة`}</span>
         </div>
+        {/* W1 (UX 1D) — «تحميل دون اتصال» (exam phase only): pre-bakes this
+            exam's question package while online so the student can retake it
+            offline. The ExamSession/ExamQuestion DTOs carry no subject
+            identifier and the route is exam-scoped, so the request passes
+            examId only (subjectId genuinely unavailable — omitted). */}
+        <OfflineDownloadCta
+          kind="package"
+          examId={examId ?? undefined}
+          title={session.examTitle}
+          testId="exam-offline-download-cta"
+        />
         {/* D-42: visible on mobile too (was hidden sm:inline) + a 44px target. */}
         {answeredCount === 0 && (
           <button

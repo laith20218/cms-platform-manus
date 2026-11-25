@@ -14,6 +14,8 @@ import VideoPlayer from '@/features/media-player/video/VideoPlayer';
 import { EpisodeMetadata, type EpisodeMetadataData } from '@/features/media-player/video/EpisodeMetadata';
 import { coursesApi } from '../services/courses-api';
 import type { CourseDetail, CourseEpisode, EpisodeAccess } from '../services/courses-api';
+// W1 (UX 1D) — per-episode «تحميل دون اتصال» CTA (hosted Upload episodes only).
+import { OfflineDownloadCta } from '@/features/offline/OfflineDownloadCta';
 import '../watermark.css';
 
 /**
@@ -427,13 +429,17 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
           {episodes.map((episode) => {
             const active = episode.id === selected.id;
             return (
-              <li key={episode.id}>
+              <li key={episode.id} className="flex items-stretch border-b border-[var(--c-border)] last:border-0">
+                {/* W1 (UX 1D): the row button lost its w-full/border classes to the
+                    <li> so the offline CTA can sit beside it WITHOUT nesting buttons
+                    (invalid HTML + broken a11y). In a plain browser the CTA renders
+                    nothing and the row looks exactly as before. */}
                 <button
                   type="button"
                   onClick={() => setSelectedId(episode.id)}
                   aria-current={active ? 'true' : undefined}
                   className={cn(
-                    'press w-full flex items-start gap-3 px-4 py-3.5 text-start border-b border-[var(--c-border)] last:border-0 transition-colors',
+                    'press flex flex-1 items-start gap-3 px-4 py-3.5 text-start transition-colors',
                     active ? 'bg-[var(--c-primary-50)]' : 'hover:bg-[var(--c-bg-hover)]'
                   )}
                 >
@@ -458,6 +464,20 @@ function EpisodeStage({ episodes, fallbackName, fallbackPhone }: {
                     </span>
                   </span>
                 </button>
+                {/* W1 (UX 1D) — hosted (Upload) episodes only: YouTube episodes get
+                    NO button — the courses-tab note covers their honesty instead. */}
+                {!isYouTubeEpisode(episode) && (
+                  <OfflineDownloadCta
+                    kind="episode"
+                    variant="icon"
+                    episodeId={episode.id}
+                    courseId={episode.courseId}
+                    title={episode.title}
+                    assetType={(episode.contentType ?? '').startsWith('audio/') ? 'audio' : 'video'}
+                    label="تحميل الحلقة دون اتصال"
+                    testId={`episode-offline-cta-${episode.id}`}
+                  />
+                )}
               </li>
             );
           })}
