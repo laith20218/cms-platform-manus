@@ -279,7 +279,6 @@ public class QuestionBankW162Tests
     {
         await using var db = TestDbHelper.CreateInMemoryContext();
         var subject = db.Subjects.First();
-        var admin = db.Admins.First();
         var question = TestDbHelper.GetTestQuestion(db);
 
         var course = new ExamCourse

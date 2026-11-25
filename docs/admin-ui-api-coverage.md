@@ -37,8 +37,8 @@ Legend — UI: `full` / `partial` / `none` (capability-equivalent surface counte
 | 7 | Admins CRUD, reset-password, status, delete w/ super-admin password (AdminDashboard admins 9) | full | modal (DialogLayer) | **P0** (a11y + native confirm) | Migrate DialogLayer onto shared `Dialog`; replace `window.confirm` on status (App.tsx:361) with `ConfirmDialog` |
 | 8 | Roles CRUD + permission matrix + UI-permissions editors (AdminDashboard roles 9) | full | modals + shared ConfirmDialogs (W4) | — | D-18 fixed: subjects load from every semester; remaining dialog migration is P2 polish |
 | 9 | Codes ledger/generate/activate/redemptions/single revoke (AdminDashboard codes 5) | full | modals + mandatory reason | — (single revoke is best-in-class) | Keep; adopt shared ConfirmDialog |
-| 10 | **Bulk code revoke** (uses codes/{id}/revoke in loop) | partial | **broken**: no confirm, silent per-item failures, hardcoded English reason | **P0** | ConfirmDialog w/ count + mandatory Arabic reason + per-item failure report |
-| 11 | **Subscription revoke per student** (AdminDashboard subscriptions 1) | none | — | **P1** | Row action in StudentsCenter subscriptions tab (confirm + reason modal) |
+| 10 | **Bulk code revoke** (codes/{id}/revoke in loop) | **full (W3)** | ConfirmDialog + mandatory Arabic reason + per-item failure report | done | — |
+| 11 | **Subscription revoke per student** (AdminDashboard subscriptions 1) | **full (W3)** | Row action with confirm + Arabic reason | done | — |
 | 12 | Questions CRUD/publish/archive/unpublish/duplicate/preview/bulk-publish/bulk-archive (AdminQuestions + Questions admin) | full | drawer + confirm modal + bulk checkbox toolbar | — (best-in-app) | Keep; add pagination; adopt shared primitives |
 | 13 | **Question bulk import** (Questions `/import`, CSV client-side parse → JSON rows) | **full (W5)** | QuestionImportModal: validation + explicit start + honest created/failed report | done | API takes JSON rows, not files — CSV is the client-side path; Excel users export CSV |
 | 14 | Error-report triage resolve/reject (AdminQuestions reports) | full | inline panel + notes modal | — | Keep |

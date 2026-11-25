@@ -562,7 +562,10 @@ public sealed class SignedEntitlementHttpFactory : WebApplicationFactory<Program
             new Claim("installation_id", installationId),
             new Claim("tv", "0")
         };
-        var token = new JwtSecurityToken(
+        // CodeQL: the JWT was constructed but never attached — this suite authenticates
+        // via the X-Test-* headers above. Discard marks the construction vestigial
+        // without touching the signing-issuer constants shared by the bearer-mode tests.
+        _ = new JwtSecurityToken(
             Issuer,
             Audience,
             claims,

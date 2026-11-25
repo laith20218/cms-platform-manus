@@ -353,7 +353,6 @@ public class FavoriteListsHandlersTests
     {
         await using var db = TestDbHelper.CreateInMemoryContext();
         var student = TestDbHelper.GetTestStudent(db);
-        var question = TestDbHelper.GetTestQuestion(db);
         var questions = db.Questions.Take(2).ToList();
         var first = await AddListAsync(db, student.Id, "الأولى", createdAt: DateTime.UtcNow.AddMinutes(-10));
         var second = await AddListAsync(db, student.Id, "الثانية", createdAt: DateTime.UtcNow.AddMinutes(-5));
@@ -378,7 +377,7 @@ public class FavoriteListsHandlersTests
         var student = TestDbHelper.GetTestStudent(db);
         var questions = db.Questions.Take(2).ToList();
         var first = await AddListAsync(db, student.Id, "الأولى");
-        var second = await AddListAsync(db, student.Id, "الثانية");
+        await AddListAsync(db, student.Id, "الثانية");
         await AddItemAsync(db, first.Id, questions[0].Id);
         var (handler, _) = Create(db);
 

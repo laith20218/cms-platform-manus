@@ -351,7 +351,8 @@ public class CourseHandlers :
     // ===== Admin: episode CRUD =====
     public async Task<CourseEpisodeDto> Handle(AddYouTubeEpisodeCommand req, CancellationToken ct)
     {
-        var course = await _db.Courses.FirstOrDefaultAsync(course => course.Id == req.CourseId && course.DeletedAt == null, ct)
+        // CodeQL: existence guard — the binding was never read afterwards.
+        _ = await _db.Courses.FirstOrDefaultAsync(course => course.Id == req.CourseId && course.DeletedAt == null, ct)
             ?? throw new NotFoundException("Course", req.CourseId);
 
         await EnsureEpisodeNumberUsableAsync(req.CourseId, req.EpisodeNumber, null, ct);
@@ -445,7 +446,8 @@ public class CourseHandlers :
     // ===== Admin: single-PUT upload orchestration (Hotfix 10.8f) =====
     public async Task<InitiateUploadDto> Handle(InitiateEpisodeUploadCommand req, CancellationToken ct)
     {
-        var course = await _db.Courses.FirstOrDefaultAsync(course => course.Id == req.CourseId && course.DeletedAt == null, ct)
+        // CodeQL: existence guard — the binding was never read afterwards.
+        _ = await _db.Courses.FirstOrDefaultAsync(course => course.Id == req.CourseId && course.DeletedAt == null, ct)
             ?? throw new NotFoundException("Course", req.CourseId);
 
         if (string.IsNullOrWhiteSpace(req.ContentType) || !AllowedEpisodeContentTypes.Contains(req.ContentType.Trim()))

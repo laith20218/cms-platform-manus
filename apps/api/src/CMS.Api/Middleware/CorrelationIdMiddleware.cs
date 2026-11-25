@@ -28,7 +28,10 @@ public sealed class CorrelationIdMiddleware
 
         using (LogContext.PushProperty("CorrelationId", correlationId))
         {
-            _logger.LogDebug("Correlation context established for {Method} {Path}", context.Request.Method, context.Request.Path);
+            // W-codeql: request-derived values sanitized (log-forging).
+            _logger.LogDebug("Correlation context established for {Method} {Path}",
+                LogSanitizer.Clean(context.Request.Method, 16),
+                LogSanitizer.Clean(context.Request.Path.Value, 256));
             await _next(context);
         }
     }

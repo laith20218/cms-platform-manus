@@ -83,11 +83,15 @@ public class AuditLoggingMiddleware
         }
 
         var requestId = context.TraceIdentifier;
-        var method = context.Request.Method;
-        var path = context.Request.Path.Value ?? "";
-        var ipAddress = context.Connection.RemoteIpAddress?.ToString();
-        var userAgent = context.Request.Headers.UserAgent.ToString();
-        var userId = context.User?.FindFirst("sub")?.Value ?? "anonymous";
+        // W-codeql: request-derived values are sanitized before logging
+        // (log-forging: a raw CR/LF in path/headers must not forge log lines).
+        var method = LogSanitizer.Clean(context.Request.Method, 16);
+        var path = LogSanitizer.Clean(context.Request.Path.Value, 256);
+        var ipAddress = LogSanitizer.Clean(context.Connection.RemoteIpAddress?.ToString(), 64);
+        var userAgent = LogSanitizer.Clean(context.Request.Headers.UserAgent.ToString(), 256);
+        var userId = LogSanitizer.Clean(context.User?.FindFirst("sub")?.Value, 64) is { Length: > 0 } cleanedUser
+            ? cleanedUser
+            : "anonymous";
 
         // Log request
         _logger.LogInformation(
@@ -164,7 +168,9 @@ public class AuthRateLimitMiddleware
 
         if (current > 5)
         {
-            _logger.LogWarning("Rate limit exceeded for {IP} on {Path}", ipAddress, path);
+            // W-codeql: request-derived values sanitized (log-forging).
+            _logger.LogWarning("Rate limit exceeded for {IP} on {Path}",
+                LogSanitizer.Clean(ipAddress, 64), LogSanitizer.Clean(path, 256));
 
             context.Response.StatusCode = 429;
             context.Response.ContentType = "application/problem+json";

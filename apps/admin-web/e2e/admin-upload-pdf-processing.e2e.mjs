@@ -83,7 +83,6 @@ const ARABIC_FONT_REPORT = [
   'الخط الأصلي (SakkalMajalla) غير مدمج، وتم استبداله بـ (Amiri).',
   'سجل الخادم: Ghostscript exited with code 1',
 ].join('\n');
-const WAVE_12_TOAST = 'هذه الميزة ستكون متاحة في التحديث القادم (Wave 12).';
 
 const results = [];
 function check(name, ok, extra = '') {
