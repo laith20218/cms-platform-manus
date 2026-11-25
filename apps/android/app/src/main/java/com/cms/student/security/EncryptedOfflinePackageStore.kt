@@ -109,6 +109,24 @@ class EncryptedOfflinePackageStore(context: Context) : IOfflinePackageStore {
         if (record.userId == userId.toString() && record.installationId == installationId) packageFile(packageId).delete()
     }
 
+    /**
+     * Phase P (containment) — the full offline wipe: every store-owned file in
+     * the directory goes (each `.bin` envelope plus any interrupted `.tmp`
+     * write leftover). Store-owned names only — anything unexpected in the
+     * directory is left untouched. Per-file failures never abort the sweep and
+     * never throw: the wipe is best-effort fail-closed (an undeletable file is
+     * also an unreadable one on the next pass, because its record no longer
+     * resolves through the surviving bindings).
+     */
+    override fun wipeAll() {
+        val files = directory.listFiles { file -> file.isFile } ?: return
+        files.forEach { file ->
+            if (file.name.endsWith(".bin") || file.name.endsWith(".tmp")) {
+                runCatching { file.delete() }
+            }
+        }
+    }
+
     private fun packageFile(packageId: UUID): File = File(directory, "$packageId.bin")
 
     private fun encryptedFile(file: File): EncryptedFile = EncryptedFile.Builder(

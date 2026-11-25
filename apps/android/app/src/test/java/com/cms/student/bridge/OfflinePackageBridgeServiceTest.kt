@@ -35,10 +35,14 @@ class OfflinePackageBridgeServiceTest {
     // Fakes
     // ------------------------------------------------------------------
 
-    /** Binding-checked in-memory store; invalidations counted for remove assertions. */
+    /** Binding-checked in-memory store; invalidations + wipes counted for remove/wipe assertions. */
     private class FakeStore(initial: List<StoredOfflinePackage> = emptyList()) : com.cms.student.security.IOfflinePackageStore {
         private val records = initial.associateBy { it.envelope.manifest.packageId }.toMutableMap()
         var invalidations = 0
+        var wipeAllCalls = 0
+            private set
+
+        val size: Int get() = records.size
 
         private fun binding(record: StoredOfflinePackage, userId: UUID, installationId: String) =
             record.envelope.manifest.userId == userId && record.envelope.manifest.installationId == installationId
@@ -71,7 +75,15 @@ class OfflinePackageBridgeServiceTest {
         }
 
         override fun invalidate(packageId: UUID, userId: UUID, installationId: String) {
-            if (records.remove(packageId) != null) invalidations++
+            val record = records[packageId] ?: return
+            if (binding(record, userId, installationId) && records.remove(packageId) != null) invalidations++
+        }
+
+        /** Phase P (containment): counted full wipe — mirrors the production
+         *  EncryptedOfflinePackageStore contract (clears every record, never throws). */
+        override fun wipeAll() {
+            wipeAllCalls++
+            records.clear()
         }
     }
 

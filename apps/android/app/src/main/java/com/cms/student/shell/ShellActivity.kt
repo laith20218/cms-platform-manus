@@ -48,16 +48,19 @@ class ShellActivity : AppCompatActivity() {
         host = WebViewHost(webView, urlPolicy, ::showError)
         host.attach()
 
-        // Batch 3 + Batch 4 + D-JS-AUTH + W2 (UX 3C): the single audited JS bridge
-        // (window.CmsNative) — attached strictly AFTER host.attach() applied the
-        // hardening settings. Four read-only identity methods, the origin-guarded
-        // encrypted-media-cache surface (listCached/ensureLocal/openLocal/
-        // cacheStatus/cancelDownload/removeCached/clearCache), the origin-guarded
-        // remember-me token seal (sealForLocalPersistence/unsealForLocalPersistence —
-        // opaque blobs only, no token getters), and the origin-guarded offline
-        // question-packages surface (listOfflinePackages/downloadOfflinePackage/
-        // offlinePackageStatus/removeOfflinePackage/openOfflineExam); see
-        // CmsJsBridge for the surface, origin guard, and threat model.
+        // Batch 3 + Batch 4 + D-JS-AUTH + W2 (UX 3C) + Phase P: the single audited
+        // JS bridge (window.CmsNative) — attached strictly AFTER host.attach()
+        // applied the hardening settings. Four read-only identity methods, the
+        // origin-guarded encrypted-media-cache surface (listCached/ensureLocal/
+        // openLocal/cacheStatus/cancelDownload/removeCached/clearCache), the
+        // origin-guarded remember-me token seal (sealForLocalPersistence/
+        // unsealForLocalPersistence — opaque blobs only, no token getters), the
+        // origin-guarded offline question-packages surface (listOfflinePackages/
+        // downloadOfflinePackage/offlinePackageStatus/removeOfflinePackage/
+        // openOfflineExam), and the Phase P web-session-end wipe notification
+        // (notifyWebSessionEnded — the page reports its session ended; the wipe
+        // direction is strictly native data destruction); see CmsJsBridge for
+        // the surface, origin guard, and threat model.
         host.attachJsBridge(
             CmsJsBridge(
                 urlPolicy = urlPolicy,
@@ -68,7 +71,10 @@ class ShellActivity : AppCompatActivity() {
                 appVersion = { resolveAppVersion() },
                 cacheApi = (application as CmsApplication).mediaCache(),
                 packageApi = (application as CmsApplication).offlinePackageBridge(),
-                tokenSeal = (application as CmsApplication).webTokenSeal()
+                tokenSeal = (application as CmsApplication).webTokenSeal(),
+                // Phase P (containment): the web session ended inside THIS shell —
+                // the offline stores wipe per the Phase P policy.
+                webSessionEnd = (application as CmsApplication).webSessionEndApi()
             )
         )
 

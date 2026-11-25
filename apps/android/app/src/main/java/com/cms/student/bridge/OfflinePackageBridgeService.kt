@@ -91,6 +91,8 @@ class OfflinePackageBridgeService(
     private val clock: () -> Instant,
     private val onWebStudentBound: (UUID) -> Unit = {},
     private val examLauncher: (String) -> Unit = {},
+    /** Phase P (containment): fired when a web-session end triggers the FULL wipe. */
+    private val onFullWipe: () -> Unit = {},
     private val packageListMax: Int = DEFAULT_PACKAGE_LIST_MAX
 ) : OfflinePackageBridgeSurface {
 
@@ -201,6 +203,78 @@ class OfflinePackageBridgeService(
         // freeze it. CmsApplication posts the start to the main thread.
         examLauncher(id.toString())
         return OPENING
+    }
+
+    // =====================================================================
+    // Phase P (containment) — session-death wipes
+    // =====================================================================
+
+    /**
+     * Phase P (containment) policy — the WEB session inside the shell WebView
+     * just ended (student-web logout, or a 401 verdict routed through its
+     * session-store choke point). Pure logic, no Android types, testable.
+     *
+     *  - `native = sessionProvider()` is null (no live native session, no
+     *    stored-token session) → FULL wipe: [IOfflinePackageStore.wipeAll],
+     *    every in-memory download state + package-id map dropped,
+     *    [lastWebStudentId] cleared, and the [onFullWipe] seam fired so the
+     *    host application can wipe its other installation-scoped stores
+     *    (CmsApplication wires the media cache wipe there). Answers [WIPED].
+     *    A logout with nothing bound is still a full wipe — a no-op wipe, not
+     *    a skipped one (Phase P: containment never depends on prior state).
+     *  - Native session present → the WEB user's OWN packages must still go:
+     *    when [lastWebStudentId] is set and differs from the native student,
+     *    every package bound to the web student is selectively invalidated
+     *    (the native user's records stay — the NATIVE logout owns their wipe).
+     *    The runtime state, package-id map, and web binding are always reset
+     *    (the web binding is gone by definition). The media-cache hook is NOT
+     *    fired. Answers [KEPT_NATIVE_SESSION].
+     *
+     * Honest limitations, by design:
+     *  - The media cache rows are INSTALLATION-scoped, not user-tagged, so with
+     *    a live native session this hook CANNOT selectively wipe media — that
+     *    native user's cached media persists until the native session itself
+     *    dies (its own wipe hook covers the whole cache then). With no native
+     *    session the full wipe (via [onFullWipe]) covers it.
+     *  - No data flows web→native here: the page signals ITS session ended; the
+     *    only direction of effect is native data DESTRUCTION.
+     */
+    fun onWebSessionEnded(): String {
+        val native = sessionProvider()
+        if (native == null) {
+            runCatching { packageStore.wipeAll() }
+            states.clear()
+            packageIdToKey.clear()
+            lastWebStudentId = null
+            onFullWipe()
+            return WIPED
+        }
+        val webStudent = lastWebStudentId
+        if (webStudent != null && webStudent != native.studentId) {
+            runCatching {
+                packageStore.listAll(webStudent, installationId()).forEach { stored ->
+                    packageStore.invalidate(stored.envelope.manifest.packageId, webStudent, installationId())
+                }
+            }
+        }
+        states.clear()
+        packageIdToKey.clear()
+        lastWebStudentId = null
+        return KEPT_NATIVE_SESSION
+    }
+
+    /**
+     * Phase P (containment) — NATIVE session death (logout / auth rejection):
+     * clears every in-memory runtime state (download states, package-id map,
+     * the last web-student binding) with NO store writes — CmsApplication's
+     * native session-death path owns the full store wipe
+     * ([IOfflinePackageStore.wipeAll]) and the media-cache wipe. Pure state
+     * reset, safe to call from any thread.
+     */
+    fun reset() {
+        states.clear()
+        packageIdToKey.clear()
+        lastWebStudentId = null
     }
 
     // =====================================================================
@@ -375,6 +449,10 @@ class OfflinePackageBridgeService(
 
         // removeOfflinePackage(packageId) →
         const val REMOVED = "removed"
+
+        // onWebSessionEnded() (Phase P — via WebSessionEndApi / bridge method #19) →
+        const val WIPED = "wiped"                     // no native session survived: the FULL offline wipe ran
+        const val KEPT_NATIVE_SESSION = "kept_native_session" // a live native session owns its data; only the web binding + runtime state were dropped
 
         /** Empty JSON array — the safe `listOfflinePackages()` answer without a store binding. */
         const val EMPTY_LIST_JSON = "[]"

@@ -7,10 +7,10 @@ import com.cms.student.session.TokenSeal
 import com.cms.student.shell.ShellUrlPolicy
 
 /**
- * Batch 3 + Batch 4 + W2 (UX 3C) — the single, audited `@JavascriptInterface`
- * bridge between student-web (running inside the hardened shell WebView) and
- * Kotlin. [WebViewHost] injects it under [JS_NAME] ("CmsNative") only AFTER
- * every hardening setting is applied.
+ * Batch 3 + Batch 4 + W2 (UX 3C) + Phase P (containment) — the single, audited
+ * `@JavascriptInterface` bridge between student-web (running inside the
+ * hardened shell WebView) and Kotlin. [WebViewHost] injects it under
+ * [JS_NAME] ("CmsNative") only AFTER every hardening setting is applied.
  *
  * Exact JS surface — nothing else is reachable from JavaScript:
  *
@@ -33,6 +33,7 @@ import com.cms.student.shell.ShellUrlPolicy
  * window.CmsNative.offlinePackageStatus(packageId)      // W2: queued|downloading|ready|denied_auth|error:*|absent
  * window.CmsNative.removeOfflinePackage(packageId)      // W2: delete one stored package
  * window.CmsNative.openOfflineExam(packageId)           // W3: launch the hardened offline exam webview
+ * window.CmsNative.notifyWebSessionEnded()              // Phase P: the page reports its session ended -> "wiped"|"kept_native_session"
  * ```
  *
  * Origin guard (mandatory): every method body resolves the WebView's current URL via
@@ -70,6 +71,16 @@ import com.cms.student.shell.ShellUrlPolicy
  * running in the page can always read its own live session (see
  * docs/security/PROTECTION-LIMITS.md).
  *
+ * Phase P (containment) — `notifyWebSessionEnded()` (method #19): the page
+ * signals ITS OWN web session ended; NO data flows web→native on this call,
+ * and the wipe direction is strictly native data DESTRUCTION (question-package
+ * envelopes + this service's runtime state, plus the media cache when no
+ * native session survives — see OfflinePackageBridgeService.onWebSessionEnded).
+ * A hostile caller gains nothing but a self-inflicted wipe of its own
+ * installation-bound offline data (nuisance, not escalation) — and a
+ * non-allowlisted origin cannot even trigger that: the origin guard answers
+ * `denied_origin` without touching the seam.
+ *
  * Forbidden and absent: token accessors (getAccessToken/getRefreshToken), password
  * APIs, raw filesystem paths, arbitrary URL fetch (the native side derives the
  * allowlisted API content URL itself from the UUID — a JS-supplied URL is never
@@ -82,7 +93,8 @@ class CmsJsBridge(
     private val appVersion: () -> String,
     private val cacheApi: CmsNativeCacheApi,
     private val packageApi: OfflinePackageBridgeSurface,
-    private val tokenSeal: TokenSeal
+    private val tokenSeal: TokenSeal,
+    private val webSessionEnd: WebSessionEndApi
 ) {
 
     /**
@@ -230,6 +242,22 @@ class CmsJsBridge(
             if (!isPackageIdArgument(packageId)) OfflinePackageBridgeService.INVALID_ARGS
             else guarded({ packageApi.openOfflineExam(packageId!!.trim()) }, OfflinePackageBridgeService.ERROR)
         } else CacheStatus.DENIED_ORIGIN
+
+    // ===== Phase P (containment) — web-session-end wipe notification =====
+
+    /**
+     * Method #19 (Phase P): the page reports its own web session ended (logout
+     * or a 401 verdict). No arguments, no data crossing web→native — the native
+     * side answers with the wipe outcome code: `wiped` (no native session
+     * survived: full offline wipe ran) or `kept_native_session` (a live native
+     * session owns its data). `error` when the seam fails; `denied_origin`
+     * when the current origin is not allowlisted (the seam is never invoked —
+     * a foreign page cannot trigger a wipe).
+     */
+    @JavascriptInterface
+    fun notifyWebSessionEnded(): String =
+        if (isOriginAllowed()) guarded({ webSessionEnd.onWebSessionEnded() }, OfflinePackageBridgeService.ERROR)
+        else CacheStatus.DENIED_ORIGIN
 
     /**
      * Package ids are ALWAYS canonical hyphenated UUIDs — anything else (blank,
