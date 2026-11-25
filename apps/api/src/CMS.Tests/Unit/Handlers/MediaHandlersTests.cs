@@ -44,6 +44,14 @@ namespace CMS.Tests.Unit.Handlers;
 ///   • a non-rung .m3u8 is conservatively treated as a variant;
 ///   • a mid-rewrite presign failure fails fast (BadGatewayException → HTTP 502)
 ///     — a partial playlist is never served.
+///
+/// WAVE-5 (offline media content) — GetMediaContentQuery: the API-streamed byte
+/// channel for the Android offline cache. The full rejection matrix mirrors
+/// playback (non-streamable kinds, YouTube-hosted, upload-incomplete, unpublished
+/// course, entitlement scope), plus the offline-specific pins: the storage key is
+/// ALWAYS the original object (even for Ready HLS assets), the Content-Type comes
+/// from the entity with video/audio fallbacks, and the cache-control is the short
+/// private window.
 /// </summary>
 public sealed class MediaHandlersTests
 {
@@ -1326,5 +1334,268 @@ public sealed class MediaHandlersTests
         var result = await handler.Handle(new GetPlaybackUrlQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
 
         result.IsFavorite.Should().BeFalse();
+    }
+
+    // ===== WAVE-5 (offline media content): GetMediaContentQuery =====
+
+    /// <summary>Bytes the storage fake serves for the offline content happy paths.</summary>
+    private static byte[] MediaBytes() => new byte[] { 0x00, 0x01, 0x02, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6F, 0x6D };
+
+    [Fact]
+    public async Task GetMediaContent_CourseEpisode_DownloadsSourceFileKey_WithEntityContentType()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedEpisodeAsync(db);
+        var (handler, storage, _) = Create(db);
+        storage.Setup(service => service.DownloadAsync("courses/test/episode", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MemoryStream(MediaBytes()));
+
+        var result = await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
+
+        result.ContentType.Should().Be("video/mp4");
+        result.CacheControl.Should().Be("private, max-age=120");
+        using var content = result.Content;
+        using var buffer = new MemoryStream();
+        await content.CopyToAsync(buffer);
+        buffer.ToArray().Should().Equal(MediaBytes(), "the offline cache stores exactly the bytes storage served");
+        storage.Verify(service => service.DownloadAsync("courses/test/episode", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetMediaContent_LibraryVideo_DownloadsFileUrl()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var file = await SeedVideoFileAsync(db);
+        var (handler, storage, _) = Create(db);
+        storage.Setup(service => service.DownloadAsync("library/test/video", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MemoryStream(MediaBytes()));
+
+        var result = await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
+
+        result.ContentType.Should().Be("video/mp4");
+        result.CacheControl.Should().Be("private, max-age=120");
+        storage.Verify(service => service.DownloadAsync("library/test/video", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetMediaContent_LibraryAudio_MissingFileFormat_FallsBackToAudioMpeg()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var file = await SeedVideoFileAsync(db, "library/test/audio", LibraryFileType.Audio);
+        db.LibraryFiles.Update(file);
+        file.FileFormat = null; // audio asset without a stored format — exercises the fallback
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+        storage.Setup(service => service.DownloadAsync("library/test/audio", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MemoryStream(MediaBytes()));
+
+        var result = await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
+
+        result.ContentType.Should().Be("audio/mpeg");
+    }
+
+    [Fact]
+    public async Task GetMediaContent_NonStreamableType_IsRejected()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var file = await SeedVideoFileAsync(db, "library/test/doc.pdf", LibraryFileType.Pdf);
+        var (handler, storage, _) = Create(db);
+
+        var act = async () => await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("MEDIA_TYPE_NOT_STREAMABLE");
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetMediaContent_LibraryVideoYouTubeHosted_IsRejected()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var file = await SeedVideoFileAsync(db);
+        db.LibraryFiles.Update(file);
+        file.YoutubeVideoId = "abc123";
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+
+        var act = async () => await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("MEDIA_YOUTUBE_HOSTED");
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetMediaContent_YouTubeEpisode_IsRejected()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedEpisodeAsync(db);
+        db.CourseEpisodes.Update(episode);
+        episode.SourceType = CourseEpisodeSource.YouTube;
+        episode.FileKey = null;
+        episode.UploadId = null;
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+
+        var act = async () => await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("MEDIA_YOUTUBE_HOSTED");
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetMediaContent_EpisodeWithEmptyFileKey_IsRejected()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedEpisodeAsync(db);
+        db.CourseEpisodes.Update(episode);
+        episode.FileKey = string.Empty; // upload-shaped row with an empty key — same refusal as playback
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+
+        var act = async () => await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("MEDIA_YOUTUBE_HOSTED");
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetMediaContent_EpisodeUploadIncomplete_IsRejected()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedEpisodeAsync(db);
+        db.CourseEpisodes.Update(episode);
+        episode.UploadId = "multipart-in-progress";
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+
+        var act = async () => await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("EPISODE_UPLOAD_INCOMPLETE");
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetMediaContent_EntitlementDeniedLibrary_IsForbidden()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var file = await SeedVideoFileAsync(db);
+        var (handler, storage, entitlements) = Create(db);
+        entitlements.Setup(service => service.CanAccessSubjectContentAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), SubscriptionContentScope.VideoAudio, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var act = async () => await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
+
+        await act.Should().ThrowAsync<ForbiddenException>();
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetMediaContent_EntitlementDeniedEpisode_IsForbidden()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedEpisodeAsync(db);
+        var (handler, storage, entitlements) = Create(db);
+        entitlements.Setup(service => service.CanAccessSubjectContentAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), SubscriptionContentScope.VideoAudio, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var act = async () => await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
+
+        await act.Should().ThrowAsync<ForbiddenException>();
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetMediaContent_EpisodeInUnpublishedCourse_IsForbidden()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedEpisodeAsync(db);
+        var course = db.Courses.First();
+        db.Courses.Update(course);
+        course.Status = ContentStatus.Draft;
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+
+        var act = async () => await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
+
+        await act.Should().ThrowAsync<ForbiddenException>();
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetMediaContent_UnknownLibraryFile_IsNotFound()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var (handler, storage, _) = Create(db);
+
+        var act = async () => await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.LibraryFile, Guid.NewGuid()), CancellationToken.None);
+
+        await act.Should().ThrowAsync<NotFoundException>();
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetMediaContent_UnknownEpisode_IsNotFound()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var (handler, storage, _) = Create(db);
+
+        var act = async () => await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.CourseEpisode, Guid.NewGuid()), CancellationToken.None);
+
+        await act.Should().ThrowAsync<NotFoundException>();
+        storage.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetMediaContent_UnpublishedLibraryFile_IsNotFound()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var file = await SeedVideoFileAsync(db);
+        db.LibraryFiles.Update(file);
+        file.Status = ContentStatus.Draft;
+        await db.SaveChangesAsync();
+        var (handler, storage, _) = Create(db);
+
+        var act = async () => await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.LibraryFile, file.Id), CancellationToken.None);
+
+        await act.Should().ThrowAsync<NotFoundException>();
+        storage.VerifyNoOtherCalls();
+    }
+
+    /// <summary>
+    /// The offline-specific pin: a Ready asset with a pinned HLS ladder still downloads
+    /// its ORIGINAL source object. Offline playback reads the complete local file (no
+    /// adaptive streaming), so the ladder is useless to the cache — and unlike playback,
+    /// the content channel must never silently switch keys on transcoding state.
+    /// </summary>
+    [Fact]
+    public async Task GetMediaContent_ReadyHlsEpisode_StillServesTheSourceObject()
+    {
+        using var db = TestDbHelper.CreateInMemoryContext();
+        var student = db.Students.First();
+        var episode = await SeedReadyEpisodeWithLadderAsync(db);
+        var (handler, storage, _) = Create(db);
+        storage.Setup(service => service.DownloadAsync("courses/test/episode", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MemoryStream(MediaBytes()));
+
+        var result = await handler.Handle(new GetMediaContentQuery(student.Id, MediaAssetType.CourseEpisode, episode.Id), CancellationToken.None);
+
+        result.ContentType.Should().Be("video/mp4", "the source object's entity content type, not the ladder's mpegurl");
+        storage.Verify(service => service.DownloadAsync("courses/test/episode", It.IsAny<CancellationToken>()), Times.Once);
+        storage.VerifyNoOtherCalls();
     }
 }
