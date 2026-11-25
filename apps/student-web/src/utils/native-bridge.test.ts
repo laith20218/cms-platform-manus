@@ -6,6 +6,7 @@ import {
   hasNativeShell,
   isSealedValue,
   isTokenSealAvailable,
+  nativeNotifyWebSessionEnded,
   sealForLocalPersistence,
   unsealForLocalPersistence,
 } from './native-bridge';
@@ -178,5 +179,54 @@ describe('native token seal helpers (D-JS-AUTH)', () => {
     });
     expect(sealForLocalPersistence('blob')).toBeNull();
     expect(unsealForLocalPersistence('v1:blob')).toBeNull();
+  });
+});
+
+describe('native web-session-end notification (Phase P)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    removeNativeBridge();
+  });
+
+  afterEach(() => {
+    removeNativeBridge();
+    localStorage.clear();
+  });
+
+  it('answers null in a plain browser and on pre-Phase-P shells without the method', () => {
+    expect(nativeNotifyWebSessionEnded()).toBeNull();
+
+    // Old shell: the four required methods, no wipe notification — no-op.
+    installNativeBridge();
+    expect(nativeNotifyWebSessionEnded()).toBeNull();
+  });
+
+  it('returns the native wipe outcome code when the shell exposes the method', () => {
+    installNativeBridge({ notifyWebSessionEnded: () => 'wiped' });
+    expect(nativeNotifyWebSessionEnded()).toBe('wiped');
+
+    installNativeBridge({ notifyWebSessionEnded: () => 'kept_native_session' });
+    expect(nativeNotifyWebSessionEnded()).toBe('kept_native_session');
+  });
+
+  it('trims the returned code', () => {
+    installNativeBridge({ notifyWebSessionEnded: () => '  wiped  ' });
+    expect(nativeNotifyWebSessionEnded()).toBe('wiped');
+  });
+
+  it('treats blank, non-string, and throwing answers as null (fail closed, never propagate)', () => {
+    installNativeBridge({ notifyWebSessionEnded: () => '' });
+    expect(nativeNotifyWebSessionEnded()).toBeNull();
+
+    installNativeBridge({ notifyWebSessionEnded: () => '   ' });
+    expect(nativeNotifyWebSessionEnded()).toBeNull();
+
+    installNativeBridge({ notifyWebSessionEnded: () => 12345 as unknown as string });
+    expect(nativeNotifyWebSessionEnded()).toBeNull();
+
+    installNativeBridge({
+      notifyWebSessionEnded: () => { throw new Error('bridge unavailable'); },
+    });
+    expect(nativeNotifyWebSessionEnded()).toBeNull();
   });
 });

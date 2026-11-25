@@ -4,8 +4,9 @@
  * (apps/android `com.cms.student.bridge.CmsJsBridge`).
  *
  * The bridge surface is fixed to exactly four read-only methods plus the
- * optional D-JS-AUTH seal pair; this module is the ONLY place that touches it,
- * so the contract stays auditable in one file:
+ * optional D-JS-AUTH seal pair and the optional Phase P web-session-end
+ * notification; this module is the ONLY place that touches it, so the
+ * contract stays auditable in one file:
  *
  *   window.CmsNative.hasNativeShell()    -> true
  *   window.CmsNative.getPlatform()       -> "android"
@@ -13,6 +14,7 @@
  *   window.CmsNative.getInstallationId()  -> per-install device identity (UUID)
  *   window.CmsNative.sealForLocalPersistence?(blob)      -> "v1:<base64>"  (D-JS-AUTH, optional)
  *   window.CmsNative.unsealForLocalPersistence?(sealed)  -> blob           (D-JS-AUTH, optional)
+ *   window.CmsNative.notifyWebSessionEnded?()            -> "wiped"|"kept_native_session" (Phase P, optional)
  *
  * Everything is feature-detected: in a plain browser (no `window.CmsNative`) every
  * helper returns a falsy value and callers keep their existing web behavior, so the
@@ -31,6 +33,8 @@ export interface CmsNativeBridge {
   sealForLocalPersistence?(plaintext: string): string;
   /** D-JS-AUTH (2026-11-24): inverse of sealForLocalPersistence. */
   unsealForLocalPersistence?(sealed: string): string;
+  /** Phase P (containment): present only in shells that ship the wipe notification. */
+  notifyWebSessionEnded?(): string;
 }
 
 const NATIVE_BRIDGE_NAME = 'CmsNative';
@@ -161,4 +165,34 @@ export function unsealForLocalPersistence(sealed: string): string | null {
 /** True for values carrying the native seal envelope prefix (v1:). */
 export function isSealedValue(value: string): boolean {
   return value.startsWith(SEALED_ENVELOPE_PREFIX);
+}
+
+// ---------------------------------------------------------------------------
+// Phase P (containment) — the web-session-end wipe notification.
+//
+// clearSession() (the single choke point behind logout AND the 401 verdict)
+// notifies the shell when the WEB session ends so the native side can wipe its
+// offline stores (question-package envelopes + bridge runtime state; media
+// cache too when no native session survives). The method is OPTIONAL on the
+// bridge: older shells simply lack it, in which case this is an honest no-op
+// (version-skew gap — nothing is faked). No data crosses web→native — the
+// only direction of effect is native data DESTRUCTION.
+// ---------------------------------------------------------------------------
+
+/**
+ * Tells the native side the web session ended. Returns the native status
+ * code ("wiped" | "kept_native_session") or null outside the shell / on an
+ * older shell without the method / on any failure (fail closed, never throw).
+ */
+export function nativeNotifyWebSessionEnded(): string | null {
+  const bridge = readNativeBridge();
+  if (!bridge || typeof bridge.notifyWebSessionEnded !== 'function') return null;
+  try {
+    const code = bridge.notifyWebSessionEnded();
+    if (typeof code !== 'string') return null;
+    const trimmed = code.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
 }
