@@ -41,6 +41,10 @@ const TermsPage = lazy(() => import('@/features/legal/TermsPage'));
 const PrivacyPage = lazy(() => import('@/features/legal/PrivacyPage'));
 // W16.5 — admin-managed contact page (public route, like terms/privacy).
 const ContactPage = lazy(() => import('@/features/legal/ContactPage'));
+// W3 (UX 2A) — the offline exam player route: PUBLIC (the page is served by the
+// dedicated CmsOfflineExam bridge inside OfflineExamWebActivity's WebView, not
+// by the web session); a plain browser gets the honest "Android app only" state.
+const OfflineExamPage = lazy(() => import('@/features/offline/OfflineExamPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 const ActivateCodePage = lazy(() => import('@/features/subscriptions/ActivateCodePage'));
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage'));
@@ -65,6 +69,9 @@ export function AppRoutes() {
         <Route path="/privacy" element={<PrivacyPage />} />
         {/* W16.5 — admin-managed contact page (content store, anonymous). */}
         <Route path="/contact" element={<ContactPage />} />
+        {/* W3 (UX 2A) — offline exam player for downloaded question packages; the
+            dedicated WebView bridge (window.CmsOfflineExam) is the only data source. */}
+        <Route path="/offline-exam/:packageId" element={<OfflineExamPage />} />
 
         {/* Protected Routes */}
         <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
