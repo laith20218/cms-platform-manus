@@ -365,21 +365,46 @@ class FakeChunkedFileStore : ChunkedFileStore {
         val chunks = plan.chunkSizes.map { size -> ByteArray(size) { (it % 251).toByte() } }
         records[episodeId] = Record(
             chunks.toMutableList(),
-            ChunkedEpisodeMeta(
-                episodeId = episodeId,
-                courseId = null,
-                subjectId = null,
-                title = null,
-                type = type,
-                contentType = null,
-                totalBytes = bytes,
-                chunkCount = plan.chunkCount,
-                createdAt = at.toString(),
-                lastAccessAt = at.toString(),
-                entitlementExpiresAt = entitlementExpiresAt
-            )
+            metaFor(episodeId, bytes, plan.chunkCount, at, type, entitlementExpiresAt)
         )
     }
+
+    /**
+     * Test helper: seeds ONLY the metadata row of a completed episode — no chunk
+     * bytes materialized (quota fixtures use multi-GiB sizes that must not be
+     * allocated). The service's eviction/status paths read the meta only.
+     */
+    fun publishMeta(
+        episodeId: String,
+        bytes: Long,
+        at: Instant = now,
+        type: String = "video",
+        entitlementExpiresAt: String? = null
+    ) {
+        val plan = ChunkSequencePlanner.plan(bytes)
+        records[episodeId] = Record(mutableListOf(), metaFor(episodeId, bytes, plan.chunkCount, at, type, entitlementExpiresAt))
+    }
+
+    private fun metaFor(
+        episodeId: String,
+        bytes: Long,
+        chunkCount: Int,
+        at: Instant,
+        type: String,
+        entitlementExpiresAt: String?
+    ) = ChunkedEpisodeMeta(
+        episodeId = episodeId,
+        courseId = null,
+        subjectId = null,
+        title = null,
+        type = type,
+        contentType = null,
+        totalBytes = bytes,
+        chunkCount = chunkCount,
+        createdAt = at.toString(),
+        lastAccessAt = at.toString(),
+        entitlementExpiresAt = entitlementExpiresAt
+    )
 
     /** Test helper: the raw chunk list of one episode (assertion convenience). */
     fun chunksOf(id: String): List<ByteArray>? = records[id]?.chunks
