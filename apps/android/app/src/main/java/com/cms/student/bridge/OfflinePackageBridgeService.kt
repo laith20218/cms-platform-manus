@@ -65,6 +65,10 @@ internal data class PackageDownloadKey(val subjectId: UUID, val examId: UUID?)
  *    — an honest empty: the store is installation-bound anyway, and logout
  *    wipes it (Wave 4). Process death forgets the last web student; the web
  *    page re-passes its token on the next CTA, which restores the binding.
+ *    Every web binding is reported through the [onWebStudentBound] constructor
+ *    seam so the host application can mirror it (W3: the offline exam webview
+ *    resolves a token-less session from that mirror when no native session
+ *    exists — the server stays the only token verifier).
  *
  * Threading model: every public method may run on the WebView JavaBridge
  * thread; none of them performs unbounded work — `downloadOfflinePackage`
@@ -85,6 +89,7 @@ class OfflinePackageBridgeService(
     private val installationId: () -> String,
     private val executor: Executor,
     private val clock: () -> Instant,
+    private val onWebStudentBound: (UUID) -> Unit = {},
     private val packageListMax: Int = DEFAULT_PACKAGE_LIST_MAX
 ) : OfflinePackageBridgeSurface {
 
@@ -145,7 +150,10 @@ class OfflinePackageBridgeService(
             // web-token-resolved student is remembered so status/list/remove
             // keep answering without any live session (binding = memory only).
             if (sessionProvider() == null) {
-                resolveSession(request.accessToken)?.let { lastWebStudentId = it.studentId }
+                resolveSession(request.accessToken)?.let {
+                    lastWebStudentId = it.studentId
+                    onWebStudentBound(it.studentId)
+                }
             }
             return READY
         }
@@ -205,7 +213,10 @@ class OfflinePackageBridgeService(
             state.packageId = packageId
             packageIdToKey[packageId] = state.key
             state.phase = PackageDownloadState.Phase.READY
-            if (fromWebSession) lastWebStudentId = session.studentId
+            if (fromWebSession) {
+                lastWebStudentId = session.studentId
+                onWebStudentBound(session.studentId)
+            }
         } catch (transport: OfflineTransportException) {
             when (transport.statusCode) {
                 401, 403 -> state.phase = PackageDownloadState.Phase.DENIED_AUTH

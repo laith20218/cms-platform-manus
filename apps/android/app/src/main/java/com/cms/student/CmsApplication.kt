@@ -33,6 +33,7 @@ import com.cms.student.session.NativeSessionManager
 import com.cms.student.session.StoredNativeSession
 import com.cms.student.session.TokenSeal
 import com.cms.student.session.TokenStore
+import com.cms.student.security.IOfflinePackageStore
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -123,6 +124,47 @@ class CmsApplication : Application() {
         sessionVerifiedThisProcess = false
         sessionManager.onAuthRejected()
     }
+
+    // =====================================================================
+    // W3 (UX 2A) — offline exam webview session graph
+    // =====================================================================
+
+    /**
+     * Last student bound by a successful WEB-session package download — the
+     * memory-only mirror of OfflinePackageBridgeService's binding (the service
+     * reports every binding through its [OfflinePackageBridgeService]
+     * onWebStudentBound seam). Never persisted; process death forgets it and the
+     * next web-token download re-binds.
+     */
+    @Volatile
+    var lastWebStudentId: UUID? = null
+        private set
+
+    /**
+     * The student binding the offline exam webview resolves: the native session
+     * (in-memory or stored token pair), else the last web-bound student as a
+     * TOKEN-LESS [OfflineSession] (empty accessToken). Opening and answering stay
+     * fully offline with that binding; sync then fails honestly (auth-rejected —
+     * the answers stay encrypted locally) because no usable token exists.
+     */
+    fun offlineExamSession(): OfflineSession? =
+        activeSessionForMedia() ?: lastWebStudentId?.let { OfflineSession(it, "", installationId) }
+
+    /**
+     * W3 (UX 2A) — session + runtime pair the exam activity resolves ONCE: the
+     * coordinator behind the runtime is the same graph the native fallback
+     * (OfflineExamActivity) uses. Null (no session OR trusted-offline disabled)
+     * maps to the runner's honest `denied_session` phase.
+     */
+    fun offlineExamRuntimeBinding(): OfflineExamRuntimeBinding? {
+        val coordinator = runtime ?: return null
+        val session = offlineExamSession() ?: return null
+        return OfflineExamRuntimeBinding(AuthenticatedOfflineRuntime(coordinator, session), session)
+    }
+
+    /** The shared encrypted package store (subject resolution in the exam runner). */
+    fun offlinePackageStoreForExams(): IOfflinePackageStore = offlinePackageStore
+
 
     /** Local encrypted read only — safe on the main thread; used to decide whether to attempt a restore. */
     fun hasStoredNativeSession(): Boolean = tokenStore.read() != null
@@ -284,7 +326,10 @@ class CmsApplication : Application() {
             sessionProvider = ::activeSessionForMedia,
             installationId = { installationId },
             executor = packageExecutor,
-            clock = Instant::now
+            clock = Instant::now,
+            // W3 (UX 2A): mirror the service's web-student binding into the
+            // application so the exam webview can resolve a token-less session.
+            onWebStudentBound = { lastWebStudentId = it }
         )
     }
 
@@ -306,3 +351,9 @@ class AuthenticatedOfflineRuntime internal constructor(
     fun sync(packageId: UUID, examSessionId: UUID? = null) = coordinator.sync(session, packageId, examSessionId)
     fun refreshStatus(packageId: UUID) = coordinator.refreshStatus(session, packageId)
 }
+
+/** W3 (UX 2A) — the exam activity's one-shot resolution: runtime + its session binding. */
+data class OfflineExamRuntimeBinding(
+    val runtime: AuthenticatedOfflineRuntime,
+    val session: OfflineSession
+)
