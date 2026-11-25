@@ -6,6 +6,7 @@
  *  activate, revoke) preserved 1:1. */
 import { FormEvent, useEffect, useState } from 'react';
 import { AlertCircle, BadgeCheck, Ban, Copy, Check, Download, Eye, KeyRound, LoaderCircle, Plus, RefreshCw, Search, UsersRound, Ticket, UserPlus } from 'lucide-react';
+import { ConfirmDialog } from '@cms/ui';
 import { apiRequest, type PagedResult } from '../lib/api';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
@@ -46,6 +47,28 @@ const statusChipClass = (status: string) => {
   return 'text-slate-600 bg-slate-50 border-slate-200';
 };
 
+// W3 (admin-ui): code/subscription statuses must never render raw enum wire
+// values (Active/Used/…) on the Arabic surface (debt D-23).
+const codeStatusLabel = (status: string, isArabic: boolean) => {
+  switch (status.toLowerCase()) {
+    case 'active': return isArabic ? 'نشط' : 'Active';
+    case 'used': return isArabic ? 'مستخدم' : 'Used';
+    case 'revoked': return isArabic ? 'مُبطَل' : 'Revoked';
+    case 'expired': return isArabic ? 'منتهي' : 'Expired';
+    default: return isArabic ? 'غير معروف' : status;
+  }
+};
+
+const redemptionStatusLabel = (status: string, isArabic: boolean) => {
+  switch (status.toLowerCase()) {
+    case 'active': return isArabic ? 'نشطة' : 'Active';
+    case 'cancelled':
+    case 'revoked': return isArabic ? 'مُبطلة' : 'Revoked';
+    case 'expired': return isArabic ? 'منتهية' : 'Expired';
+    default: return isArabic ? 'غير معروفة' : status;
+  }
+};
+
 export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
   // Push 3: cosmetic gating — the API policies remain the real boundary.
   // activate-for-student stays ungated (out-of-census control); backend policy is the gate.
@@ -66,6 +89,11 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
   const [form, setForm] = useState({ contentScope: 'questions_exams' as ContentScope, isPublic: false, quantity: '1', durationDays: '0', prefix: '', codeExpiresAt: '' });
   const [revokeTarget, setRevokeTarget] = useState<CodeItem | null>(null);
   const [revokeReason, setRevokeReason] = useState('');
+  // W3 (admin-ui): bulk revoke is destructive over N subscriptions — it needs
+  // an explicit confirm with a mandatory reason (debt D-09: it previously
+  // fired on a single click, silently swallowed per-item failures, and sent a
+  // hardcoded English reason).
+  const [bulkRevokeOpen, setBulkRevokeOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
   const [filterScopeType, setFilterScopeType] = useState('');
@@ -220,19 +248,33 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
     URL.revokeObjectURL(url);
   }
 
-  async function bulkRevoke() {
+  async function bulkRevoke(reason: string) {
     if (selectedIds.size === 0) return;
     setBusy(true);
+    const failed: string[] = [];
     let success = 0;
     for (const id of selectedIds) {
       try {
-        await request(`/api/v1/admin/codes/${id}/revoke`, { method: 'POST', body: JSON.stringify({ reason: 'Bulk revoke by admin' }) });
+        await request(`/api/v1/admin/codes/${id}/revoke`, { method: 'POST', body: JSON.stringify({ reason }) });
         success++;
-      } catch { /* continue */ }
+      } catch {
+        const code = codes.find(item => item.id === id);
+        failed.push(code?.code ?? id);
+      }
     }
     setBusy(false);
+    setBulkRevokeOpen(false);
+    setSelectedIds(new Set());
     await loadCodes();
-    onNotice(isArabic ? `تم إبطال ${success} كود.` : `${success} code(s) revoked.`);
+    if (failed.length > 0) {
+      // Honest failure surfacing: the operator sees exactly which codes
+      // survived (previously swallowed with /* continue */).
+      onError(isArabic
+        ? `أُبطل ${success} كود، وفشل ${failed.length}: ${failed.join('، ')}`
+        : `${success} code(s) revoked; ${failed.length} failed: ${failed.join(', ')}`);
+    } else {
+      onNotice(isArabic ? `تم إبطال ${success} كود.` : `${success} code(s) revoked.`);
+    }
   }
 
   async function searchStudents(query: string) {
@@ -310,7 +352,7 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
               </button>
             )}
             {selectedIds.size > 0 && can('btn:codes.revoke-bulk') && (
-              <button type="button" onClick={() => void bulkRevoke()} disabled={busy} title={isArabic ? 'إبطال المحدد' : 'Revoke selected'} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-600 bg-white hover:bg-red-50 transition-colors disabled:opacity-50">
+              <button type="button" onClick={() => setBulkRevokeOpen(true)} disabled={busy} title={isArabic ? 'إبطال المحدد' : 'Revoke selected'} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-600 bg-white hover:bg-red-50 transition-colors disabled:opacity-50">
                 {busy ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}{selectedIds.size}
               </button>
             )}
@@ -402,7 +444,7 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
                 return (
                   <article key={code.id} className={`flex flex-col md:flex-row md:items-center gap-3 p-3 rounded-lg border border-slate-100 hover:border-slate-200 transition-colors ${inactive ? 'opacity-60' : ''}`}>
                     {code.status.toLowerCase() === 'active' && (
-                      <input type="checkbox" checked={selectedIds.has(code.id)} onChange={(e) => { const next = new Set(selectedIds); if (e.target.checked) next.add(code.id); else next.delete(code.id); setSelectedIds(next); }} className="h-4 w-4 accent-teal-600 shrink-0" />
+                      <input type="checkbox" checked={selectedIds.has(code.id)} onChange={(e) => { const next = new Set(selectedIds); if (e.target.checked) next.add(code.id); else next.delete(code.id); setSelectedIds(next); }} aria-label={isArabic ? `تحديد ${code.code}` : `Select ${code.code}`} className="h-4 w-4 accent-teal-600 shrink-0" />
                     )}
                     <div className="min-w-0 md:w-48">
                       <div className="flex items-center gap-1">
@@ -421,7 +463,7 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
                         : (isArabic ? 'لم يُفعَّل بعد' : 'No redemptions yet')}</small>
                     </div>
                     <div className="flex items-center gap-2 md:flex-col md:items-end">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs border ${statusChipClass(code.status)}`}>{code.status}</span>
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs border ${statusChipClass(code.status)}`}>{codeStatusLabel(code.status, isArabic)}</span>
                       {code.expiresAt && <small className="text-xs text-slate-400">{dateFmt.format(new Date(code.expiresAt))}</small>}
                     </div>
                     <div className="flex items-center gap-1">
@@ -601,7 +643,7 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
                       <div className="flex items-center gap-3 text-xs text-slate-500">
                         <span>{isArabic ? 'من' : 'from'} {dateFmt.format(new Date(row.startsAt))}</span>
                         <span>{isArabic ? 'إلى' : 'until'} {row.expiresAt === '0001-01-01T00:00:00Z' ? (isArabic ? 'دائم' : 'permanent') : dateFmt.format(new Date(row.expiresAt))}</span>
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs border ${redemptionStatusChip(row.status)}`}>{row.status}</span>
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs border ${redemptionStatusChip(row.status)}`}>{redemptionStatusLabel(row.status, isArabic)}</span>
                       </div>
                     </li>
                   ))}
@@ -685,6 +727,26 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
           </div>
         </div>
       )}
+
+      {/* W3 (admin-ui): bulk revoke — explicit danger confirm with a mandatory
+          reason (previously a single unconfirmed click with a hardcoded
+          English reason and silent per-item failure swallowing, debt D-09). */}
+      <ConfirmDialog
+        open={bulkRevokeOpen}
+        onOpenChange={(next) => { if (!next) setBulkRevokeOpen(false); }}
+        title={isArabic ? 'إبطال الرموز المحددة' : 'Revoke selected codes'}
+        description={isArabic
+          ? `سيُبطَل ${selectedIds.size} رمز، وسيفقد جميع الطلاب الذين استردوها وصولهم للمحتوى المرتبط بها. لا يمكن التراجع، وسيُسجَّل السبب في سجل التدقيق.`
+          : `${selectedIds.size} code(s) will be revoked — every student who redeemed them loses access to the linked content. This cannot be undone; the reason is recorded in the audit log.`}
+        confirmLabel={isArabic ? 'تأكيد الإبطال' : 'Confirm revoke'}
+        cancelLabel={isArabic ? 'إلغاء' : 'Cancel'}
+        variant="danger"
+        requireReason={{ label: isArabic ? 'سبب الإبطال' : 'Revoke reason', placeholder: isArabic ? 'سبب واضح وآمن للتدقيق.' : 'A clear, audit-safe reason.' }}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={(reason) => { if (reason) void bulkRevoke(reason); }}
+        testId="bulk-revoke-confirm"
+      />
     </section>
   );
 }
