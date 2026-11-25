@@ -263,7 +263,9 @@ public class AdminAnalyticsController : ControllerBase
     public async Task<IActionResult> GetContentAnalytics(
         [FromQuery] DateTime? dateFrom, [FromQuery] DateTime? dateTo, CancellationToken ct = default)
     {
-        var (from, to) = ParseRange(dateFrom, dateTo, 30);
+        // CodeQL: the parsed range is intentionally unused here (content analytics
+        // reports totals, not windowed counts) — the call still validates the inputs.
+        ParseRange(dateFrom, dateTo, 30);
 
         var publishedFiles = await _db.LibraryFiles.CountAsync(f => f.Status == Domain.Enums.ContentStatus.Published, ct);
         var draftFiles = await _db.LibraryFiles.CountAsync(f => f.Status == Domain.Enums.ContentStatus.Draft, ct);

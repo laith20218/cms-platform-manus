@@ -23,7 +23,6 @@ public sealed class LeaderboardScopeTests
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var student = TestDbHelper.GetTestStudent(db);
-        var subject = TestDbHelper.GetTestSubject(db);
 
         var cache = new Mock<ICacheService>(MockBehavior.Strict);
         var entitlements = new Mock<IEntitlementService>(MockBehavior.Strict);
@@ -108,7 +107,6 @@ public sealed class LeaderboardScopeTests
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var student = TestDbHelper.GetTestStudent(db);
-        var subject = TestDbHelper.GetTestSubject(db);
         var otherSubjectId = Guid.NewGuid();
 
         var cache = new Mock<ICacheService>(MockBehavior.Strict);

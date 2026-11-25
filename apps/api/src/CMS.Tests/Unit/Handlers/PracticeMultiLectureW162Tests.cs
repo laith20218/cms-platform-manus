@@ -132,7 +132,7 @@ public class PracticeMultiLectureW162Tests
         db.Lectures.AddRange(lecture1, lecture2, lecture3);
         await db.SaveChangesAsync();
 
-        var inFirst = await SeedQuestionAsync(db, subject.Id, lecture1.Id, "سؤال المحاضرة 1");
+        await SeedQuestionAsync(db, subject.Id, lecture1.Id, "سؤال المحاضرة 1");
         var inSecond = await SeedQuestionAsync(db, subject.Id, lecture2.Id, "سؤال المحاضرة 2");
         var inThird = await SeedQuestionAsync(db, subject.Id, lecture3.Id, "سؤال المحاضرة 3 خارج العدسة");
 

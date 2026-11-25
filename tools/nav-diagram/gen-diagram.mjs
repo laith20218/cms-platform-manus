@@ -100,9 +100,6 @@ function labelRot(x, y, text, color) {
   body += `<rect x="${x - 8}" y="${y - w / 2}" width="16" height="${w}" rx="8" fill="#ffffff" fill-opacity="0.95" stroke="${color}" stroke-width="0.8"/>`;
   body += `<text x="${x}" y="${y}" text-anchor="middle" transform="rotate(-90 ${x} ${y})" ${AR} font-size="10.5" fill="${color}" font-weight="600">${esc(text)}</text>`;
 }
-function caption(x, y, text, color = C.sub, size = 12) {
-  body += `<text x="${x}" y="${y}" text-anchor="middle" ${AR} font-size="${size}" fill="${color}">${esc(text)}</text>`;
-}
 
 function edge(from, fromSide, to, toSide, opts = {}) {
   const { label: labelText, color = 'gray', dashed = false, ft = 0.5, lt = 0.5, labelX, labelY, cp1, cp2, width = 2, noArrow = false } = opts;

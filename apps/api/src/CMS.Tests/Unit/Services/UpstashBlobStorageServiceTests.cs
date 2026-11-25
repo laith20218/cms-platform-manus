@@ -282,7 +282,8 @@ public sealed class UpstashBlobStorageServiceConfigurationTests
     {
         // S3 DELETE is idempotent (missing keys return 204), but a defensive 404 from
         // the store must still be swallowed to preserve the idempotent contract.
-        var (s3, factory) = BuildS3Factory(s3 => s3
+        // CodeQL: the outer `s3` binding was shadowed by the lambda parameter and never read.
+        var (_, factory) = BuildS3Factory(s3 => s3
             .Setup(c => c.DeleteObjectAsync(It.IsAny<DeleteObjectRequest>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new AmazonS3Exception("NoSuchKey") { StatusCode = HttpStatusCode.NotFound }));
         var (svc, _) = BuildService(factory: factory);

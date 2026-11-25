@@ -34,7 +34,6 @@ import { chromium } from '@playwright/test';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
-import path from 'node:path';
 
 const BASE_URL = process.env.E2E_WEB_URL ?? 'http://127.0.0.1:5173';
 const EXECUTABLE =

@@ -550,7 +550,8 @@ async function main() {
       // line. The DOM resolver rewrites the boxes right after the layer
       // build, so the gate polls until the geometry is char-precise (the
       // pre-12.1 whole-item boxes fail the widthRatio ≤ 1.35 arm by ≈ 4×).
-      let preciseInfo = { ok: false, note: 'precision gate did not resolve' };
+      // CodeQL: both try and catch reassign before any read — the initializer was dead.
+      let preciseInfo;
       try {
         const preciseHandle = await page.waitForFunction(() => {
           const pageEl = document.querySelector('[data-testid="pdf-page-1"]');

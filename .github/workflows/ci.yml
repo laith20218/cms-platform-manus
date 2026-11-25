@@ -381,6 +381,10 @@ jobs:
         with:
           languages: csharp, javascript-typescript
           queries: +security-and-quality
+          # W-codeql: excludes generated/build artifacts (obj/, bin/) and doc
+          # diagram assets from analysis — 14 open findings pointed into
+          # committed build output. Product source stays fully analyzed.
+          config: .github/codeql/codeql-config.yml
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3

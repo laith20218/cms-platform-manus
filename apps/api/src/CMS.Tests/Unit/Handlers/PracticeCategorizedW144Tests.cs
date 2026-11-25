@@ -84,8 +84,9 @@ public class PracticeCategorizedW144Tests
 
         var lecture = db.Lectures.First();
         var tagged = await SeedQuestionAsync(db, subject.Id, lecture.Id, "الفصل الأول", "سؤال مصنف");
-        var untaggedInLecture = await SeedQuestionAsync(db, subject.Id, lecture.Id, null, "سؤال بدون وسم داخل محاضرة");
-        var uncategorized = await SeedQuestionAsync(db, subject.Id, null, "وسم بلا محاضرة", "سؤال بلا محاضرة");
+        // CodeQL: bindings were never read — the seeding side effect is the point.
+        await SeedQuestionAsync(db, subject.Id, lecture.Id, null, "سؤال بدون وسم داخل محاضرة");
+        await SeedQuestionAsync(db, subject.Id, null, "وسم بلا محاضرة", "سؤال بلا محاضرة");
         var anchor = await SeedAnchorExamAsync(db, subject.Id, tagged.Question);
 
         var tree = await Create(db).Handle(new GetCategorizedPracticeTreeQuery(student.Id, subject.Id), CancellationToken.None);
@@ -196,7 +197,7 @@ public class PracticeCategorizedW144Tests
         var inLecture = await SeedQuestionAsync(db, subject.Id, lecture.Id, null, "سؤال خارج التركيبة");
         // Anchor composition deliberately does NOT contain the filtered question —
         // the filter (not the composition) is the membership authority.
-        var anchor = await SeedAnchorExamAsync(db, subject.Id);
+        await SeedAnchorExamAsync(db, subject.Id);
 
         var started = await Create(db).Handle(new StartCategorizedPracticeCommand(
             student.Id, subject.Id, lecture.Id, false, null, false), CancellationToken.None);
@@ -225,7 +226,7 @@ public class PracticeCategorizedW144Tests
         var lecture = db.Lectures.First();
         var inLecture = await SeedQuestionAsync(db, subject.Id, lecture.Id, null, "سؤال داخل التصنيف");
         var outside = await SeedQuestionAsync(db, subject.Id, null, null, "سؤال خارج التصنيف");
-        var anchor = await SeedAnchorExamAsync(db, subject.Id, inLecture.Question);
+        await SeedAnchorExamAsync(db, subject.Id, inLecture.Question);
 
         var started = await Create(db).Handle(new StartCategorizedPracticeCommand(
             student.Id, subject.Id, lecture.Id, false, null, false), CancellationToken.None);
@@ -248,7 +249,7 @@ public class PracticeCategorizedW144Tests
         var lecture = db.Lectures.First();
         var first = await SeedQuestionAsync(db, subject.Id, lecture.Id, null, "سؤال 1");
         var second = await SeedQuestionAsync(db, subject.Id, lecture.Id, null, "سؤال 2");
-        var anchor = await SeedAnchorExamAsync(db, subject.Id, first.Question, second.Question);
+        await SeedAnchorExamAsync(db, subject.Id, first.Question, second.Question);
 
         var started = await Create(db).Handle(new StartCategorizedPracticeCommand(
             student.Id, subject.Id, lecture.Id, false, null, false), CancellationToken.None);
@@ -298,7 +299,7 @@ public class PracticeCategorizedW144Tests
         var lecture = db.Lectures.First();
         var first = await SeedQuestionAsync(db, subject.Id, lecture.Id, null, "سؤال 1");
         var second = await SeedQuestionAsync(db, subject.Id, lecture.Id, null, "سؤال 2");
-        var anchor = await SeedAnchorExamAsync(db, subject.Id, first.Question, second.Question);
+        await SeedAnchorExamAsync(db, subject.Id, first.Question, second.Question);
         var filter = new PracticeCategoryFilter(lecture.Id, false, null, false);
         var handlers = Create(db);
 

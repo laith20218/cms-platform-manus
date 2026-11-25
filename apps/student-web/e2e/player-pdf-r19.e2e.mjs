@@ -380,7 +380,6 @@ async function main() {
 
       // One live highlight round-trip: select → commit → wash on the span.
       await page.locator('[data-testid="pdf-tool-highlighter"]').click();
-      const spans = await page.locator('[data-testid="pdf-page-1"] [data-pdf-text-layer] > span').all();
       const wide = await page.evaluate(() => {
         const list = Array.from(document.querySelectorAll('[data-testid="pdf-page-1"] [data-pdf-text-layer] > span'));
         const target = list.find((s) => {

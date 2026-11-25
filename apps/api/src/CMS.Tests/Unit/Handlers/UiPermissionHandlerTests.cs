@@ -131,7 +131,7 @@ public class UiPermissionHandlerTests
     public async Task GetMy_UnconfiguredCustomRole_ZeroBehaviorChange_AllowedEqualsAll()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
-        var (role, customAdmin) = SeedCustomRoleWithAdmin(db);
+        var (_, customAdmin) = SeedCustomRoleWithAdmin(db);
         var (handler, _) = BuildHandler(db);
 
         var envelope = await handler.Handle(new GetMyUiPermissionsQuery(customAdmin.Id), CancellationToken.None);
@@ -179,10 +179,11 @@ public class UiPermissionHandlerTests
     public async Task GetMy_CacheHit_ServesEnvelopeWithoutDatabase()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
-        var (role, customAdmin) = SeedCustomRoleWithAdmin(db);
+        var (_, customAdmin) = SeedCustomRoleWithAdmin(db);
         var (handler, cache) = BuildHandler(db);
 
-        var first = await handler.Handle(new GetMyUiPermissionsQuery(customAdmin.Id), CancellationToken.None);
+        // CodeQL: the priming result itself is unread — the cache counters are the assertion.
+        await handler.Handle(new GetMyUiPermissionsQuery(customAdmin.Id), CancellationToken.None);
         cache.Gets.Should().Be(1);
         cache.Sets.Should().Be(1);
 
@@ -199,7 +200,7 @@ public class UiPermissionHandlerTests
     public async Task GetMy_CacheGetThrows_FallsBackToDatabase_Directive22()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
-        var (role, customAdmin) = SeedCustomRoleWithAdmin(db);
+        var (_, customAdmin) = SeedCustomRoleWithAdmin(db);
         var (handler, cache) = BuildHandler(db);
         cache.ThrowOnGet = true;
 
@@ -215,7 +216,7 @@ public class UiPermissionHandlerTests
     public async Task GetMy_CacheAndDatabaseBothFail_Throws503Exception_Directive22()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
-        var (role, customAdmin) = SeedCustomRoleWithAdmin(db);
+        var (_, customAdmin) = SeedCustomRoleWithAdmin(db);
         var (handler, cache) = BuildHandler(db);
         cache.ThrowOnGet = true;
 
@@ -235,7 +236,7 @@ public class UiPermissionHandlerTests
     public async Task GetMy_CacheSetFails_StillServesEnvelope_Directive22()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
-        var (role, customAdmin) = SeedCustomRoleWithAdmin(db);
+        var (_, customAdmin) = SeedCustomRoleWithAdmin(db);
         var (handler, cache) = BuildHandler(db);
         cache.ThrowOnSet = true;
 

@@ -96,8 +96,9 @@ public class RequestTimeoutMiddleware
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
+            // W-codeql: request-derived values sanitized (log-forging).
             _logger.LogWarning("Request timeout: {Method} {Path} exceeded {Timeout}s",
-                context.Request.Method, path, timeoutSeconds);
+                LogSanitizer.Clean(context.Request.Method, 16), LogSanitizer.Clean(path, 256), timeoutSeconds);
 
             context.Response.StatusCode = 408;
             context.Response.ContentType = "application/problem+json";

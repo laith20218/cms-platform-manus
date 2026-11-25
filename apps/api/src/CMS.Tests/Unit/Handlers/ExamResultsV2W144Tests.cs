@@ -70,7 +70,6 @@ public class ExamResultsV2W144Tests
         await using var db = TestDbHelper.CreateInMemoryContext();
         var handler = CreateHandler(db);
         var exam = await CreateExamAsync(db, showResultsImmediately: true, maxAttempts: 3);
-        var student = TestDbHelper.GetTestStudent(db);
 
         var (result, _) = await SubmitCorrectAsync(handler, db, exam);
 
@@ -91,7 +90,6 @@ public class ExamResultsV2W144Tests
         await using var db = TestDbHelper.CreateInMemoryContext();
         var handler = CreateHandler(db);
         var exam = await CreateExamAsync(db, showResultsImmediately: true, maxAttempts: null);
-        var student = TestDbHelper.GetTestStudent(db);
 
         await SubmitCorrectAsync(handler, db, exam);
         var (second, secondSessionId) = await SubmitCorrectAsync(handler, db, exam);
