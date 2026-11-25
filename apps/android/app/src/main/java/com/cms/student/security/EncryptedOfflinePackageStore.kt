@@ -46,6 +46,18 @@ class EncryptedOfflinePackageStore(context: Context) : IOfflinePackageStore {
         return record.toDomainOrNull()
     }
 
+    override fun listAll(userId: UUID, installationId: String): List<StoredOfflinePackage> {
+        val files = directory.listFiles { file -> file.isFile && file.name.endsWith(".bin") } ?: return emptyList()
+        return files
+            .mapNotNull { file ->
+                // packageId parsed from the filename stem; unparseable names are skipped silently.
+                val packageId = runCatching { UUID.fromString(file.name.removeSuffix(".bin")) }.getOrNull()
+                    ?: return@mapNotNull null
+                load(packageId, userId, installationId)
+            }
+            .sortedByDescending { it.envelope.manifest.issuedAt }
+    }
+
     override fun replaceQuestionIndex(packageId: UUID, questionIds: Collection<UUID>, userId: UUID, installationId: String) {
         val record = read(packageFile(packageId)) ?: return
         if (record.userId != userId.toString() || record.installationId != installationId) return
@@ -161,7 +173,8 @@ class EncryptedOfflinePackageStore(context: Context) : IOfflinePackageStore {
                 envelope = OfflinePackageEnvelope(domainManifest, ciphertextBase64Url, tagBase64Url, wrappedKeyBase64Url, keyReleaseToken),
                 lastConfirmedStatus = RevocationStatus.valueOf(lastConfirmedStatus),
                 lastConfirmedAt = lastConfirmedAt?.let(Instant::parse),
-                answers = answers.map { it.toDomain() }
+                answers = answers.map { it.toDomain() },
+                questionIds = questionIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
             )
         }.getOrNull()
 

@@ -121,38 +121,43 @@ class OfflineRuntimeCoordinatorTest {
         )
     }
 
+    /** JVM fake of the encrypted store — binding-checked, question index kept inside the domain record (W2). */
     private class InMemoryStore : IOfflinePackageStore {
-        private data class Entry(var value: StoredOfflinePackage, var questionIds: Set<UUID> = emptySet())
-        private val records = mutableMapOf<UUID, Entry>()
+        private val records = mutableMapOf<UUID, StoredOfflinePackage>()
         override fun saveEnvelope(envelope: OfflinePackageEnvelope, userId: UUID, installationId: String) {
-            records[envelope.manifest.packageId] = Entry(StoredOfflinePackage(1, envelope, RevocationStatus.UNKNOWN, null, emptyList()))
+            records[envelope.manifest.packageId] = StoredOfflinePackage(1, envelope, RevocationStatus.UNKNOWN, null, emptyList())
         }
-        override fun load(packageId: UUID, userId: UUID, installationId: String): StoredOfflinePackage? = records[packageId]?.value?.takeIf {
+        override fun load(packageId: UUID, userId: UUID, installationId: String): StoredOfflinePackage? = records[packageId]?.takeIf {
             it.envelope.manifest.userId == userId && it.envelope.manifest.installationId == installationId
         }
+        override fun listAll(userId: UUID, installationId: String): List<StoredOfflinePackage> =
+            records.values.filter {
+                it.envelope.manifest.userId == userId && it.envelope.manifest.installationId == installationId
+            }.sortedByDescending { it.envelope.manifest.issuedAt }
         override fun replaceQuestionIndex(packageId: UUID, questionIds: Collection<UUID>, userId: UUID, installationId: String) {
-            records[packageId]?.takeIf { it.value.envelope.manifest.userId == userId && it.value.envelope.manifest.installationId == installationId }
-                ?.questionIds = questionIds.toSet()
+            val current = records[packageId]?.takeIf {
+                it.envelope.manifest.userId == userId && it.envelope.manifest.installationId == installationId
+            } ?: return
+            records[packageId] = current.copy(questionIds = questionIds.toSet().toList())
         }
         override fun recordAnswer(answer: OfflineAnswer, userId: UUID, installationId: String): Boolean {
-            val entry = records[answer.packageId] ?: return false
-            val current = entry.value
+            val current = records[answer.packageId] ?: return false
             if (current.envelope.manifest.userId != userId || current.envelope.manifest.installationId != installationId ||
-                current.lastConfirmedStatus != RevocationStatus.ACTIVE || answer.questionId !in entry.questionIds ||
+                current.lastConfirmedStatus != RevocationStatus.ACTIVE || answer.questionId !in current.questionIds ||
                 !current.envelope.manifest.expiresAt.isAfter(Instant.now())) return false
-            entry.value = current.copy(answers = current.answers + answer)
+            records[answer.packageId] = current.copy(answers = current.answers + answer)
             return true
         }
         override fun pendingAnswers(packageId: UUID, userId: UUID, installationId: String): List<OfflineAnswer> =
             load(packageId, userId, installationId)?.answers?.filterNot { it.synced } ?: emptyList()
         override fun markAnswersSynced(packageId: UUID, localAttemptIds: Collection<UUID>, userId: UUID, installationId: String) {
-            val entry = records[packageId] ?: return
+            val current = records[packageId] ?: return
             val ids = localAttemptIds.toSet()
-            entry.value = entry.value.copy(answers = entry.value.answers.map { if (it.localAttemptId in ids) it.copy(synced = true) else it })
+            records[packageId] = current.copy(answers = current.answers.map { if (it.localAttemptId in ids) it.copy(synced = true) else it })
         }
         override fun updateConfirmedStatus(packageId: UUID, status: RevocationStatus, confirmedAt: Instant?, userId: UUID, installationId: String) {
-            val entry = records[packageId] ?: return
-            entry.value = entry.value.copy(lastConfirmedStatus = status, lastConfirmedAt = confirmedAt)
+            val current = records[packageId] ?: return
+            records[packageId] = current.copy(lastConfirmedStatus = status, lastConfirmedAt = confirmedAt)
         }
         override fun invalidate(packageId: UUID, userId: UUID, installationId: String) { records.remove(packageId) }
     }

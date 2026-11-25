@@ -1,8 +1,8 @@
 /**
  * Wave 1 (UX 1D) — feature-detected access to the offline QUESTION PACKAGES
- * surface of `window.CmsNative`. The Kotlin methods below do NOT exist yet
- * (Wave 2 adds them in apps/android); the names are the cross-wave CONTRACT
- * and must stay exact:
+ * surface of `window.CmsNative`. Wave 2 (UX 3C) implements the Kotlin side
+ * (apps/android bridge + OfflinePackageBridgeService); the names are the
+ * cross-wave CONTRACT and must stay exact:
  *
  *   listOfflinePackages(): string               -> JSON array of safe rows
  *   downloadOfflinePackage(requestJson): string -> async start -> status code
@@ -235,6 +235,8 @@ export function nativePackageDenyMessage(code: string): string | null {
       return 'انتهت صلاحية الحزمة المحفوظة.';
     case 'denied_disabled':
       return 'ميزة الحزم دون اتصال غير مفعّلة في هذا الإصدار من التطبيق.';
+    case 'error:exam_ui_pending':
+      return 'بدء الامتحان دون اتصال يتوفر في تحديثٍ قادم للتطبيق.';
     case 'quota':
     case 'error:quota':
       return 'مساحة التخزين دون اتصال ممتلئة — احذف بعض الحزم أو الملفات من «وضع بدون إنترنت».';
