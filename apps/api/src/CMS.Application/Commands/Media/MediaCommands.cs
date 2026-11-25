@@ -45,6 +45,28 @@ public record GetHlsObjectQuery(
     string Path
 ) : IRequest<HlsObjectDto>;
 
+// ===== WAVE-5: offline content streaming =====
+
+/// <summary>
+/// WAVE-5 (offline media content) — streams the FULL original object bytes of a stored
+/// video/audio asset through the API (<see cref="IFileStorageService.DownloadAsync"/>) so
+/// the Android offline cache can persist hosted course episodes in its encrypted store.
+/// Presigned playback URLs are client → storage direct and can never be captured by that
+/// store; this query is the media counterpart of the library file content byte-channel.
+///
+/// Gating mirrors <see cref="GetPlaybackUrlQuery"/> exactly (VideoAudio entitlement scope,
+/// published course, YouTube and upload-incomplete refusals, non-streamable library kinds),
+/// but the resolved key is ALWAYS the original object (FileKey / FileUrl) — never an HLS
+/// ladder: offline playback reads the complete local file, so adaptive-streaming trees are
+/// irrelevant on this path. The response is a whole-object 200 with NO Range support
+/// (parity with the library content route).
+/// </summary>
+public record GetMediaContentQuery(
+    Guid StudentId,
+    MediaAssetType AssetType,
+    Guid AssetId
+) : IRequest<MediaContentDto>;
+
 // ===== §1.B: media bookmarks =====
 
 public record CreateMediaBookmarkCommand(

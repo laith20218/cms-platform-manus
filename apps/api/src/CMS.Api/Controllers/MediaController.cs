@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using CMS.Application.Commands.Media;
 using CMS.Application.DTOs.Media;
 using CMS.Application.Interfaces;
@@ -22,6 +23,11 @@ namespace CMS.Api.Controllers;
 /// (X-Entitlement + X-Installation-Id headers) validated against the asset's subject.
 /// The VideoAudio content scope is enforced handler-side via IEntitlementService — the
 /// same gate the course catalog and episode /access use.
+///
+/// WAVE-5 (offline media content) adds §1.D — GET {assetType}/{assetId}/content streams
+/// the FULL original object bytes through the API (the byte channel the Android offline
+/// cache needs; presigned playback URLs are client → storage and can never enter the
+/// encrypted offline store). See <see cref="GetContent"/>.
 /// </summary>
 [ApiController]
 [Route("api/v1/media")]
@@ -30,11 +36,13 @@ public class MediaController : ControllerBase
 {
     private readonly MediatR.ISender _mediator;
     private readonly ISignedEntitlementService _signedEntitlements;
+    private readonly ISecurityAuditWriter _audit;
 
-    public MediaController(MediatR.ISender mediator, ISignedEntitlementService signedEntitlements)
+    public MediaController(MediatR.ISender mediator, ISignedEntitlementService signedEntitlements, ISecurityAuditWriter audit)
     {
         _mediator = mediator;
         _signedEntitlements = signedEntitlements;
+        _audit = audit;
     }
 
     private Guid? GetStudentId() => Guid.TryParse(User.FindFirst("sub")?.Value, out var id) ? id : null;
@@ -106,6 +114,51 @@ public class MediaController : ControllerBase
         if (rejection is not null) return rejection;
 
         var result = await _mediator.Send(new GetHlsObjectQuery(studentId.Value, type, assetId, path ?? string.Empty), ct);
+
+        Response.Headers.CacheControl = result.CacheControl;
+        return new FileStreamResult(result.Content, result.ContentType);
+    }
+
+    // ===== §1.D: WAVE-5 — offline content streaming =====
+
+    /// <summary>
+    /// Streams the FULL original object bytes of a hosted video/audio asset THROUGH the
+    /// API (IFileStorageService.DownloadAsync) — the offline-download counterpart of
+    /// playback-url. Android's encrypted offline cache can only capture bytes that pass
+    /// through the API (exactly how it downloads library files); presigned playback URLs
+    /// are client → storage direct and therefore can never be cached offline, which left
+    /// hosted course episodes (SourceType = Upload) with no offline path at all.
+    ///
+    /// Gate order is identical to playback-url: student role → the same
+    /// EntitlementRejectionAsync signed-entitlement gate (X-Entitlement +
+    /// X-Installation-Id, fallback X-Device-Fingerprint) → handler-side VideoAudio scope,
+    /// published-course and virus-clean visibility, and the MEDIA_YOUTUBE_HOSTED /
+    /// EPISODE_UPLOAD_INCOMPLETE / MEDIA_TYPE_NOT_STREAMABLE refusals. Denials at this
+    /// action's gate are audited (FileAccessDenied) like the library content route.
+    ///
+    /// Whole-object 200 ONLY — NO Range support. This is deliberate parity with the
+    /// library /{id}/content route (whose stream is likewise not range-addressable):
+    /// the offline cache always consumes the complete stream, while interactive seek
+    /// stays on the presigned / HLS playback channels. Content-Type comes from the entity
+    /// (CourseEpisode.ContentType / LibraryFile.FileFormat) with video/audio fallbacks;
+    /// responses carry Cache-Control: private, max-age=120.
+    /// </summary>
+    [HttpGet("{assetType}/{assetId:guid}/content")]
+    [EnableRateLimiting("media-offline")]
+    public async Task<IActionResult> GetContent(string assetType, Guid assetId, CancellationToken ct)
+    {
+        var studentId = GetStudentId();
+        if (!studentId.HasValue) return Unauthorized();
+        if (!TryParseAssetType(assetType, out var type)) return BadRequest(InvalidAssetType(assetType));
+
+        var rejection = await EntitlementRejectionAsync(studentId.Value, type, assetId, ct);
+        if (rejection is not null)
+        {
+            await _audit.LogSecurityEventAsync(studentId.Value, null, SecurityEventType.FileAccessDenied, SecuritySeverity.Warning, "Media content denied", ct: ct);
+            return rejection;
+        }
+
+        var result = await _mediator.Send(new GetMediaContentQuery(studentId.Value, type, assetId), ct);
 
         Response.Headers.CacheControl = result.CacheControl;
         return new FileStreamResult(result.Content, result.ContentType);
