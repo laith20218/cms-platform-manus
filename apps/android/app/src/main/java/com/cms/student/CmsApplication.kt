@@ -309,12 +309,25 @@ class CmsApplication : Application() {
             clock = Instant::now,
             // Honest combined cap: the library cache bytes + the chunked episode
             // bytes share the 5 GiB CachePolicy.MAX_CACHE_BYTES budget.
-            mediaBytesUsed = { mediaCache().catalogEntries().sumOf { it.bytes } }
+            mediaBytesUsed = { mediaCache().catalogEntries().sumOf { it.bytes } },
+            // W5b-ii: the chunked loopback player launches on the MAIN thread
+            // (FLAG_SECURE OfflineCoursePlayerActivity; the in-process
+            // reassembly server lives inside that activity and dies with it).
+            playerLauncher = { episodeId ->
+                Handler(Looper.getMainLooper()).post {
+                    runCatching {
+                        startActivity(OfflineCoursePlayerActivity.intent(this, episodeId))
+                    }
+                }
+            }
         )
     }
 
     /** The bridge-facing hosted-course surface (window.CmsNative Wave 5b-i methods). */
     fun offlineCourseBridge(): OfflineCourseBridgeService = offlineCourseBridgeService
+
+    /** The encrypted chunked episode store — shared by the bridge service and the W5b-ii player. */
+    fun courseEpisodeStore(): com.cms.student.media.ChunkedFileStore = courseChunkStore
 
     /** Native session for media downloads: the in-memory session, else the stored pair. */
     private fun activeSessionForMedia(): OfflineSession? {

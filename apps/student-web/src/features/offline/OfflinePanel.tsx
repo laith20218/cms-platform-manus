@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { toast } from 'sonner';
 import {
   CloudOff, FileQuestion, FileText, Film, GraduationCap, Image as ImageIcon,
   Loader2, MonitorPlay, Music, PackageOpen, RefreshCw, Trash2, Wifi, WifiOff, X,
@@ -21,6 +22,7 @@ import {
 } from '@/utils/native-packages';
 import {
   isNativeCoursesSurfaceActive,
+  nativeCourseDenyMessage,
   nativeListOfflineCourseEpisodes,
   nativeOpenOfflineCourseEpisode,
   nativeRemoveOfflineCourseEpisode,
@@ -168,6 +170,17 @@ export function OfflinePanel({ open, onClose }: { open: boolean; onClose: () => 
     refresh();
   };
 
+  // W5b-ii: 'opening' means the native player launched (its own Arabic denial
+  // screens cover what happens inside). Anything else the bridge answered is
+  // surfaced honestly instead of dying as a silent click.
+  const handleOpenCourseEpisode = (episodeId: string) => {
+    const code = nativeOpenOfflineCourseEpisode(episodeId);
+    if (code && code !== 'opening') {
+      const message = nativeCourseDenyMessage(code);
+      if (message) toast.error(message);
+    }
+  };
+
   // Arrow keys move between the three tabs (click + aria-selected carry the
   // primary contract; this keeps the tablist fully keyboard-operable).
   const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -303,7 +316,7 @@ export function OfflinePanel({ open, onClose }: { open: boolean; onClose: () => 
                 loading={loading}
                 surfaceActive={coursesActive}
                 shellPresent={shellPresent}
-                onOpen={nativeOpenOfflineCourseEpisode}
+                onOpen={handleOpenCourseEpisode}
                 onRemove={handleRemoveCourseEpisode}
               />
             </div>

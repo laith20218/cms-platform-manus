@@ -89,6 +89,7 @@ class OfflineCourseBridgeServiceTest {
         session: OfflineSession? = nativeSession,
         executor: Executor = Executor { it.run() },
         mediaBytes: () -> Long = { 0L },
+        playerLauncher: (String) -> Unit = {},
         listMax: Int = 200
     ): OfflineCourseBridgeService = OfflineCourseBridgeService(
         transport = facade,
@@ -98,6 +99,7 @@ class OfflineCourseBridgeServiceTest {
         executor = executor,
         clock = { now },
         mediaBytesUsed = mediaBytes,
+        playerLauncher = playerLauncher,
         episodeListMax = listMax
     )
 
@@ -486,14 +488,37 @@ class OfflineCourseBridgeServiceTest {
     }
 
     @Test
-    fun `open answers the honest interim playback pending code`() {
+    fun `open launches the chunked player for a usable episode and answers opening`() {
         val store = FakeChunkedFileStore()
         store.publish(episodeId, bytes = 10)
-        val bridge = service(store = store)
-        assertEquals(OfflineCourseBridgeService.PLAYBACK_PENDING, bridge.openOfflineCourseEpisode(episodeId))
-        assertEquals(OfflineCourseBridgeService.PLAYBACK_PENDING, bridge.openOfflineCourseEpisode("99999999-9999-4999-8999-999999999999"))
+        val launches = mutableListOf<String>()
+        val bridge = service(store = store, playerLauncher = { launches += it })
+        assertEquals(OfflineCourseBridgeService.OPENING, bridge.openOfflineCourseEpisode(episodeId))
+        assertEquals(listOf(episodeId), launches)
+    }
+
+    @Test
+    fun `open answers absent or stale honestly and never launches`() {
+        val store = FakeChunkedFileStore()
+        val launches = mutableListOf<String>()
+        val bridge = service(store = store, playerLauncher = { launches += it })
+        // Unknown id → absent (no meta, no chunks).
+        assertEquals(OfflineCourseBridgeService.ABSENT, bridge.openOfflineCourseEpisode("99999999-9999-4999-8999-999999999999"))
+        // Stored but the server-issued entitlement expiry has passed → denied_stale.
+        store.publish(episodeId, bytes = 10, entitlementExpiresAt = "2026-11-01T00:00:00Z")
+        assertEquals(OfflineCourseBridgeService.DENIED_STALE, bridge.openOfflineCourseEpisode(episodeId))
+        // Malformed ids → invalid_args.
         assertEquals(OfflineCourseBridgeService.INVALID_ARGS, bridge.openOfflineCourseEpisode("not-a-uuid"))
         assertEquals(OfflineCourseBridgeService.INVALID_ARGS, bridge.openOfflineCourseEpisode(null))
+        assertTrue(launches.isEmpty())
+    }
+
+    @Test
+    fun `a throwing launcher degrades to an honest error code instead of throwing`() {
+        val store = FakeChunkedFileStore()
+        store.publish(episodeId, bytes = 10)
+        val bridge = service(store = store, playerLauncher = { error("boom") })
+        assertEquals("error:player_launch_failed", bridge.openOfflineCourseEpisode(episodeId))
     }
 
     @Test

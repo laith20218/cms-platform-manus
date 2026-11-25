@@ -118,6 +118,8 @@ class OfflineCourseBridgeService(
     private val executor: Executor,
     private val clock: () -> Instant,
     private val mediaBytesUsed: () -> Long,
+    /** W5b-ii: launches the chunked loopback player on the MAIN thread (app wires a Handler). */
+    private val playerLauncher: (String) -> Unit = {},
     private val episodeListMax: Int = DEFAULT_EPISODE_LIST_MAX
 ) : OfflineCourseBridgeSurface {
 
@@ -207,9 +209,14 @@ class OfflineCourseBridgeService(
     }
 
     override fun openOfflineCourseEpisode(episodeId: String?): String {
-        // Honest interim (Wave 5b-ii): chunked playback does not exist yet, so
-        // every open answers the documented pending code — never a fake success.
-        return if (episodeUuid(episodeId) != null) PLAYBACK_PENDING else INVALID_ARGS
+        val id = episodeUuid(episodeId) ?: return INVALID_ARGS
+        val meta = runCatching { chunkStore.readMeta(id) }.getOrNull() ?: return ABSENT
+        if (!isUsableOffline(meta)) return DENIED_STALE
+        if (runCatching { chunkStore.chunkCount(id) }.getOrDefault(0) == 0) return ABSENT
+        // W5b-ii: the launcher owns main-thread posting + the FLAG_SECURE player
+        // activity; the loopback reassembly channel lives inside that activity.
+        runCatching { playerLauncher(id) }.onFailure { return "$ERROR:player_launch_failed" }
+        return OPENING
     }
 
     // =====================================================================
@@ -455,7 +462,8 @@ class OfflineCourseBridgeService(
         const val QUOTA = "quota"
 
         // openOfflineCourseEpisode(episodeId) →
-        const val PLAYBACK_PENDING = "error:playback_pending"    // Wave 5b-ii lands chunked playback
+        const val OPENING = "opening"    // player activity launched (W5b-ii)
+        const val PLAYBACK_PENDING = "error:playback_pending"    // legacy interim — retained for version-skew defense (old web + new shell)
 
         /** Empty JSON array — the safe listing answer without stored episodes. */
         const val EMPTY_LIST_JSON = "[]"
