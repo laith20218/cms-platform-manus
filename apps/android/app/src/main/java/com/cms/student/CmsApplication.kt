@@ -1,6 +1,8 @@
 package com.cms.student
 
 import android.app.Application
+import android.os.Handler
+import android.os.Looper
 import com.cms.student.media.CacheIndex
 import com.cms.student.media.CacheProgressBus
 import com.cms.student.media.CacheQuota
@@ -329,7 +331,18 @@ class CmsApplication : Application() {
             clock = Instant::now,
             // W3 (UX 2A): mirror the service's web-student binding into the
             // application so the exam webview can resolve a token-less session.
-            onWebStudentBound = { lastWebStudentId = it }
+            onWebStudentBound = { lastWebStudentId = it },
+            // W3 (UX 2A): the panel's «بدء الامتحان» launches the hardened exam
+            // webview — posted to the MAIN thread because openOfflineExam runs on
+            // the shell WebView's JavaBridge thread; NEW_TASK because this is an
+            // Application-context start (see OfflineExamWebActivity.intent).
+            examLauncher = { packageId ->
+                Handler(Looper.getMainLooper()).post {
+                    runCatching {
+                        startActivity(OfflineExamWebActivity.intent(this, UUID.fromString(packageId)))
+                    }
+                }
+            }
         )
     }
 

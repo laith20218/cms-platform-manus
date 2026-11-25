@@ -95,7 +95,7 @@ class CmsJsBridgeTest {
         }
         override fun openOfflineExam(packageId: String?): String {
             packageCalls.add("open:$packageId")
-            return OfflinePackageBridgeService.ERROR_EXAM_UI_PENDING
+            return OfflinePackageBridgeService.OPENING
         }
     }
 
@@ -342,7 +342,7 @@ class CmsJsBridgeTest {
         assertEquals(OfflinePackageBridgeService.QUEUED, bridge.downloadOfflinePackage(request))
         assertEquals(OfflinePackageBridgeService.READY, bridge.offlinePackageStatus("  $packageId "))
         assertEquals(OfflinePackageBridgeService.REMOVED, bridge.removeOfflinePackage("\t$packageId\n"))
-        assertEquals(OfflinePackageBridgeService.ERROR_EXAM_UI_PENDING, bridge.openOfflineExam(" $packageId "))
+        assertEquals(OfflinePackageBridgeService.OPENING, bridge.openOfflineExam(" $packageId "))
         assertEquals(
             listOf("download:$request", "status:$packageId", "remove:$packageId", "open:$packageId"),
             packageCalls
