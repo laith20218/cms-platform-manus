@@ -9,6 +9,8 @@ import {
 import { academicApi } from './services/academic-api';
 import { LectureCard } from './LectureCard';
 import { LockedEmptyState } from '@/features/my-studies/components/LockedEmptyState';
+// W1 (UX 1D) — contextual «تحميل أسئلة المادة دون اتصال» CTA (Android shell only).
+import { OfflineDownloadCta } from '@/features/offline/OfflineDownloadCta';
 
 const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -100,6 +102,18 @@ export default function SubjectDetailPage() {
               <span className="flex items-center gap-1.5"><FileText className="w-4 h-4" /> <strong className="text-[var(--c-text)]" lang="en">{subject.totalQuestions}</strong> سؤال</span>
               <span className="flex items-center gap-1.5"><BookOpen className="w-4 h-4" /> <strong className="text-[var(--c-text)]" lang="en">{subject.totalLectures}</strong> محاضرة</span>
               <span className="flex items-center gap-1.5"><BarChart3 className="w-4 h-4" /> <strong className="text-[var(--c-text)]" lang="en">{subject.totalExams}</strong> اختبار</span>
+            </div>
+            {/* W1 (UX 1D) — pre-bakes this subject's question bank into an
+                offline package (subjectId resolved from the :subjectSlug query
+                above; invisible in a plain browser). */}
+            <div className="mt-4">
+              <OfflineDownloadCta
+                kind="package"
+                subjectId={subject.id}
+                title={subject.nameAr}
+                label="تحميل أسئلة المادة دون اتصال"
+                testId="subject-offline-download-cta"
+              />
             </div>
           </div>
         </div>
