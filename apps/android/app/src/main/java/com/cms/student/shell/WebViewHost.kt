@@ -11,6 +11,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.cms.student.BuildConfig
 import com.cms.student.bridge.CmsJsBridge
+import com.cms.student.bridge.OfflineExamBridge
 
 /** Failures the shell surfaces as an honest Arabic error screen (no fake offline mode). */
 sealed interface ShellError {
@@ -28,10 +29,14 @@ sealed interface ShellError {
  * - Loads only [BuildConfig.STUDENT_WEB_BASE_URL]; [ShellUrlPolicy] allowlists exactly that
  *   origin (host and port), so navigation to any other host or scheme is silently blocked —
  *   no address bar and no external browser for normal navigation.
- * - JavaScript is enabled (student-web is a JS SPA). Batch 3 added exactly ONE
- *   audited bridge: [attachJsBridge] exposes `window.CmsNative` (see [CmsJsBridge])
- *   — four read-only methods behind the ShellUrlPolicy origin guard; nothing else
- *   is reachable from the web app, and no second unrestricted interface exists.
+ * - JavaScript is enabled (student-web is a JS SPA). Batch 3 added the shell's
+ *   ONE audited bridge: [attachJsBridge] exposes `window.CmsNative` (see
+ *   [CmsJsBridge]) — four read-only methods behind the ShellUrlPolicy origin
+ *   guard; nothing else is reachable from the web app in THAT WebView.
+ *   W3 (UX 2A) added a SECOND, DEDICATED WebView — the offline exam player
+ *   (OfflineExamWebActivity) — whose ONLY injected interface is
+ *   `window.CmsOfflineExam` (see [attachExamBridge]). The invariant is one
+ *   audited interface per WebView: never two interfaces in the same view.
  * - Password saving, file/content access, geolocation, and multiple windows are disabled;
  *   mixed content is never allowed; TLS errors always fail closed.
  * - DOM storage is enabled: student-web persists its session in localStorage/sessionStorage
@@ -87,17 +92,35 @@ class WebViewHost(
     }
 
     /**
-     * Batch 3: exposes the single audited JS bridge as `window.CmsNative`.
+     * Batch 3: exposes the single audited JS bridge of the SHELL WebView as
+     * `window.CmsNative`.
      *
      * MUST be called only after [attach] so the hardened settings (password save off,
      * file access off, mixed content never, multi-window off, allowlisted navigation)
      * are already in force — the interface would otherwise live inside an unhardened
      * WebView. The bridge itself re-checks [ShellUrlPolicy] per call (origin guard,
      * see [CmsJsBridge]), so a page outside the allowlist degrades to safe defaults.
-     * There is intentionally NO second addJavascriptInterface anywhere.
+     * The shell WebView carries exactly this ONE interface — no second
+     * addJavascriptInterface ever runs against it (the W3 exam WebView is a
+     * different view, see [attachExamBridge]).
      */
     fun attachJsBridge(bridge: CmsJsBridge) {
         webView.addJavascriptInterface(bridge, CmsJsBridge.JS_NAME)
+    }
+
+    /**
+     * W3 (UX 2A): exposes the DEDICATED offline-exam bridge of the exam WebView as
+     * `window.CmsOfflineExam` (see [OfflineExamBridge] — payload + answer capture +
+     * sync status, all origin-guarded per call).
+     *
+     * The offline exam player (OfflineExamWebActivity) constructs its OWN WebView,
+     * runs it through the same [attach] hardening, and then injects exactly this ONE
+     * interface — its only interface. Per-WebView invariant: the shell view carries
+     * `CmsNative` only, the exam view carries `CmsOfflineExam` only; no single view
+     * ever carries two interfaces. MUST likewise be called only after [attach].
+     */
+    fun attachExamBridge(bridge: OfflineExamBridge) {
+        webView.addJavascriptInterface(bridge, OfflineExamBridge.JS_NAME)
     }
 
     /** Loads the configured student web home; a misconfigured base URL surfaces as an error. */

@@ -142,7 +142,8 @@ class OfflinePackageBridgeServiceTest {
         store: FakeStore = FakeStore(),
         nativeSession: OfflineSession? = null,
         executor: Executor = Executor { it.run() },
-        listMax: Int = 200
+        listMax: Int = 200,
+        examLauncher: (String) -> Unit = {}
     ): OfflinePackageBridgeService = OfflinePackageBridgeService(
         runtime = runtime,
         packageStore = store,
@@ -150,6 +151,7 @@ class OfflinePackageBridgeServiceTest {
         installationId = { installation },
         executor = executor,
         clock = { now },
+        examLauncher = examLauncher,
         packageListMax = listMax
     )
 
@@ -452,9 +454,86 @@ class OfflinePackageBridgeServiceTest {
     }
 
     @Test
-    fun `openOfflineExam answers the honest Wave 3 interim code`() {
-        val service = service(nativeSession = OfflineSession(userId, "native-token", installation))
-        assertEquals(OfflinePackageBridgeService.ERROR_EXAM_UI_PENDING, service.openOfflineExam(packageId.toString()))
-        assertEquals(OfflinePackageBridgeService.INVALID_ARGS, service.openOfflineExam("not-a-uuid"))
+    fun `openOfflineExam hands the launch to the exam launcher seam and answers opening`() {
+        val launches = mutableListOf<String>()
+        val service = service(
+            store = FakeStore(listOf(storedPackage())),
+            nativeSession = OfflineSession(userId, "native-token", installation),
+            examLauncher = { launches += it }
+        )
+        assertEquals(OfflinePackageBridgeService.OPENING, service.openOfflineExam(packageId.toString()))
+        assertEquals(listOf(packageId.toString()), launches)
+    }
+
+    @Test
+    fun `openOfflineExam fails closed on every deny path and never fires the launcher`() {
+        val launches = mutableListOf<String>()
+        // Disabled runtime (BuildConfig OFF) denies regardless of session or store.
+        val disabled = service(
+            runtime = { null },
+            store = FakeStore(listOf(storedPackage())),
+            nativeSession = OfflineSession(userId, "native-token", installation),
+            examLauncher = { launches += it }
+        )
+        assertEquals(OfflinePackageBridgeService.DENIED_DISABLED, disabled.openOfflineExam(packageId.toString()))
+        // No resolvable store binding: no native session and no last web student.
+        val unbound = service(store = FakeStore(listOf(storedPackage())), nativeSession = null, examLauncher = { launches += it })
+        assertEquals(OfflinePackageBridgeService.DENIED_NATIVE_SESSION, unbound.openOfflineExam(packageId.toString()))
+        // Bound student but no stored record for THIS package id.
+        val absent = service(
+            store = FakeStore(listOf(storedPackage(pkgId = UUID.randomUUID()))),
+            nativeSession = OfflineSession(userId, "native-token", installation),
+            examLauncher = { launches += it }
+        )
+        assertEquals(OfflinePackageBridgeService.ABSENT, absent.openOfflineExam(packageId.toString()))
+        // A stored record whose manifest window already closed.
+        val stale = service(
+            store = FakeStore(listOf(storedPackage(expiresAt = now.minusSeconds(1)))),
+            nativeSession = OfflineSession(userId, "native-token", installation),
+            examLauncher = { launches += it }
+        )
+        assertEquals(OfflinePackageBridgeService.DENIED_STALE, stale.openOfflineExam(packageId.toString()))
+        // Malformed id never reaches any gate.
+        assertEquals(OfflinePackageBridgeService.INVALID_ARGS, absent.openOfflineExam("not-a-uuid"))
+        assertEquals(0, launches.size)
+    }
+
+    @Test
+    fun `the onWebStudentBound seam reports every successful web session binding`() {
+        val token = webJwt(userId.toString())
+        // The run-download path reports the web student after a successful download.
+        val downloadBindings = mutableListOf<UUID>()
+        val store = FakeStore()
+        val facade = RecordingFacade { session, _, _ ->
+            store.saveEnvelope(envelope(), session.studentId, session.installationId)
+            packageId
+        }
+        val service = OfflinePackageBridgeService(
+            runtime = { facade },
+            packageStore = store,
+            sessionProvider = { null },
+            installationId = { installation },
+            executor = Executor { it.run() },
+            clock = { now },
+            onWebStudentBound = { downloadBindings += it }
+        )
+        assertEquals(OfflinePackageBridgeService.QUEUED, service.downloadOfflinePackage(requestJson(subjectId, accessToken = token)))
+        assertEquals(listOf(userId), downloadBindings)
+
+        // The pure-store fast path reports the token-resolved binding too — a
+        // FRESH service (no in-process download state) with a pre-stored package.
+        val fastBindings = mutableListOf<UUID>()
+        val fastFacade = RecordingFacade { _, _, _ -> packageId }
+        val fastService = OfflinePackageBridgeService(
+            runtime = { fastFacade },
+            packageStore = FakeStore(listOf(storedPackage())),
+            sessionProvider = { null },
+            installationId = { installation },
+            executor = Executor { it.run() },
+            clock = { now },
+            onWebStudentBound = { fastBindings += it }
+        )
+        assertEquals(OfflinePackageBridgeService.READY, fastService.downloadOfflinePackage(requestJson(subjectId, accessToken = token)))
+        assertEquals(listOf(userId), fastBindings)
     }
 }

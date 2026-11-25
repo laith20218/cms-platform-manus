@@ -32,7 +32,7 @@ import com.cms.student.shell.ShellUrlPolicy
  * window.CmsNative.downloadOfflinePackage(requestJson) // W2: start a question-package download
  * window.CmsNative.offlinePackageStatus(packageId)      // W2: queued|downloading|ready|denied_auth|error:*|absent
  * window.CmsNative.removeOfflinePackage(packageId)      // W2: delete one stored package
- * window.CmsNative.openOfflineExam(packageId)           // W2: open the offline exam player (Wave 3)
+ * window.CmsNative.openOfflineExam(packageId)           // W3: launch the hardened offline exam webview
  * ```
  *
  * Origin guard (mandatory): every method body resolves the WebView's current URL via
@@ -223,7 +223,7 @@ class CmsJsBridge(
             else guarded({ packageApi.removeOfflinePackage(packageId!!.trim()) }, OfflinePackageBridgeService.ABSENT)
         } else OfflinePackageBridgeService.ABSENT
 
-    /** Opens the offline exam player; Wave 3 delivers it (interim: `error:exam_ui_pending`). */
+    /** Launches the W3 offline exam webview (OfflineExamWebActivity) for a stored, unexpired package. */
     @JavascriptInterface
     fun openOfflineExam(packageId: String?): String =
         if (isOriginAllowed()) {

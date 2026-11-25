@@ -14,6 +14,13 @@
         <activity
             android:name=".OfflineExamActivity"
             android:exported="false" />
+        <!-- W3 (UX 2A): the WebView offline-exam player for question packages —
+             FLAG_SECURE, in-app only, and noHistory so it never lingers in the
+             back stack after the student leaves it. -->
+        <activity
+            android:name=".OfflineExamWebActivity"
+            android:exported="false"
+            android:noHistory="true" />
         <!-- Batch 1: the phone/password offline entry is no longer the LAUNCHER.
              It stays reachable only via explicit intent from inside the app or
              adb (am start -n com.cms.student/.MainActivity). -->

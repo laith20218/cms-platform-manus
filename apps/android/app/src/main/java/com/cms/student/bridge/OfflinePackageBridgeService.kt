@@ -65,6 +65,10 @@ internal data class PackageDownloadKey(val subjectId: UUID, val examId: UUID?)
  *    — an honest empty: the store is installation-bound anyway, and logout
  *    wipes it (Wave 4). Process death forgets the last web student; the web
  *    page re-passes its token on the next CTA, which restores the binding.
+ *    Every web binding is reported through the [onWebStudentBound] constructor
+ *    seam so the host application can mirror it (W3: the offline exam webview
+ *    resolves a token-less session from that mirror when no native session
+ *    exists — the server stays the only token verifier).
  *
  * Threading model: every public method may run on the WebView JavaBridge
  * thread; none of them performs unbounded work — `downloadOfflinePackage`
@@ -85,6 +89,8 @@ class OfflinePackageBridgeService(
     private val installationId: () -> String,
     private val executor: Executor,
     private val clock: () -> Instant,
+    private val onWebStudentBound: (UUID) -> Unit = {},
+    private val examLauncher: (String) -> Unit = {},
     private val packageListMax: Int = DEFAULT_PACKAGE_LIST_MAX
 ) : OfflinePackageBridgeSurface {
 
@@ -145,7 +151,10 @@ class OfflinePackageBridgeService(
             // web-token-resolved student is remembered so status/list/remove
             // keep answering without any live session (binding = memory only).
             if (sessionProvider() == null) {
-                resolveSession(request.accessToken)?.let { lastWebStudentId = it.studentId }
+                resolveSession(request.accessToken)?.let {
+                    lastWebStudentId = it.studentId
+                    onWebStudentBound(it.studentId)
+                }
             }
             return READY
         }
@@ -180,11 +189,18 @@ class OfflinePackageBridgeService(
     }
 
     override fun openOfflineExam(packageId: String?): String {
-        if (packageUuid(packageId) == null) return INVALID_ARGS
-        // Wave 3 owns the offline exam player (decrypted-package webview). This
-        // build answers the honest interim code — the W1 web deny map carries a
-        // dedicated Arabic message for it; no exam is ever faked as opened.
-        return ERROR_EXAM_UI_PENDING
+        val id = packageUuid(packageId) ?: return INVALID_ARGS
+        // Fail-closed feature gate: a disabled runtime denies regardless of session.
+        if (runtime() == null) return DENIED_DISABLED
+        // Store binding: native session, else the last web-bound student.
+        val user = storeBoundStudentId() ?: return DENIED_NATIVE_SESSION
+        val stored = runCatching { packageStore.load(id, user, installationId()) }.getOrNull() ?: return ABSENT
+        if (!stored.envelope.manifest.expiresAt.isAfter(clock())) return DENIED_STALE
+        // W3 (UX 2A): the hardened exam webview (OfflineExamWebActivity) owns the
+        // player — the launcher seam is constructor-injected so JVM tests can
+        // freeze it. CmsApplication posts the start to the main thread.
+        examLauncher(id.toString())
+        return OPENING
     }
 
     // =====================================================================
@@ -205,7 +221,10 @@ class OfflinePackageBridgeService(
             state.packageId = packageId
             packageIdToKey[packageId] = state.key
             state.phase = PackageDownloadState.Phase.READY
-            if (fromWebSession) lastWebStudentId = session.studentId
+            if (fromWebSession) {
+                lastWebStudentId = session.studentId
+                onWebStudentBound(session.studentId)
+            }
         } catch (transport: OfflineTransportException) {
             when (transport.statusCode) {
                 401, 403 -> state.phase = PackageDownloadState.Phase.DENIED_AUTH
@@ -350,11 +369,12 @@ class OfflinePackageBridgeService(
         // offlinePackageStatus(packageId) → (plus the codes above)
         const val ABSENT = "absent"
 
+        // openOfflineExam(packageId) →
+        const val OPENING = "opening"                        // exam webview launch handed to the examLauncher seam
+        const val DENIED_STALE = "denied_stale"              // stored manifest already expired at open time
+
         // removeOfflinePackage(packageId) →
         const val REMOVED = "removed"
-
-        // openOfflineExam(packageId) → Wave 3 delivers the player; until then the honest interim code
-        const val ERROR_EXAM_UI_PENDING = "error:exam_ui_pending"
 
         /** Empty JSON array — the safe `listOfflinePackages()` answer without a store binding. */
         const val EMPTY_LIST_JSON = "[]"
