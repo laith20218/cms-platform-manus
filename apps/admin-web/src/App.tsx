@@ -9,7 +9,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   BarChart3,
-  Bell,
+  Bell, History,
   BookOpenCheck,
   Building2,
   ChevronLeft,
@@ -47,6 +47,7 @@ import { createCanFunction } from './lib/uiPermissions';
 import { AcademicCenter } from './components/AcademicCenter';
 import { AdminsCenter, DialogLayer } from './components/AdminsCenter';
 import { TwoFactorCard } from './components/TwoFactorCard';
+import { DashboardFeeds } from './components/DashboardFeeds';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { AuditCenter } from './components/AuditCenter';
 import { CodesCenter } from './components/CodesCenter';
@@ -66,6 +67,7 @@ import { SettingsCenter } from './components/SettingsCenter';
 // W16.5 — admin editor for the site content pages (Terms / Privacy / Contact).
 import { ContentCenter } from './components/ContentCenter';
 import { NotificationCompose } from './components/NotificationCompose';
+import { SentNotificationsDialog } from './components/SentNotificationsDialog';
 
 const BRAND_MARK = '/brand/cms-admin-mark.png';
 const FULL_LOGO = '/brand/cms-cliver-medical-student-logo.jpg';
@@ -122,6 +124,8 @@ function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [operatorMenuOpen, setOperatorMenuOpen] = useState(false);
   const [notificationComposeOpen, setNotificationComposeOpen] = useState(false);
+  // W-coverage (row 26): sent notifications ledger + delivery stats (super-admin).
+  const [sentNotificationsOpen, setSentNotificationsOpen] = useState(false);
   const [admins, setAdmins] = useState<AdminRecord[]>([]);
   const [roles, setRoles] = useState<RoleRecord[]>([]);
   const [totalAdmins, setTotalAdmins] = useState(0);
@@ -677,6 +681,18 @@ function App() {
                 {unreadCount > 0 && <span className="dot">{unreadCount > 99 ? '99+' : unreadCount}</span>}
               </button>
             )}
+            {/* W-coverage (row 26): sent ledger — super-admin only (API scope). */}
+            {isSuperAdmin && (
+              <button
+                className="icon-btn"
+                aria-label={isArabic ? 'سجل الإشعارات المرسلة' : 'Sent notifications'}
+                onClick={() => setSentNotificationsOpen(true)}
+                title={isArabic ? 'سجل الإشعارات المرسلة' : 'Sent notifications'}
+                data-testid="open-sent-notifications"
+              >
+                <History size={19} />
+              </button>
+            )}
           </div>
         </header>
         <div className="content">
@@ -863,6 +879,14 @@ function App() {
           onSubmitReset={submitResetPassword}
           onSubmitDelete={submitDeleteAdmin}
           onSubmitRole={submitRole}
+        />
+      )}
+      {sentNotificationsOpen && (
+        <SentNotificationsDialog
+          token={token}
+          isArabic={isArabic}
+          onClose={() => setSentNotificationsOpen(false)}
+          onError={reportError}
         />
       )}
       {notificationComposeOpen && (
@@ -1145,6 +1169,12 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
           </button>
         ))}
       </section>
+
+      {/* W-coverage (row 4): the three SuperAdmin dashboard feeds (recent-activity,
+          top-subjects, reports/summary) — previously no UI. */}
+      {isSuperAdmin && (
+        <DashboardFeeds token={token} isArabic={isArabic} />
+      )}
 
       <p style={{ marginTop: 'var(--cms-space-4)', fontSize: 'var(--cms-text-2xs)', color: 'var(--cms-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
         {isArabic ? 'آخر تحديث' : 'Last updated'}: {updatedLabel}
