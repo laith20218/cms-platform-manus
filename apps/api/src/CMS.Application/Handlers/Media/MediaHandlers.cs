@@ -50,6 +50,7 @@ namespace CMS.Application.Handlers.Media;
 public class MediaHandlers :
     IRequestHandler<GetPlaybackUrlQuery, PlaybackUrlDto>,
     IRequestHandler<GetHlsObjectQuery, HlsObjectDto>,
+    IRequestHandler<GetMediaContentQuery, MediaContentDto>,
     IRequestHandler<CreateMediaBookmarkCommand, CreateMediaBookmarkResult>,
     IRequestHandler<ListMediaBookmarksQuery, List<MediaBookmarkDto>>,
     IRequestHandler<UpdateMediaBookmarkCommand, MediaBookmarkDto>,
@@ -85,6 +86,12 @@ public class MediaHandlers :
     /// rewrite. T3 measured ≈ 246 ms for 900 sequential signings (pure local SigV4),
     /// so batching is headroom for storage implementations with real async I/O.</summary>
     private const int HlsPresignBatchSize = 50;
+
+    /// <summary>WAVE-5 (offline media content) — short private browser cache on streamed
+    /// whole objects, identical to the library /content route's policy: the bytes are
+    /// immutable per key, but the entitlement must be re-validated often enough that a
+    /// revoked student's cached copy dies quickly.</summary>
+    private const string OfflineContentCacheControl = "private, max-age=120";
 
     private readonly IApplicationDbContext _db;
     private readonly IUnitOfWork _unitOfWork;
@@ -442,6 +449,92 @@ public class MediaHandlers :
             "HLS proxy miss: {AssetType} {AssetId} key {Key} — pinned ladder object absent from storage (retired-provider tree never migrated? handover doc 04 §1)",
             req.AssetType, req.AssetId, objectKey);
         return new NotFoundException("HlsObject", objectKey);
+    }
+
+    // ===== WAVE-5 (offline media content): full-object byte streaming =====
+
+    /// <summary>
+    /// WAVE-5 — serves the ORIGINAL stored object bytes through the API for the Android
+    /// offline cache. Hosted course episodes (SourceType = Upload) previously exposed
+    /// only presigned playback URLs (client → storage direct), which can never enter the
+    /// encrypted offline store — this handler is the byte-channel counterpart of the
+    /// library file content route, so episodes download exactly like library files.
+    ///
+    /// Gate order mirrors <see cref="Handle(GetPlaybackUrlQuery, CancellationToken)"/>
+    /// deliberately: visibility (published + virus-clean library file / published,
+    /// non-deleted course), the MEDIA_TYPE_NOT_STREAMABLE / MEDIA_YOUTUBE_HOSTED /
+    /// EPISODE_UPLOAD_INCOMPLETE refusals, then the VideoAudio entitlement scope — so
+    /// the offline channel can never be wider than the playback channel.
+    ///
+    /// The resolved key is ALWAYS the original object (FileUrl / FileKey), NEVER an HLS
+    /// ladder even when one is pinned and Ready: offline playback reads the complete
+    /// local file (no adaptive streaming), so the source object is the only useful
+    /// artifact — and the entity's own ContentType / FileFormat rides the response.
+    /// Whole-object 200 only, NO Range support (parity with library /content): the
+    /// offline cache always consumes the full stream; interactive seek stays on the
+    /// presigned / HLS channels.
+    /// </summary>
+    public async Task<MediaContentDto> Handle(GetMediaContentQuery req, CancellationToken ct)
+    {
+        string fileKey;
+        string contentType;
+
+        if (req.AssetType == MediaAssetType.LibraryFile)
+        {
+            var file = await _db.LibraryFiles.AsNoTracking()
+                .Where(file => file.Id == req.AssetId && file.DeletedAt == null
+                    && file.Status == ContentStatus.Published
+                    && file.VirusScanStatus == VirusScanStatus.Clean)
+                .Select(file => new { file.FileUrl, file.Type, file.FileFormat, file.YoutubeVideoId, file.SubjectId })
+                .FirstOrDefaultAsync(ct)
+                ?? throw new NotFoundException("LibraryFile", req.AssetId);
+
+            // Same refusals as playback (mirror of the §1.A library path): documents keep
+            // the same-origin library /content channel; YouTube-hosted videos have no
+            // stored bytes to stream at all.
+            if (file.Type is not (LibraryFileType.Video or LibraryFileType.Audio))
+                throw new DomainException("روابط التشغيل المباشر مخصصة للفيديو والصوت فقط — الملفات النصية تمر عبر قناة المكتبة نفسها", "MEDIA_TYPE_NOT_STREAMABLE");
+            if (file.Type == LibraryFileType.Video && !string.IsNullOrEmpty(file.YoutubeVideoId))
+                throw new DomainException("هذا الفيديو مستضاف على يوتيوب وليس له نسخة في التخزين المباشر", "MEDIA_YOUTUBE_HOSTED");
+            if (!await _entitlements.CanAccessSubjectContentAsync(req.StudentId, file.SubjectId, SubscriptionContentScope.VideoAudio, ct))
+                throw new ForbiddenException("لا تملك صلاحية تشغيل هذه الوسائط");
+
+            fileKey = file.FileUrl;
+            contentType = string.IsNullOrWhiteSpace(file.FileFormat)
+                ? (file.Type == LibraryFileType.Video ? "video/mp4"
+                    : file.Type == LibraryFileType.Audio ? "audio/mpeg"
+                    : "application/octet-stream")
+                : file.FileFormat!;
+        }
+        else
+        {
+            var episode = await _db.CourseEpisodes.AsNoTracking()
+                .Where(episode => episode.Id == req.AssetId && episode.DeletedAt == null)
+                .Select(episode => new
+                {
+                    Episode = episode,
+                    CourseSubjectId = episode.Course.SubjectId,
+                    CourseStatus = episode.Course.Status,
+                    CourseDeleted = episode.Course.DeletedAt != null
+                })
+                .FirstOrDefaultAsync(ct)
+                ?? throw new NotFoundException("CourseEpisode", req.AssetId);
+
+            if (episode.CourseDeleted || episode.CourseStatus != ContentStatus.Published)
+                throw new ForbiddenException("هذا الكورس غير متاح");
+            if (episode.Episode.SourceType == CourseEpisodeSource.YouTube || string.IsNullOrEmpty(episode.Episode.FileKey))
+                throw new DomainException("هذه الحلقة مستضافة على يوتيوب وليست لها نسخة في التخزين المباشر", "MEDIA_YOUTUBE_HOSTED");
+            if (episode.Episode.SourceType == CourseEpisodeSource.Upload && !string.IsNullOrEmpty(episode.Episode.UploadId))
+                throw new DomainException("لم يكتمل رفع هذه الحلقة بعد", "EPISODE_UPLOAD_INCOMPLETE");
+            if (!await _entitlements.CanAccessSubjectContentAsync(req.StudentId, episode.CourseSubjectId, SubscriptionContentScope.VideoAudio, ct))
+                throw new ForbiddenException("لا تملك صلاحية تشغيل هذه الحلقة");
+
+            fileKey = episode.Episode.FileKey!;
+            contentType = string.IsNullOrWhiteSpace(episode.Episode.ContentType) ? "video/mp4" : episode.Episode.ContentType!;
+        }
+
+        var content = await _storage.DownloadAsync(fileKey, ct);
+        return new MediaContentDto(content, contentType, OfflineContentCacheControl);
     }
 
     // ===== §1.B: media bookmarks =====
