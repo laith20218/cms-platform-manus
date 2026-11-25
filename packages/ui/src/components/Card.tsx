@@ -5,9 +5,9 @@ import { cn } from '../utils/cn';
 const cardVariants = cva('rounded-2xl overflow-hidden transition-all duration-300', {
   variants: {
     variant: {
-      content: 'bg-[var(--c-surface)] border border-[var(--c-border)] shadow-sm',
-      glass: 'bg-[var(--c-glass)] border border-[var(--c-border-glass)] backdrop-blur-xl',
-      stat: 'bg-[var(--c-surface)] border border-[var(--c-border)] p-5',
+      content: 'bg-[color:var(--c-surface)] border border-[color:var(--c-border)] shadow-sm',
+      glass: 'bg-[color:var(--c-glass)] border border-[color:var(--c-border-glass)] backdrop-blur-xl',
+      stat: 'bg-[color:var(--c-surface)] border border-[color:var(--c-border)] p-5',
     },
     interactive: { true: 'cursor-pointer hover:shadow-lg hover:-translate-y-0.5', false: '' },
   },

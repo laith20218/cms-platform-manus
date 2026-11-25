@@ -17,6 +17,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // W1 (admin-ui) — mirror vite.config.ts so components importing @cms/ui
+      // resolve identically in the vitest pipeline.
+      '@cms/ui': path.resolve(__dirname, '../../packages/ui/src'),
+      '@cms/types': path.resolve(__dirname, '../../packages/types/src'),
+      '@cms/utils': path.resolve(__dirname, '../../packages/utils/src'),
     },
   },
 });

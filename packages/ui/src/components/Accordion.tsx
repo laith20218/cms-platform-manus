@@ -93,7 +93,7 @@ export function Accordion({
           <div
             key={item.id}
             className={cn(
-              'rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] overflow-hidden',
+              'rounded-2xl border border-[color:var(--c-border)] bg-[color:var(--c-surface)] overflow-hidden',
               className,
             )}
           >
@@ -106,7 +106,7 @@ export function Accordion({
               aria-controls={panelId}
               data-testid={`accordion-header-${item.id}`}
               className={cn(
-                'press w-full min-h-14 flex items-center gap-3 p-4 text-start transition-colors hover:bg-[var(--c-bg-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--c-primary-500)] disabled:cursor-not-allowed disabled:opacity-50',
+                'press w-full min-h-14 flex items-center gap-3 p-4 text-start transition-colors hover:bg-[color:var(--c-bg-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--c-primary-500)] disabled:cursor-not-allowed disabled:opacity-50',
                 headerClassName,
               )}
             >
@@ -116,7 +116,7 @@ export function Accordion({
               <ChevronDown
                 aria-hidden="true"
                 className={cn(
-                  'w-5 h-5 text-[var(--c-text-muted)] shrink-0 transition-transform',
+                  'w-5 h-5 text-[color:var(--c-text-muted)] shrink-0 transition-transform',
                   open && 'rotate-180',
                   chevronClassName,
                 )}
@@ -128,7 +128,7 @@ export function Accordion({
                 role="region"
                 aria-labelledby={headerId}
                 data-testid={`accordion-panel-${item.id}`}
-                className={cn('border-t border-[var(--c-border)]', panelClassName)}
+                className={cn('border-t border-[color:var(--c-border)]', panelClassName)}
               >
                 {item.content}
               </div>

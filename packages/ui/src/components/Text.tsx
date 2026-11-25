@@ -29,14 +29,14 @@ const variantMap: Record<TextVariant, string> = {
 };
 
 const colorMap: Record<TextColor, string> = {
-  default: 'text-[var(--c-text)]',
-  soft: 'text-[var(--c-text-soft)]',
-  muted: 'text-[var(--c-text-muted)]',
-  faint: 'text-[var(--c-text-faint)]',
-  brand: 'text-[var(--c-primary-700)]',
-  success: 'text-[var(--c-success-700)]',
-  danger: 'text-[var(--c-danger-700)]',
-  warning: 'text-[var(--c-warning-700)]',
+  default: 'text-[color:var(--c-text)]',
+  soft: 'text-[color:var(--c-text-soft)]',
+  muted: 'text-[color:var(--c-text-muted)]',
+  faint: 'text-[color:var(--c-text-faint)]',
+  brand: 'text-[color:var(--c-primary-700)]',
+  success: 'text-[color:var(--c-success-700)]',
+  danger: 'text-[color:var(--c-danger-700)]',
+  warning: 'text-[color:var(--c-warning-700)]',
   onPrimary: 'text-white',
 };
 

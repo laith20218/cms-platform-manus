@@ -9,5 +9,5 @@ interface SpinnerProps {
 const sizeMap = { sm: 16, md: 24, lg: 32 };
 
 export function Spinner({ size = 'md', className }: SpinnerProps) {
-  return <Loader2 className={cn('animate-spin text-[var(--c-primary-700)]', className)} size={sizeMap[size]} />;
+  return <Loader2 className={cn('animate-spin text-[color:var(--c-primary-700)]', className)} size={sizeMap[size]} />;
 }

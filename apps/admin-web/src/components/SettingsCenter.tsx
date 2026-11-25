@@ -21,6 +21,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   Settings as SettingsIcon, LoaderCircle, Search, X, Check, Pencil, RotateCcw, ShieldCheck,
 } from 'lucide-react';
+import { ConfirmDialog } from '@cms/ui';
 import { ApiError, apiRequest } from '../lib/api';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
@@ -77,6 +78,9 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
   const [editValue, setEditValue] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [busy, setBusy] = useState(false);
+  // W1 (admin-ui): explicit confirm dialog target — replaces the native
+  // window.confirm (English browser chrome, not keyboard/screen-reader friendly).
+  const [resetTarget, setResetTarget] = useState<SystemSetting | null>(null);
 
   // W23.3 (A2): `load` is now a stable useCallback + the declared effect dep —
   // replaces the misplaced same-line disable comment (which never silenced anything).
@@ -148,11 +152,12 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
   };
 
   const resetSetting = async (s: SystemSetting) => {
-    if (!s.description) { onError(isArabic ? 'لا يوجد وصف لهذا الإعداد' : 'No description for default value'); return; }
-    const defaultValue = s.description.split(':').pop()?.trim() ?? '';
-    if (!defaultValue || !window.confirm(isArabic
-      ? `هل تريد إعادة تعيين "${s.key}" إلى القيمة الافتراضية "${defaultValue}"؟`
-      : `Reset "${s.key}" to default "${defaultValue}"?`)) return;
+    const defaultValue = s.description?.split(':').pop()?.trim() ?? '';
+    if (!defaultValue) {
+      onError(isArabic ? 'لا يوجد وصف لهذا الإعداد' : 'No description for default value');
+      setResetTarget(null);
+      return;
+    }
     setBusy(true);
     try {
       const updated = await apiRequest<SystemSetting>(`/api/v1/admin/settings/${encodeURIComponent(s.key)}/reset`, token, {
@@ -161,6 +166,7 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
         body: JSON.stringify({ defaultValue }),
       });
       setSettings(prev => prev.map(x => x.key === s.key ? { ...x, ...updated } : x));
+      setResetTarget(null);
       onNotice(isArabic ? 'تمت إعادة التعيين' : 'Reset to default');
     } catch (err: unknown) {
       const msg = err instanceof ApiError ? err.message : isArabic ? 'فشلت إعادة التعيين' : 'Reset failed';
@@ -344,7 +350,7 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
                             )}
                             {s.description && s.description.includes(':') && can('btn:settings.reset') && (
                               <button
-                                onClick={() => resetSetting(s)}
+                                onClick={() => setResetTarget(s)}
                                 disabled={isLocked || busy}
                                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border disabled:opacity-40 disabled:cursor-not-allowed"
                                 style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}
@@ -364,6 +370,26 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
           ))}
         </div>
       )}
+
+      {/* W1 (admin-ui): explicit confirm before overwriting a setting with its
+          default value — consequence text carries the key, current value and
+          the default that will replace it. */}
+      <ConfirmDialog
+        open={resetTarget !== null}
+        onOpenChange={(nextOpen) => { if (!nextOpen) setResetTarget(null); }}
+        title={isArabic ? 'إعادة تعيين الإعداد' : 'Reset setting'}
+        description={resetTarget
+          ? (isArabic
+            ? `سيتم استبدال القيمة الحالية لـ "${resetTarget.key}" (${resetTarget.value || '—'}) بالقيمة الافتراضية "${resetTarget.description?.split(':').pop()?.trim() ?? ''}".`
+            : `"${resetTarget.key}" will be reset from its current value (${resetTarget.value || '—'}) to the default "${resetTarget.description?.split(':').pop()?.trim() ?? ''}".`)
+          : undefined}
+        confirmLabel={isArabic ? 'تأكيد إعادة التعيين' : 'Confirm reset'}
+        cancelLabel={t.cancel}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => { if (resetTarget) void resetSetting(resetTarget); }}
+        testId="settings-reset-confirm"
+      />
     </section>
   );
 }

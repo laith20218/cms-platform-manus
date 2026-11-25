@@ -7,6 +7,12 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
+/* W1 (admin-ui) — @cms/ui adoption: Tailwind 4's automatic source detection
+   scans this app's tree only; node_modules-linked workspace packages are
+   excluded. Register the shared design-system package so its utilities are
+   generated for the admin bundle. */
+@source "../../../../packages/ui/src";
+
 /* ===== 1. Color Tokens ===== */
 :root {
   /* Ink (navy — sidebar, hero, authority surfaces) */
@@ -156,6 +162,33 @@
   --radius-lg: var(--cms-radius-lg);
   --sidebar-w: var(--cms-sidebar-w);
   --topbar-h: var(--cms-topbar-h);
+
+  /* W1 (admin-ui) — remaining --c-* aliases consumed by @cms/ui components.
+     Before Wave 1 the package was never rendered by this app, so most of the
+     tokens below were dangling references. Mapped onto the --cms-* family. */
+  --c-primary-50: var(--cms-teal-50);
+  --c-primary-400: var(--cms-teal-400);
+  --c-primary-600: var(--cms-teal-600);
+  --c-primary-800: #0a5a53;
+  --c-bg-hover: var(--cms-ivory-200);
+  --c-danger-50: var(--cms-danger-50);
+  --c-danger-500: var(--cms-danger);
+  --c-danger-600: #9c3a31;
+  --c-danger-700: #8a3129;
+  --c-success-50: var(--cms-success-50);
+  --c-success-500: var(--cms-success);
+  --c-success-600: #146b50;
+  --c-success-700: #0f5740;
+  --c-warning-50: var(--cms-warning-50);
+  --c-warning-700: var(--cms-warning);
+  --c-info-50: var(--cms-info-50);
+  --c-info-700: var(--cms-info);
+  --c-neutral-100: var(--cms-ivory-100);
+  --c-neutral-200: var(--cms-ivory-200);
+  --c-neutral-700: var(--cms-text-soft);
+  --c-glass: var(--cms-surface-glass);
+  --c-border-glass: var(--cms-line);
+  --c-text-faint: var(--cms-text-muted);
 }
 
 /* ===== Dark Mode ===== */
