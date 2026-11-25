@@ -51,7 +51,7 @@ describe('CoursesCenter — media upload panel', () => {
     renderCenter(true);
 
     // Expand the course's episode manager — the upload CTA carries the new title.
-    const courseButton = await screen.findByRole('button', { name: /كورس تجريبي/ });
+    const courseButton = await screen.findByRole('button', { name: /^كورس تجريبي/ });
     fireEvent.click(courseButton);
 
     await waitFor(() => {
@@ -64,7 +64,7 @@ describe('CoursesCenter — media upload panel', () => {
   it('uses the English media title when the interface is English', async () => {
     renderCenter(false);
 
-    const courseButton = await screen.findByRole('button', { name: /كورس تجريبي/ });
+    const courseButton = await screen.findByRole('button', { name: /^كورس تجريبي/ });
     fireEvent.click(courseButton);
 
     await waitFor(() => {
@@ -76,7 +76,7 @@ describe('CoursesCenter — media upload panel', () => {
   it('opens the upload panel with the media title and the video/audio accept list', async () => {
     const { container } = renderCenter(true);
 
-    const courseButton = await screen.findByRole('button', { name: /كورس تجريبي/ });
+    const courseButton = await screen.findByRole('button', { name: /^كورس تجريبي/ });
     fireEvent.click(courseButton);
 
     const uploadButton = await screen.findByRole('button', { name: /رفع وسائط/ });
@@ -108,7 +108,7 @@ describe('CoursesCenter — Push 7 upload typing', () => {
       </UiPermissionsProvider>
     );
 
-    const courseButton = await screen.findByRole('button', { name: /كورس تجريبي/ });
+    const courseButton = await screen.findByRole('button', { name: /^كورس تجريبي/ });
     fireEvent.click(courseButton);
     const uploadButton = await screen.findByRole('button', { name: /رفع وسائط/ });
     fireEvent.click(uploadButton);
@@ -184,7 +184,7 @@ describe('CoursesCenter — Push 7 upload typing', () => {
         </UiPermissionsProvider>
       );
 
-      const courseButton = await screen.findByRole('button', { name: /كورس تجريبي/ });
+      const courseButton = await screen.findByRole('button', { name: /^كورس تجريبي/ });
       fireEvent.click(courseButton);
       const uploadButton = await screen.findByRole('button', { name: /رفع وسائط/ });
       fireEvent.click(uploadButton);
@@ -230,7 +230,7 @@ describe('CoursesCenter — Push 7 upload typing', () => {
       </UiPermissionsProvider>
     );
 
-    const courseButton = await screen.findByRole('button', { name: /كورس تجريبي/ });
+    const courseButton = await screen.findByRole('button', { name: /^كورس تجريبي/ });
     fireEvent.click(courseButton);
     const uploadButton = await screen.findByRole('button', { name: /رفع وسائط/ });
     fireEvent.click(uploadButton);

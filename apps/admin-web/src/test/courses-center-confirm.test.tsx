@@ -60,7 +60,8 @@ describe('CoursesCenter — W2 confirm gates + create Drawer', () => {
     renderCenter();
     await screen.findByText('كورس التشريح المرضي');
 
-    const publishBtn = document.querySelector('[title="نشر"]') as HTMLButtonElement;
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات كورس التشريح المرضي' }));
+    const publishBtn = await screen.findByRole('menuitem', { name: 'نشر' });
     fireEvent.click(publishBtn);
     expect(screen.getByTestId('course-lifecycle-confirm')).toBeInTheDocument();
     expect(screen.getByRole('dialog', { name: 'نشر الكورس' })).toBeInTheDocument();
@@ -76,7 +77,8 @@ describe('CoursesCenter — W2 confirm gates + create Drawer', () => {
     renderCenter();
     await screen.findByText('كورس التشريح المرضي');
 
-    const deleteBtn = document.querySelector('[title="حذف"]') as HTMLButtonElement;
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات كورس التشريح المرضي' }));
+    const deleteBtn = await screen.findByRole('menuitem', { name: 'حذف' });
     fireEvent.click(deleteBtn);
     expect(screen.getByRole('dialog', { name: 'حذف الكورس نهائيًا' })).toBeInTheDocument();
     expect(screen.getByText(/مع جميع حلقاته وملفات الفيديو المخزنة/)).toBeInTheDocument();
@@ -95,7 +97,8 @@ describe('CoursesCenter — W2 confirm gates + create Drawer', () => {
   it('cancel on the delete dialog never sends the DELETE', async () => {
     renderCenter();
     await screen.findByText('كورس التشريح المرضي');
-    fireEvent.click(document.querySelector('[title="حذف"]') as HTMLButtonElement);
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات كورس التشريح المرضي' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'حذف' }));
     fireEvent.click(screen.getByLabelText('أفهم أن الحذف نهائي ولا يمكن التراجع عنه'));
     fireEvent.click(screen.getByTestId('confirm-dialog-cancel'));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());

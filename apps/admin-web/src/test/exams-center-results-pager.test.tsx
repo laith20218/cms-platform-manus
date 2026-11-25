@@ -85,7 +85,8 @@ describe('W2 — ExamsCenter result statuses (Arabic glossary)', () => {
     renderCenter();
     await screen.findByText('اختبار التشريح النهائي');
 
-    fireEvent.click(document.querySelector('[title="النتائج"]') as HTMLButtonElement);
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات اختبار التشريح النهائي' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'النتائج' }));
     await screen.findByText('طالبة أولى');
 
     expect(screen.getByText('مكتمل')).toBeInTheDocument();

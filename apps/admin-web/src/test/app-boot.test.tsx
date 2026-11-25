@@ -22,6 +22,7 @@ vi.mock('../lib/api', () => ({
   ApiError: class ApiError extends Error { status = 500; },
 }));
 
+import { MemoryRouter } from 'react-router-dom';
 import App from '../App';
 
 const SESSION_KEYS = ['cms-admin-user', 'cms-admin-token', 'cms-admin-refresh'];
@@ -49,7 +50,11 @@ afterEach(() => {
 
 describe('App boot smoke (login shell)', () => {
   it('mounts unauthenticated to the login screen with email + password fields', () => {
-    render(<App />);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
 
     // Locale-independent placeholders from the production login form.
     expect(screen.getByPlaceholderText('admin@university.edu')).toBeTruthy();
@@ -61,7 +66,11 @@ describe('App boot smoke (login shell)', () => {
 
   it('a failed sign-in surfaces the error message without crashing', async () => {
     loginMock.mockRejectedValueOnce(new Error('بيانات الدخول غير صحيحة'));
-    render(<App />);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
 
     fireEvent.change(screen.getByPlaceholderText('admin@university.edu'), {
       target: { value: 'admin@university.edu' },
@@ -91,7 +100,11 @@ describe('App boot smoke (login shell)', () => {
       if (path.startsWith('/api/v1/admin/admins?')) throw new Error('بيانات الإدارة غير متاحة حاليًا');
       return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 1 };
     });
-    render(<App />);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
 
     fireEvent.change(screen.getByPlaceholderText('admin@university.edu'), {
       target: { value: 'admin@university.edu' },

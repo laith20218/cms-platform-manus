@@ -353,3 +353,48 @@ export type MultipartStatus = {
    * Absent (older API) = treat as active. */
   hasActiveUpload?: boolean;
 };
+
+// ===== Command Center P1 — system maintenance (SuperAdmin only, re-auth'd) =====
+
+/** One wiped/hard-deleted table with its affected row count (machine label; the UI translates). */
+export type WipeTableCount = { table: string; rows: number };
+
+/** POST /api/v1/admin/system/wipe result — dryRun previews counts, real runs return deletions. */
+export type WipeResult = { module: string; dryRun: boolean; tables: WipeTableCount[] };
+
+/** POST /api/v1/admin/system/hard-delete result. */
+export type HardDeleteResult = { module: string; targetId: string; deleted: WipeTableCount[] };
+
+export type WipeRequest = {
+  module: string;
+  /** Typed confirmation — "DELETE" or "حذف" (the backend accepts both). */
+  confirmText: string;
+  /** The acting super admin's password (re-auth, mirrors admin deletion). */
+  actorPassword: string;
+  /** true = per-table row counts only, nothing is deleted. */
+  dryRun: boolean;
+};
+
+export type HardDeleteRequest = {
+  module: string;
+  targetId: string;
+  actorPassword: string;
+  /** Explicit opt-in to delete cross-domain children (otherwise the API fails loudly with counts). */
+  cascade: boolean;
+};
+
+/** Wipe a data module (SuperAdmin + re-auth + typed confirmation). */
+export function adminWipe(token: string, request: WipeRequest): Promise<WipeResult> {
+  return apiRequest<WipeResult>('/api/v1/admin/system/wipe', token, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+/** Hard-delete one entity, bypassing soft-delete (SuperAdmin + re-auth). */
+export function adminHardDelete(token: string, request: HardDeleteRequest): Promise<HardDeleteResult> {
+  return apiRequest<HardDeleteResult>('/api/v1/admin/system/hard-delete', token, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}

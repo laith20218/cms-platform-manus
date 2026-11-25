@@ -46,7 +46,8 @@ import {
   Search, Send, Trash2, Undo2, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
-import { Pagination } from '@cms/ui';
+import { Pagination, RowActionsMenu } from '@cms/ui';
+import { HardDeleteDialog, type HardDeleteTarget } from './HardDeleteDialog';
 import { QuestionImportModal } from './QuestionImportModal';
 import { questionDifficultyLabel as difficultyLabel, questionTypeLabel as typeLabel } from '../lib/questionLabels';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
@@ -236,7 +237,10 @@ const statusLabel = (status: string, isArabic: boolean) => {
 
 export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   // Push 3: cosmetic gating — the API policies remain the real boundary.
-  const { can } = useUiPermissions();
+  const { can, bundle } = useUiPermissions();
+  // Command Center P1: hard delete is a SuperAdmin-only system action (backend-gated too).
+  const isSuperAdmin = bundle?.isSuperAdmin ?? false;
+  const [hardTarget, setHardTarget] = useState<HardDeleteTarget | null>(null);
   // === Academic hierarchy state ===
   const [universities, setUniversities] = useState<University[]>([]);
   const [colleges, setColleges] = useState<College[]>([]);
@@ -1098,82 +1102,80 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               <Pencil className="w-4 h-4" />
                             </button>
                           )}
-                          {/* W14.3 B.3: preview — the student view (no correctness flags). */}
-                          <button
-                            type="button"
-                            title={isArabic ? 'معاينة' : 'Preview'}
-                            disabled={busy || previewLoading}
-                            onClick={() => void previewQuestion(question.id)}
-                            className="p-1.5 rounded-md transition-colors"
-                            style={{ color: 'var(--cms-text-muted)' }}
-                            onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
-                            onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          {/* W14.3 B.3: duplicate as a new draft (admin controller, W14.2). */}
-                          {can('btn:questions.create') && (
-                            <button
-                              type="button"
-                              title={isArabic ? 'تكرار' : 'Duplicate'}
-                              disabled={busy}
-                              onClick={() => void duplicateQuestion(question.id)}
-                              className="p-1.5 rounded-md transition-colors"
-                              style={{ color: 'var(--cms-text-muted)' }}
-                              onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
-                              onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
-                            >
-                              <Copy className="w-4 h-4" />
-                            </button>
-                          )}
-                          {/* W14.3 B.3: unpublish a published question back to draft. */}
-                          {can('btn:questions.publish') && question.status === 'Published' && (
-                            <button
-                              type="button"
-                              title={isArabic ? 'إلغاء النشر' : 'Unpublish'}
-                              disabled={busy}
-                              onClick={() => setConfirm({ id: question.id, action: 'unpublish' })}
-                              className="p-1.5 rounded-md transition-colors"
-                              style={{ color: 'var(--cms-text-muted)' }}
-                              onMouseEnter={(event) => { event.currentTarget.style.background = '#fffbeb'; event.currentTarget.style.color = 'var(--cms-warning)'; }}
-                              onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; event.currentTarget.style.color = 'var(--cms-text-muted)'; }}
-                            >
-                              <Undo2 className="w-4 h-4" />
-                            </button>
-                          )}
-                          {can('btn:questions.publish') && question.status !== 'Published' && question.status !== 'Archived' && (
-                            <button
-                              type="button"
-                              title={isArabic ? 'نشر' : 'Publish'}
-                              disabled={busy}
-                              onClick={() => setConfirm({ id: question.id, action: 'publish' })}
-                              className="p-1.5 rounded-md text-teal-600 hover:bg-teal-50 transition-colors disabled:opacity-50"
-                            >
-                              <Send className="w-4 h-4" />
-                            </button>
-                          )}
-                          {can('btn:questions.archive') && (question.status !== 'Archived' ? (
-                            <button
-                              type="button"
-                              title={isArabic ? 'أرشفة' : 'Archive'}
-                              disabled={busy}
-                              onClick={() => setConfirm({ id: question.id, action: 'archive' })}
-                              className="p-1.5 rounded-md text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-50"
-                            >
-                              <Archive className="w-4 h-4" />
-                            </button>
-                          ) : null)}
-                          {can('btn:questions.delete') && (
-                            <button
-                              type="button"
-                              title={isArabic ? 'حذف' : 'Delete'}
-                              disabled={busy}
-                              onClick={() => setConfirm({ id: question.id, action: 'delete', text: question.text })}
-                              className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
+                          {/* Command Center P1: row-action ⋮ menu — the 6 secondary actions
+                              (preview, duplicate, publish lifecycle, archive, delete) grouped
+                              instead of a per-row button cluster. Destructive entries stay
+                              confirm-gated downstream via the existing setConfirm flows. */}
+                          <RowActionsMenu
+                            label={isArabic ? `إجراءات: ${question.text.slice(0, 40)}` : `Actions: ${question.text.slice(0, 40)}`}
+                            dir={isArabic ? 'rtl' : 'ltr'}
+                            items={[
+                              {
+                                key: 'preview',
+                                label: isArabic ? 'معاينة (كما يراها الطالب)' : 'Preview (student view)',
+                                icon: <Eye className="w-4 h-4" />,
+                                disabled: busy || previewLoading,
+                                onSelect: () => void previewQuestion(question.id),
+                              },
+                              ...(can('btn:questions.create')
+                                ? [{
+                                    key: 'duplicate',
+                                    label: isArabic ? 'تكرار كمسودة جديدة' : 'Duplicate as new draft',
+                                    icon: <Copy className="w-4 h-4" />,
+                                    disabled: busy,
+                                    onSelect: () => void duplicateQuestion(question.id),
+                                  }]
+                                : []),
+                              ...(can('btn:questions.publish') && question.status === 'Published'
+                                ? [{
+                                    key: 'unpublish',
+                                    label: isArabic ? 'إلغاء النشر' : 'Unpublish',
+                                    icon: <Undo2 className="w-4 h-4" />,
+                                    disabled: busy,
+                                    onSelect: () => setConfirm({ id: question.id, action: 'unpublish' }),
+                                  }]
+                                : []),
+                              ...(can('btn:questions.publish') && question.status !== 'Published' && question.status !== 'Archived'
+                                ? [{
+                                    key: 'publish',
+                                    label: isArabic ? 'نشر' : 'Publish',
+                                    icon: <Send className="w-4 h-4" />,
+                                    disabled: busy,
+                                    onSelect: () => setConfirm({ id: question.id, action: 'publish' }),
+                                  }]
+                                : []),
+                              ...(can('btn:questions.archive')
+                                ? [{
+                                    key: 'archive',
+                                    label: isArabic ? 'أرشفة' : 'Archive',
+                                    icon: <Archive className="w-4 h-4" />,
+                                    disabled: busy,
+                                    dividerBefore: true,
+                                    onSelect: () => setConfirm({ id: question.id, action: 'archive' }),
+                                  }]
+                                : []),
+                              ...(can('btn:questions.delete')
+                                ? [{
+                                    key: 'delete',
+                                    label: isArabic ? 'حذف' : 'Delete',
+                                    danger: true,
+                                    icon: <Trash2 className="w-4 h-4" />,
+                                    disabled: busy,
+                                    onSelect: () => setConfirm({ id: question.id, action: 'delete', text: question.text }),
+                                  }]
+                                : []),
+                              ...(isSuperAdmin
+                                ? [{
+                                    key: 'hard-delete',
+                                    label: isArabic ? 'حذف نهائي (تجاوز الأرشفة)' : 'Hard delete (bypass archive)',
+                                    danger: true,
+                                    dividerBefore: true,
+                                    icon: <Trash2 className="w-4 h-4" />,
+                                    onSelect: () => setHardTarget({ module: 'question', targetId: question.id, label: question.text.slice(0, 60) }),
+                                  }]
+                                : []),
+                            ]}
+                          />
                         </div>
                       </td>
                     </tr>
@@ -2216,6 +2218,18 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
           </div>
         </div>
       )}
+
+      {/* Command Center P1 (D-4): physical delete, SuperAdmin + re-auth + loud-fail on children. */}
+      <HardDeleteDialog
+        token={token}
+        isArabic={isArabic}
+        target={hardTarget}
+        consequence={isArabic
+          ? 'سيُحذف السؤال نهائيًا مع خياراته وصوره وسجلّ استخدامه في الاختبارات والممارسة (تجاوز الأرشفة).'
+          : 'The question is physically deleted with its options, images and usage history (bypassing archive).'}
+        onDone={() => { void loadQuestions(); }}
+        onClose={() => setHardTarget(null)}
+      />
     </section>
   );
 }

@@ -26,6 +26,9 @@ export { ConfirmDialog, type ConfirmDialogProps } from './components/ConfirmDial
 export { Drawer, type DrawerProps } from './components/Drawer';
 export { Select, type SelectProps, type SelectOption } from './components/Select';
 export { Checkbox, type CheckboxProps } from './components/Checkbox';
+// Command Center P1 — anchored action menus for dense data tables (the row
+// "⋮"). DropdownMenu is the primitive; RowActionsMenu is the table-row preset.
+export { DropdownMenu, RowActionsMenu, type DropdownMenuItem, type DropdownMenuProps, type RowActionsMenuProps } from './components/DropdownMenu';
 export {
   TableShell, Table, THead, TBody, TR, TH, TD,
   type TableShellProps,

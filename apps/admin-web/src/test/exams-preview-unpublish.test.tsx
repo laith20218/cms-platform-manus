@@ -98,11 +98,18 @@ describe('W-coverage — exam unpublish (row 18)', () => {
     renderCenter();
     await screen.findByText('اختبار التشريح النهائي');
 
-    // Published row has the unpublish action; the draft row does not.
-    expect(document.querySelector('[data-testid="exam-unpublish-e1"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="exam-unpublish-e2"]')).toBeNull();
+    // Published row has the unpublish action; the draft row does not (row ⋮ menu).
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات اختبار التشريح النهائي' }));
+    expect(await screen.findByRole('menuitem', { name: /إلغاء النشر/ })).toBeInTheDocument();
+    fireEvent.pointerDown(document.body); // outside-close (pointerdown) e1's menu before the draft row
 
-    fireEvent.click(document.querySelector('[data-testid="exam-unpublish-e1"]') as HTMLButtonElement);
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات اختبار مسودة' }));
+    await waitFor(() => expect(screen.getByRole('menu')).toBeInTheDocument());
+    expect(screen.queryByRole('menuitem', { name: /إلغاء النشر/ })).toBeNull();
+    fireEvent.pointerDown(document.body); // outside-close (pointerdown) e2's menu
+
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات اختبار التشريح النهائي' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /إلغاء النشر/ }));
     // Confirm gate: consequence text present, no request fired yet.
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText(/الجلسات القائمة تحتفظ بلقطتها الحالية/)).toBeInTheDocument();
@@ -115,7 +122,8 @@ describe('W-coverage — exam unpublish (row 18)', () => {
   it('cancel in the unpublish confirm never posts', async () => {
     renderCenter();
     await screen.findByText('اختبار التشريح النهائي');
-    fireEvent.click(document.querySelector('[data-testid="exam-unpublish-e1"]') as HTMLButtonElement);
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات اختبار التشريح النهائي' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /إلغاء النشر/ }));
     fireEvent.click(screen.getByRole('button', { name: 'إلغاء' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(calls.some((c) => c.path.includes('/unpublish'))).toBe(false);
@@ -127,7 +135,8 @@ describe('W-coverage — exam student-view preview (row 18)', () => {
     renderCenter();
     await screen.findByText('اختبار التشريح النهائي');
 
-    fireEvent.click(document.querySelector('[data-testid="exam-preview-e1"]') as HTMLButtonElement);
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات اختبار التشريح النهائي' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'معاينة كطالب' }));
     await waitFor(() => expect(screen.getByTestId('exam-preview-dialog')).toBeInTheDocument());
 
     expect(calls.some((c) => c.path.includes('/api/v1/admin/exams/e1/preview'))).toBe(true);
@@ -161,7 +170,8 @@ describe('W-coverage — exam student-view preview (row 18)', () => {
     });
     renderCenter();
     await screen.findByText('اختبار التشريح النهائي');
-    fireEvent.click(document.querySelector('[data-testid="exam-preview-e1"]') as HTMLButtonElement);
+    fireEvent.click(screen.getByRole('button', { name: 'إجراءات اختبار التشريح النهائي' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'معاينة كطالب' }));
     await waitFor(() => expect(screen.getByText('ليست لديك صلاحية المعاينة')).toBeInTheDocument());
   });
 });

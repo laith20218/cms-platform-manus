@@ -53,7 +53,8 @@ import {
   FileAudio, FileCode, HelpCircle, Images, Library, LoaderCircle, MonitorPlay, Plus,
   Pencil, RefreshCw, Search, ShieldCheck, Trash2, Upload, X, Film,
 } from 'lucide-react';
-import { ConfirmDialog, Dialog, Pagination } from '@cms/ui';
+import { ConfirmDialog, Dialog, Pagination, RowActionsMenu } from '@cms/ui';
+import { HardDeleteDialog, type HardDeleteTarget } from './HardDeleteDialog';
 import { apiRequest, type PagedResult, type AdminLibraryFileListItem, type UploadUrlResponse } from '../lib/api';
 import { isPdfProcessingActive, pdfHealthBadge, pdfTimelineSteps } from '../lib/mediaProcessing';
 import { ProcessingErrorModal } from './ProcessingErrorModal';
@@ -297,7 +298,10 @@ const categoryBadgeClass = (category: string | null | undefined) => {
 
 export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   // Push 3: cosmetic gating — the API policies remain the real boundary.
-  const { can } = useUiPermissions();
+  const { can, bundle } = useUiPermissions();
+  // Command Center P1: hard delete is a SuperAdmin-only system action (backend-gated too).
+  const isSuperAdmin = bundle?.isSuperAdmin ?? false;
+  const [hardTarget, setHardTarget] = useState<HardDeleteTarget | null>(null);
   // Push 4: documents | courses tabs inside the Library center.
   const [activeTab, setActiveTab] = useState<'files' | 'courses'>('files');
   const [coursesRefresh, setCoursesRefresh] = useState(0);
@@ -1141,72 +1145,74 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                       {new Date(file.createdAt).toLocaleDateString(isArabic ? 'ar' : 'en')}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        {/* R22.4 — Wave 12 placeholder: the escape hatch for severely
-                            broken PDFs (image conversion) is VISIBLE but not built. */}
-                        {file.type === 'Pdf' && (
-                          <button
-                            type="button"
-                            onClick={() => onNotice(isArabic
-                              ? 'هذه الميزة ستكون متاحة في التحديث القادم (Wave 12).'
-                              : 'This feature will be available in the next update (Wave 12).')}
-                            disabled={busy}
-                            title={isArabic ? 'تحويل إلى صور عالية الجودة' : 'Convert to high-quality images'}
-                            aria-label={isArabic ? 'تحويل إلى صور عالية الجودة' : 'Convert to high-quality images'}
-                            data-testid="convert-images-btn"
-                            className="p-1.5 rounded-md text-violet-600 hover:bg-violet-50 transition-colors disabled:opacity-50"
-                          >
-                            <Images className="w-4 h-4" />
-                          </button>
-                        )}
-                        {can('btn:library.edit') && (
-                          <button
-                            type="button"
-                            onClick={() => openEdit(file)}
-                            disabled={busy}
-                            title={isArabic ? 'تعديل البيانات' : 'Edit metadata'}
-                            aria-label={isArabic ? 'تعديل البيانات' : 'Edit metadata'}
-                            data-testid={`library-edit-${file.id}`}
-                            className="p-1.5 rounded-md text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                        )}
-                        {file.status === 'Draft' && file.virusScanStatus === 'Clean' && can('btn:library.publish') && (
-                          <button
-                            type="button"
-                            onClick={() => setPublishTarget(file)}
-                            disabled={busy}
-                            title={copy.publish}
-                            className="p-1.5 rounded-md text-teal-600 hover:bg-teal-50 transition-colors disabled:opacity-50"
-                          >
-                            <CheckCircle2 className="w-4 h-4" />
-                          </button>
-                        )}
-                        {file.status === 'Published' && can('btn:library.archive') && (
-                          <button
-                            type="button"
-                            onClick={() => setArchiveTarget(file)}
-                            disabled={busy}
-                            title={copy.archive}
-                            className="p-1.5 rounded-md text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-50"
-                          >
-                            <Archive className="w-4 h-4" />
-                          </button>
-                        )}
-                        {can('btn:library.delete') && (
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDelete(file)}
-                            disabled={busy}
-                            title={copy.delete}
-                            className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
+                      {/* Command Center P1: row-action ⋮ menu — convert/publish/archive/delete
+                          grouped into one trigger. Destructive entries stay confirm-gated
+                          downstream (publishTarget / archiveTarget / confirmDelete). */}
+                      <RowActionsMenu
+                        label={isArabic ? `إجراءات ${file.title}` : `Actions for ${file.title}`}
+                        dir={isArabic ? 'rtl' : 'ltr'}
+                        items={[
+                          ...(file.type === 'Pdf'
+                            ? [{
+                                // R22.4 — Wave 12 placeholder: the escape hatch for severely
+                                // broken PDFs (image conversion) is VISIBLE but not built.
+                                key: 'convert-images',
+                                label: isArabic ? 'تحويل إلى صور عالية الجودة' : 'Convert to high-quality images',
+                                icon: <Images className="w-4 h-4" />,
+                                disabled: busy,
+                                onSelect: () => onNotice(isArabic
+                                  ? 'هذه الميزة ستكون متاحة في التحديث القادم (Wave 12).'
+                                  : 'This feature will be available in the next update (Wave 12).'),
+                              }]
+                            : []),
+                          // W6 (complete API coverage): metadata edit joins the menu.
+                          {
+                            key: 'edit-metadata',
+                            label: isArabic ? 'تعديل البيانات' : 'Edit metadata',
+                            icon: <Pencil className="w-4 h-4" />,
+                            disabled: busy,
+                            onSelect: () => openEdit(file),
+                          },
+                          ...(file.status === 'Draft' && file.virusScanStatus === 'Clean' && can('btn:library.publish')
+                            ? [{
+                                key: 'publish',
+                                label: copy.publish,
+                                icon: <CheckCircle2 className="w-4 h-4" />,
+                                disabled: busy,
+                                onSelect: () => setPublishTarget(file),
+                              }]
+                            : []),
+                          ...(file.status === 'Published' && can('btn:library.archive')
+                            ? [{
+                                key: 'archive',
+                                label: copy.archive,
+                                icon: <Archive className="w-4 h-4" />,
+                                disabled: busy,
+                                onSelect: () => setArchiveTarget(file),
+                              }]
+                            : []),
+                          ...(can('btn:library.delete')
+                            ? [{
+                                key: 'delete',
+                                label: copy.delete,
+                                danger: true,
+                                icon: <Trash2 className="w-4 h-4" />,
+                                disabled: busy,
+                                dividerBefore: true,
+                                onSelect: () => setConfirmDelete(file),
+                              }]
+                            : []),
+                          ...(isSuperAdmin
+                            ? [{
+                                key: 'hard-delete',
+                                label: isArabic ? 'حذف نهائي (تجاوز الأرشفة)' : 'Hard delete (bypass archive)',
+                                danger: true,
+                                icon: <Trash2 className="w-4 h-4" />,
+                                onSelect: () => setHardTarget({ module: 'library-file', targetId: file.id, label: file.title }),
+                              }]
+                            : []),
+                        ]}
+                      />                    </td>
                   </tr>
                 );
               })}
@@ -1968,6 +1974,18 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         technicalDetails={fontErrorModal?.technical}
         diagnosticReport={fontErrorModal?.diagnostic}
         testId="pdf-processing-error-modal"
+      />
+
+      {/* Command Center P1 (D-4): physical delete, SuperAdmin + re-auth + loud-fail on children. */}
+      <HardDeleteDialog
+        token={token}
+        isArabic={isArabic}
+        target={hardTarget}
+        consequence={isArabic
+          ? 'سيُحذف الملف نهائيًا من قاعدة البيانات مع علاماته وتعليقاته ومشاهداته (تجاوز الأرشفة).'
+          : 'The file is physically deleted with its bookmarks, annotations and views (bypassing archive).'}
+        onDone={() => { void loadFiles(page); }}
+        onClose={() => setHardTarget(null)}
       />
     </section>
   );
