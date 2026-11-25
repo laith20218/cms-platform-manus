@@ -548,4 +548,172 @@ class OfflinePackageBridgeServiceTest {
         assertEquals(OfflinePackageBridgeService.READY, fastService.downloadOfflinePackage(requestJson(subjectId, accessToken = token)))
         assertEquals(listOf(userId), fastBindings)
     }
+
+    // ------------------------------------------------------------------
+    // Phase P (containment) — session-death wipes
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `web session end with no native session wipes the store and fires the full-wipe hook`() {
+        val token = webJwt(userId.toString())
+        val store = FakeStore()
+        val facade = RecordingFacade { session, _, _ ->
+            store.saveEnvelope(envelope(), session.studentId, session.installationId)
+            packageId
+        }
+        var fullWipes = 0
+        val service = OfflinePackageBridgeService(
+            runtime = { facade },
+            packageStore = store,
+            sessionProvider = { null },
+            installationId = { installation },
+            executor = Executor { it.run() },
+            clock = { now },
+            onFullWipe = { fullWipes++ }
+        )
+        // A successful web-token download binds the web student + store record.
+        assertEquals(OfflinePackageBridgeService.QUEUED, service.downloadOfflinePackage(requestJson(subjectId, accessToken = token)))
+        assertEquals(1, store.size)
+        assertEquals(OfflinePackageBridgeService.READY, service.offlinePackageStatus(packageId.toString()))
+
+        // The web session ends with NO surviving native session → full wipe.
+        assertEquals(OfflinePackageBridgeService.WIPED, service.onWebSessionEnded())
+        assertEquals(1, store.wipeAllCalls)
+        assertEquals(0, store.size)
+        assertEquals(1, fullWipes)
+        // Runtime state + web binding are gone: no state row, no store binding → absent.
+        assertEquals(OfflinePackageBridgeService.ABSENT, service.offlinePackageStatus(packageId.toString()))
+        assertEquals(OfflinePackageBridgeService.EMPTY_LIST_JSON, service.listOfflinePackages())
+    }
+
+    @Test
+    fun `web session end with no native session and nothing bound still runs the full wipe`() {
+        val store = FakeStore(listOf(storedPackage()))
+        var fullWipes = 0
+        val service = OfflinePackageBridgeService(
+            runtime = { RecordingFacade { _, _, _ -> null } },
+            packageStore = store,
+            sessionProvider = { null },
+            installationId = { installation },
+            executor = Executor { it.run() },
+            clock = { now },
+            onFullWipe = { fullWipes++ }
+        )
+        // Phase P: a logout with nothing bound is a no-op WIPE, not a skipped one —
+        // containment never depends on prior state.
+        assertEquals(OfflinePackageBridgeService.WIPED, service.onWebSessionEnded())
+        assertEquals(1, store.wipeAllCalls)
+        assertEquals(0, store.size)
+        assertEquals(1, fullWipes)
+    }
+
+    @Test
+    fun `web session end with a live native session wipes only the web user's packages`() {
+        val nativeStudentId = UUID.fromString("99999999-9999-9999-9999-999999999999")
+        val nativePackageId = UUID.fromString("88888888-8888-8888-8888-888888888888")
+        val store = FakeStore(
+            listOf(
+                // A record owned by the OTHER (native) student must survive untouched.
+                storedPackage(pkgId = nativePackageId).copy(
+                    envelope = envelope(pkgId = nativePackageId, owner = nativeStudentId)
+                )
+            )
+        )
+        val facade = RecordingFacade { session, _, _ ->
+            store.saveEnvelope(envelope(), session.studentId, session.installationId)
+            packageId
+        }
+        var native: OfflineSession? = null
+        var fullWipes = 0
+        val service = OfflinePackageBridgeService(
+            runtime = { facade },
+            packageStore = store,
+            sessionProvider = { native },
+            installationId = { installation },
+            executor = Executor { it.run() },
+            clock = { now },
+            onFullWipe = { fullWipes++ }
+        )
+        // The web student downloads while no native session exists (binding = userId).
+        assertEquals(OfflinePackageBridgeService.QUEUED, service.downloadOfflinePackage(requestJson(subjectId, accessToken = webJwt(userId.toString()))))
+        assertEquals(2, store.size)
+        // A DIFFERENT student's native session is now live.
+        native = OfflineSession(nativeStudentId, "native-token", installation)
+
+        assertEquals(OfflinePackageBridgeService.KEPT_NATIVE_SESSION, service.onWebSessionEnded())
+        // The web user's package was invalidated; the native user's record stayed;
+        // no full wipe, no media-cache hook (the native session owns its own wipe).
+        assertEquals(1, store.invalidations)
+        assertEquals(1, store.size)
+        assertEquals(0, store.wipeAllCalls)
+        assertEquals(0, fullWipes)
+        // The surviving record is bound to the native student (binding now = native).
+        val rows = JsonParser.parseString(service.listOfflinePackages()).asJsonArray
+        assertEquals(1, rows.size())
+        assertEquals(nativePackageId.toString(), rows.single().asJsonObject.get("packageId").asString)
+    }
+
+    @Test
+    fun `web session end with the binding matching the native student keeps the packages`() {
+        val store = FakeStore()
+        val facade = RecordingFacade { session, _, _ ->
+            store.saveEnvelope(envelope(), session.studentId, session.installationId)
+            packageId
+        }
+        var native: OfflineSession? = null
+        var fullWipes = 0
+        val service = OfflinePackageBridgeService(
+            runtime = { facade },
+            packageStore = store,
+            sessionProvider = { native },
+            installationId = { installation },
+            executor = Executor { it.run() },
+            clock = { now },
+            onFullWipe = { fullWipes++ }
+        )
+        // The web-token download binds the SAME student that later holds the native session.
+        assertEquals(OfflinePackageBridgeService.QUEUED, service.downloadOfflinePackage(requestJson(subjectId, accessToken = webJwt(userId.toString()))))
+        native = OfflineSession(userId, "native-token", installation)
+
+        assertEquals(OfflinePackageBridgeService.KEPT_NATIVE_SESSION, service.onWebSessionEnded())
+        // Nothing to selectively invalidate (the binding IS the native student), and
+        // the native session keeps owning its data.
+        assertEquals(0, store.invalidations)
+        assertEquals(1, store.size)
+        assertEquals(0, store.wipeAllCalls)
+        assertEquals(0, fullWipes)
+        // State rows were reset, but the native binding still resolves the store record.
+        assertEquals(OfflinePackageBridgeService.READY, service.offlinePackageStatus(packageId.toString()))
+    }
+
+    @Test
+    fun `reset clears the runtime state without any store writes`() {
+        val store = FakeStore()
+        val facade = RecordingFacade { session, _, _ ->
+            store.saveEnvelope(envelope(), session.studentId, session.installationId)
+            packageId
+        }
+        var fullWipes = 0
+        val service = OfflinePackageBridgeService(
+            runtime = { facade },
+            packageStore = store,
+            sessionProvider = { null },
+            installationId = { installation },
+            executor = Executor { it.run() },
+            clock = { now },
+            onFullWipe = { fullWipes++ }
+        )
+        assertEquals(OfflinePackageBridgeService.QUEUED, service.downloadOfflinePackage(requestJson(subjectId, accessToken = webJwt(userId.toString()))))
+        assertEquals(OfflinePackageBridgeService.READY, service.offlinePackageStatus(packageId.toString()))
+
+        // Native auth-death reset: memory only — the application-level wipe owns the store.
+        service.reset()
+        assertEquals(0, store.wipeAllCalls)
+        assertEquals(0, store.invalidations)
+        assertEquals(1, store.size)
+        assertEquals(0, fullWipes)
+        // No download state, no web binding left → status degrades to absent.
+        assertEquals(OfflinePackageBridgeService.ABSENT, service.offlinePackageStatus(packageId.toString()))
+        assertEquals(OfflinePackageBridgeService.EMPTY_LIST_JSON, service.listOfflinePackages())
+    }
 }
