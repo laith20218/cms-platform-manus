@@ -4,6 +4,7 @@ using CMS.Domain.Exceptions;
 using AdminEntity = CMS.Domain.Entities.Admin;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace CMS.Application.Commands.Maintenance;
 
@@ -28,6 +29,9 @@ namespace CMS.Application.Commands.Maintenance;
 ///   • acting admin re-authenticates with their password (mirrors DeleteAdmin)
 ///   • wipe requires the typed confirmation "DELETE" or "حذف"
 ///   • dryRun returns per-table row counts without deleting anything
+///   • PR-1 (Gate B #3): hard delete is OFF by default in EVERY environment behind
+///     the backend-enforced flag Features:HardDeleteEnabled (fail-closed) — a
+///     hand-crafted request against a disabled flag is rejected and audited
 ///   • one transaction, children-first FK-safe order, audit-logged (Critical)
 /// </summary>
 public sealed record WipeDataCommand(
@@ -68,21 +72,36 @@ public sealed class SystemMaintenanceHandlers :
         string.Equals(confirmText?.Trim(), "DELETE", StringComparison.OrdinalIgnoreCase)
         || string.Equals(confirmText?.Trim(), "حذف", StringComparison.Ordinal);
 
+    /// <summary>
+    /// PR-1 (Gate B decision #3): backend-enforced hard-delete kill switch.
+    /// OFF by default in every environment: a missing key, an unparseable value, or
+    /// "false" all mean disabled (fail-closed). Enable explicitly via appsettings
+    /// Features:HardDeleteEnabled or env Features__HardDeleteEnabled=true.
+    /// Enforced here — behind the API surface — so no crafted request and no frontend
+    /// behavior can bypass it. The Danger Zone UI mirrors the state read-only via
+    /// GET /api/v1/admin/system/hard-delete/status (cosmetic only).
+    /// </summary>
+    public static bool IsHardDeleteEnabled(IConfiguration configuration) =>
+        bool.TryParse(configuration?["Features:HardDeleteEnabled"], out var enabled) && enabled;
+
     private readonly IApplicationDbContext _db;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPasswordHasher _passwordHasher;
     private readonly ISecurityAuditWriter _audit;
+    private readonly IConfiguration _configuration;
 
     public SystemMaintenanceHandlers(
         IApplicationDbContext db,
         IUnitOfWork unitOfWork,
         IPasswordHasher passwordHasher,
-        ISecurityAuditWriter audit)
+        ISecurityAuditWriter audit,
+        IConfiguration configuration)
     {
         _db = db;
         _unitOfWork = unitOfWork;
         _passwordHasher = passwordHasher;
         _audit = audit;
+        _configuration = configuration;
     }
 
     // ============================================================
@@ -114,6 +133,13 @@ public sealed class SystemMaintenanceHandlers :
             return new WipeResultDto(module, DryRun: true, counts);
         }
 
+        // PR-1: destructive-intent audit BEFORE the transaction opens. A crash between
+        // commit and the post-commit audit write can no longer leave a mass deletion
+        // unaudited — the intent record is already durable even if this transaction
+        // rolls back (dry-run previews stay non-destructive and are never audited).
+        await _audit.LogSecurityEventAsync(null, request.ActorAdminId, SecurityEventType.AdminAction, SecuritySeverity.Critical,
+            $"action=wipe_data; phase=intent; module={module}", ct: ct);
+
         await _unitOfWork.BeginTransactionAsync(ct);
         List<WipeTableCountDto> results;
         try
@@ -136,7 +162,7 @@ public sealed class SystemMaintenanceHandlers :
         // completed transaction — its own failure propagates as-is.
         var total = results.Sum(r => r.Rows);
         await _audit.LogSecurityEventAsync(null, request.ActorAdminId, SecurityEventType.AdminAction, SecuritySeverity.Critical,
-            $"action=wipe_data; module={module}; rows={total}; tables={results.Count}", ct: ct);
+            $"action=wipe_data; phase=executed; module={module}; rows={total}; tables={results.Count}", ct: ct);
         return new WipeResultDto(module, DryRun: false, results);
     }
 
@@ -147,6 +173,21 @@ public sealed class SystemMaintenanceHandlers :
     public async Task<HardDeleteResultDto> Handle(HardDeleteCommand request, CancellationToken ct)
     {
         var actor = await RequireSuperAdminAsync(request.ActorAdminId, ct);
+
+        // PR-1 (Gate B decision #3): backend-enforced kill switch, checked AFTER the
+        // SuperAdmin gate (so the rejected attempt is attributable in the audit
+        // stream) and BEFORE password verification or any transaction. With the flag
+        // off, nothing downstream runs — no Argon2 burn, no counts, no deletion —
+        // regardless of what the request carries or which frontend sent it.
+        if (!IsHardDeleteEnabled(_configuration))
+        {
+            await _audit.LogSecurityEventAsync(null, request.ActorAdminId, SecurityEventType.AdminAction, SecuritySeverity.Warning,
+                $"action=hard_delete; phase=rejected; reason=HARD_DELETE_DISABLED; module={request.Module}; target={request.TargetId}", ct: ct);
+            throw new DomainException(
+                "الحذف النهائي معطّل في هذه البيئة (Features:HardDeleteEnabled) — الأرشفة هي المسار الافتراضي",
+                "HARD_DELETE_DISABLED");
+        }
+
         if (!_passwordHasher.VerifyPassword(request.ActorPassword ?? string.Empty, actor.PasswordHash))
             throw new DomainException("كلمة مرور المدير العام غير صحيحة", "INVALID_CURRENT_PASSWORD");
 
@@ -177,6 +218,9 @@ public sealed class SystemMaintenanceHandlers :
                     "HARD_DELETE_HAS_CHILDREN");
         }
 
+        await _audit.LogSecurityEventAsync(null, request.ActorAdminId, SecurityEventType.AdminAction, SecuritySeverity.Critical,
+            $"action=hard_delete; phase=intent; module={module}; target={request.TargetId}; cascade={request.Cascade}", ct: ct);
+
         await _unitOfWork.BeginTransactionAsync(ct);
         List<WipeTableCountDto> results;
         try
@@ -197,7 +241,7 @@ public sealed class SystemMaintenanceHandlers :
 
         // Post-commit audit (see the wipe handler for the rollback rationale).
         await _audit.LogSecurityEventAsync(null, request.ActorAdminId, SecurityEventType.AdminAction, SecuritySeverity.Critical,
-            $"action=hard_delete; module={module}; target={request.TargetId}; cascade={request.Cascade}; rows={results.Sum(r => r.Rows)}", ct: ct);
+            $"action=hard_delete; phase=executed; module={module}; target={request.TargetId}; cascade={request.Cascade}; rows={results.Sum(r => r.Rows)}", ct: ct);
         return new HardDeleteResultDto(module, request.TargetId, results);
     }
 

@@ -55,7 +55,8 @@ public sealed class PublicCodeW203Tests
             NoOp.ActivityWriter(),
             new TranscodingChannelQueue(),
             new PdfProcessingChannelQueue(),
-            new HtmlCspInjectorService());
+            new HtmlCspInjectorService(),
+            new Mock<ISecurityAuditWriter>().Object); // PR-1: security-audit writer
         return (handler, entitlements);
     }
 

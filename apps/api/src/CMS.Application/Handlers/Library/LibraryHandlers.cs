@@ -48,6 +48,8 @@ public class LibraryHandlers :
     private readonly IPdfProcessingQueue _pdfProcessingQueue;
     // Wave 13 (F3): upload-time CSP meta injection for stored HTML documents.
     private readonly IHtmlCspInjector _htmlCspInjector;
+    // PR-1: security-audit writer — the soft-delete→retention transition is auditable.
+    private readonly ISecurityAuditWriter _securityAudit;
 
     public LibraryHandlers(
         IApplicationDbContext db,
@@ -61,7 +63,8 @@ public class LibraryHandlers :
         IAdminActivityWriter activity,
         ITranscodingQueue transcodingQueue,
         IPdfProcessingQueue pdfProcessingQueue,
-        IHtmlCspInjector htmlCspInjector)
+        IHtmlCspInjector htmlCspInjector,
+        ISecurityAuditWriter securityAudit)
     {
         _db = db;
         _unitOfWork = unitOfWork;
@@ -75,6 +78,7 @@ public class LibraryHandlers :
         _transcodingQueue = transcodingQueue;
         _pdfProcessingQueue = pdfProcessingQueue;
         _htmlCspInjector = htmlCspInjector;
+        _securityAudit = securityAudit;
     }
 
     // ===== Queries =====
@@ -610,20 +614,16 @@ public class LibraryHandlers :
 
         await _unitOfWork.SaveChangesAsync(ct);
 
-        // Best-effort blob cleanup: removing the stored object keeps storage free of
-        // orphaned blobs after a delete. A storage failure must NOT fail the already
-        // committed database delete — the warning is logged and an idempotent cleanup
-        // pass can retry later.
-        try
-        {
-            await _storage.DeleteAsync(file.FileUrl, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Blob cleanup failed after library file delete. FileId={FileId} FileKey={FileKey}",
-                file.Id, file.FileUrl);
-        }
+        // PR-1 (Gate B decision #4 — object retention): a NORMAL admin delete must NOT
+        // immediately and irreversibly destroy the stored object. The blob stays under
+        // retention until a separate, explicitly approved final-removal operation runs
+        // (PR-5 introduces the retention/quarantine lifecycle). The database row is the
+        // tombstone; the audit event records the pending-retention state.
+        _logger.LogInformation(
+            "Library file soft-deleted; object retained pending final-removal approval. FileId={FileId} FileKey={FileKey}",
+            file.Id, file.FileUrl);
+        await _securityAudit.LogSecurityEventAsync(null, req.DeletedBy, SecurityEventType.AdminAction, SecuritySeverity.Warning,
+            $"action=library_file_soft_delete; retention=pending; file={file.Id}", ct: ct);
 
         return Unit.Value;
     }

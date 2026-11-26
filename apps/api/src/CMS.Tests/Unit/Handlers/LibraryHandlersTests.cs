@@ -19,16 +19,17 @@ namespace CMS.Tests.Unit.Handlers;
 
 /// <summary>
 /// FIX-7 + FIX-8 — Library upload/delete server-side rules:
-/// deleting a library file must also remove the stored blob (best-effort, never failing
-/// the committed database delete), and upload-url requests must enforce the strict
-/// document MIME allow-list before any presigned URL is issued.
+/// deleting a library file soft-deletes the row and (PR-1, Gate B #4) KEEPS the stored
+/// blob under retention — no immediate irreversible object deletion from a normal admin
+/// action; the pending-retention transition is security-audited. Upload-url requests
+/// must enforce the strict document MIME allow-list before any presigned URL is issued.
 /// A2 — per-type upload ceilings (settings-driven with hardcoded fallback), content-length
 /// binding on presigned URLs, LibraryFileCategory persistence, and HTML sanitization on
 /// upload completion.
 /// </summary>
 public sealed class LibraryHandlersTests
 {
-    private static (LibraryHandlers Handler, Mock<IFileStorageService> Storage, Mock<IHtmlBlobSanitizer> Sanitizer, Mock<IFileScanner> Scanner) Create(
+    private static (LibraryHandlers Handler, Mock<IFileStorageService> Storage, Mock<IHtmlBlobSanitizer> Sanitizer, Mock<IFileScanner> Scanner, Mock<ISecurityAuditWriter> SecurityAudit) Create(
         ApplicationDbContext db, Mock<ISystemSettingsService>? settings = null)
     {
         var storage = new Mock<IFileStorageService>(MockBehavior.Strict);
@@ -54,6 +55,7 @@ public sealed class LibraryHandlersTests
             .ReturnsAsync("<p>نص نظيف</p>");
         sanitizer.Setup(service => service.SanitizeTrustedAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("<p>نص نظيف</p><script>cmsInteractive();</script>");
+        var securityAudit = new Mock<ISecurityAuditWriter>();
         var handler = new LibraryHandlers(
             db,
             new UnitOfWork(db),
@@ -65,8 +67,9 @@ public sealed class LibraryHandlersTests
             NullLogger<LibraryHandlers>.Instance, NoOp.ActivityWriter(),
             new TranscodingChannelQueue(), // Push 10.3: real inert queue — jobs buffer, nothing consumes them in tests
             new PdfProcessingChannelQueue(), // Wave 11.9: real inert queue — same rationale
-            new HtmlCspInjectorService()); // Wave 13: real stateless injector (pure transform — no mock value)
-        return (handler, storage, sanitizer, scanner);
+            new HtmlCspInjectorService(), // Wave 13: real stateless injector (pure transform — no mock value)
+            securityAudit.Object); // PR-1: security-audit writer (soft-delete → retention transition)
+        return (handler, storage, sanitizer, scanner, securityAudit);
     }
 
     private static async Task<LibraryFile> SeedFileAsync(ApplicationDbContext db, string fileKey)
@@ -89,36 +92,44 @@ public sealed class LibraryHandlersTests
     }
 
     [Fact]
-    public async Task DeleteLibraryFile_RemovesStoredBlob_AfterDatabaseDelete()
+    public async Task DeleteLibraryFile_ArchivesRow_AndKeepsBlobUnderRetention()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         const string fileKey = "library/abc/def";
         var file = await SeedFileAsync(db, fileKey);
-        var (handler, storage, _, _) = Create(db);
+        var (handler, storage, _, _, audit) = Create(db);
 
         await handler.Handle(new DeleteLibraryFileCommand(file.Id, Guid.NewGuid()), CancellationToken.None);
 
-        storage.Verify(service => service.DeleteAsync(fileKey, It.IsAny<CancellationToken>()), Times.Once,
-            "the stored blob must be deleted together with the database row");
-        db.LibraryFiles.AsNoTracking().Single(stored => stored.Id == file.Id).DeletedAt.Should().NotBeNull();
+        storage.Verify(service => service.DeleteAsync(fileKey, It.IsAny<CancellationToken>()), Times.Never,
+            "PR-1 (Gate B #4): a normal admin delete must NOT destroy the stored object — retention first");
+        db.LibraryFiles.AsNoTracking().Single(stored => stored.Id == file.Id).DeletedAt.Should().NotBeNull(
+            "the database row is the soft-delete tombstone");
+        audit.Verify(writer => writer.LogSecurityEventAsync(
+                null, It.IsAny<Guid>(), SecurityEventType.AdminAction, SecuritySeverity.Warning,
+                It.Is<string>(d => d.Contains("action=library_file_soft_delete") && d.Contains("retention=pending")),
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the pending-retention transition is audited");
     }
 
     [Fact]
-    public async Task DeleteLibraryFile_StorageFailure_DoesNotFailTheRequest()
+    public async Task DeleteLibraryFile_NeverTouchesStorage_EvenWhenStorageIsBroken()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         const string fileKey = "library/xyz/999";
         var file = await SeedFileAsync(db, fileKey);
-        var (handler, storage, _, _) = Create(db);
+        var (handler, storage, _, _, _) = Create(db);
         storage.Setup(service => service.DeleteAsync(fileKey, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new IOException("blob endpoint unreachable"));
 
         var act = () => handler.Handle(new DeleteLibraryFileCommand(file.Id, Guid.NewGuid()), CancellationToken.None);
 
         await act.Should().NotThrowAsync(
-            "a storage outage must not fail the already committed database delete");
+            "the retention contract never calls storage on the soft-delete path — storage health is irrelevant");
+        storage.Verify(service => service.DeleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         db.LibraryFiles.AsNoTracking().Single(stored => stored.Id == file.Id).DeletedAt.Should().NotBeNull(
-            "the soft delete is already committed and must stay in place");
+            "the soft delete is committed and stays in place");
     }
 
     [Theory]
@@ -131,7 +142,7 @@ public sealed class LibraryHandlersTests
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var subject = db.Subjects.First();
-        var (handler, _, _, _) = Create(db);
+        var (handler, _, _, _, _) = Create(db);
 
         var act = () => handler.Handle(new RequestUploadUrlCommand(
             "file.bin", contentType, 1024, subject.Id, null, "Pdf", "عنوان", null, Guid.NewGuid()), CancellationToken.None);
@@ -152,7 +163,7 @@ public sealed class LibraryHandlersTests
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var subject = db.Subjects.First();
-        var (handler, storage, _, _) = Create(db);
+        var (handler, storage, _, _, _) = Create(db);
         storage.Setup(service => service.GetSignedUploadUrlAsync(It.IsAny<string>(), contentType, It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("https://storage.example.com/signed-put");
         // Type enum must match the allowed document family (Pdf/Html/Image).
@@ -175,7 +186,7 @@ public sealed class LibraryHandlersTests
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var subject = db.Subjects.First();
-        var (handler, _, _, _) = Create(db); // settings mock returns null → hardcoded defaults apply
+        var (handler, _, _, _, _) = Create(db); // settings mock returns null → hardcoded defaults apply
 
         var act = () => handler.Handle(new RequestUploadUrlCommand(
             "file", contentType, fileSize, subject.Id, null, type, "عنوان", null, Guid.NewGuid()), CancellationToken.None);
@@ -192,7 +203,7 @@ public sealed class LibraryHandlersTests
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var subject = db.Subjects.First();
-        var (handler, storage, _, _) = Create(db);
+        var (handler, storage, _, _, _) = Create(db);
         storage.Setup(service => service.GetSignedUploadUrlAsync(It.IsAny<string>(), contentType, It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("https://storage.example.com/signed-put");
 
@@ -210,7 +221,7 @@ public sealed class LibraryHandlersTests
         var settings = new Mock<ISystemSettingsService>();
         settings.Setup(service => service.GetAsync("upload.limit.pdf_mb", It.IsAny<CancellationToken>()))
             .ReturnsAsync("50"); // admin tightened the pdf limit to 50 MB
-        var (handler, _, _, _) = Create(db, settings);
+        var (handler, _, _, _, _) = Create(db, settings);
 
         var act = () => handler.Handle(new RequestUploadUrlCommand(
             "big.pdf", "application/pdf", 60L * 1024 * 1024, subject.Id, null, "Pdf", "عنوان", null, Guid.NewGuid()), CancellationToken.None);
@@ -228,7 +239,7 @@ public sealed class LibraryHandlersTests
         var settings = new Mock<ISystemSettingsService>();
         settings.Setup(service => service.GetAsync("upload.limit.pdf_mb", It.IsAny<CancellationToken>()))
             .ReturnsAsync("not-a-number");
-        var (handler, storage, _, _) = Create(db, settings);
+        var (handler, storage, _, _, _) = Create(db, settings);
         storage.Setup(service => service.GetSignedUploadUrlAsync(It.IsAny<string>(), "application/pdf", It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("https://storage.example.com/signed-put");
 
@@ -245,7 +256,7 @@ public sealed class LibraryHandlersTests
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var subject = db.Subjects.First();
-        var (handler, storage, _, _) = Create(db);
+        var (handler, storage, _, _, _) = Create(db);
         const long declaredSize = 123_456;
         storage.Setup(service => service.GetSignedUploadUrlAsync(It.IsAny<string>(), "application/pdf", It.IsAny<TimeSpan>(), declaredSize, It.IsAny<CancellationToken>()))
             .ReturnsAsync("https://storage.example.com/signed-put");
@@ -266,7 +277,7 @@ public sealed class LibraryHandlersTests
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var subject = db.Subjects.First();
-        var (handler, storage, _, _) = Create(db);
+        var (handler, storage, _, _, _) = Create(db);
         storage.Setup(service => service.GetSignedUploadUrlAsync(It.IsAny<string>(), "application/pdf", It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("https://storage.example.com/signed-put");
 
@@ -284,7 +295,7 @@ public sealed class LibraryHandlersTests
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var subject = db.Subjects.First();
-        var (handler, storage, _, _) = Create(db);
+        var (handler, storage, _, _, _) = Create(db);
         storage.Setup(service => service.GetSignedUploadUrlAsync(It.IsAny<string>(), "application/pdf", It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("https://storage.example.com/signed-put");
 
@@ -328,7 +339,7 @@ public sealed class LibraryHandlersTests
         var file = await SeedHtmlFileAsync(db, fileKey);
         // R42: the legacy byte-mutating pipeline is flag-gated (html.sanitize.enabled);
         // this test pins the flag-ON path, so opt in explicitly.
-        var (handler, storage, sanitizer, _) = Create(db, SettingsWithLegacyHtmlPipeline());
+        var (handler, storage, sanitizer, _, _) = Create(db, SettingsWithLegacyHtmlPipeline());
         storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
         // Wave 13 pipeline: the clean body lands on the -sanitized temp key, the
         // CSP-injected final body on the -ready key (both text/html PUTs).
@@ -356,7 +367,7 @@ public sealed class LibraryHandlersTests
         var file = await SeedHtmlFileAsync(db, fileKey);
         file.EnableScripts = true; // Q1 ruling — the upload-url-persisted authoritative flag
         // R42: flag-gated legacy pipeline — opt in explicitly (see zero-touch tests below).
-        var (handler, storage, sanitizer, _) = Create(db, SettingsWithLegacyHtmlPipeline());
+        var (handler, storage, sanitizer, _, _) = Create(db, SettingsWithLegacyHtmlPipeline());
         storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
         SetupHtmlSiblingPuts(storage);
         sanitizer.Setup(service => service.SanitizeTrustedAsync(fileKey, It.IsAny<long>(), It.IsAny<CancellationToken>()))
@@ -378,7 +389,7 @@ public sealed class LibraryHandlersTests
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var subject = db.Subjects.First();
-        var (handler, storage, _, _) = Create(db);
+        var (handler, storage, _, _, _) = Create(db);
         storage.Setup(service => service.GetSignedUploadUrlAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("https://storage.example.com/signed-put");
 
@@ -419,7 +430,7 @@ public sealed class LibraryHandlersTests
         using var db = TestDbHelper.CreateInMemoryContext();
         const string fileKey = "library/html/zero-touch";
         var file = await SeedHtmlFileAsync(db, fileKey);
-        var (handler, storage, sanitizer, scanner) = Create(db); // settings default: html.sanitize.enabled absent → OFF
+        var (handler, storage, sanitizer, scanner, _) = Create(db); // settings default: html.sanitize.enabled absent → OFF
         storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         var result = await handler.Handle(CompleteCommand(file, actualSize: 4096), CancellationToken.None);
@@ -456,7 +467,7 @@ public sealed class LibraryHandlersTests
         var settings = new Mock<ISystemSettingsService>();
         settings.Setup(service => service.GetAsync("html.sanitize.enabled", It.IsAny<CancellationToken>()))
             .ReturnsAsync("false");
-        var (handler, storage, sanitizer, _) = Create(db, settings);
+        var (handler, storage, sanitizer, _, _) = Create(db, settings);
         storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         await handler.Handle(CompleteCommand(file), CancellationToken.None);
@@ -477,7 +488,7 @@ public sealed class LibraryHandlersTests
         var settings = new Mock<ISystemSettingsService>();
         settings.Setup(service => service.GetAsync("html.sanitize.enabled", It.IsAny<CancellationToken>()))
             .ReturnsAsync("yes-please"); // garbage value — must NOT re-enable the mutator
-        var (handler, storage, sanitizer, _) = Create(db, settings);
+        var (handler, storage, sanitizer, _, _) = Create(db, settings);
         storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         await handler.Handle(CompleteCommand(file), CancellationToken.None);
@@ -493,7 +504,7 @@ public sealed class LibraryHandlersTests
         using var db = TestDbHelper.CreateInMemoryContext();
         const string fileKey = "library/pdf/one";
         var file = await SeedFileAsync(db, fileKey); // pdf seed
-        var (handler, storage, sanitizer, _) = Create(db);
+        var (handler, storage, sanitizer, _, _) = Create(db);
         storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         await handler.Handle(CompleteCommand(file), CancellationToken.None);
@@ -510,7 +521,7 @@ public sealed class LibraryHandlersTests
         using var db = TestDbHelper.CreateInMemoryContext();
         const string fileKey = "library/pdf/meta";
         var file = await SeedFileAsync(db, fileKey);
-        var (handler, storage, _, _) = Create(db);
+        var (handler, storage, _, _, _) = Create(db);
         storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         var result = await handler.Handle(new CompleteUploadCommand(
@@ -534,7 +545,7 @@ public sealed class LibraryHandlersTests
         using var db = TestDbHelper.CreateInMemoryContext();
         const string fileKey = "library/pdf/keep";
         var file = await SeedFileAsync(db, fileKey);
-        var (handler, storage, _, _) = Create(db);
+        var (handler, storage, _, _, _) = Create(db);
         storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         var result = await handler.Handle(CompleteCommand(file), CancellationToken.None);
@@ -557,7 +568,7 @@ public sealed class LibraryHandlersTests
         db.LibraryFiles.Update(file);
         file.Difficulty = Difficulty.Medium;
         await db.SaveChangesAsync();
-        var (handler, _, _, _) = Create(db);
+        var (handler, _, _, _, _) = Create(db);
 
         var updated = await handler.Handle(new UpdateLibraryFileCommand(
             file.Id, "عنوان محدث", null, new List<string>(), null, Difficulty.Hard), CancellationToken.None);
@@ -579,7 +590,7 @@ public sealed class LibraryHandlersTests
         const string fileKey = "library/html/bad";
         var file = await SeedHtmlFileAsync(db, fileKey);
         // R42: the failure path belongs to the flag-gated legacy pipeline — opt in.
-        var (handler, storage, sanitizer, _) = Create(db, SettingsWithLegacyHtmlPipeline());
+        var (handler, storage, sanitizer, _, _) = Create(db, SettingsWithLegacyHtmlPipeline());
         storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
         sanitizer.Setup(service => service.SanitizeAsync(fileKey, It.IsAny<long>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("sanitizer fault"));
@@ -605,7 +616,7 @@ public sealed class LibraryHandlersTests
         using var db = TestDbHelper.CreateInMemoryContext();
         const string fileKey = "library/html/huge";
         var file = await SeedHtmlFileAsync(db, fileKey);
-        var (handler, storage, sanitizer, _) = Create(db);
+        var (handler, storage, sanitizer, _, _) = Create(db);
         storage.Setup(service => service.ExistsAsync(fileKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         var act = () => handler.Handle(CompleteCommand(file, actualSize: 21L * 1024 * 1024), CancellationToken.None);
@@ -647,7 +658,7 @@ public sealed class LibraryHandlersTests
             new Mock<IEntitlementService>().Object, settingsService.Object,
             sanitizer.Object, NullLogger<LibraryHandlers>.Instance,
             NoOp.ActivityWriter(), new TranscodingChannelQueue(), pdfQueue,
-            new HtmlCspInjectorService());
+            new HtmlCspInjectorService(), new Mock<ISecurityAuditWriter>().Object);
         return (handler, pdfQueue);
     }
 
@@ -702,7 +713,7 @@ public sealed class LibraryHandlersTests
         file.ProcessingError = "Ghostscript exited with code 1: Unrecoverable error";
         file.Status = ContentStatus.Draft; // unpublished — a publish attempt must NOT flip it
         await db.SaveChangesAsync();
-        var (handler, _, _, _) = Create(db);
+        var (handler, _, _, _, _) = Create(db);
 
         var act = () => handler.Handle(new PublishLibraryFileCommand(file.Id, Guid.NewGuid()), CancellationToken.None);
 
@@ -723,7 +734,7 @@ public sealed class LibraryHandlersTests
         // R22.2 — a Ready row whose run carried warnings carries the Arabic report.
         file.ProcessingError = "الخط الأصلي (SakkalMajalla) غير مدمج، وتم استبداله بـ (Amiri).";
         await db.SaveChangesAsync();
-        var (handler, _, _, _) = Create(db);
+        var (handler, _, _, _, _) = Create(db);
 
         var result = await handler.Handle(new PublishLibraryFileCommand(file.Id, Guid.NewGuid()), CancellationToken.None);
 
@@ -744,7 +755,7 @@ public sealed class LibraryHandlersTests
         var file = await SeedFileAsync(db, "library/pdf/original");
         file.PdfProcessingStatus = PdfProcessingStatus.Ready;
         await db.SaveChangesAsync();
-        var (handler, _, _, _) = Create(db);
+        var (handler, _, _, _, _) = Create(db);
 
         var result = await handler.Handle(new PublishLibraryFileCommand(file.Id, Guid.NewGuid()), CancellationToken.None);
 

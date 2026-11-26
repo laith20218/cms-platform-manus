@@ -198,6 +198,11 @@ try
         options.AddPolicy("media-offline", context => FixedWindow(context, 60, TimeSpan.FromMinutes(5)));
         options.AddPolicy("favorites", context => FixedWindow(context, 30, TimeSpan.FromMinutes(1)));
         options.AddPolicy("security-events", context => FixedWindow(context, 6, TimeSpan.FromMinutes(1)));
+        // PR-1 (Danger Zone throttle): system destructors (wipe / hard-delete, incl. the
+        // read-only flag status) get a strict dedicated quota. Dry-run previews are
+        // cheap, but a flood of crafted requests must not hammer Argon2 re-auth
+        // verification or the security-audit pipeline.
+        options.AddPolicy("danger-zone", context => FixedWindow(context, 5, TimeSpan.FromMinutes(1)));
     });
 
     // === Admin login throttling (FIX-5) ===

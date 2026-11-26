@@ -9,6 +9,7 @@ using CMS.Tests.Helpers;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Xunit;
 
 namespace CMS.Tests.Unit.Handlers;
@@ -25,6 +26,13 @@ namespace CMS.Tests.Unit.Handlers;
 ///  • hard delete fails LOUDLY on cross-domain children and succeeds on a
 ///    childless question (own options always go)
 ///  • every destructive run writes a Critical security audit event
+///
+/// PR-1 additions:
+///  • hard delete is OFF by default (Features:HardDeleteEnabled) — fail-closed on
+///    missing/unparseable/"false"; a crafted SuperAdmin request is REJECTED, audited
+///    (Warning), and nothing is deleted; the kill switch fires before re-auth
+///  • destructive runs write BOTH a pre-transaction intent event and the
+///    post-commit executed event
 ///
 /// Runs on SQLite in-memory (relational) because ExecuteDelete/ExecuteUpdate
 /// are translated to SQL — the EF InMemory provider cannot execute them.
@@ -72,8 +80,22 @@ public sealed class SystemMaintenanceHandlersTests : IDisposable
         _db.Database.EnsureCreated();
         TestDbHelper.SeedTestData(_db);
         _audit = new RecordingAuditWriter();
-        _handler = new SystemMaintenanceHandlers(_db, new UnitOfWork(_db), new FakeHasher(), _audit);
+        // PR-1: the pre-existing behavior tests exercise the ENABLED path; the
+        // flag-specific tests construct their own handler via BuildHandler.
+        _handler = BuildHandler("true");
         _adminId = _db.Admins.First().Id;
+    }
+
+    /// <summary>PR-1: handler factory with an explicit Features:HardDeleteEnabled value.</summary>
+    private SystemMaintenanceHandlers BuildHandler(string? hardDeleteFlag)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Features:HardDeleteEnabled"] = hardDeleteFlag,
+            })
+            .Build();
+        return new SystemMaintenanceHandlers(_db, new UnitOfWork(_db), new FakeHasher(), _audit, configuration);
     }
 
     public void Dispose()
@@ -184,7 +206,8 @@ public sealed class SystemMaintenanceHandlersTests : IDisposable
         _db.Exams.Count().Should().Be(1, "exams are not questions");
         _db.Students.Count().Should().Be(1);
 
-        _audit.Events.Should().ContainSingle(e => e.StartsWith("Critical:") && e.Contains("action=wipe_data; module=questions"));
+        _audit.Events.Should().Contain(e => e.StartsWith("Critical:") && e.Contains("action=wipe_data; phase=intent; module=questions"));
+        _audit.Events.Should().Contain(e => e.StartsWith("Critical:") && e.Contains("action=wipe_data; phase=executed; module=questions"));
     }
 
     [Fact]
@@ -280,7 +303,8 @@ public sealed class SystemMaintenanceHandlersTests : IDisposable
         _db.Questions.Count().Should().Be(1);
         _db.Questions.Should().NotContain(q => q.Id == question.Id);
         _db.QuestionOptions.Count(o => o.QuestionId == question.Id).Should().Be(0, "own anatomy goes with the question");
-        _audit.Events.Should().ContainSingle(e => e.StartsWith("Critical:") && e.Contains("action=hard_delete; module=question"));
+        _audit.Events.Should().Contain(e => e.StartsWith("Critical:") && e.Contains("action=hard_delete; phase=intent; module=question"));
+        _audit.Events.Should().Contain(e => e.StartsWith("Critical:") && e.Contains("action=hard_delete; phase=executed; module=question"));
     }
 
     [Fact]
@@ -315,6 +339,93 @@ public sealed class SystemMaintenanceHandlersTests : IDisposable
         _db.Lectures.Count().Should().Be(0);
         _db.Exams.Count().Should().Be(0);
         _db.Students.Count().Should().Be(1, "students are never collateral of a subject cascade");
+    }
+
+    // ============================================================
+    // PR-1 — backend-enforced hard-delete feature flag (Gate B #3)
+    // ============================================================
+
+    [Theory]
+    [InlineData(null)]    // key absent → fail closed
+    [InlineData("false")]
+    [InlineData("")]
+    [InlineData("garbage")]
+    public async Task HardDelete_FlagOffOrMissing_RejectsEvenForCraftedSuperAdminRequest(string? flag)
+    {
+        var handler = BuildHandler(flag);
+        var question = TestDbHelper.GetTestQuestion(_db);
+
+        var act = () => handler.Handle(new HardDeleteCommand(_adminId, "question", question.Id, AdminPassword, Cascade: true), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>())
+            .Which.ErrorCode.Should().Be("HARD_DELETE_DISABLED");
+        _db.Questions.Count().Should().Be(2, "a disabled flag rejects the operation before any transaction");
+        _db.QuestionOptions.Count().Should().Be(8);
+        _audit.Events.Should().Contain(
+            e => e.StartsWith("Warning:") && e.Contains("action=hard_delete; phase=rejected; reason=HARD_DELETE_DISABLED"),
+            "the rejected attempt is attributed to the acting super admin");
+    }
+
+    [Fact]
+    public async Task HardDelete_FlagOff_FiresBeforePasswordVerification()
+    {
+        // The kill switch fires before re-auth: while the capability is disabled a
+        // crafted request cannot even probe the password path (and never burns Argon2).
+        var handler = BuildHandler("false");
+        var question = TestDbHelper.GetTestQuestion(_db);
+
+        var act = () => handler.Handle(new HardDeleteCommand(_adminId, "question", question.Id, "wrong-password", Cascade: true), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>())
+            .Which.ErrorCode.Should().Be("HARD_DELETE_DISABLED");
+    }
+
+    [Fact]
+    public async Task HardDelete_FlagOn_PreservesTheLoudFailContract()
+    {
+        // Regression guard: enabling the flag must NOT change the loud-fail contract.
+        var subject = TestDbHelper.GetTestSubject(_db);
+
+        var act = () => _handler.Handle(new HardDeleteCommand(_adminId, "subject", subject.Id, AdminPassword, Cascade: false), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DomainException>()).Which.ErrorCode.Should().Be("HARD_DELETE_HAS_CHILDREN");
+    }
+
+    [Fact]
+    public void HardDelete_FlagParsing_IsFailClosed()
+    {
+        var enabled = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Features:HardDeleteEnabled"] = "true" })
+            .Build();
+        var missing = new ConfigurationBuilder().Build();
+        var unparsable = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Features:HardDeleteEnabled"] = "yes" })
+            .Build();
+
+        SystemMaintenanceHandlers.IsHardDeleteEnabled(enabled).Should().BeTrue();
+        SystemMaintenanceHandlers.IsHardDeleteEnabled(missing).Should().BeFalse("absent key means disabled");
+        SystemMaintenanceHandlers.IsHardDeleteEnabled(unparsable).Should().BeFalse("unparseable value means disabled");
+        SystemMaintenanceHandlers.IsHardDeleteEnabled(null!).Should().BeFalse("no configuration at all means disabled");
+    }
+
+    [Fact]
+    public async Task HardDelete_RealRun_WritesIntentAndExecutedAuditEvents()
+    {
+        var question = TestDbHelper.GetTestQuestion(_db);
+
+        await _handler.Handle(new HardDeleteCommand(_adminId, "question", question.Id, AdminPassword, Cascade: false), CancellationToken.None);
+
+        _audit.Events.Should().Contain(e => e.StartsWith("Critical:") && e.Contains("action=hard_delete; phase=intent; module=question"));
+        _audit.Events.Should().Contain(e => e.StartsWith("Critical:") && e.Contains("action=hard_delete; phase=executed; module=question"));
+    }
+
+    [Fact]
+    public async Task Wipe_RealRun_WritesIntentAndExecutedAuditEvents()
+    {
+        await _handler.Handle(new WipeDataCommand(_adminId, "questions", "DELETE", AdminPassword, DryRun: false), CancellationToken.None);
+
+        _audit.Events.Should().Contain(e => e.StartsWith("Critical:") && e.Contains("action=wipe_data; phase=intent; module=questions"));
+        _audit.Events.Should().Contain(e => e.StartsWith("Critical:") && e.Contains("action=wipe_data; phase=executed; module=questions"));
     }
 
     // ============================================================

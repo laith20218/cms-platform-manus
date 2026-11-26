@@ -19,6 +19,9 @@ vi.mock('../lib/api', () => ({
     apiRequestMock('/api/v1/admin/system/wipe', token, { method: 'POST', body: JSON.stringify(request) }),
   adminHardDelete: (token: string, request: Record<string, unknown>) =>
     apiRequestMock('/api/v1/admin/system/hard-delete', token, { method: 'POST', body: JSON.stringify(request) }),
+  // PR-1: the backend flag mirror goes through the same transport.
+  adminHardDeleteStatus: (token: string) =>
+    apiRequestMock('/api/v1/admin/system/hard-delete/status', token),
   ApiError: class ApiError extends Error { status = 400; },
 }));
 
@@ -39,6 +42,9 @@ beforeEach(() => {
   calls.length = 0;
   apiRequestMock.mockImplementation(async (path: string, _token: string, init?: RequestInit) => {
     calls.push({ path, init });
+    if (path === '/api/v1/admin/system/hard-delete/status') {
+      return { enabled: true };
+    }
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     if (path === '/api/v1/admin/system/wipe') {
       if (body.dryRun) {
@@ -124,6 +130,9 @@ describe('HardDeleteDialog — loud-fail child counts + cascade retry', () => {
   it('surfaces the backend refusal inline, then resends with cascade after the checkbox', async () => {
     apiRequestMock.mockImplementation(async (path: string, _token: string, init?: RequestInit) => {
       calls.push({ path, init });
+      if (path === '/api/v1/admin/system/hard-delete/status') {
+        return { enabled: true };
+      }
       const body = init?.body ? JSON.parse(String(init.body)) : {};
       if (path === '/api/v1/admin/system/hard-delete' && !body.cascade) {
         throw new ApiError('لا يمكن الحذف النهائي — توجد عناصر مرتبطة (questions=2، exams=1).', 400);
@@ -160,5 +169,78 @@ describe('HardDeleteDialog — loud-fail child counts + cascade retry', () => {
     expect(bodies[0].cascade).toBe(false);
     expect(bodies[1].cascade).toBe(true);
     void rerender;
+  });
+});
+
+describe('HardDeleteDialog — PR-1 backend flag mirror (Features:HardDeleteEnabled)', () => {
+  it('shows the disabled notice and never sends the destructive request when the flag is off', async () => {
+    apiRequestMock.mockImplementation(async (path: string) => {
+      calls.push({ path });
+      if (path === '/api/v1/admin/system/hard-delete/status') return { enabled: false };
+      return {};
+    });
+
+    render(
+      <HardDeleteDialog
+        token="test-token"
+        isArabic
+        target={{ module: 'question', targetId: 'q1', label: 'سؤال تجريبي' }}
+        consequence="سيُحذف السؤال نهائيًا."
+        onDone={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByTestId('hard-delete-disabled-notice')).toBeTruthy();
+    // No password form and no execute button while the capability is disabled:
+    expect(screen.queryByTestId('hard-delete-password')).toBeNull();
+    expect(screen.queryByTestId('hard-delete-execute')).toBeNull();
+    expect(
+      calls.filter((c) => c.path === '/api/v1/admin/system/hard-delete').length,
+    ).toBe(0);
+    expect(
+      calls.filter((c) => c.path === '/api/v1/admin/system/hard-delete/status').length,
+    ).toBe(1);
+  });
+
+  it('keeps the confirm flow when the status probe says the flag is on', async () => {
+    render(
+      <HardDeleteDialog
+        token="test-token"
+        isArabic
+        target={{ module: 'question', targetId: 'q1', label: 'سؤال تجريبي' }}
+        consequence="سيُحذف السؤال نهائيًا."
+        onDone={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByTestId('hard-delete-execute')).toBeTruthy();
+    expect(screen.queryByTestId('hard-delete-disabled-notice')).toBeNull();
+  });
+
+  it('falls back to the normal form when the status probe fails — the backend stays the gate', async () => {
+    apiRequestMock.mockImplementation(async (path: string) => {
+      calls.push({ path });
+      if (path === '/api/v1/admin/system/hard-delete/status') {
+        throw new ApiError('unreachable', 500);
+      }
+      return {};
+    });
+
+    render(
+      <HardDeleteDialog
+        token="test-token"
+        isArabic
+        target={{ module: 'question', targetId: 'q1', label: 'سؤال تجريبي' }}
+        consequence="سيُحذف السؤال نهائيًا."
+        onDone={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    // A failed probe must not silently disable the capability surface — the backend
+    // rejects with HARD_DELETE_DISABLED instead:
+    expect(await screen.findByTestId('hard-delete-execute')).toBeTruthy();
   });
 });
