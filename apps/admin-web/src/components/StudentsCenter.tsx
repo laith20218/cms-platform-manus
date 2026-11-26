@@ -23,94 +23,104 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { ApiError, apiRequest, type PagedResult } from '../lib/api';
+import { t, localeOf, statusLabel, type Locale } from '../lib/dictionary';
 import { ConfirmDialog, RowActionsMenu } from '@cms/ui';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
 // ===== W3 (admin-ui): Arabic glossaries — raw enum wire values must never
 // render on the Arabic surface (debt D-23). Unknown values fall back to an
-// explicit label (with the raw code kept as a title tooltip where useful). =====
-const securitySeverityLabel = (severity: string, isArabic: boolean) => {
+// explicit label (with the raw code kept as a title tooltip where useful).
+// PR-3-A: the glossaries now source their labels from the shared dictionary
+// (status registry domains + students.* entries). Outputs are byte-identical
+// with the pre-migration ternaries, including the legacy unknown-value
+// pass-through branches (Arabic label / raw English wire value). =====
+const securitySeverityLabel = (severity: string, locale: Locale) => {
   switch (severity?.toLowerCase()) {
-    case 'info': return isArabic ? 'معلومة' : 'Info';
-    case 'warning': return isArabic ? 'تحذير' : 'Warning';
-    case 'critical': return isArabic ? 'حرج' : 'Critical';
-    default: return isArabic ? 'غير محدد' : severity;
+    case 'info': return statusLabel(locale, 'securitySeverity', 'info');
+    case 'warning': return statusLabel(locale, 'securitySeverity', 'warning');
+    case 'critical': return statusLabel(locale, 'securitySeverity', 'critical');
+    default: return t(locale, 'students.security.severityUnknown', { value: severity });
   }
 };
 
-const sessionStatusLabel = (status: string, isArabic: boolean) => {
+const sessionStatusLabel = (status: string, locale: Locale) => {
   switch (status) {
-    case 'Active': return isArabic ? 'نشطة' : 'Active';
-    case 'Revoked': return isArabic ? 'منتهية' : 'Revoked';
-    case 'Expired': return isArabic ? 'منتهية الصلاحية' : 'Expired';
-    default: return isArabic ? 'غير معروفة' : status;
+    case 'Active': return statusLabel(locale, 'session', 'Active');
+    case 'Revoked': return statusLabel(locale, 'session', 'Revoked');
+    case 'Expired': return statusLabel(locale, 'session', 'Expired');
+    default: return t(locale, 'students.sessions.statusUnknown', { status });
   }
 };
 
-const subscriptionScopeLabel = (scope: string, isArabic: boolean) => {
+const subscriptionScopeLabel = (scope: string, locale: Locale) => {
   switch (scope) {
-    case 'Subject': return isArabic ? 'مادة' : 'Subject';
-    case 'Semester': return isArabic ? 'فصل' : 'Semester';
-    case 'Year': return isArabic ? 'سنة' : 'Year';
-    case 'College': return isArabic ? 'كلية' : 'College';
-    case 'University': return isArabic ? 'جامعة' : 'University';
-    default: return isArabic ? 'نطاق غير معروف' : scope;
+    case 'Subject': return statusLabel(locale, 'subscriptionScope', 'Subject');
+    case 'Semester': return statusLabel(locale, 'subscriptionScope', 'Semester');
+    case 'Year': return statusLabel(locale, 'subscriptionScope', 'Year');
+    case 'College': return statusLabel(locale, 'subscriptionScope', 'College');
+    case 'University': return statusLabel(locale, 'subscriptionScope', 'University');
+    default: return t(locale, 'students.subscriptions.scopeUnknown', { scope });
   }
 };
 
-const reportReasonLabel = (reason: string, isArabic: boolean) => {
+const reportReasonLabel = (reason: string, locale: Locale) => {
   switch (reason) {
-    case 'Scientific': return isArabic ? 'خطأ علمي' : 'Scientific';
-    case 'Typo': return isArabic ? 'خطأ إملائي' : 'Typo';
-    case 'MissingOption': return isArabic ? 'خيار ناقص' : 'Missing option';
-    case 'UnclearExplanation': return isArabic ? 'شرح غير واضح' : 'Unclear explanation';
-    default: return isArabic ? 'أخرى' : 'Other';
+    case 'Scientific': return statusLabel(locale, 'reportReason', 'Scientific');
+    case 'Typo': return statusLabel(locale, 'reportReason', 'Typo');
+    case 'MissingOption': return statusLabel(locale, 'reportReason', 'MissingOption');
+    case 'UnclearExplanation': return statusLabel(locale, 'reportReason', 'UnclearExplanation');
+    default: return t(locale, 'students.reports.reasonOther');
   }
 };
 
-const reportStatusLabel = (status: string, isArabic: boolean) => {
+const reportStatusLabel = (status: string, locale: Locale) => {
   switch (status) {
-    case 'Pending': return isArabic ? 'قيد الانتظار' : 'Pending';
-    case 'Reviewing': return isArabic ? 'قيد المراجعة' : 'Reviewing';
-    case 'Resolved': return isArabic ? 'تم الحل' : 'Resolved';
-    case 'Rejected': return isArabic ? 'مرفوض' : 'Rejected';
-    default: return isArabic ? 'مغلق' : 'Closed';
+    case 'Pending': return t(locale, 'students.reports.statusPending');
+    case 'Reviewing': return t(locale, 'students.reports.statusReviewing');
+    case 'Resolved': return t(locale, 'students.reports.statusResolved');
+    case 'Rejected': return t(locale, 'students.reports.statusRejected');
+    default: return t(locale, 'students.reports.statusClosed');
   }
 };
 
-const eventTypeLabel = (eventType: string, isArabic: boolean) => {
-  if (!isArabic) return eventType.replace(/([A-Z])/g, ' $1').trim();
+const eventTypeLabel = (eventType: string, locale: Locale) => {
   switch (eventType) {
-    case 'LoginSuccess': return 'تسجيل دخول ناجح';
-    case 'LoginFailed': return 'فشل تسجيل الدخول';
-    case 'Logout': return 'تسجيل خروج';
-    case 'SessionCreated': return 'إنشاء جلسة';
-    case 'SessionRevoked': return 'إنهاء جلسة';
-    case 'Refresh': case 'RefreshReuse': return 'تجديد رمز الجلسة';
-    case 'DeviceRegistered': return 'تسجيل جهاز';
-    case 'DeviceChange': return 'تغيير جهاز';
-    case 'DeviceBindingFailed': return 'فشل ربط الجهاز';
-    case 'DevtoolsDetected': return 'كشف أدوات المطوّرين';
-    case 'ScreenshotAttempt': return 'محاولة التقاط شاشة';
-    case 'CopyAttempt': return 'محاولة نسخ';
-    case 'DownloadAttempt': return 'محاولة تنزيل';
-    case 'PrintAttempt': return 'محاولة طباعة';
-    case 'MultipleAccountsSuspected': return 'اشتباه حسابات متعددة';
-    case 'BanIssued': return 'إصدار حظر';
-    case 'BanLifted': return 'رفع حظر';
-    case 'PasswordChanged': return 'تغيير كلمة المرور';
-    case 'PasswordResetRequested': return 'طلب استعادة كلمة المرور';
-    case 'MfaEnabled': return 'تفعيل المصادقة الثنائية';
-    case 'MfaFailed': return 'فشل المصادقة الثنائية';
-    case 'MfaDisabled': return 'تعطيل المصادقة الثنائية';
-    case 'SubscriptionActivated': return 'تفعيل اشتراك';
-    case 'SubscriptionRevoked': return 'إبطال اشتراك';
-    case 'FileAccess': return 'وصول لملف';
-    case 'EntitlementDenied': return 'رفض استحقاق';
-    case 'OtpSent': return 'إرسال رمز تحقق';
-    case 'OtpVerified': return 'تحقق رمز OTP';
-    case 'OtpFailed': return 'فشل رمز OTP';
-    default: return 'حدث أمني';
+    case 'LoginSuccess': return t(locale, 'students.security.events.loginSuccess');
+    case 'LoginFailed': return t(locale, 'students.security.events.loginFailed');
+    case 'Logout': return t(locale, 'students.security.events.logout');
+    case 'SessionCreated': return t(locale, 'students.security.events.sessionCreated');
+    case 'SessionRevoked': return t(locale, 'students.security.events.sessionRevoked');
+    case 'Refresh': return t(locale, 'students.security.events.refresh');
+    case 'RefreshReuse': return t(locale, 'students.security.events.refreshReuse');
+    case 'DeviceRegistered': return t(locale, 'students.security.events.deviceRegistered');
+    case 'DeviceChange': return t(locale, 'students.security.events.deviceChange');
+    case 'DeviceBindingFailed': return t(locale, 'students.security.events.deviceBindingFailed');
+    case 'DevtoolsDetected': return t(locale, 'students.security.events.devtoolsDetected');
+    case 'ScreenshotAttempt': return t(locale, 'students.security.events.screenshotAttempt');
+    case 'CopyAttempt': return t(locale, 'students.security.events.copyAttempt');
+    case 'DownloadAttempt': return t(locale, 'students.security.events.downloadAttempt');
+    case 'PrintAttempt': return t(locale, 'students.security.events.printAttempt');
+    case 'MultipleAccountsSuspected': return t(locale, 'students.security.events.multipleAccountsSuspected');
+    case 'BanIssued': return t(locale, 'students.security.events.banIssued');
+    case 'BanLifted': return t(locale, 'students.security.events.banLifted');
+    case 'PasswordChanged': return t(locale, 'students.security.events.passwordChanged');
+    case 'PasswordResetRequested': return t(locale, 'students.security.events.passwordResetRequested');
+    case 'MfaEnabled': return t(locale, 'students.security.events.mfaEnabled');
+    case 'MfaFailed': return t(locale, 'students.security.events.mfaFailed');
+    case 'MfaDisabled': return t(locale, 'students.security.events.mfaDisabled');
+    case 'SubscriptionActivated': return t(locale, 'students.security.events.subscriptionActivated');
+    case 'SubscriptionRevoked': return t(locale, 'students.security.events.subscriptionRevoked');
+    case 'FileAccess': return t(locale, 'students.security.events.fileAccess');
+    case 'EntitlementDenied': return t(locale, 'students.security.events.entitlementDenied');
+    case 'OtpSent': return t(locale, 'students.security.events.otpSent');
+    case 'OtpVerified': return t(locale, 'students.security.events.otpVerified');
+    case 'OtpFailed': return t(locale, 'students.security.events.otpFailed');
+    default:
+      // Unknown wire values keep the legacy behavior: the authored Arabic
+      // fallback label; the split-camelCase English label in English.
+      return locale === 'ar'
+        ? t(locale, 'students.security.events.fallback')
+        : eventType.replace(/([A-Z])/g, ' $1').trim();
   }
 };
 
@@ -171,12 +181,15 @@ type Props = {
 
 const PAGE_SIZE = 20;
 
-const statusLabel = (status: string, isArabic: boolean) => {
+// PR-3-A: thin wrapper over the registry's `student` domain. The registry
+// covers the known statuses; unknown wire values keep the legacy pass-through
+// (`status || '—'`) instead of the registry's explicit unknown label.
+const studentStatus = (status: string, locale: Locale) => {
   const value = status.toLowerCase();
-  if (value === 'active') return isArabic ? 'نشط' : 'Active';
-  if (value === 'banned') return isArabic ? 'محظور' : 'Banned';
-  if (value === 'suspended') return isArabic ? 'معلّق' : 'Suspended';
-  if (value === 'pending') return isArabic ? 'قيد المراجعة' : 'Pending';
+  if (value === 'active') return statusLabel(locale, 'student', 'active');
+  if (value === 'banned') return statusLabel(locale, 'student', 'banned');
+  if (value === 'suspended') return statusLabel(locale, 'student', 'suspended');
+  if (value === 'pending') return statusLabel(locale, 'student', 'pending');
   return status || '—';
 };
 
@@ -224,6 +237,8 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
   // Push 3: cosmetic gating — the API policies remain the real boundary.
   // unbind-device and the drawer tabs stay ungated (deferred / out-of-census).
   const { can } = useUiPermissions();
+  // PR-3-A: locale for the shared dictionary (derived once from the legacy flag).
+  const locale = localeOf(isArabic);
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [universities, setUniversities] = useState<University[]>([]);
   const [total, setTotal] = useState(0);
@@ -321,9 +336,9 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
       setPage(data.page || targetPage);
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) {
-        onError(isArabic ? 'لا تملك صلاحية عرض الطلاب ضمن نطاقك الحالي.' : 'You do not have permission to view students within your current scope.');
+        onError(t(locale, 'students.errors.loadForbidden'));
       } else {
-        onError(error instanceof Error ? error.message : 'Unable to load students.');
+        onError(error instanceof Error ? error.message : t(locale, 'students.errors.loadFallback'));
       }
       setStudents([]);
       setTotal(0);
@@ -369,9 +384,9 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
         .then(data => setSecurityLogs(Array.isArray(data) ? data : []))
         .catch(error => {
           if (error instanceof ApiError && error.status === 403) {
-            onError(isArabic ? 'لا تملك صلاحية عرض السجل الأمني لهذا الطالب.' : 'You do not have permission to view this student\u2019s security log.');
+            onError(t(locale, 'students.errors.securityLogForbidden'));
           } else {
-            onError(error instanceof Error ? error.message : 'Unable to load the security log.');
+            onError(error instanceof Error ? error.message : t(locale, 'students.errors.securityLogFallback'));
           }
         }),
       // P1-11: fetch student sessions
@@ -409,9 +424,9 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     try {
       await apiRequest(`/api/v1/security/students/${selected.id}/sessions/${sessionId}/revoke`, token, { method: 'POST' });
       setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, status: 'Revoked', revokedAt: new Date().toISOString(), revocationReason: 'Revoked by authorized administrator' } : s));
-      onNotice(isArabic ? 'تم إنهاء الجلسة' : 'Session revoked');
+      onNotice(t(locale, 'students.toasts.sessionRevoked'));
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.message : isArabic ? 'فشل إنهاء الجلسة' : 'Revoke failed';
+      const msg = err instanceof ApiError ? err.message : t(locale, 'students.toasts.sessionRevokeFailed');
       onError(msg);
     } finally { setRevokingSession(null); }
   };
@@ -437,9 +452,9 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
         ? { ...s, revokedAt: new Date().toISOString(), revocationReason: reason }
         : s));
       setSubscriptionRevokeTarget(null);
-      onNotice(isArabic ? 'تم إبطال الاشتراك' : 'Subscription revoked');
+      onNotice(t(locale, 'students.toasts.subscriptionRevoked'));
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.message : isArabic ? 'فشل إبطال الاشتراك' : 'Revoke failed';
+      const msg = err instanceof ApiError ? err.message : t(locale, 'students.toasts.subscriptionRevokeFailed');
       onError(msg);
     } finally { setRevokingSubscription(false); }
   };
@@ -454,7 +469,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     event.preventDefault();
     if (!dialog) return;
     if (dialog.kind === 'ban' && !reason.trim()) {
-      onError(isArabic ? 'أدخل سبب الحظر قبل المتابعة.' : 'Provide a ban reason before continuing.');
+      onError(t(locale, 'students.validation.banReasonRequired'));
       return;
     }
 
@@ -468,22 +483,22 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
             banUntil: banUntil ? new Date(`${banUntil}T23:59:59`).toISOString() : null,
           }),
         });
-        onNotice(isArabic ? 'تم حظر الطالب وإنهاء جلساته وفق سياسة الخادم.' : 'Student banned and their sessions were handled by the server policy.');
+        onNotice(t(locale, 'students.toasts.banned'));
       }
       if (dialog.kind === 'revoke-sessions') {
         await request(`/api/v1/admin/students/${dialog.student.id}/revoke-sessions`, { method: 'POST' });
-        onNotice(isArabic ? 'تم إنهاء جميع الجلسات النشطة للطالب.' : 'All active student sessions were revoked.');
+        onNotice(t(locale, 'students.toasts.sessionsRevoked'));
       }
       if (dialog.kind === 'unbind-device') {
         await request(`/api/v1/security/students/${dialog.student.id}/unbind-device`, { method: 'POST' });
-        onNotice(isArabic ? 'تم إلغاء ربط جهاز الطالب. سيُعاد التحقق عند الدخول التالي.' : 'Student device binding was removed. It will be verified again at the next sign-in.');
+        onNotice(t(locale, 'students.toasts.deviceUnbound'));
       }
       const studentRef = dialog.student;
       setDialog(null);
       await loadStudents(page);
       if (selected?.id === studentRef.id) await openStudent(studentRef);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'The protected action could not be completed.');
+      onError(error instanceof Error ? error.message : t(locale, 'students.errors.actionFallback'));
     } finally {
       setBusy(false);
     }
@@ -493,34 +508,34 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     setBusy(true);
     try {
       await request(`/api/v1/admin/students/${student.id}/unban`, { method: 'POST' });
-      onNotice(isArabic ? 'تمت إعادة تفعيل حساب الطالب.' : 'Student account reactivated.');
+      onNotice(t(locale, 'students.toasts.reactivated'));
       await loadStudents(page);
       if (selected?.id === student.id) await openStudent(student);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'Unable to reactivate the student.');
+      onError(error instanceof Error ? error.message : t(locale, 'students.errors.reactivateFallback'));
     } finally {
       setBusy(false);
     }
   };
 
   const dialogTitle = dialog ? (
-    dialog.kind === 'ban' ? (isArabic ? 'حظر حساب الطالب' : 'Ban student account')
-      : dialog.kind === 'revoke-sessions' ? (isArabic ? 'إنهاء جلسات الطالب' : 'Revoke student sessions')
-        : (isArabic ? 'إلغاء ربط جهاز الطالب' : 'Unbind student device')
+    dialog.kind === 'ban' ? t(locale, 'students.dialog.banTitle')
+      : dialog.kind === 'revoke-sessions' ? t(locale, 'students.dialog.revokeTitle')
+        : t(locale, 'students.dialog.unbindTitle')
   ) : '';
 
   const dialogConfirm = dialog ? (
-    dialog.kind === 'ban' ? (isArabic ? 'تأكيد الحظر' : 'Confirm ban')
-      : dialog.kind === 'revoke-sessions' ? (isArabic ? 'إنهاء الجلسات' : 'Revoke sessions')
-        : (isArabic ? 'تأكيد إلغاء الربط' : 'Confirm unbind')
+    dialog.kind === 'ban' ? t(locale, 'students.dialog.confirmBan')
+      : dialog.kind === 'revoke-sessions' ? t(locale, 'students.common.revokeSessions')
+        : t(locale, 'students.dialog.confirmUnbind')
   ) : '';
 
   const dialogScopeNote = dialog ? (
     dialog.kind === 'revoke-sessions'
-      ? (isArabic ? 'سيؤدي هذا إلى إنهاء وصول الطالب من جميع الأجهزة. لا يمكن التراجع عن الجلسات المنتهية.' : 'This ends the student\u2019s access on every device. Revoked sessions cannot be restored.')
+      ? t(locale, 'students.dialog.scopeNoteRevoke')
       : dialog.kind === 'unbind-device'
-        ? (isArabic ? 'سيطلب الخادم التحقق وربط الجهاز عند الدخول التالي. لا يحذف هذا الإجراء سجل الأحداث.' : 'The server will verify and bind a device at the next sign-in. This action preserves event history.')
-        : (isArabic ? 'يُسجل الخادم هذا الإجراء الحساس. يمكن ترك تاريخ الانتهاء فارغاً للحظر المفتوح وفق السياسة.' : 'The server records this sensitive action. Leave expiry empty for an open-ended ban where policy permits.')
+        ? t(locale, 'students.dialog.scopeNoteUnbind')
+        : t(locale, 'students.dialog.scopeNoteBan')
   ) : '';
 
   const pageStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
@@ -537,12 +552,12 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fullName: editForm.fullName.trim(), gender: editForm.gender || null }),
       });
-      onNotice(isArabic ? 'تم تحديث ملف الطالب' : 'Student profile updated');
+      onNotice(t(locale, 'students.toasts.profileUpdated'));
       setStudents(prev => prev.map(s => s.id === editStudent.id ? { ...s, fullName: editForm.fullName.trim(), gender: editForm.gender || null } : s));
       setEditStudent(null);
       setAvatarPreview(null);
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.message : isArabic ? 'فشل التحديث' : 'Update failed';
+      const msg = err instanceof ApiError ? err.message : t(locale, 'students.toasts.updateFailed');
       onError(msg);
     } finally { setBusy(false); }
   };
@@ -550,7 +565,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
   // P1-01: upload avatar
   const uploadAvatar = async (file: File) => {
     if (!editStudent) return;
-    if (file.size > 3 * 1024 * 1024) { onError(isArabic ? 'الصورة كبيرة جداً (الحد 3MB)' : 'Image too large (max 3MB)'); return; }
+    if (file.size > 3 * 1024 * 1024) { onError(t(locale, 'students.toasts.avatarTooLarge')); return; }
     setAvatarBusy(true);
     try {
       const formData = new FormData();
@@ -560,9 +575,9 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
         body: formData,
       });
       setAvatarPreview(res.previewUrl);
-      onNotice(isArabic ? 'تم رفع الصورة الشخصية' : 'Avatar uploaded');
+      onNotice(t(locale, 'students.toasts.avatarUploaded'));
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.message : isArabic ? 'فشل رفع الصورة' : 'Avatar upload failed';
+      const msg = err instanceof ApiError ? err.message : t(locale, 'students.toasts.avatarUploadFailed');
       onError(msg);
     } finally { setAvatarBusy(false); }
   };
@@ -577,7 +592,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     try {
       setCreateColleges(await request<College[]>(`/api/v1/universities/${id}/colleges`));
     } catch (error) {
-      onError(error instanceof Error ? error.message : (isArabic ? 'تعذّر تحميل الكليات.' : 'Unable to load colleges.'));
+      onError(error instanceof Error ? error.message : t(locale, 'students.errors.collegesLoadFailed'));
       setCreateColleges([]);
     }
   };
@@ -590,7 +605,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     try {
       setCreateYears(await request<AcademicYear[]>(`/api/v1/colleges/${id}/years`));
     } catch (error) {
-      onError(error instanceof Error ? error.message : (isArabic ? 'تعذّر تحميل السنوات.' : 'Unable to load academic years.'));
+      onError(error instanceof Error ? error.message : t(locale, 'students.errors.yearsLoadFailed'));
       setCreateYears([]);
     }
   };
@@ -612,19 +627,19 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     const fullName = createForm.fullName.trim();
     const phone = createForm.phone.trim();
     if (!fullName) {
-      onError(isArabic ? 'أدخل الاسم الكامل.' : 'Enter the full name.');
+      onError(t(locale, 'students.validation.fullNameRequired'));
       return;
     }
     if (!/^09\d{8}$/.test(phone)) {
-      onError(isArabic ? 'رقم الهاتف يجب أن يبدأ بـ 09 ويتكون من 10 أرقام.' : 'Phone must start with 09 and be 10 digits.');
+      onError(t(locale, 'students.validation.phoneInvalid'));
       return;
     }
     if (createForm.password.length < 8) {
-      onError(isArabic ? 'كلمة المرور يجب أن تكون 8 أحرف على الأقل.' : 'Password must be at least 8 characters.');
+      onError(t(locale, 'students.validation.passwordTooShort'));
       return;
     }
     if (!createUniversityId || !createCollegeId || !createYearId) {
-      onError(isArabic ? 'اختر الجامعة والكلية والسنة.' : 'Choose university, college and academic year.');
+      onError(t(locale, 'students.validation.cascadeRequired'));
       return;
     }
     setCreateBusy(true);
@@ -642,11 +657,11 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
           email: createForm.email.trim() || undefined,
         }),
       });
-      onNotice(isArabic ? 'تم إنشاء حساب الطالب بنجاح.' : 'Student account created successfully.');
+      onNotice(t(locale, 'students.toasts.studentCreated'));
       setCreateOpen(false);
       await loadStudents(1);
     } catch (error) {
-      onError(error instanceof Error ? error.message : (isArabic ? 'تعذّر إنشاء حساب الطالب.' : 'Unable to create the student.'));
+      onError(error instanceof Error ? error.message : t(locale, 'students.errors.createFailed'));
     } finally {
       setCreateBusy(false);
     }
@@ -665,10 +680,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-              {isArabic ? 'إدارة المستخدمين' : 'User management'}
+              {t(locale, 'students.common.userManagement')}
             </p>
             <h2 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
-              {isArabic ? 'الطلاب' : 'Students'}
+              {t(locale, 'students.header.title')}
               <span
                 className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded-full text-xs font-semibold"
                 style={{ background: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)' }}
@@ -677,9 +692,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               </span>
             </h2>
             <p className="text-sm mt-1 max-w-2xl" style={{ color: 'var(--cms-text-soft)' }}>
-              {isArabic
-                ? 'تُعرض النتائج وتُنفّذ الإجراءات ضمن نطاق المدير وصلاحياته من الخادم.'
-                : 'Results and protected actions are constrained by the acting administrator\u2019s server-side scope and permissions.'}
+              {t(locale, 'students.header.subtitle')}
             </p>
           </div>
         </div>
@@ -695,7 +708,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
           onBlur={(event) => { event.currentTarget.style.background = 'var(--cms-teal-600)'; }}
         >
           <UserPlus className="w-4 h-4" />
-          {isArabic ? 'إضافة طالب' : 'Add student'}
+          {t(locale, 'students.common.addStudent')}
         </button>
       </header>
 
@@ -709,7 +722,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={isArabic ? 'ابحث بالاسم أو رقم الهاتف' : 'Search name or phone'}
+            placeholder={t(locale, 'students.filters.searchPlaceholder')}
             className="w-full pr-10 pl-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
             style={{ borderColor: 'var(--cms-line-strong)' }}
           />
@@ -720,7 +733,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
           className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
-          <option value="">{isArabic ? 'الجامعة: الكل' : 'University: All'}</option>
+          <option value="">{t(locale, 'students.filters.universityAll')}</option>
           {universityOptions.map((university) => (
             <option key={university.id} value={university.id}>{university.label}</option>
           ))}
@@ -731,11 +744,11 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
           className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
-          <option value="">{isArabic ? 'الحالة: الكل' : 'Status: All'}</option>
-          <option value="Active">{isArabic ? 'نشط' : 'Active'}</option>
-          <option value="Banned">{isArabic ? 'محظور' : 'Banned'}</option>
-          <option value="Suspended">{isArabic ? 'معلّق' : 'Suspended'}</option>
-          <option value="Pending">{isArabic ? 'قيد المراجعة' : 'Pending'}</option>
+          <option value="">{t(locale, 'students.filters.statusAll')}</option>
+          <option value="Active">{statusLabel(locale, 'student', 'Active')}</option>
+          <option value="Banned">{statusLabel(locale, 'student', 'Banned')}</option>
+          <option value="Suspended">{statusLabel(locale, 'student', 'Suspended')}</option>
+          <option value="Pending">{statusLabel(locale, 'student', 'Pending')}</option>
         </select>
         {filtersActive && (
           <button
@@ -744,7 +757,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
             style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
           >
             <X className="w-4 h-4" />
-            {isArabic ? 'إزالة التصفية' : 'Clear filters'}
+            {t(locale, 'students.filters.clear')}
           </button>
         )}
       </div>
@@ -776,11 +789,11 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
           </div>
           <p className="mt-3 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
             {filtersActive
-              ? (isArabic ? 'لا توجد نتائج مطابقة' : 'No matching results')
-              : (isArabic ? 'لا يوجد طلاب ضمن نطاقك بعد.' : 'No students are available in your scope yet.')}
+              ? t(locale, 'students.list.emptyFiltered')
+              : t(locale, 'students.list.empty')}
           </p>
           <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-            {isArabic ? 'عدّل عوامل التصفية أو أعد المحاولة لاحقاً.' : 'Adjust the filters or try again later.'}
+            {t(locale, 'students.list.emptyHint')}
           </p>
         </div>
       ) : (
@@ -788,12 +801,12 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
               <tr>
-                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الطالب' : 'Student'}</th>
-                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'المسار الأكاديمي' : 'Academic path'}</th>
-                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الحالة' : 'Status'}</th>
-                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'التفاعل' : 'Activity'}</th>
-                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'آخر دخول' : 'Last sign-in'}</th>
-                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider"><span className="sr-only">{isArabic ? 'إجراءات' : 'Actions'}</span></th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'students.table.student')}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'students.table.academicPath')}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'students.common.status')}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'students.table.activity')}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'students.common.lastSignIn')}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider"><span className="sr-only">{t(locale, 'students.table.actionsSr')}</span></th>
               </tr>
             </thead>
             <tbody className="divide-y" style={{ borderColor: 'var(--cms-line)' }}>
@@ -810,7 +823,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                           <div className="font-medium truncate" style={{ color: 'var(--cms-text)' }}>{student.fullName}</div>
                           <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{student.phone || '—'}</div>
                           <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                            {isArabic ? `سُجّل في ${dateLabel(student.createdAt, isArabic)}` : `Registered ${dateLabel(student.createdAt, isArabic)}`}
+                            {t(locale, 'students.table.registeredAt', { date: dateLabel(student.createdAt, isArabic) })}
                           </div>
                         </div>
                       </div>
@@ -822,20 +835,20 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border ${statusBadgeClass(student.status)}`}>
                         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
-                        {statusLabel(student.status, isArabic)}
+                        {studentStatus(student.status, locale)}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-semibold" style={{ color: 'var(--cms-text)' }}>{student.questionsAnswered}</div>
                       <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                        {isArabic ? `${Math.round(student.accuracy)}% دقة` : `${Math.round(student.accuracy)}% accuracy`}
+                        {t(locale, 'students.table.accuracyStat', { value: Math.round(student.accuracy) })}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--cms-text-soft)' }}>{dateLabel(student.lastLogin, isArabic)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         <button
-                          title={isArabic ? 'عرض الملف والسجل الأمني' : 'View profile and security log'}
+                          title={t(locale, 'students.table.viewProfileTitle')}
                           onClick={() => void openStudent(student)}
                           className="p-1.5 rounded-md transition-colors"
                           style={{ color: 'var(--cms-text-muted)' }}
@@ -848,13 +861,13 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                             grouped instead of a per-row button cluster. Ban stays
                             confirm-gated downstream (ban dialog + unban ConfirmDialog). */}
                         <RowActionsMenu
-                          label={isArabic ? `إجراءات ${student.fullName}` : `Actions for ${student.fullName}`}
+                          label={t(locale, 'students.table.rowActionsLabel', { name: student.fullName })}
                           dir={isArabic ? 'rtl' : 'ltr'}
                           items={[
                             ...(can('btn:students.edit')
                               ? [{
                                   key: 'edit',
-                                  label: isArabic ? 'تعديل الملف' : 'Edit profile',
+                                  label: t(locale, 'students.common.editProfile'),
                                   icon: <Pencil className="w-4 h-4" />,
                                   onSelect: () => { setEditStudent(student); setEditForm({ fullName: student.fullName, gender: student.gender ?? '' }); },
                                 }]
@@ -862,7 +875,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                             ...(can('btn:students.ban') && active
                               ? [{
                                   key: 'ban',
-                                  label: isArabic ? 'حظر الحساب' : 'Ban account',
+                                  label: t(locale, 'students.common.banAccount'),
                                   danger: true,
                                   icon: <Ban className="w-4 h-4" />,
                                   disabled: busy,
@@ -872,7 +885,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                             ...(can('btn:students.ban') && !active
                               ? [{
                                   key: 'unban',
-                                  label: isArabic ? 'إعادة التفعيل' : 'Reactivate',
+                                  label: t(locale, 'students.common.reactivate'),
                                   icon: <RotateCcw className="w-4 h-4" />,
                                   disabled: busy,
                                   onSelect: () => setConfirmUnban(student),
@@ -894,9 +907,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
             style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}
           >
             <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-              {isArabic
-                ? `النتائج ${pageStart}–${pageEnd} من ${total}`
-                : `Showing ${pageStart}–${pageEnd} of ${total}`}
+              {t(locale, 'students.table.paginationSummary', { from: pageStart, to: pageEnd, total })}
             </p>
             <div className="flex items-center gap-2">
               <button
@@ -907,10 +918,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}
               >
                 {isArabic ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
-                {isArabic ? 'السابق' : 'Previous'}
+                {t(locale, 'students.table.previous')}
               </button>
               <span className="text-xs font-medium" style={{ color: 'var(--cms-text-soft)' }}>
-                {isArabic ? `صفحة ${page} من ${totalPages}` : `Page ${page} of ${totalPages}`}
+                {t(locale, 'students.table.pageOf', { page, total: totalPages })}
               </span>
               <button
                 type="button"
@@ -919,7 +930,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50"
                 style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}
               >
-                {isArabic ? 'التالي' : 'Next'}
+                {t(locale, 'students.table.next')}
                 {isArabic ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
               </button>
             </div>
@@ -936,7 +947,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
             onMouseDown={() => !busy && closeDrawer()}
           />
           <aside
-            aria-label={isArabic ? 'تفاصيل الطالب' : 'Student details'}
+            aria-label={t(locale, 'students.drawer.ariaLabel')}
             className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-md lg:max-w-lg bg-white shadow-2xl flex flex-col"
             style={{ borderInlineStart: '1px solid var(--cms-line)' }}
             role="dialog"
@@ -957,7 +968,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                    {isArabic ? 'ملف الطالب' : 'Student record'}
+                    {t(locale, 'students.drawer.recordLabel')}
                   </p>
                   <h3 className="text-lg font-bold truncate" style={{ color: 'var(--cms-text)' }}>{selected.fullName}</h3>
                   <p className="text-xs truncate" style={{ color: 'var(--cms-text-muted)' }}>
@@ -967,7 +978,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               </div>
               <button
                 onClick={closeDrawer}
-                aria-label={isArabic ? 'إغلاق التفاصيل' : 'Close details'}
+                aria-label={t(locale, 'students.drawer.closeDetails')}
                 className="p-1.5 rounded-md transition-colors"
                 style={{ color: 'var(--cms-text-muted)' }}
               >
@@ -982,13 +993,13 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               role="tablist"
             >
               {([
-                { key: 'overview', label: isArabic ? 'المعلومات الأساسية' : 'Basic info' },
-                { key: 'academic', label: isArabic ? 'التقدم الدراسي' : 'Academic progress' },
-                { key: 'exams', label: isArabic ? 'الاختبارات' : 'Exams' },
-                { key: 'subscriptions', label: isArabic ? 'الاشتراكات' : 'Subscriptions' },
-                { key: 'sessions', label: isArabic ? 'الجلسات والأجهزة' : 'Sessions & devices' },
-                { key: 'security', label: isArabic ? 'السجل الأمني' : 'Security log' },
-                { key: 'reports', label: isArabic ? 'البلاغات' : 'Reports' },
+                { key: 'overview', label: t(locale, 'students.drawer.tabs.overview') },
+                { key: 'academic', label: t(locale, 'students.common.academicProgress') },
+                { key: 'exams', label: t(locale, 'students.drawer.tabs.exams') },
+                { key: 'subscriptions', label: t(locale, 'students.drawer.tabs.subscriptions') },
+                { key: 'sessions', label: t(locale, 'students.drawer.tabs.sessions') },
+                { key: 'security', label: t(locale, 'students.common.securityLog') },
+                { key: 'reports', label: t(locale, 'students.drawer.tabs.reports') },
               ] as { key: DrawerTab; label: string }[]).map((tab) => {
                 const active = drawerTab === tab.key;
                 return (
@@ -1021,28 +1032,28 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                          {isArabic ? 'الحالة' : 'Status'}
+                          {t(locale, 'students.common.status')}
                         </p>
                         <span className={`mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border ${statusBadgeClass(selected.status)}`}>
                           <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
-                          {statusLabel(selected.status, isArabic)}
+                          {studentStatus(selected.status, locale)}
                         </span>
                       </div>
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                          {isArabic ? 'آخر دخول' : 'Last sign-in'}
+                          {t(locale, 'students.common.lastSignIn')}
                         </p>
                         <p className="mt-1 text-sm" style={{ color: 'var(--cms-text)' }}>{dateLabel(selected.lastLogin, isArabic)}</p>
                       </div>
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                          {isArabic ? 'إجابات' : 'Answers'}
+                          {t(locale, 'students.drawer.overview.answers')}
                         </p>
                         <p className="mt-1 text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>{selected.questionsAnswered}</p>
                       </div>
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                          {isArabic ? 'دقة' : 'Accuracy'}
+                          {t(locale, 'students.drawer.overview.accuracy')}
                         </p>
                         <p className="mt-1 text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>{Math.round(selected.accuracy)}%</p>
                       </div>
@@ -1053,10 +1064,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <article className="flex flex-col gap-3 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
                       <div className="flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
                         <CalendarClock className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
-                        <strong className="text-sm font-semibold">{isArabic ? 'الجلسات' : 'Sessions'}</strong>
+                        <strong className="text-sm font-semibold">{t(locale, 'students.drawer.overview.sessionsTitle')}</strong>
                       </div>
                       <p className="text-xs flex-1" style={{ color: 'var(--cms-text-soft)' }}>
-                        {isArabic ? 'إنهاء آمن لجميع الجلسات الحالية.' : 'Securely revoke every current session.'}
+                        {t(locale, 'students.drawer.overview.sessionsBody')}
                       </p>
                       {can('btn:students.revoke-session') && (
                         <button
@@ -1065,7 +1076,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                           disabled={busy}
                           onClick={() => openDialog({ kind: 'revoke-sessions', student: selected })}
                         >
-                          {isArabic ? 'إنهاء الجلسات' : 'Revoke sessions'}
+                          {t(locale, 'students.common.revokeSessions')}
                         </button>
                       )}
                     </article>
@@ -1073,10 +1084,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <article className="flex flex-col gap-3 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
                       <div className="flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
                         <LaptopMinimal className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
-                        <strong className="text-sm font-semibold">{isArabic ? 'الأجهزة' : 'Devices'}</strong>
+                        <strong className="text-sm font-semibold">{t(locale, 'students.drawer.overview.devicesTitle')}</strong>
                       </div>
                       <p className="text-xs flex-1" style={{ color: 'var(--cms-text-soft)' }}>
-                        {isArabic ? 'يُلغي ربط الجهاز الحالي؛ لا يحذف سجل الأمان.' : 'Removes the current device binding without deleting audit history.'}
+                        {t(locale, 'students.drawer.overview.devicesBody')}
                       </p>
                       <button
                         className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50"
@@ -1084,19 +1095,19 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                         disabled={busy}
                         onClick={() => openDialog({ kind: 'unbind-device', student: selected })}
                       >
-                        {isArabic ? 'إلغاء ربط الجهاز' : 'Unbind device'}
+                        {t(locale, 'students.common.unbindDevice')}
                       </button>
                     </article>
 
                     <article className="flex flex-col gap-3 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
                       <div className="flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
                         <ShieldAlert className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
-                        <strong className="text-sm font-semibold">{isArabic ? 'حالة الحساب' : 'Account status'}</strong>
+                        <strong className="text-sm font-semibold">{t(locale, 'students.drawer.overview.accountStatus')}</strong>
                       </div>
                       <p className="text-xs flex-1" style={{ color: 'var(--cms-text-soft)' }}>
                         {selected.status.toLowerCase() === 'active'
-                          ? (isArabic ? 'سيُسجَّل الحظر مع سبب واضح للتدقيق.' : 'A ban will be recorded with an audit-safe reason.')
-                          : (isArabic ? 'يمكن إعادة تفعيل الحساب فوراً.' : 'The account can be reactivated immediately.')}
+                          ? t(locale, 'students.drawer.overview.banNote')
+                          : t(locale, 'students.drawer.overview.reactivateNote')}
                       </p>
                       {selected.status.toLowerCase() === 'active' ? (
                         can('btn:students.ban') ? (
@@ -1107,7 +1118,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                             onClick={() => openDialog({ kind: 'ban', student: selected })}
                           >
                             <Ban className="w-4 h-4" />
-                            {isArabic ? 'حظر الحساب' : 'Ban account'}
+                            {t(locale, 'students.common.banAccount')}
                           </button>
                         ) : null
                       ) : (
@@ -1119,7 +1130,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                             onClick={() => setConfirmUnban(selected)}
                           >
                             <RotateCcw className="w-4 h-4" />
-                            {isArabic ? 'إعادة التفعيل' : 'Reactivate'}
+                            {t(locale, 'students.common.reactivate')}
                           </button>
                         ) : null
                       )}
@@ -1133,10 +1144,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   <div className="flex items-center justify-between gap-3 mb-4">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                        {isArabic ? 'السجل الأمني' : 'Security log'}
+                        {t(locale, 'students.common.securityLog')}
                       </p>
                       <h3 className="text-base font-bold" style={{ color: 'var(--cms-text)' }}>
-                        {isArabic ? 'آخر الأحداث المرئية' : 'Recent visible events'}
+                        {t(locale, 'students.security.recentEvents')}
                       </h3>
                     </div>
                     <ShieldCheck className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
@@ -1144,16 +1155,16 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   {logsLoading ? (
                     <div className="flex items-center justify-center py-8" style={{ color: 'var(--cms-text-muted)' }}>
                       <LoaderCircle className="w-5 h-5 animate-spin ml-2" />
-                      {isArabic ? 'جارٍ التحميل...' : 'Loading...'}
+                      {t(locale, 'students.common.loading')}
                     </div>
                   ) : (securityLogs || []).length === 0 ? (
                     <div className="flex flex-col items-center justify-center text-center py-10" style={{ color: 'var(--cms-text-muted)' }}>
                       <ShieldCheck className="w-6 h-6" style={{ color: 'var(--cms-line-strong)' }} />
                       <p className="mt-2 text-sm">
-                        {isArabic ? 'لا توجد أحداث أمنية' : 'No security events'}
+                        {t(locale, 'students.security.empty')}
                       </p>
                       <p className="mt-1 text-xs">
-                        {isArabic ? 'لم تُسجَّل أحداث أمنية لهذا الطالب ضمن الصلاحيات الحالية.' : 'No security events are visible for this student within the current permissions.'}
+                        {t(locale, 'students.security.emptyHint')}
                       </p>
                     </div>
                   ) : (
@@ -1161,7 +1172,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       {(securityLogs || []).map((log) => (
                         <article key={log.id} className={`rounded-lg border p-3 ${eventToneClass(log.severity)}`}>
                           <div className="flex items-start justify-between gap-2">
-                            <strong className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }} title={log.eventType}>{eventTypeLabel(log.eventType, isArabic)}</strong>
+                            <strong className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }} title={log.eventType}>{eventTypeLabel(log.eventType, locale)}</strong>
                             <small className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{dateLabel(log.createdAt, isArabic)}</small>
                           </div>
                           <p className="text-xs mt-1" style={{ color: 'var(--cms-text-soft)' }}>{log.description}</p>
@@ -1172,7 +1183,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                           )}
                           {log.deviceFingerprint && (
                             <p className="mt-1 text-xs font-mono break-all" style={{ color: 'var(--cms-text-muted)' }} title={log.deviceFingerprint}>
-                              {isArabic ? 'بصمة الجهاز' : 'Fingerprint'} · {log.deviceFingerprint.length > 40 ? log.deviceFingerprint.slice(0, 40) + '…' : log.deviceFingerprint}
+                              {t(locale, 'students.security.fingerprint')} · {log.deviceFingerprint.length > 40 ? log.deviceFingerprint.slice(0, 40) + '…' : log.deviceFingerprint}
                             </p>
                           )}
                           {(log.deviceName || log.deviceType || log.deviceOs || log.deviceBrowser) && (
@@ -1190,16 +1201,16 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                           )}
                           {(log.deviceBoundAt || log.deviceLastUsed) && (
                             <div className="mt-1 flex gap-3 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
-                              {log.deviceBoundAt && <span>{isArabic ? 'الربط' : 'Bound'}: {dateLabel(log.deviceBoundAt, isArabic)}</span>}
-                              {log.deviceLastUsed && <span>{isArabic ? 'آخر استخدام' : 'Last used'}: {dateLabel(log.deviceLastUsed, isArabic)}</span>}
+                              {log.deviceBoundAt && <span>{t(locale, 'students.common.bound')}: {dateLabel(log.deviceBoundAt, isArabic)}</span>}
+                              {log.deviceLastUsed && <span>{t(locale, 'students.common.lastUsed')}: {dateLabel(log.deviceLastUsed, isArabic)}</span>}
                               {log.deviceIsActive !== undefined && (
                                 <span style={{ color: log.deviceIsActive ? 'var(--cms-success)' : 'var(--cms-danger)' }}>
-                                  {log.deviceIsActive ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'معطّل' : 'Inactive')}
+                                  {log.deviceIsActive ? t(locale, 'students.common.deviceActive') : t(locale, 'students.common.deviceInactive')}
                                 </span>
                               )}
                             </div>
                           )}
-                          <em className={`mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide ${eventLabelClass(log.severity)}`}>{securitySeverityLabel(log.severity, isArabic)}</em>
+                          <em className={`mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide ${eventLabelClass(log.severity)}`}>{securitySeverityLabel(log.severity, locale)}</em>
                         </article>
                       ))}
                     </div>
@@ -1217,17 +1228,17 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       <article className="flex flex-col gap-2 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-teal-100)', background: 'var(--cms-teal-50)' }}>
                         <div className="flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
                           <LaptopMinimal className="w-5 h-5" style={{ color: 'var(--cms-teal-700)' }} />
-                          <strong className="text-sm font-semibold">{isArabic ? 'الجهاز المرتبط' : 'Bound device'}</strong>
+                          <strong className="text-sm font-semibold">{t(locale, 'students.sessions.boundDevice')}</strong>
                           {deviceLog.deviceIsActive !== undefined && (
                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${deviceLog.deviceIsActive ? 'text-emerald-700 bg-emerald-50' : 'text-red-700 bg-red-50'}`}>
-                              {deviceLog.deviceIsActive ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'معطّل' : 'Inactive')}
+                              {deviceLog.deviceIsActive ? t(locale, 'students.common.deviceActive') : t(locale, 'students.common.deviceInactive')}
                             </span>
                           )}
                         </div>
                         {/* Fingerprint */}
                         {deviceLog.deviceFingerprint && (
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs font-medium" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'البصمة' : 'Fingerprint'}:</span>
+                            <span className="text-xs font-medium" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.sessions.fingerprint')}:</span>
                             <code className="text-xs font-mono break-all" style={{ color: 'var(--cms-teal-700)' }} title={deviceLog.deviceFingerprint}>
                               {deviceLog.deviceFingerprint.length > 40 ? deviceLog.deviceFingerprint.slice(0, 40) + '…' : deviceLog.deviceFingerprint}
                             </code>
@@ -1245,8 +1256,8 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                         {/* Binding + last used dates */}
                         {(deviceLog.deviceBoundAt || deviceLog.deviceLastUsed) && (
                           <div className="flex flex-wrap gap-3 mt-2 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
-                            {deviceLog.deviceBoundAt && <span>{isArabic ? 'الربط' : 'Bound'}: {dateLabel(deviceLog.deviceBoundAt, isArabic)}</span>}
-                            {deviceLog.deviceLastUsed && <span>{isArabic ? 'آخر استخدام' : 'Last used'}: {dateLabel(deviceLog.deviceLastUsed, isArabic)}</span>}
+                            {deviceLog.deviceBoundAt && <span>{t(locale, 'students.common.bound')}: {dateLabel(deviceLog.deviceBoundAt, isArabic)}</span>}
+                            {deviceLog.deviceLastUsed && <span>{t(locale, 'students.common.lastUsed')}: {dateLabel(deviceLog.deviceLastUsed, isArabic)}</span>}
                           </div>
                         )}
                       </article>
@@ -1256,12 +1267,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   <article className="flex flex-col gap-3 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
                     <div className="flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
                       <MonitorSmartphone className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
-                      <strong className="text-sm font-semibold">{isArabic ? 'إنهاء الجلسات النشطة' : 'Revoke active sessions'}</strong>
+                      <strong className="text-sm font-semibold">{t(locale, 'students.sessions.revokeActiveTitle')}</strong>
                     </div>
                     <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                      {isArabic
-                        ? 'ينهي هذا الإجراء جميع الجلسات النشطة على مختلف الأجهزة فوراً. سيُطلب من الطالب تسجيل الدخول مجدداً.'
-                        : 'This terminates every active session across devices immediately. The student must sign in again.'}
+                      {t(locale, 'students.sessions.revokeActiveBody')}
                     </p>
                     {can('btn:students.revoke-session') && (
                       <button
@@ -1271,7 +1280,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                         onClick={() => openDialog({ kind: 'revoke-sessions', student: selected })}
                       >
                         <CalendarClock className="w-4 h-4" />
-                        {isArabic ? 'إنهاء الجلسات' : 'Revoke sessions'}
+                        {t(locale, 'students.common.revokeSessions')}
                       </button>
                     )}
                   </article>
@@ -1279,12 +1288,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   <article className="flex flex-col gap-3 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
                     <div className="flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
                       <LaptopMinimal className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
-                      <strong className="text-sm font-semibold">{isArabic ? 'إلغاء ربط الجهاز' : 'Unbind device'}</strong>
+                      <strong className="text-sm font-semibold">{t(locale, 'students.common.unbindDevice')}</strong>
                     </div>
                     <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                      {isArabic
-                        ? 'يلغي ربط بصمة الجهاز الحالية، وسيُعاد التحقق عند الدخول التالي. لا يحذف سجل الأحداث.'
-                        : 'Removes the current device fingerprint binding; the server will re-verify at the next sign-in. Audit history is preserved.'}
+                      {t(locale, 'students.sessions.unbindBody')}
                     </p>
                     <button
                       className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50 self-start"
@@ -1292,7 +1299,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       disabled={busy}
                       onClick={() => openDialog({ kind: 'unbind-device', student: selected })}
                     >
-                      {isArabic ? 'إلغاء ربط الجهاز' : 'Unbind device'}
+                      {t(locale, 'students.common.unbindDevice')}
                     </button>
                   </article>
 
@@ -1300,16 +1307,16 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   <article className="flex flex-col gap-2 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
                     <div className="flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
                       <CalendarClock className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
-                      <strong className="text-sm font-semibold">{isArabic ? 'قائمة الجلسات' : 'Sessions list'}</strong>
+                      <strong className="text-sm font-semibold">{t(locale, 'students.sessions.listTitle')}</strong>
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>{(sessions || []).length}</span>
                     </div>
                     {sessionsLoading ? (
                       <div className="flex items-center gap-2 py-3">
                         <LoaderCircle className="w-4 h-4 animate-spin" style={{ color: 'var(--cms-text-muted)' }} />
-                        <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span>
+                        <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.loading')}</span>
                       </div>
                     ) : (sessions || []).length === 0 ? (
-                      <p className="text-xs py-2" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لا توجد جلسات مسجلة.' : 'No sessions recorded.'}</p>
+                      <p className="text-xs py-2" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.sessions.empty')}</p>
                     ) : (
                       <div className="flex flex-col gap-1.5 mt-1">
                         {(sessions || []).slice(0, 20).map(s => {
@@ -1318,16 +1325,16 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                             <div key={s.id} className="flex items-center justify-between gap-2 py-2 border-b last:border-0" style={{ borderColor: 'var(--cms-line)' }}>
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${isActive ? 'text-emerald-700 bg-emerald-50' : s.status === 'Revoked' ? 'text-red-700 bg-red-50' : 'text-amber-700 bg-amber-50'}`}>{sessionStatusLabel(s.status, isArabic)}</span>
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${isActive ? 'text-emerald-700 bg-emerald-50' : s.status === 'Revoked' ? 'text-red-700 bg-red-50' : 'text-amber-700 bg-amber-50'}`}>{sessionStatusLabel(s.status, locale)}</span>
                                   <span className="text-xs font-medium" style={{ color: 'var(--cms-text)' }}>{s.role}</span>
                                   {s.deviceType && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>{s.deviceType}</span>}
                                   {s.deviceOs && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--cms-info-50)', color: 'var(--cms-info)' }}>{s.deviceOs}</span>}
                                   {s.deviceBrowser && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--cms-ivory-200)', color: 'var(--cms-text-soft)' }}>{s.deviceBrowser}</span>}
                                 </div>
                                 <div className="flex gap-3 mt-1 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
-                                  <span>{isArabic ? 'الإنشاء' : 'Created'}: {dateLabel(s.createdAt, isArabic)}</span>
-                                  <span>{isArabic ? 'آخر نشاط' : 'Last active'}: {dateLabel(s.lastActivityAt, isArabic)}</span>
-                                  {s.revokedAt && <span style={{ color: 'var(--cms-danger)' }}>{isArabic ? 'أُنهيت' : 'Revoked'}: {dateLabel(s.revokedAt, isArabic)}</span>}
+                                  <span>{t(locale, 'students.sessions.created')}: {dateLabel(s.createdAt, isArabic)}</span>
+                                  <span>{t(locale, 'students.sessions.lastActive')}: {dateLabel(s.lastActivityAt, isArabic)}</span>
+                                  {s.revokedAt && <span style={{ color: 'var(--cms-danger)' }}>{t(locale, 'students.sessions.revoked')}: {dateLabel(s.revokedAt, isArabic)}</span>}
                                 </div>
                               </div>
                               {isActive && can('btn:students.revoke-session') && (
@@ -1335,10 +1342,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                                   onClick={() => setSessionRevokeTarget({ id: s.id, deviceName: s.deviceName, deviceType: s.deviceType })}
                                   disabled={revokingSession === s.id}
                                   className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-medium text-red-700 border-red-200 hover:bg-red-50 disabled:opacity-50"
-                                  title={isArabic ? 'إنهاء هذه الجلسة' : 'Revoke this session'}
+                                  title={t(locale, 'students.sessions.revokeThisTitle')}
                                 >
                                   {revokingSession === s.id ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Ban className="w-3 h-3" />}
-                                  {isArabic ? 'إنهاء' : 'Revoke'}
+                                  {t(locale, 'students.common.revoke')}
                                 </button>
                               )}
                             </div>
@@ -1355,35 +1362,35 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 <div className="p-5 space-y-3">
                   <div className="flex items-center gap-2 mb-2">
                     <BookOpenCheck size={18} style={{ color: 'var(--cms-teal-600)' }} />
-                    <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'التقدم الدراسي' : 'Academic progress'}</h3>
+                    <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.common.academicProgress')}</h3>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
-                      <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'الجامعة' : 'University'}</div>
+                      <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.university')}</div>
                       <div className="text-sm font-medium" style={{ color: 'var(--cms-text)' }}>{selected.universityName || '—'}</div>
                     </div>
                     <div className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
-                      <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'الكلية' : 'College'}</div>
+                      <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.college')}</div>
                       <div className="text-sm font-medium" style={{ color: 'var(--cms-text)' }}>{selected.collegeName || '—'}</div>
                     </div>
                     <div className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
-                      <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'إجابات' : 'Questions answered'}</div>
+                      <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.academic.questionsAnswered')}</div>
                       <div className="text-sm font-bold tabular-nums" style={{ color: 'var(--cms-teal-700)' }}>{selected.questionsAnswered}</div>
                     </div>
                     <div className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
-                      <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'الدقة' : 'Accuracy'}</div>
+                      <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.academic.accuracy')}</div>
                       <div className="text-sm font-bold tabular-nums" style={{ color: 'var(--cms-success)' }}>{Math.round(selected.accuracy)}%</div>
                     </div>
                   </div>
                   {/* Per-subject progress from GET /admin/students/{id}/progress */}
                   <div className="mt-3">
-                    <h4 className="text-xs font-semibold mb-2" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'التقدم حسب المادة' : 'Per-subject progress'}</h4>
+                    <h4 className="text-xs font-semibold mb-2" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.academic.perSubject')}</h4>
                     {studentProgressLoading ? (
-                      <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span></div>
+                      <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.loading')}</span></div>
                     ) : (studentProgress || []).length === 0 ? (
                       <div className="text-center py-6">
                         <BookOpenCheck size={24} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
-                        <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لا توجد بيانات تقدم بعد. سيظهر هنا عند إجابة الطالب على الأسئلة.' : 'No progress data yet. It will appear here once the student answers questions.'}</p>
+                        <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.academic.empty')}</p>
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -1394,9 +1401,9 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                               <span className="text-xs font-bold tabular-nums" style={{ color: p.accuracy >= 60 ? 'var(--cms-success)' : 'var(--cms-danger)' }}>{Math.round(p.accuracy)}%</span>
                             </div>
                             <div className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
-                              <span>{p.correctAnswers}/{p.questionsAnswered} {isArabic ? 'صحيحة' : 'correct'}</span>
+                              <span>{p.correctAnswers}/{p.questionsAnswered} {t(locale, 'students.academic.correct')}</span>
                               <span>·</span>
-                              <span>{isArabic ? 'آخر نشاط' : 'Last activity'}: {new Date(p.lastActivityDate).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
+                              <span>{t(locale, 'students.academic.lastActivity')}: {new Date(p.lastActivityDate).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
                             </div>
                           </div>
                         ))}
@@ -1411,14 +1418,14 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 <div className="p-5 space-y-3">
                   <div className="flex items-center gap-2 mb-2">
                     <ClipboardCheck size={18} style={{ color: 'var(--cms-teal-600)' }} />
-                    <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'الاختبارات والنتائج' : 'Exams & results'}</h3>
+                    <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.exams.title')}</h3>
                   </div>
                   {examSessionsLoading ? (
-                    <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span></div>
+                    <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.loading')}</span></div>
                   ) : (examSessions || []).length === 0 ? (
                     <div className="text-center py-6">
                       <ClipboardCheck size={24} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
-                      <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لم يخض هذا الطالب أي اختبار بعد.' : 'This student has not taken any exams yet.'}</p>
+                      <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.exams.empty')}</p>
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -1429,10 +1436,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{
                               background: es.passed ? 'rgba(34,197,94,0.12)' : 'rgba(255,82,82,0.12)',
                               color: es.passed ? 'var(--cms-success)' : 'var(--cms-danger)'
-                            }}>{es.passed === null ? (isArabic ? 'قيد التقدم' : 'In progress') : es.passed ? (isArabic ? 'ناجح' : 'Passed') : (isArabic ? 'راسب' : 'Failed')}</span>
+                            }}>{es.passed === null ? t(locale, 'students.exams.inProgress') : es.passed ? t(locale, 'students.exams.passed') : t(locale, 'students.exams.failed')}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
-                            <span>{isArabic ? 'الدرجة' : 'Score'}: {es.score !== null ? Math.round(es.score) + '%' : '—'}</span>
+                            <span>{t(locale, 'students.exams.score')}: {es.score !== null ? Math.round(es.score) + '%' : '—'}</span>
                             <span>·</span>
                             <span>{es.correctAnswers}/{es.totalQuestions}</span>
                             <span>·</span>
@@ -1450,14 +1457,14 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 <div className="p-5 space-y-3">
                   <div className="flex items-center gap-2 mb-2">
                     <KeyRound size={18} style={{ color: 'var(--cms-teal-600)' }} />
-                    <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'الاشتراكات والأكواد' : 'Subscriptions & codes'}</h3>
+                    <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.subscriptions.title')}</h3>
                   </div>
                   {subscriptionsLoading ? (
-                    <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span></div>
+                    <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.loading')}</span></div>
                   ) : (subscriptions || []).length === 0 ? (
                     <div className="text-center py-6">
                       <KeyRound size={24} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
-                      <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لا توجد اشتراكات لهذا الطالب.' : 'No subscriptions for this student.'}</p>
+                      <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.subscriptions.empty')}</p>
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -1466,20 +1473,20 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                         return (
                           <div key={s.id} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
                             <div className="flex items-center justify-between mb-1">
-                              <span className="text-xs font-medium" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'نطاق' : 'Scope'}: {subscriptionScopeLabel(s.scopeType, isArabic)}</span>
+                              <span className="text-xs font-medium" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.subscriptions.scopeLabel')}: {subscriptionScopeLabel(s.scopeType, locale)}</span>
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{
                                 background: isActive ? 'rgba(34,197,94,0.12)' : 'rgba(255,159,28,0.12)',
                                 color: isActive ? 'var(--cms-success)' : 'var(--cms-warning)'
-                              }}>{isArabic ? (isActive ? 'نشط' : 'منتهي') : (isActive ? 'Active' : 'Expired')}</span>
+                              }}>{isActive ? t(locale, 'students.subscriptions.active') : t(locale, 'students.subscriptions.expired')}</span>
                             </div>
                             <div className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
-                              <span>{isArabic ? 'من' : 'From'}: {new Date(s.startsAt).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
+                              <span>{t(locale, 'students.subscriptions.from')}: {new Date(s.startsAt).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
                               <span>·</span>
-                              <span>{isArabic ? 'إلى' : 'Until'}: {new Date(s.expiresAt).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
+                              <span>{t(locale, 'students.subscriptions.until')}: {new Date(s.expiresAt).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
                             </div>
                             {s.revokedAt && (
                               <div className="text-[11px] mt-1" style={{ color: 'var(--cms-danger)' }}>
-                                {isArabic ? 'ألغي في' : 'Revoked at'}: {new Date(s.revokedAt).toLocaleDateString(isArabic ? 'ar' : 'en')}
+                                {t(locale, 'students.subscriptions.revokedAt')}: {new Date(s.revokedAt).toLocaleDateString(isArabic ? 'ar' : 'en')}
                                 {s.revocationReason ? ` — ${s.revocationReason}` : ''}
                               </div>
                             )}
@@ -1488,10 +1495,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                                 onClick={() => setSubscriptionRevokeTarget({ id: s.id, scopeType: s.scopeType, expiresAt: s.expiresAt })}
                                 disabled={revokingSubscription}
                                 className="mt-2 inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-medium text-red-700 border-red-200 hover:bg-red-50 disabled:opacity-50"
-                                title={isArabic ? 'إبطال هذا الاشتراك' : 'Revoke this subscription'}
+                                title={t(locale, 'students.subscriptions.revokeThisTitle')}
                               >
                                 <Ban className="w-3 h-3" />
-                                {isArabic ? 'إبطال الاشتراك' : 'Revoke subscription'}
+                                {t(locale, 'students.subscriptions.revokeTitle')}
                               </button>
                             )}
                           </div>
@@ -1507,14 +1514,14 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 <div className="p-5 space-y-3">
                   <div className="flex items-center gap-2 mb-2">
                     <FileWarning size={18} style={{ color: 'var(--cms-teal-600)' }} />
-                    <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'البلاغات المرتبطة' : 'Associated reports'}</h3>
+                    <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.reports.title')}</h3>
                   </div>
                   {studentReportsLoading ? (
-                    <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جارٍ التحميل...' : 'Loading...'}</span></div>
+                    <div className="flex items-center gap-2 py-3"><LoaderCircle size={14} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} /><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.loading')}</span></div>
                   ) : (studentReports || []).length === 0 ? (
                     <div className="text-center py-6">
                       <FileWarning size={24} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
-                      <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لم يقدّم هذا الطالب أي بلاغ.' : 'This student has not filed any reports.'}</p>
+                      <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.reports.empty')}</p>
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -1525,10 +1532,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{
                               background: r.status === 'Pending' ? 'rgba(255,159,28,0.12)' : r.status === 'Resolved' ? 'rgba(34,197,94,0.12)' : 'rgba(13,116,107,0.12)',
                               color: r.status === 'Pending' ? 'var(--cms-warning)' : r.status === 'Resolved' ? 'var(--cms-success)' : 'var(--cms-teal-600)'
-                            }}>{reportReasonLabel(r.reason, isArabic)}</span>
+                            }}>{reportReasonLabel(r.reason, locale)}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
-                            <span>{isArabic ? 'الحالة' : 'Status'}: {reportStatusLabel(r.status, isArabic)}</span>
+                            <span>{t(locale, 'students.common.status')}: {reportStatusLabel(r.status, locale)}</span>
                             <span>·</span>
                             <span>{new Date(r.createdAt).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
                           </div>
@@ -1550,12 +1557,10 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
       <ConfirmDialog
         open={sessionRevokeTarget !== null}
         onOpenChange={(next) => { if (!next) setSessionRevokeTarget(null); }}
-        title={isArabic ? 'إنهاء الجلسة' : 'Revoke session'}
-        description={isArabic
-          ? 'سيُنهى نشاط هذه الجلسة فورًا وسيُطلب من الطالب تسجيل الدخول مجددًا على ذلك الجهاز.'
-          : 'This session is terminated immediately; the student must sign in again on that device.'}
-        confirmLabel={isArabic ? 'إنهاء' : 'Revoke'}
-        cancelLabel={isArabic ? 'إلغاء' : 'Cancel'}
+        title={t(locale, 'students.sessions.revokeConfirmTitle')}
+        description={t(locale, 'students.sessions.revokeConfirmBody')}
+        confirmLabel={t(locale, 'students.common.revoke')}
+        cancelLabel={t(locale, 'students.common.cancel')}
         variant="danger"
         dir={isArabic ? 'rtl' : 'ltr'}
         busy={sessionRevokeTarget != null && revokingSession === sessionRevokeTarget.id}
@@ -1565,14 +1570,12 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
       <ConfirmDialog
         open={subscriptionRevokeTarget !== null}
         onOpenChange={(next) => { if (!next) setSubscriptionRevokeTarget(null); }}
-        title={isArabic ? 'إبطال الاشتراك' : 'Revoke subscription'}
-        description={isArabic
-          ? `سيفقد الطالب وصوله للمحتوى ضمن نطاق «${subscriptionScopeLabel(subscriptionRevokeTarget?.scopeType ?? '', true)}» حتى نهاية مدة الاشتراك. لا يمكن التراجع، وسيُسجَّل السبب في سجل التدقيق.`
-          : 'The student loses access to the content in this subscription\u2019s scope until it expires. This cannot be undone; the reason is recorded in the audit log.'}
-        confirmLabel={isArabic ? 'تأكيد الإبطال' : 'Confirm revoke'}
-        cancelLabel={isArabic ? 'إلغاء' : 'Cancel'}
+        title={t(locale, 'students.subscriptions.revokeTitle')}
+        description={t(locale, 'students.subscriptions.revokeBody', { scope: subscriptionScopeLabel(subscriptionRevokeTarget?.scopeType ?? '', 'ar') })}
+        confirmLabel={t(locale, 'students.subscriptions.confirmRevoke')}
+        cancelLabel={t(locale, 'students.common.cancel')}
         variant="danger"
-        requireReason={{ label: isArabic ? 'سبب الإبطال' : 'Revoke reason', placeholder: isArabic ? 'سبب واضح وآمن للتدقيق.' : 'A clear, audit-safe reason.' }}
+        requireReason={{ label: t(locale, 'students.subscriptions.revokeReasonLabel'), placeholder: t(locale, 'students.subscriptions.revokeReasonPlaceholder') }}
         dir={isArabic ? 'rtl' : 'ltr'}
         busy={revokingSubscription}
         onConfirm={(reason) => { if (subscriptionRevokeTarget && reason) void revokeSubscription(subscriptionRevokeTarget.id, reason); }}
@@ -1590,7 +1593,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
             className="bg-white rounded-xl max-w-md w-full shadow-xl"
             role="dialog"
             aria-modal="true"
-            aria-label={isArabic ? 'تعديل الملف' : 'Edit profile'}
+            aria-label={t(locale, 'students.common.editProfile')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-4 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
@@ -1599,11 +1602,11 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   <Pencil className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'تعديل الملف' : 'Edit profile'}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.editProfile')}</p>
                   <h2 className="text-lg font-bold" style={{ color: 'var(--cms-text)' }}>{editStudent.fullName}</h2>
                 </div>
               </div>
-              <button aria-label={isArabic ? 'إغلاق' : 'Close'} onClick={() => { setEditStudent(null); setAvatarPreview(null); }} disabled={busy || avatarBusy} className="p-1.5 rounded-md" style={{ color: 'var(--cms-text-muted)' }}>
+              <button aria-label={t(locale, 'students.common.close')} onClick={() => { setEditStudent(null); setAvatarPreview(null); }} disabled={busy || avatarBusy} className="p-1.5 rounded-md" style={{ color: 'var(--cms-text-muted)' }}>
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1616,15 +1619,15 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 <div>
                   <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-colors" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}>
                     {avatarBusy ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
-                    {isArabic ? 'رفع صورة' : 'Upload avatar'}
+                    {t(locale, 'students.editModal.uploadAvatar')}
                     <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadAvatar(f); }} disabled={avatarBusy} />
                   </label>
-                  <p className="text-[10px] mt-1" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'JPG/PNG/WebP · حد أقصى 3MB' : 'JPG/PNG/WebP · max 3MB'}</p>
+                  <p className="text-[10px] mt-1" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.editModal.avatarHint')}</p>
                 </div>
               </div>
               {/* Full name */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'الاسم الكامل' : 'Full name'}</label>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.common.fullName')}</label>
                 <input
                   required
                   value={editForm.fullName}
@@ -1635,21 +1638,21 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               </div>
               {/* Gender */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'الجنس' : 'Gender'}</label>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.editModal.gender')}</label>
                 <select
                   value={editForm.gender}
                   onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg border text-sm"
                   style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
                 >
-                  <option value="">{isArabic ? 'غير محدد' : 'Not specified'}</option>
-                  <option value="male">{isArabic ? 'ذكر' : 'Male'}</option>
-                  <option value="female">{isArabic ? 'أنثى' : 'Female'}</option>
+                  <option value="">{t(locale, 'students.common.notSpecified')}</option>
+                  <option value="male">{t(locale, 'students.common.male')}</option>
+                  <option value="female">{t(locale, 'students.common.female')}</option>
                 </select>
               </div>
               {/* Phone (read-only) */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'الهاتف' : 'Phone'}</label>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.editModal.phone')}</label>
                 <input
                   value={editStudent.phone}
                   disabled
@@ -1659,11 +1662,11 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               </div>
               <div className="flex gap-3 justify-end pt-2 border-t" style={{ borderColor: 'var(--cms-line)' }}>
                 <button type="button" onClick={() => { setEditStudent(null); setAvatarPreview(null); }} disabled={busy} className="px-4 py-2 rounded-lg border text-sm font-medium" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}>
-                  {isArabic ? 'إلغاء' : 'Cancel'}
+                  {t(locale, 'students.common.cancel')}
                 </button>
                 <button type="submit" disabled={busy} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium" style={{ background: 'var(--cms-teal-700)' }}>
                   {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  {isArabic ? 'حفظ' : 'Save'}
+                  {t(locale, 'students.editModal.save')}
                 </button>
               </div>
             </form>
@@ -1699,13 +1702,13 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                    {isArabic ? 'إجراء محمي' : 'Protected action'}
+                    {t(locale, 'students.dialog.protectedAction')}
                   </p>
                   <h2 className="text-lg font-bold" style={{ color: 'var(--cms-text)' }}>{dialogTitle}</h2>
                 </div>
               </div>
               <button
-                aria-label={isArabic ? 'إغلاق' : 'Close'}
+                aria-label={t(locale, 'students.common.close')}
                 onClick={() => setDialog(null)}
                 disabled={busy}
                 className="p-1.5 rounded-md transition-colors"
@@ -1723,13 +1726,13 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 <>
                   <div>
                     <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                      {isArabic ? 'سبب الحظر' : 'Ban reason'}
+                      {t(locale, 'students.dialog.banReason')}
                     </label>
                     <textarea
                       required
                       value={reason}
                       onChange={(event) => setReason(event.target.value)}
-                      placeholder={isArabic ? 'أدخل سبباً واضحاً وآمناً للتدقيق.' : 'Provide a clear, audit-safe reason.'}
+                      placeholder={t(locale, 'students.dialog.banReasonPlaceholder')}
                       rows={3}
                       className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
                       style={{ borderColor: 'var(--cms-line-strong)' }}
@@ -1737,7 +1740,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   </div>
                   <div>
                     <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                      {isArabic ? 'تاريخ انتهاء اختياري' : 'Optional expiry date'}
+                      {t(locale, 'students.dialog.optionalExpiry')}
                     </label>
                     <input
                       type="date"
@@ -1764,7 +1767,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   onClick={() => setDialog(null)}
                   disabled={busy}
                 >
-                  {isArabic ? 'إلغاء' : 'Cancel'}
+                  {t(locale, 'students.common.cancel')}
                 </button>
                 <button
                   type="submit"
@@ -1792,7 +1795,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
             className="bg-white rounded-xl max-w-lg w-full shadow-xl max-h-[90vh] flex flex-col"
             role="dialog"
             aria-modal="true"
-            aria-label={isArabic ? 'إضافة طالب' : 'Add student'}
+            aria-label={t(locale, 'students.common.addStudent')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-4 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
@@ -1801,11 +1804,11 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   <UserPlus className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'إدارة المستخدمين' : 'User management'}</p>
-                  <h2 className="text-lg font-bold" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'إضافة طالب جديد' : 'Add new student'}</h2>
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.userManagement')}</p>
+                  <h2 className="text-lg font-bold" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.createModal.title')}</h2>
                 </div>
               </div>
-              <button aria-label={isArabic ? 'إغلاق' : 'Close'} onClick={() => !createBusy && setCreateOpen(false)} disabled={createBusy} className="p-1.5 rounded-md" style={{ color: 'var(--cms-text-muted)' }}>
+              <button aria-label={t(locale, 'students.common.close')} onClick={() => !createBusy && setCreateOpen(false)} disabled={createBusy} className="p-1.5 rounded-md" style={{ color: 'var(--cms-text-muted)' }}>
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1813,7 +1816,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               {/* Full name */}
               <div>
                 <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                  {isArabic ? 'الاسم الكامل' : 'Full name'} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                  {t(locale, 'students.common.fullName')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
                 </label>
                 <input
                   required
@@ -1827,7 +1830,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {isArabic ? 'رقم الهاتف' : 'Phone'} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    {t(locale, 'students.createModal.phone')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
                   </label>
                   <input
                     required
@@ -1842,12 +1845,12 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
                   />
                   <p className="text-[10px] mt-1" style={{ color: 'var(--cms-text-muted)' }}>
-                    {isArabic ? 'صيغة سورية: يبدأ بـ 09 ويتكون من 10 أرقام.' : 'Syrian format: starts with 09, 10 digits.'}
+                    {t(locale, 'students.createModal.phoneHint')}
                   </p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {isArabic ? 'كلمة المرور' : 'Password'} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    {t(locale, 'students.createModal.password')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
                   </label>
                   <input
                     required
@@ -1859,7 +1862,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
                   />
                   <p className="text-[10px] mt-1" style={{ color: 'var(--cms-text-muted)' }}>
-                    {isArabic ? '8 أحرف على الأقل.' : 'At least 8 characters.'}
+                    {t(locale, 'students.createModal.passwordHint')}
                   </p>
                 </div>
               </div>
@@ -1867,7 +1870,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {isArabic ? 'الجامعة' : 'University'} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    {t(locale, 'students.common.university')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
                   </label>
                   <select
                     required
@@ -1876,7 +1879,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
                   >
-                    <option value="">{isArabic ? 'اختر الجامعة' : 'Choose university'}</option>
+                    <option value="">{t(locale, 'students.createModal.chooseUniversity')}</option>
                     {universities.map((u) => (
                       <option key={u.id} value={u.id}>{isArabic ? u.nameAr : (u.nameEn || u.nameAr)}</option>
                     ))}
@@ -1884,7 +1887,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {isArabic ? 'الكلية' : 'College'} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    {t(locale, 'students.common.college')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
                   </label>
                   <select
                     required
@@ -1894,7 +1897,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 disabled:opacity-50"
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
                   >
-                    <option value="">{isArabic ? 'اختر الكلية' : 'Choose college'}</option>
+                    <option value="">{t(locale, 'students.createModal.chooseCollege')}</option>
                     {createColleges.map((c) => (
                       <option key={c.id} value={c.id}>{isArabic ? c.nameAr : (c.nameEn || c.nameAr)}</option>
                     ))}
@@ -1902,7 +1905,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {isArabic ? 'السنة' : 'Academic year'} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    {t(locale, 'students.createModal.year')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
                   </label>
                   <select
                     required
@@ -1912,7 +1915,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 disabled:opacity-50"
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
                   >
-                    <option value="">{isArabic ? 'اختر السنة' : 'Choose year'}</option>
+                    <option value="">{t(locale, 'students.createModal.chooseYear')}</option>
                     {createYears.map((y) => (
                       <option key={y.id} value={y.id}>{isArabic ? y.nameAr : (y.nameEn || y.nameAr)}</option>
                     ))}
@@ -1923,7 +1926,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {isArabic ? 'الجنس (اختياري)' : 'Gender (optional)'}
+                    {t(locale, 'students.createModal.genderOptional')}
                   </label>
                   <select
                     value={createForm.gender}
@@ -1931,14 +1934,14 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
                   >
-                    <option value="">{isArabic ? 'غير محدد' : 'Not specified'}</option>
-                    <option value="male">{isArabic ? 'ذكر' : 'Male'}</option>
-                    <option value="female">{isArabic ? 'أنثى' : 'Female'}</option>
+                    <option value="">{t(locale, 'students.common.notSpecified')}</option>
+                    <option value="male">{t(locale, 'students.common.male')}</option>
+                    <option value="female">{t(locale, 'students.common.female')}</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {isArabic ? 'البريد الإلكتروني (اختياري)' : 'Email (optional)'}
+                    {t(locale, 'students.createModal.emailOptional')}
                   </label>
                   <input
                     type="email"
@@ -1951,11 +1954,11 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               </div>
               <div className="flex gap-3 justify-end pt-2 border-t" style={{ borderColor: 'var(--cms-line)' }}>
                 <button type="button" onClick={() => !createBusy && setCreateOpen(false)} disabled={createBusy} className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-50" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}>
-                  {isArabic ? 'إلغاء' : 'Cancel'}
+                  {t(locale, 'students.common.cancel')}
                 </button>
                 <button type="submit" disabled={createBusy} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50" style={{ background: 'var(--cms-teal-700)' }}>
                   {createBusy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                  {isArabic ? 'إنشاء الحساب' : 'Create student'}
+                  {t(locale, 'students.createModal.submit')}
                 </button>
               </div>
             </form>
@@ -1984,19 +1987,15 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                    {isArabic ? 'تأكيد إعادة التفعيل' : 'Confirm reactivation'}
+                    {t(locale, 'students.unban.title')}
                   </p>
                   <h2 className="text-base font-bold" style={{ color: 'var(--cms-text)' }}>
-                    {isArabic
-                      ? `هل تريد إعادة تفعيل حساب ${confirmUnban.fullName}؟`
-                      : `Reactivate ${confirmUnban.fullName}'s account?`}
+                    {t(locale, 'students.unban.question', { name: confirmUnban.fullName })}
                   </h2>
                 </div>
               </div>
               <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                {isArabic
-                  ? 'سيُعاد تفعيل الحساب فوراً ويمكن للطالب تسجيل الدخول من جديد.'
-                  : 'The account will be reactivated immediately and the student may sign in again.'}
+                {t(locale, 'students.unban.description')}
               </p>
               <div className="flex gap-3 justify-end mt-5">
                 <button
@@ -2006,7 +2005,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   onClick={() => setConfirmUnban(null)}
                   disabled={busy}
                 >
-                  {isArabic ? 'إلغاء' : 'Cancel'}
+                  {t(locale, 'students.common.cancel')}
                 </button>
                 <button
                   type="button"
@@ -2016,7 +2015,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   onClick={() => { void unban(confirmUnban).finally(() => setConfirmUnban(null)); }}
                 >
                   {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-                  {isArabic ? 'إعادة التفعيل' : 'Reactivate'}
+                  {t(locale, 'students.common.reactivate')}
                 </button>
               </div>
             </div>

@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react';
 import { Activity, BookOpenCheck, CircleAlert, ClipboardCheck } from 'lucide-react';
 import { apiRequest } from '../lib/api';
+import { t, localeOf } from '../lib/dictionary';
 
 type RecentActivity = {
   id: string;
@@ -68,23 +69,7 @@ export function DashboardFeeds({ token, isArabic }: Props) {
   const [reportsFailed, setReportsFailed] = useState(false);
 
   const dir = isArabic ? 'rtl' : 'ltr';
-  const t = isArabic
-    ? {
-        recentTitle: 'النشاط الأخير', topSubjects: 'المواد الأكثر نشاطًا', reportsTitle: 'ملخص البلاغات',
-        loading: 'جارٍ التحميل…', failed: 'تعذر تحميل هذا البطاقة',
-        noActivity: 'لا يوجد نشاط حديث', noSubjects: 'لا توجد بيانات نشاط للمواد',
-        answered: 'إجابة', accuracy: 'الدقة', activeStudents: 'طلاب نشطون',
-        pending: 'قيد المراجعة', resolved: 'محلولة', rejected: 'مرفوضة', total: 'الإجمالي',
-        viewReports: 'افتح إدارة البلاغات',
-      }
-    : {
-        recentTitle: 'Recent activity', topSubjects: 'Most active subjects', reportsTitle: 'Reports summary',
-        loading: 'Loading…', failed: 'Could not load this card',
-        noActivity: 'No recent activity', noSubjects: 'No subject activity data',
-        answered: 'answered', accuracy: 'accuracy', activeStudents: 'active students',
-        pending: 'Pending', resolved: 'Resolved', rejected: 'Rejected', total: 'Total',
-        viewReports: 'Open reports moderation',
-      };
+  const locale = localeOf(isArabic);
 
   useEffect(() => {
     if (!token) return;
@@ -103,14 +88,14 @@ export function DashboardFeeds({ token, isArabic }: Props) {
 
   const failedCard = (
     <div className="flex items-center gap-2 text-xs py-4 justify-center" style={{ color: 'var(--cms-danger)' }}>
-      <CircleAlert size={14} /> {t.failed}
+      <CircleAlert size={14} /> {t(locale, 'audit.feeds.failed')}
     </div>
   );
 
   const loadingCard = (
     <div className="flex items-center gap-2 text-xs py-4 justify-center" style={{ color: 'var(--cms-text-muted)' }}>
       <span className="skeleton" style={{ width: 12, height: 12, borderRadius: 999 }} />
-      {t.loading}
+      {t(locale, 'audit.feeds.loading')}
     </div>
   );
 
@@ -122,10 +107,10 @@ export function DashboardFeeds({ token, isArabic }: Props) {
           <span className="p-1.5 rounded-lg" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
             <Activity size={15} />
           </span>
-          <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--cms-text)' }}>{t.recentTitle}</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--cms-text)' }}>{t(locale, 'audit.feeds.recentTitle')}</h3>
         </header>
         {activityFailed ? failedCard : activity === null ? loadingCard : activity.length === 0 ? (
-          <p className="text-xs py-3 text-center" style={{ color: 'var(--cms-text-muted)' }}>{t.noActivity}</p>
+          <p className="text-xs py-3 text-center" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.feeds.noActivity')}</p>
         ) : (
           <ul className="space-y-1.5">
             {activity.map((item) => {
@@ -154,10 +139,10 @@ export function DashboardFeeds({ token, isArabic }: Props) {
           <span className="p-1.5 rounded-lg" style={{ background: 'rgba(53,113,138,0.12)', color: 'var(--cms-info)' }}>
             <BookOpenCheck size={15} />
           </span>
-          <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--cms-text)' }}>{t.topSubjects}</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--cms-text)' }}>{t(locale, 'audit.feeds.topSubjects')}</h3>
         </header>
         {topSubjectsFailed ? failedCard : topSubjects === null ? loadingCard : topSubjects.length === 0 ? (
-          <p className="text-xs py-3 text-center" style={{ color: 'var(--cms-text-muted)' }}>{t.noSubjects}</p>
+          <p className="text-xs py-3 text-center" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.feeds.noSubjects')}</p>
         ) : (
           <ul className="space-y-1.5">
             {topSubjects.map((subject, index) => (
@@ -168,7 +153,7 @@ export function DashboardFeeds({ token, isArabic }: Props) {
                 </span>
                 <span className="flex-1 truncate font-medium" style={{ color: 'var(--cms-text)' }}>{subject.subjectName}</span>
                 <span className="shrink-0 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
-                  {subject.questionsAnswered} {t.answered} · {Math.round(subject.averageAccuracy * 100)}% {t.accuracy}
+                  {subject.questionsAnswered} {t(locale, 'audit.feeds.answered')} · {Math.round(subject.averageAccuracy * 100)}% {t(locale, 'audit.feeds.accuracy')}
                 </span>
               </li>
             ))}
@@ -182,25 +167,25 @@ export function DashboardFeeds({ token, isArabic }: Props) {
           <span className="p-1.5 rounded-lg" style={{ background: 'rgba(182,71,61,0.12)', color: 'var(--cms-danger)' }}>
             <ClipboardCheck size={15} />
           </span>
-          <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--cms-text)' }}>{t.reportsTitle}</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--cms-text)' }}>{t(locale, 'audit.feeds.reportsTitle')}</h3>
         </header>
         {reportsFailed ? failedCard : reports === null ? loadingCard : (
           <div className="grid grid-cols-4 gap-2 text-center">
             <div>
               <div className="text-lg font-bold" style={{ color: 'var(--cms-text)' }}>{reports.totalReports}</div>
-              <div className="text-[9px]" style={{ color: 'var(--cms-text-muted)' }}>{t.total}</div>
+              <div className="text-[9px]" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.feeds.total')}</div>
             </div>
             <div>
               <div className="text-lg font-bold" style={{ color: 'var(--cms-warning)' }}>{reports.pendingReports}</div>
-              <div className="text-[9px]" style={{ color: 'var(--cms-text-muted)' }}>{t.pending}</div>
+              <div className="text-[9px]" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.feeds.pending')}</div>
             </div>
             <div>
               <div className="text-lg font-bold" style={{ color: 'var(--cms-success)' }}>{reports.resolvedReports}</div>
-              <div className="text-[9px]" style={{ color: 'var(--cms-text-muted)' }}>{t.resolved}</div>
+              <div className="text-[9px]" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.feeds.resolved')}</div>
             </div>
             <div>
               <div className="text-lg font-bold" style={{ color: 'var(--cms-danger)' }}>{reports.rejectedReports}</div>
-              <div className="text-[9px]" style={{ color: 'var(--cms-text-muted)' }}>{t.rejected}</div>
+              <div className="text-[9px]" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.feeds.rejected')}</div>
             </div>
           </div>
         )}

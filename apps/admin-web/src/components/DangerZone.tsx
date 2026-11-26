@@ -21,6 +21,7 @@ import { useState } from 'react';
 import { AlertTriangle, Eye, LoaderCircle, Trash2 } from 'lucide-react';
 import { Dialog } from '@cms/ui';
 import { adminWipe, ApiError, type WipeResult } from '../lib/api';
+import { t, localeOf } from '../lib/dictionary';
 
 type DangerZoneProps = {
   token: string;
@@ -147,6 +148,8 @@ const TABLE_LABELS: Record<string, { ar: string; en: string }> = {
 };
 
 export function DangerZone({ token, isArabic, onError, onNotice }: DangerZoneProps) {
+  // PR-3 — destructive-warning strings resolve from the shared dictionary.
+  const locale = localeOf(isArabic);
   const [previewing, setPreviewing] = useState<WipeModuleKey | null>(null);
   const [preview, setPreview] = useState<WipeResult | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -170,7 +173,7 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
       const result = await adminWipe(token, { module: key, confirmText: '', actorPassword: '', dryRun: true });
       setPreview(result);
     } catch (err) {
-      onError(err instanceof ApiError ? err.message : isArabic ? 'تعذّر جلب المعاينة' : 'Could not load the preview');
+      onError(err instanceof ApiError ? err.message : t(locale, 'danger.wipe.previewError'));
       setPreviewing(null);
     } finally {
       setPreviewLoading(false);
@@ -186,13 +189,15 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
     try {
       const result = await adminWipe(token, { module: previewing, confirmText: confirmText.trim(), actorPassword: password, dryRun: false });
       const total = result.tables.reduce((sum, t) => sum + t.rows, 0);
-      onNotice(isArabic
-        ? `تم محو «${MODULES.find((m) => m.key === result.module)?.labelAr ?? result.module}» — ${total} صفًا في ${result.tables.length} جدولًا`
-        : `Wiped "${MODULES.find((m) => m.key === result.module)?.labelEn ?? result.module}" — ${total} rows across ${result.tables.length} tables`);
+      onNotice(t(locale, 'danger.wipe.wipedToast', {
+        module: MODULES.find((m) => m.key === result.module)?.labelAr ?? result.module,
+        rows: total,
+        tables: result.tables.length,
+      }));
       setPreviewing(null);
       setPreview(null);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : isArabic ? 'فشل تنفيذ المحو' : 'The wipe failed');
+      setError(err instanceof ApiError ? err.message : t(locale, 'danger.wipe.wipeFailed'));
     } finally {
       setExecuting(false);
     }
@@ -209,12 +214,10 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
         </div>
         <div>
           <h2 id="danger-zone-heading" className="text-xl font-bold text-red-800">
-            {isArabic ? 'منطقة الخطر — محو البيانات' : 'Danger Zone — data wipe'}
+            {t(locale, 'danger.wipe.title')}
           </h2>
           <p className="text-sm mt-1 text-red-700 max-w-3xl">
-            {isArabic
-              ? 'هذه العمليات للمدير العام فقط وتتطلب إعادة إدخال كلمة المرور وكتابة كلمة التأكيد. ابدأ بمعاينة المحو لترى بالضبط ما سيُحذف قبل التنفيذ — لا شيء يُحذف خلال المعاينة.'
-              : 'SuperAdmin only; every action re-asks for your password and a typed confirmation. Start with a dry-run preview to see exactly what would vanish — nothing is deleted during a preview.'}
+            {t(locale, 'danger.wipe.intro')}
           </p>
         </div>
       </div>
@@ -244,7 +247,7 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
               {previewLoading && previewing === module.key
                 ? <LoaderCircle className="w-4 h-4 animate-spin" />
                 : <Eye className="w-4 h-4" />}
-              {isArabic ? 'معاينة المحو (بدون حذف)' : 'Preview wipe (deletes nothing)'}
+              {t(locale, 'danger.wipe.previewButton')}
             </button>
           </article>
         ))}
@@ -254,7 +257,7 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
       <Dialog
         open={previewing !== null}
         onOpenChange={(open) => { if (!open && !executing) { setPreviewing(null); setPreview(null); } }}
-        title={isArabic ? `محو «${activeModule?.labelAr ?? ''}»` : `Wipe "${activeModule?.labelEn ?? ''}"`}
+        title={t(locale, 'danger.wipe.dialogTitle', { module: isArabic ? (activeModule?.labelAr ?? '') : (activeModule?.labelEn ?? '') })}
         dir={isArabic ? 'rtl' : 'ltr'}
         size="lg"
         testId="wipe-preview-dialog"
@@ -262,7 +265,7 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
         {step === 'counts' ? (
           <div className="space-y-4">
             <p className="text-sm text-slate-600">
-              {isArabic ? 'سيُحذف ما يلي نهائيًا (معاينة فقط — لم يُحذف شيء بعد):' : 'The following will be permanently deleted (preview only — nothing has been deleted yet):'}
+              {t(locale, 'danger.wipe.previewIntro')}
             </p>
             {previewLoading || !preview ? (
               <div className="h-24 flex items-center justify-center text-slate-400">
@@ -270,7 +273,7 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
               </div>
             ) : preview.tables.length === 0 ? (
               <p className="text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                {isArabic ? 'لا توجد بيانات في هذه الوحدة — لا حاجة لأي محو.' : 'This module has no data — nothing to wipe.'}
+                {t(locale, 'danger.wipe.noData')}
               </p>
             ) : (
               <>
@@ -278,8 +281,8 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50 sticky top-0">
                       <tr>
-                        <th className="text-start px-3 py-2 font-semibold text-slate-600">{isArabic ? 'الجدول' : 'Table'}</th>
-                        <th className="text-end px-3 py-2 font-semibold text-slate-600">{isArabic ? 'الصفوف' : 'Rows'}</th>
+                        <th className="text-start px-3 py-2 font-semibold text-slate-600">{t(locale, 'danger.wipe.tableHeader')}</th>
+                        <th className="text-end px-3 py-2 font-semibold text-slate-600">{t(locale, 'danger.wipe.rowsHeader')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -294,7 +297,7 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
                     </tbody>
                     <tfoot className="bg-red-50 border-t-2 border-red-200">
                       <tr>
-                        <td className="px-3 py-2 font-bold text-red-800">{isArabic ? 'الإجمالي' : 'Total'}</td>
+                        <td className="px-3 py-2 font-bold text-red-800">{t(locale, 'danger.wipe.total')}</td>
                         <td className="px-3 py-2 text-end font-bold tabular-nums text-red-800">
                           {preview.tables.reduce((sum, t) => sum + t.rows, 0).toLocaleString()}
                         </td>
@@ -309,7 +312,7 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-red-700 hover:bg-red-800 transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />
-                    {isArabic ? 'متابعة إلى التأكيد النهائي' : 'Continue to final confirmation'}
+                    {t(locale, 'danger.wipe.continueToConfirm')}
                   </button>
                 </div>
               </>
@@ -321,12 +324,10 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
             onSubmit={(event) => { event.preventDefault(); void executeWipe(); }}
           >
             <p className="text-sm font-medium text-red-800 bg-red-50 border border-red-200 rounded-lg p-3">
-              {isArabic
-                ? 'لتنفيذ المحو نهائيًا: اكتب كلمة DELETE أو حذف، ثم أدخل كلمة مرورك الحالية. لا يمكن التراجع عن هذه العملية.'
-                : 'To execute the wipe: type DELETE or حذف, then enter your current password. This cannot be undone.'}
+              {t(locale, 'danger.wipe.confirmInstructions')}
             </p>
             <label className="block space-y-1">
-              <span className="text-sm font-semibold text-slate-700">{isArabic ? 'كلمة التأكيد' : 'Confirmation word'}</span>
+              <span className="text-sm font-semibold text-slate-700">{t(locale, 'danger.wipe.confirmWordLabel')}</span>
               <input
                 value={confirmText}
                 onChange={(event) => setConfirmText(event.target.value)}
@@ -338,7 +339,7 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
               />
             </label>
             <label className="block space-y-1">
-              <span className="text-sm font-semibold text-slate-700">{isArabic ? 'كلمة مرورك الحالية' : 'Your current password'}</span>
+              <span className="text-sm font-semibold text-slate-700">{t(locale, 'danger.wipe.passwordLabel')}</span>
               <input
                 type="password"
                 value={password}
@@ -358,7 +359,7 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
                 disabled={executing}
                 className="px-4 py-2 rounded-lg text-sm font-semibold border border-slate-300 hover:bg-slate-50 transition-colors disabled:opacity-50"
               >
-                {isArabic ? 'عودة إلى المعاينة' : 'Back to preview'}
+                {t(locale, 'danger.wipe.backToPreview')}
               </button>
               <button
                 type="submit"
@@ -367,7 +368,7 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white bg-red-700 hover:bg-red-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {executing && <LoaderCircle className="w-4 h-4 animate-spin" />}
-                {isArabic ? 'محو هذه البيانات نهائيًا' : 'Wipe this data permanently'}
+                {t(locale, 'danger.wipe.executeButton')}
               </button>
             </div>
           </form>

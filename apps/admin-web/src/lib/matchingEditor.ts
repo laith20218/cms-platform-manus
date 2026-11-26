@@ -9,6 +9,8 @@
  * list, equal counts, non-empty texts, and a bijective pair map.
  */
 
+import { t, localeOf } from './dictionary';
+
 /** One editable row of either list — the id is a stable CLIENT id (crypto.randomUUID). */
 export interface MatchingRow {
   id: string;
@@ -125,18 +127,14 @@ export function validateMatching(
   if (matching.prompts.length < 2 || matching.targets.length < 2) {
     return {
       code: 'minItems',
-      message: isArabic
-        ? 'سؤال الوصل يتطلب عنصرين على الأقل في كل قائمة.'
-        : 'A matching question needs at least two items in each list.',
+      message: t(localeOf(isArabic), 'questions.matching.validation.minItems'),
     };
   }
   const hasEmptyText = [...matching.prompts, ...matching.targets].some(item => !item.text.trim());
   if (hasEmptyText) {
     return {
       code: 'emptyText',
-      message: isArabic
-        ? 'نص عنصر الوصل لا يمكن أن يكون فارغاً.'
-        : 'A matching item cannot have empty text.',
+      message: t(localeOf(isArabic), 'questions.matching.validation.emptyText'),
     };
   }
 
@@ -146,18 +144,14 @@ export function validateMatching(
     if (matching.prompts.some(prompt => (multiPairs[prompt.id] ?? []).length === 0)) {
       return {
         code: 'unpairedPrompt',
-        message: isArabic
-          ? 'اربط كل عنصر من القائمة الأولى بإجابة صحيحة واحدة على الأقل.'
-          : 'Pair every prompt with at least one correct target.',
+        message: t(localeOf(isArabic), 'questions.matching.validation.multiUnpaired'),
       };
     }
     const used = matching.prompts.flatMap(prompt => multiPairs[prompt.id] ?? []);
     if (used.length !== new Set(used).size) {
       return {
         code: 'duplicateTarget',
-        message: isArabic
-          ? 'كل إجابة من القائمة الثانية تبقى صحيحة لعنصر واحد فقط.'
-          : 'Every target stays correct for at most one prompt.',
+        message: t(localeOf(isArabic), 'questions.matching.validation.multiDuplicate'),
       };
     }
     return null;
@@ -167,26 +161,23 @@ export function validateMatching(
   if (matching.prompts.length !== matching.targets.length) {
     return {
       code: 'unequalCounts',
-      message: isArabic
-        ? `يجب أن يتساوى عدد عناصر القائمتين — حالياً ${matching.prompts.length} مقابل ${matching.targets.length}.`
-        : `Both lists must have the same number of items — currently ${matching.prompts.length} vs ${matching.targets.length}.`,
+      message: t(localeOf(isArabic), 'questions.matching.validation.unequalCounts', {
+        prompts: matching.prompts.length,
+        targets: matching.targets.length,
+      }),
     };
   }
   if (matching.prompts.some(prompt => !matching.pairs[prompt.id])) {
     return {
       code: 'unpairedPrompt',
-      message: isArabic
-        ? 'اربط كل عنصر من القائمة الأولى بإجابته الصحيحة.'
-        : 'Pair every prompt with its correct target.',
+      message: t(localeOf(isArabic), 'questions.matching.validation.unpaired'),
     };
   }
   const used = Object.values(matching.pairs);
   if (used.length !== new Set(used).size) {
     return {
       code: 'duplicateTarget',
-      message: isArabic
-        ? 'كل عنصر من القائمة الثانية يُستخدم مرة واحدة بالضبط — لا يمكن ربط عنصرين بالإجابة نفسها.'
-        : 'Every target is used exactly once — two prompts cannot share one answer.',
+      message: t(localeOf(isArabic), 'questions.matching.validation.duplicate'),
     };
   }
   return null;

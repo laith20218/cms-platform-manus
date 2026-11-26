@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import { BarChart3, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, Send } from 'lucide-react';
 import { Dialog } from '@cms/ui';
 import { apiRequest, type PagedResult } from '../lib/api';
+import { t, localeOf } from '../lib/dictionary';
 
 type SentItem = {
   id: string;
@@ -53,48 +54,7 @@ export function SentNotificationsDialog({ token, isArabic, onClose, onError }: P
   const [statsLoading, setStatsLoading] = useState(false);
 
   const dir = isArabic ? 'rtl' : 'ltr';
-
-  const t = isArabic
-    ? {
-        title: 'سجل الإشعارات المرسلة',
-        desc: 'الإشعارات المرسلة سابقًا وإحصائيات تسليمها لكل إشعار.',
-        loading: 'جارٍ التحميل…',
-        empty: 'لا توجد إشعارات مرسلة بعد',
-        refresh: 'تحديث',
-        close: 'إغلاق',
-        stats: 'الإحصائيات',
-        type: 'النوع',
-        sentAt: 'وقت الإرسال',
-        recipients: 'المستلمون',
-        delivered: 'تم التسليم',
-        read: 'القراءات',
-        clicked: 'النقرات',
-        failed: 'فشلت',
-        statsLoad: 'جارٍ تحميل الإحصائيات…',
-        prev: 'السابق', next: 'التالي',
-        pageOf: (p: number, tp: number) => `صفحة ${p} من ${tp}`,
-        failLoad: 'تعذر تحميل سجل الإشعارات',
-      }
-    : {
-        title: 'Sent notifications',
-        desc: 'Previously sent notifications with per-notification delivery stats.',
-        loading: 'Loading…',
-        empty: 'No sent notifications yet',
-        refresh: 'Refresh',
-        close: 'Close',
-        stats: 'Stats',
-        type: 'Type',
-        sentAt: 'Sent at',
-        recipients: 'Recipients',
-        delivered: 'Delivered',
-        read: 'Read',
-        clicked: 'Clicked',
-        failed: 'Failed',
-        statsLoad: 'Loading stats…',
-        prev: 'Previous', next: 'Next',
-        pageOf: (p: number, tp: number) => `Page ${p} of ${tp}`,
-        failLoad: 'Could not load sent notifications',
-      };
+  const locale = localeOf(isArabic);
 
   const load = (targetPage: number) => {
     setLoading(true);
@@ -105,7 +65,7 @@ export function SentNotificationsDialog({ token, isArabic, onClose, onError }: P
         setPage(targetPage);
       })
       .catch((error: unknown) => {
-        onError(error instanceof Error ? error.message : t.failLoad);
+        onError(error instanceof Error ? error.message : t(locale, 'notifications.sent.loadFailed'));
         setItems([]);
       })
       .finally(() => setLoading(false));
@@ -124,7 +84,7 @@ export function SentNotificationsDialog({ token, isArabic, onClose, onError }: P
     apiRequest<Stats>(`/api/v1/notifications/${id}/stats`, token)
       .then(setStats)
       .catch((error: unknown) => {
-        onError(error instanceof Error ? error.message : t.failLoad);
+        onError(error instanceof Error ? error.message : t(locale, 'notifications.sent.loadFailed'));
         setStatsFor(null);
       })
       .finally(() => setStatsLoading(false));
@@ -136,8 +96,8 @@ export function SentNotificationsDialog({ token, isArabic, onClose, onError }: P
     <Dialog
       open
       onOpenChange={(next) => { if (!next) onClose(); }}
-      title={t.title}
-      description={t.desc}
+      title={t(locale, 'topbar.sentNotifications')}
+      description={t(locale, 'notifications.sent.desc')}
       dir={dir}
       size="lg"
       testId="sent-notifications-dialog"
@@ -145,7 +105,7 @@ export function SentNotificationsDialog({ token, isArabic, onClose, onError }: P
       <div className="px-5 py-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-            {total} {isArabic ? 'إشعارًا' : 'notification(s)'}
+            {t(locale, 'notifications.sentCount', { count: total })}
           </span>
           <button
             type="button"
@@ -155,17 +115,17 @@ export function SentNotificationsDialog({ token, isArabic, onClose, onError }: P
             style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            {t.refresh}
+            {t(locale, 'common.refresh')}
           </button>
         </div>
 
         {loading && items === null && (
           <div className="flex items-center gap-2 text-sm py-6 justify-center" style={{ color: 'var(--cms-text-muted)' }}>
-            <LoaderCircle className="w-4 h-4 animate-spin" /> {t.loading}
+            <LoaderCircle className="w-4 h-4 animate-spin" /> {t(locale, 'notifications.sent.loading')}
           </div>
         )}
         {items !== null && items.length === 0 && !loading && (
-          <div className="text-sm text-center py-8" style={{ color: 'var(--cms-text-muted)' }}>{t.empty}</div>
+          <div className="text-sm text-center py-8" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'notifications.sent.empty')}</div>
         )}
 
         <ul className="space-y-2 max-h-[50vh] overflow-y-auto">
@@ -195,7 +155,7 @@ export function SentNotificationsDialog({ token, isArabic, onClose, onError }: P
                   }}
                 >
                   <BarChart3 className="w-3 h-3" />
-                  {t.stats}
+                  {t(locale, 'notifications.sent.stats')}
                 </button>
               </div>
 
@@ -203,17 +163,17 @@ export function SentNotificationsDialog({ token, isArabic, onClose, onError }: P
                 <div className="mt-3 rounded-lg border p-2.5" style={{ borderColor: 'var(--cms-teal-100)', background: 'var(--cms-ivory-50)' }} data-testid="notification-stats-panel">
                   {statsLoading && (
                     <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                      <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> {t.statsLoad}
+                      <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> {t(locale, 'notifications.sent.statsLoad')}
                     </div>
                   )}
                   {stats && !statsLoading && (
                     <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 text-center">
                       {[
-                        { label: t.recipients, value: stats.totalRecipients, color: 'var(--cms-text)' },
-                        { label: t.delivered, value: stats.deliveredCount, color: 'var(--cms-success)' },
-                        { label: t.read, value: stats.readCount, color: 'var(--cms-info)' },
-                        { label: t.clicked, value: stats.clickedCount, color: 'var(--cms-teal-700)' },
-                        { label: t.failed, value: stats.failedCount, color: 'var(--cms-danger)' },
+                        { label: t(locale, 'notifications.sent.recipients'), value: stats.totalRecipients, color: 'var(--cms-text)' },
+                        { label: t(locale, 'notifications.sent.delivered'), value: stats.deliveredCount, color: 'var(--cms-success)' },
+                        { label: t(locale, 'notifications.sent.read'), value: stats.readCount, color: 'var(--cms-info)' },
+                        { label: t(locale, 'notifications.sent.clicked'), value: stats.clickedCount, color: 'var(--cms-teal-700)' },
+                        { label: t(locale, 'notifications.sent.failed'), value: stats.failedCount, color: 'var(--cms-danger)' },
                       ].map((cell) => (
                         <div key={cell.label}>
                           <div className="text-base font-bold" style={{ color: cell.color }}>{cell.value}</div>
@@ -234,18 +194,18 @@ export function SentNotificationsDialog({ token, isArabic, onClose, onError }: P
               type="button"
               onClick={() => load(page - 1)}
               disabled={page <= 1 || loading}
-              aria-label={t.prev}
+              aria-label={t(locale, 'notifications.sent.prev')}
               className="p-1.5 rounded-lg border disabled:opacity-40"
               style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
             >
               {isArabic ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
             </button>
-            <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t.pageOf(page, totalPages)}</span>
+            <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'notifications.sent.pageOf', { page, totalPages })}</span>
             <button
               type="button"
               onClick={() => load(page + 1)}
               disabled={page >= totalPages || loading}
-              aria-label={t.next}
+              aria-label={t(locale, 'notifications.sent.next')}
               className="p-1.5 rounded-lg border disabled:opacity-40"
               style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
             >
@@ -262,7 +222,7 @@ export function SentNotificationsDialog({ token, isArabic, onClose, onError }: P
           className="px-4 py-2 rounded-lg border text-sm font-medium"
           style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
         >
-          {t.close}
+          {t(locale, 'common.close')}
         </button>
       </div>
     </Dialog>

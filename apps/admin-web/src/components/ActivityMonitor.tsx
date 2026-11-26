@@ -24,6 +24,7 @@ import {
   KeyRound, LoaderCircle, MonitorSmartphone, Search, ShieldCheck,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
+import { t, localeOf, type Locale } from '../lib/dictionary';
 
 type Props = {
   token: string;
@@ -67,11 +68,11 @@ const humanizeBytes = (value: unknown): string => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const actionMeta = (actionType: string, isArabic: boolean) => {
+const actionMeta = (actionType: string, locale: Locale) => {
   switch (actionType) {
-    case 'CreateQuestion': return { label: isArabic ? 'إنشاء سؤال' : 'Question created', icon: ClipboardList, tone: 'text-teal-700 bg-teal-50 border-teal-200' };
-    case 'UploadFile': return { label: isArabic ? 'رفع ملف' : 'File uploaded', icon: FileText, tone: 'text-amber-700 bg-amber-50 border-amber-200' };
-    case 'GenerateCode': return { label: isArabic ? 'توليد أكواد' : 'Codes generated', icon: KeyRound, tone: 'text-violet-700 bg-violet-50 border-violet-200' };
+    case 'CreateQuestion': return { label: t(locale, 'audit.activity.actionCreateQuestion'), icon: ClipboardList, tone: 'text-teal-700 bg-teal-50 border-teal-200' };
+    case 'UploadFile': return { label: t(locale, 'audit.activity.actionUploadFile'), icon: FileText, tone: 'text-amber-700 bg-amber-50 border-amber-200' };
+    case 'GenerateCode': return { label: t(locale, 'audit.activity.actionGenerateCode'), icon: KeyRound, tone: 'text-violet-700 bg-violet-50 border-violet-200' };
     default: return { label: actionType, icon: Activity, tone: 'text-slate-600 bg-slate-50 border-slate-200' };
   }
 };
@@ -87,6 +88,7 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
   const [adminFilter, setAdminFilter] = useState('');
   const [loading, setLoading] = useState(false);
   const dir = isArabic ? 'rtl' : 'ltr';
+  const locale = localeOf(isArabic);
 
   const loadSessions = useCallback(async (page: number) => {
     setLoading(true);
@@ -99,7 +101,7 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
       setSessionsPage(result.page);
       setSessionsTotalPages(Math.max(result.totalPages, 1));
     } catch (error) {
-      onError(error instanceof Error ? error.message : (isArabic ? 'تعذر تحميل الجلسات.' : 'Could not load sessions.'));
+      onError(error instanceof Error ? error.message : t(localeOf(isArabic), 'audit.activity.loadSessionsError'));
     } finally { setLoading(false); }
   }, [token, adminFilter, onError, isArabic]);
 
@@ -114,7 +116,7 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
       setLogsPage(result.page);
       setLogsTotalPages(Math.max(result.totalPages, 1));
     } catch (error) {
-      onError(error instanceof Error ? error.message : (isArabic ? 'تعذر تحميل سجل النشاط.' : 'Could not load activity logs.'));
+      onError(error instanceof Error ? error.message : t(localeOf(isArabic), 'audit.activity.loadLogsError'));
     } finally { setLoading(false); }
   }, [token, adminFilter, onError, isArabic]);
 
@@ -134,10 +136,10 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
           </div>
           <div>
             <h3 className="text-lg font-bold" style={{ color: 'var(--cms-text)' }}>
-              {isArabic ? 'مراقبة نشاط المدراء' : 'Admin activity monitor'}
+              {t(locale, 'audit.activity.title')}
             </h3>
             <p className="text-sm" style={{ color: 'var(--cms-text-soft)' }}>
-              {isArabic ? 'جلسات المدراء والأجهزة والأعمال المنجزة (أسئلة، ملفات، أكواد).' : 'Admin sessions, devices, and completed work (questions, files, codes).'}
+              {t(locale, 'audit.activity.desc')}
             </p>
           </div>
         </div>
@@ -148,7 +150,7 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
               value={adminFilter}
               onChange={event => setAdminFilter(event.target.value)}
               onKeyDown={event => { if (event.key === 'Enter') { tab === 'sessions' ? void loadSessions(1) : void loadLogs(1); } }}
-              placeholder={isArabic ? 'فلترة بمعرّف المدير (UUID)' : 'Filter by admin id (UUID)'}
+              placeholder={t(locale, 'audit.activity.adminFilterPlaceholder')}
               className="w-64 px-9 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 ltr:pl-9 rtl:pr-9"
               style={{ borderColor: 'var(--cms-line-strong)' }}
             />
@@ -159,12 +161,12 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
             className="px-3 py-2 rounded-lg text-white text-sm font-medium"
             style={{ background: 'var(--cms-teal-700)' }}
           >
-            {isArabic ? 'تطبيق' : 'Apply'}
+            {t(locale, 'audit.activity.apply')}
           </button>
         </div>
       </div>
 
-      <div className="flex gap-2" role="tablist" aria-label={isArabic ? 'أقسام المراقبة' : 'Monitor sections'}>
+      <div className="flex gap-2" role="tablist" aria-label={t(locale, 'audit.activity.sectionsAria')}>
         {(['sessions', 'logs'] as const).map(key => (
           <button
             key={key}
@@ -176,7 +178,7 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
               ? { background: 'var(--cms-teal-700)', borderColor: 'var(--cms-teal-700)' }
               : { borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
           >
-            {key === 'sessions' ? (isArabic ? 'الجلسات' : 'Sessions') : (isArabic ? 'سجل النشاط' : 'Activity logs')}
+            {key === 'sessions' ? t(locale, 'audit.activity.tabSessions') : t(locale, 'audit.activity.tabLogs')}
           </button>
         ))}
       </div>
@@ -184,7 +186,7 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
       {loading && (
         <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--cms-text-soft)' }}>
           <LoaderCircle className="w-4 h-4 animate-spin" />
-          {isArabic ? 'جارٍ التحميل…' : 'Loading…'}
+          {t(locale, 'audit.activity.loading')}
         </div>
       )}
 
@@ -192,7 +194,7 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
       {tab === 'sessions' && !loading && (
         sessions.length === 0 ? (
           <div className="rounded-xl border border-dashed p-8 text-center text-sm" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}>
-            {isArabic ? 'لا توجد جلسات إدارية بعد.' : 'No admin sessions yet.'}
+            {t(locale, 'audit.activity.sessionsEmpty')}
           </div>
         ) : (
           <div className="space-y-3">
@@ -209,18 +211,18 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
                       <div>
                         <p className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>{session.adminName}</p>
                         <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                          {session.role} · {session.ipAddress ?? (isArabic ? 'IP غير متوفر' : 'no IP')}
+                          {session.role} · {session.ipAddress ?? t(locale, 'audit.activity.noIp')}
                         </p>
                       </div>
                     </div>
                     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border ${active ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-slate-600 bg-slate-50 border-slate-200'}`}>
-                      {active ? (isArabic ? 'نشطة' : 'Active') : (isArabic ? 'مغلقة' : 'Closed')}
+                      {active ? t(locale, 'audit.activity.sessionActive') : t(locale, 'audit.activity.sessionClosed')}
                     </span>
                   </div>
 
                   <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                     <div className="rounded-lg p-2" style={{ background: 'var(--cms-ivory-50)' }}>
-                      <p style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'المدة' : 'Duration'}</p>
+                      <p style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.activity.duration')}</p>
                       <p className="font-semibold" style={{ color: 'var(--cms-text)' }}>
                         {session.durationMinutes >= 60
                           ? `${Math.floor(session.durationMinutes / 60)}h ${session.durationMinutes % 60}m`
@@ -228,29 +230,29 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
                       </p>
                     </div>
                     <div className="rounded-lg p-2" style={{ background: 'var(--cms-ivory-50)' }}>
-                      <p style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'الأسئلة' : 'Questions'}</p>
+                      <p style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.activity.questions')}</p>
                       <p className="font-semibold" style={{ color: 'var(--cms-teal-700)' }}>{session.questionsCount}</p>
                     </div>
                     <div className="rounded-lg p-2" style={{ background: 'var(--cms-ivory-50)' }}>
-                      <p style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'الملفات' : 'Files'}</p>
+                      <p style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.activity.files')}</p>
                       <p className="font-semibold" style={{ color: 'var(--cms-amber-700)' }}>{session.filesCount}</p>
                     </div>
                     <div className="rounded-lg p-2" style={{ background: 'var(--cms-ivory-50)' }}>
-                      <p style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'الأكواد' : 'Codes'}</p>
+                      <p style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.activity.codes')}</p>
                       <p className="font-semibold" style={{ color: 'var(--cms-violet-700, #6d28d9)' }}>{session.codesCount}</p>
                     </div>
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
                     <span className="px-2 py-0.5 rounded-full border" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}>
-                      {isArabic ? 'بدأت' : 'Started'}: {formatDateTime(session.startedAt, isArabic)}
+                      {t(locale, 'audit.activity.started')}: {formatDateTime(session.startedAt, isArabic)}
                     </span>
                     <span className="px-2 py-0.5 rounded-full border" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}>
-                      {isArabic ? 'آخر نشاط' : 'Last activity'}: {formatDateTime(session.lastActivityAt, isArabic)}
+                      {t(locale, 'audit.activity.lastActivity')}: {formatDateTime(session.lastActivityAt, isArabic)}
                     </span>
                     {session.closedAt && (
                       <span className="px-2 py-0.5 rounded-full border" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}>
-                        {isArabic ? 'أُغلقت' : 'Closed'}: {formatDateTime(session.closedAt, isArabic)}
+                        {t(locale, 'audit.activity.closed')}: {formatDateTime(session.closedAt, isArabic)}
                       </span>
                     )}
                     {device && (
@@ -277,7 +279,7 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
       {tab === 'logs' && !loading && (
         logs.length === 0 ? (
           <div className="rounded-xl border border-dashed p-8 text-center text-sm" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}>
-            {isArabic ? 'لا توجد أحداث نشاط بعد.' : 'No activity events yet.'}
+            {t(locale, 'audit.activity.logsEmpty')}
           </div>
         ) : (
           <div className="space-y-3">
@@ -285,22 +287,22 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
               <table className="w-full text-sm">
                 <thead style={{ background: 'var(--cms-ivory-50)' }}>
                   <tr className="text-start">
-                    <th className="px-4 py-3 text-start font-semibold" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'الوقت' : 'Time'}</th>
-                    <th className="px-4 py-3 text-start font-semibold" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'المدير' : 'Admin'}</th>
-                    <th className="px-4 py-3 text-start font-semibold" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'الإجراء' : 'Action'}</th>
-                    <th className="px-4 py-3 text-start font-semibold" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'التفاصيل' : 'Details'}</th>
+                    <th className="px-4 py-3 text-start font-semibold" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.headings.time')}</th>
+                    <th className="px-4 py-3 text-start font-semibold" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.activity.admin')}</th>
+                    <th className="px-4 py-3 text-start font-semibold" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.activity.action')}</th>
+                    <th className="px-4 py-3 text-start font-semibold" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.activity.details')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {logs.map(log => {
-                    const meta = actionMeta(log.actionType, isArabic);
+                    const meta = actionMeta(log.actionType, locale);
                     const Icon = meta.icon;
                     const metadata = parseJson(log.metadata);
                     const chips: string[] = [];
                     if (metadata) {
-                      if (metadata.fileSize !== undefined) chips.push(`${isArabic ? 'الحجم' : 'size'}: ${humanizeBytes(metadata.fileSize)}`);
+                      if (metadata.fileSize !== undefined) chips.push(`${t(locale, 'audit.activity.chipSize')}: ${humanizeBytes(metadata.fileSize)}`);
                       if (metadata.contentType) chips.push(`${metadata.contentType}`);
-                      if (metadata.quantity !== undefined) chips.push(`${isArabic ? 'الكمية' : 'qty'}: ${metadata.quantity}`);
+                      if (metadata.quantity !== undefined) chips.push(`${t(locale, 'audit.activity.chipQty')}: ${metadata.quantity}`);
                       if (metadata.scopeType) chips.push(`${metadata.scopeType}`);
                       if (metadata.type && log.actionType === 'CreateQuestion') chips.push(`${metadata.type}`);
                       if (metadata.category) chips.push(`${metadata.category}`);
@@ -346,10 +348,11 @@ export function ActivityMonitor({ token, isArabic, onError }: Props) {
 }
 
 function Pager({ page, totalPages, isArabic, onPage }: { page: number; totalPages: number; isArabic: boolean; onPage: (page: number) => void }) {
+  const locale = localeOf(isArabic);
   return (
     <div className="flex items-center justify-between text-sm" style={{ color: 'var(--cms-text-soft)' }}>
       <span>
-        {isArabic ? `صفحة ${page} من ${totalPages}` : `Page ${page} of ${totalPages}`}
+        {t(locale, 'audit.activity.pagerPage', { page, totalPages })}
       </span>
       <div className="flex gap-2">
         <button
@@ -359,7 +362,7 @@ function Pager({ page, totalPages, isArabic, onPage }: { page: number; totalPage
           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border disabled:opacity-40"
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
-          <ChevronLeft className="w-4 h-4" /> {isArabic ? 'السابق' : 'Prev'}
+          <ChevronLeft className="w-4 h-4" /> {t(locale, 'audit.activity.pagerPrev')}
         </button>
         <button
           type="button"
@@ -368,7 +371,7 @@ function Pager({ page, totalPages, isArabic, onPage }: { page: number; totalPage
           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border disabled:opacity-40"
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
-          {isArabic ? 'التالي' : 'Next'} <ChevronRight className="w-4 h-4" />
+          {t(locale, 'audit.activity.pagerNext')} <ChevronRight className="w-4 h-4" />
         </button>
       </div>
     </div>

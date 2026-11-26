@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import { LoaderCircle, ShieldAlert } from 'lucide-react';
 import { Dialog } from '@cms/ui';
 import { adminHardDelete, adminHardDeleteStatus, ApiError, type WipeTableCount } from '../lib/api';
+import { t, localeOf } from '../lib/dictionary';
 
 export type HardDeleteTarget = {
   /** Backend module key: exam | question | course | episode | subject | lecture | exam-course | library-file. */
@@ -40,6 +41,8 @@ type HardDeleteDialogProps = {
 };
 
 export function HardDeleteDialog({ token, isArabic, target, consequence, onDone, onClose }: HardDeleteDialogProps) {
+  // PR-3 — destructive-warning strings resolve from the shared dictionary.
+  const locale = localeOf(isArabic);
   const [password, setPassword] = useState('');
   const [cascade, setCascade] = useState(false);
   const [executing, setExecuting] = useState(false);
@@ -75,7 +78,7 @@ export function HardDeleteDialog({ token, isArabic, target, consequence, onDone,
       setPassword('');
       setCascade(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : isArabic ? 'فشل الحذف النهائي' : 'Hard delete failed');
+      setError(err instanceof ApiError ? err.message : t(locale, 'danger.hardDelete.failed'));
     } finally {
       setExecuting(false);
     }
@@ -85,7 +88,7 @@ export function HardDeleteDialog({ token, isArabic, target, consequence, onDone,
     <Dialog
       open={target !== null}
       onOpenChange={(open) => { if (!open && !executing) { onClose(); setPassword(''); setCascade(false); setError(''); } }}
-      title={isArabic ? `حذف نهائي: ${target?.label ?? ''}` : `Hard delete: ${target?.label ?? ''}`}
+      title={t(locale, 'danger.hardDelete.dialogTitle', { label: target?.label ?? '' })}
       dir={isArabic ? 'rtl' : 'ltr'}
       testId="hard-delete-dialog"
     >
@@ -95,15 +98,11 @@ export function HardDeleteDialog({ token, isArabic, target, consequence, onDone,
             <p className="flex items-start gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
               <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
               <span>
-                {isArabic
-                  ? 'الحذف النهائي معطّل في هذه البيئة (Features:HardDeleteEnabled) — الأرشفة هي المسار الافتراضي، ويُفعَّل الحذف النهائي فقط بقرار صريح من الإدارة العامة.'
-                  : 'Hard delete is disabled in this environment (Features:HardDeleteEnabled). Archiving is the default lifecycle; hard delete requires an explicit SuperAdmin decision to enable.'}
+                {t(locale, 'danger.hardDelete.disabledNotice')}
               </span>
             </p>
             <p className="text-sm text-slate-600">
-              {isArabic
-                ? 'استخدم «أرشفة» من قائمة الإجراءات بدلاً من الحذف النهائي.'
-                  : 'Use "Archive" from the actions menu instead of hard delete.'}
+              {t(locale, 'danger.hardDelete.disabledArchiveHint')}
             </p>
             <div className="flex justify-end">
               <button
@@ -111,7 +110,7 @@ export function HardDeleteDialog({ token, isArabic, target, consequence, onDone,
                 onClick={onClose}
                 className="px-4 py-2 rounded-lg text-sm font-semibold border border-slate-300 hover:bg-slate-50 transition-colors"
               >
-                {isArabic ? 'إغلاق' : 'Close'}
+                {t(locale, 'common.close')}
               </button>
             </div>
           </div>
@@ -122,9 +121,7 @@ export function HardDeleteDialog({ token, isArabic, target, consequence, onDone,
               <span>{consequence}</span>
             </p>
             <p className="text-sm text-slate-600">
-              {isArabic
-                ? 'هذا حذف فعلي من قاعدة البيانات يتجاوز الأرشفة. أدخل كلمة مرورك الحالية للمتابعة.'
-                : 'This physically deletes the row, bypassing archiving. Enter your current password to proceed.'}
+              {t(locale, 'danger.hardDelete.physicalDeleteHint')}
             </p>
             <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
               <input
@@ -135,11 +132,11 @@ export function HardDeleteDialog({ token, isArabic, target, consequence, onDone,
                 className="mt-0.5"
               />
               <span>
-                {isArabic ? 'حذف العناصر المرتبطة أيضًا (أسئلة/جلسات/ملفات تابعة)' : 'Also delete linked children (questions/sessions/files)'}
+                {t(locale, 'danger.hardDelete.cascadeLabel')}
               </span>
             </label>
             <label className="block space-y-1">
-              <span className="text-sm font-semibold text-slate-700">{isArabic ? 'كلمة مرورك الحالية' : 'Your current password'}</span>
+              <span className="text-sm font-semibold text-slate-700">{t(locale, 'danger.hardDelete.passwordLabel')}</span>
               <input
                 type="password"
                 value={password}
@@ -159,7 +156,7 @@ export function HardDeleteDialog({ token, isArabic, target, consequence, onDone,
                 disabled={executing}
                 className="px-4 py-2 rounded-lg text-sm font-semibold border border-slate-300 hover:bg-slate-50 transition-colors disabled:opacity-50"
               >
-                {isArabic ? 'إلغاء' : 'Cancel'}
+                {t(locale, 'common.cancel')}
               </button>
               <button
                 type="submit"
@@ -168,7 +165,7 @@ export function HardDeleteDialog({ token, isArabic, target, consequence, onDone,
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white bg-red-700 hover:bg-red-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {executing && <LoaderCircle className="w-4 h-4 animate-spin" />}
-                {isArabic ? 'حذف نهائي' : 'Hard delete'}
+                {t(locale, 'danger.hardDelete.execute')}
               </button>
             </div>
           </>

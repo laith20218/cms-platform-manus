@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, Copy, LoaderCircle, RotateCcw } from 'lucide-react';
 import { AccessibleModal } from './AccessibleModal';
+// PR-3 — the modal's bilingual strings resolve through the shared dictionary
+// (`lib/dictionary/library.ts`, errorModal section).
+import { t, localeOf } from '../lib/dictionary';
 
 /**
  * Push 10.4 (1.C) — the dual-language processing failure modal.
@@ -60,6 +63,8 @@ export function ProcessingErrorModal({
 }: ProcessingErrorModalProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  // PR-3 — dictionary locale derived from the legacy bilingual flag.
+  const locale = localeOf(isArabic);
 
   // R22.3 — ONE support collapsible: the structured diagnosticReport (when the
   // backend shipped one) relabels it «تفاصيل تقنية للدعم الفني»; otherwise the
@@ -67,9 +72,9 @@ export function ProcessingErrorModal({
   const hasDiagnostics = Boolean(diagnosticReport && diagnosticReport.trim().length > 0);
   const supportPayload = hasDiagnostics ? diagnosticReport : technicalDetails;
   const hasTechnical = Boolean(supportPayload && supportPayload.trim().length > 0);
-  const headlineText = headline?.trim() || (isArabic ? 'عذراً، تعذر معالجة الفيديو.' : 'Sorry — the video could not be processed.');
+  const headlineText = headline?.trim() || t(locale, 'library.errorModal.headlineDefault');
   const detailsLabel = hasDiagnostics
-    ? (isArabic ? 'تفاصيل تقنية للدعم الفني' : 'Technical details for support')
+    ? t(locale, 'library.errorModal.detailsForSupport')
     : 'Technical details';
 
   const copyError = async () => {
@@ -111,8 +116,8 @@ export function ProcessingErrorModal({
       isArabic={isArabic}
       dismissGuard={retrying}
       testId={testId}
-      title={headlineText.trim() || (isArabic ? 'تعذّرت معالجة الفيديو' : 'Video processing failed')}
-      description={isArabic ? 'الرسائل المبسّطة أولاً، والتفاصيل التقنية عند الحاجة' : 'Human message first, technical details on demand'}
+      title={headlineText.trim() || t(locale, 'library.errorModal.titleFallback')}
+      description={t(locale, 'library.errorModal.description')}
     >
       <div className="space-y-4 px-5 py-5">
         {/* Human level — Arabic, always visible. */}
@@ -129,9 +134,7 @@ export function ProcessingErrorModal({
               {headlineText}
             </p>
             <p className="mt-1 text-sm leading-relaxed" style={{ color: 'var(--cms-text-soft)' }} data-testid="processing-error-human">
-              {humanMessage?.trim() || (isArabic
-                ? 'تعذّر تحويل الفيديو إلى صيغ المشاهدة. حاول إعادة المحاولة، وإن استمرت المشكلة فتواصل مع الدعم الفني مع رقم الحلقة.'
-                : 'The video could not be converted into watchable formats. Try again; if it keeps failing, contact support with the episode id.')}
+              {humanMessage?.trim() || t(locale, 'library.errorModal.humanDefault')}
             </p>
           </div>
         </div>
@@ -177,8 +180,8 @@ export function ProcessingErrorModal({
                     ? <Check className="w-3.5 h-3.5 text-emerald-600" strokeWidth={2} />
                     : <Copy className="w-3.5 h-3.5" strokeWidth={2} />}
                   {copied
-                    ? (isArabic ? 'تم النسخ ✓' : 'Copied ✓')
-                    : (isArabic ? 'نسخ الخطأ' : 'Copy error')}
+                    ? t(locale, 'library.errorModal.copied')
+                    : t(locale, 'library.errorModal.copyError')}
                 </button>
               </div>
             )}
@@ -200,8 +203,8 @@ export function ProcessingErrorModal({
                 ? <LoaderCircle className="w-4 h-4 animate-spin" strokeWidth={2} />
                 : <RotateCcw className="w-4 h-4" strokeWidth={2} />}
               {retrying
-                ? (isArabic ? 'جارٍ إعادة المحاولة…' : 'Retrying…')
-                : (isArabic ? 'إعادة المحاولة' : 'Retry')}
+                ? t(locale, 'library.errorModal.retrying')
+                : t(locale, 'library.errorModal.retry')}
             </button>
           )}
           <button
@@ -212,7 +215,7 @@ export function ProcessingErrorModal({
             className="inline-flex min-h-11 items-center rounded-lg border px-4 py-2 text-sm font-medium transition-colors hover:bg-slate-50 disabled:opacity-50"
             style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
           >
-            {isArabic ? 'إغلاق' : 'Close'}
+            {t(locale, 'common.close')}
           </button>
         </div>
       </div>

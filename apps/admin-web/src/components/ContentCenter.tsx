@@ -19,6 +19,8 @@
 import { useEffect, useState } from 'react';
 import { FileText, LoaderCircle, Pencil, X, Check } from 'lucide-react';
 import { ApiError, apiRequest } from '../lib/api';
+// PR-3 — content-page strings resolve through the shared dictionary.
+import { t, localeOf } from '../lib/dictionary';
 
 type Props = {
   token: string;
@@ -55,6 +57,7 @@ function dateLabel(value: string, isArabic: boolean) {
 }
 
 export function ContentCenter({ token, isArabic, onError, onNotice }: Props) {
+  const locale = localeOf(isArabic);
   const [pages, setPages] = useState<ContentPageRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
@@ -68,7 +71,7 @@ export function ContentCenter({ token, isArabic, onError, onNotice }: Props) {
       const data = await apiRequest<ContentPageRecord[]>('/api/v1/admin/content', token);
       setPages(Array.isArray(data) ? data : []);
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.message : isArabic ? 'تعذّر تحميل صفحات المحتوى' : 'Could not load content pages';
+      const msg = err instanceof ApiError ? err.message : t(locale, 'courses.content.loadFailed');
       onError(msg);
       setPages([]);
     } finally {
@@ -101,11 +104,11 @@ export function ContentCenter({ token, isArabic, onError, onNotice }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ titleAr: editTitle, bodyAr: editBody }),
       });
-      onNotice(isArabic ? 'تم حفظ الصفحة بنجاح' : 'Page saved');
+      onNotice(t(locale, 'courses.content.saved'));
       cancelEdit();
       await load();
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.message : isArabic ? 'تعذّر حفظ الصفحة. حاول مجدداً.' : 'Could not save the page. Try again.';
+      const msg = err instanceof ApiError ? err.message : t(locale, 'courses.content.saveFailed');
       onError(msg);
     } finally {
       setBusy(false);
@@ -121,12 +124,10 @@ export function ContentCenter({ token, isArabic, onError, onNotice }: Props) {
         </div>
         <div>
           <h2 className="text-xl font-bold text-[var(--cms-text)]" dir={isArabic ? 'rtl' : 'ltr'}>
-            {isArabic ? 'صفحات المحتوى' : 'Content Pages'}
+            {t(locale, 'courses.content.title')}
           </h2>
           <p className="text-sm text-[var(--cms-text-muted)]" dir={isArabic ? 'rtl' : 'ltr'}>
-            {isArabic
-              ? 'تحرير شروط الاستخدام وسياسة الخصوصية وصفحة التواصل — تظهر للطلاب مباشرة بعد الحفظ.'
-              : 'Edit Terms, Privacy and Contact — students see changes immediately after save.'}
+            {t(locale, 'courses.content.description')}
           </p>
         </div>
       </div>
@@ -208,7 +209,7 @@ export function ContentCenter({ token, isArabic, onError, onNotice }: Props) {
                       <span className="font-bold text-[var(--cms-text)] truncate">{page.titleAr}</span>
                     </div>
                     <p className="mt-1 text-xs text-[var(--cms-text-muted)]">
-                      {slugLabel(page.slug, isArabic)} · {isArabic ? 'آخر تحديث' : 'Updated'}: {dateLabel(page.updatedAt, isArabic)}
+                      {slugLabel(page.slug, isArabic)} · {t(locale, 'courses.content.lastUpdated')}: {dateLabel(page.updatedAt, isArabic)}
                     </p>
                   </div>
                   <button
@@ -218,7 +219,7 @@ export function ContentCenter({ token, isArabic, onError, onNotice }: Props) {
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
                   >
                     <Pencil className="w-4 h-4" />
-                    {isArabic ? 'تحرير' : 'Edit'}
+                    {t(locale, 'courses.content.edit')}
                   </button>
                 </div>
               )}
@@ -227,7 +228,7 @@ export function ContentCenter({ token, isArabic, onError, onNotice }: Props) {
 
           {pages.length === 0 && (
             <div className="rounded-2xl border border-dashed p-10 text-center text-sm" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-muted)' }}>
-              {isArabic ? 'لا توجد صفحات محتوى بعد.' : 'No content pages yet.'}
+              {t(locale, 'courses.content.empty')}
             </div>
           )}
         </div>

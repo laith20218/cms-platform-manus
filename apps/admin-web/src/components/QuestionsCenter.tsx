@@ -46,6 +46,7 @@ import {
   Search, Send, Trash2, Undo2, X,
 } from 'lucide-react';
 import { apiRequest, type PagedResult } from '../lib/api';
+import { t, localeOf, statusLabel } from '../lib/dictionary';
 import { Pagination, RowActionsMenu } from '@cms/ui';
 import { HardDeleteDialog, type HardDeleteTarget } from './HardDeleteDialog';
 import { QuestionImportModal } from './QuestionImportModal';
@@ -105,13 +106,9 @@ type ConfirmDialog =
   | null;
 
 // W14.3 D5 — the editor is a 4-tab form; one Save persists every tab.
+// PR-3: the tab labels moved to the dictionary (questions.editor.tabs.<key>).
 type EditorTab = 'content' | 'explanation' | 'classification' | 'settings';
-const EDITOR_TABS: Array<{ key: EditorTab; labelAr: string; labelEn: string }> = [
-  { key: 'content', labelAr: 'المحتوى', labelEn: 'Content' },
-  { key: 'explanation', labelAr: 'الشرح والمراجع', labelEn: 'Explanation & reference' },
-  { key: 'classification', labelAr: 'التصنيف والوسوم', labelEn: 'Classification & tags' },
-  { key: 'settings', labelAr: 'الإعدادات', labelEn: 'Settings' },
-];
+const EDITOR_TABS: EditorTab[] = ['content', 'explanation', 'classification', 'settings'];
 
 // W14.3 B.3 — GET /admin/questions/{id}/preview (W14.2) — the student view.
 type QuestionPreview = {
@@ -227,15 +224,22 @@ const statusBadgeClass = (status: string) => {
 // (byte-identical glossary; ExamsCenter rides the same map so the centers can
 // never drift). The local copies were removed.
 
-const statusLabel = (status: string, isArabic: boolean) => {
+// PR-3: the local bilingual status ternaries became registry/dictionary
+// lookups with byte-identical output. Published/archived answer from the
+// central publication registry; «review» and the legacy unknown-value→«Draft»
+// default keep dedicated entries (the registry would render «Unspecified»
+// for unknown values, which the legacy helper never did).
+const publicationLabel = (status: string, isArabic: boolean) => {
+  const locale = localeOf(isArabic);
   const value = status.toLowerCase();
-  if (value === 'published') return isArabic ? 'منشور' : 'Published';
-  if (value === 'archived') return isArabic ? 'مؤرشف' : 'Archived';
-  if (value === 'review') return isArabic ? 'مراجعة' : 'Review';
-  return isArabic ? 'مسودة' : 'Draft';
+  if (value === 'published' || value === 'archived') return statusLabel(locale, 'publication', value);
+  if (value === 'review') return t(locale, 'questions.statusReview');
+  return t(locale, 'questions.statusDraft');
 };
 
 export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
+  // PR-3: every migrated string reads the shared dictionary via `t(locale, …)`.
+  const locale = localeOf(isArabic);
   // Push 3: cosmetic gating — the API policies remain the real boundary.
   const { can, bundle } = useUiPermissions();
   // Command Center P1: hard delete is a SuperAdmin-only system action (backend-gated too).
@@ -288,7 +292,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   useEffect(() => {
     void request<PagedResult<University>>('/api/v1/universities?Page=1&PageSize=100')
       .then(data => setUniversities(data.items))
-      .catch(error => onError(error instanceof Error ? error.message : 'تعذر تحميل الجامعات.'));
+      .catch(error => onError(error instanceof Error ? error.message : t(locale, 'questions.errors.loadUniversities')));
     // W14.3 D4: hydrate the cascade from the URL (`?univ=…&subject=…`). A legacy
     // localStorage sticky (pre-D4) migrates into the URL once; afterwards the sticky
     // keeps only editor defaults (lecture/type/difficulty/tags) for "Save & Add Another".
@@ -347,7 +351,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
       setQuestionsPage(targetPage);
       setQuestionsTotal(result.total);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر تحميل الأسئلة.');
+      onError(error instanceof Error ? error.message : t(locale, 'questions.errors.loadQuestions'));
     } finally { setLoading(false); }
   }
 
@@ -357,7 +361,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     setForm(emptyForm());
     if (!id) return;
     try { setColleges(await request<College[]>(`/api/v1/universities/${id}/colleges`)); }
-    catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل الكليات.'); }
+    catch (error) { onError(error instanceof Error ? error.message : t(locale, 'questions.errors.loadColleges')); }
   }
   async function chooseCollege(id: string) {
     academic.chooseCollege(id);
@@ -365,7 +369,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     setForm(emptyForm());
     if (!id) return;
     try { setYears(await request<AcademicYear[]>(`/api/v1/colleges/${id}/years`)); }
-    catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل السنوات.'); }
+    catch (error) { onError(error instanceof Error ? error.message : t(locale, 'questions.errors.loadYears')); }
   }
   async function chooseYear(id: string) {
     academic.chooseYear(id);
@@ -373,7 +377,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     setForm(emptyForm());
     if (!id) return;
     try { setSemesters(await request<Semester[]>(`/api/v1/years/${id}/semesters`)); }
-    catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل الفصول.'); }
+    catch (error) { onError(error instanceof Error ? error.message : t(locale, 'questions.errors.loadSemesters')); }
   }
   async function chooseSemester(id: string) {
     academic.chooseSemester(id);
@@ -381,14 +385,14 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     setForm(emptyForm());
     if (!id) return;
     try { setSubjects(await request<Subject[]>(`/api/v1/semesters/${id}/subjects`)); }
-    catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل المواد.'); }
+    catch (error) { onError(error instanceof Error ? error.message : t(locale, 'questions.errors.loadSubjects')); }
   }
   async function chooseSubject(id: string) {
     academic.chooseSubject(id); setLectures([]); setForm(emptyForm()); setShowEditor(false);
     setSelectedIds(new Set()); // selection belongs to the previous subject
     if (!id) return;
     try { setLectures(await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${id}/lectures`)); }
-    catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل المحاضرات.'); }
+    catch (error) { onError(error instanceof Error ? error.message : t(locale, 'questions.errors.loadLectures')); }
   }
 
   function changeType(type: QuestionType) {
@@ -492,7 +496,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
       });
       setShowEditor(true);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر فتح السؤال.');
+      onError(error instanceof Error ? error.message : t(locale, 'questions.errors.openQuestion'));
     } finally { setBusy(false); }
   }
 
@@ -508,7 +512,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   function resetContext() {
     writeSticky(null);
     setForm(emptyForm());
-    onNotice(isArabic ? 'تمت إعادة تعيين السياق المحفوظ.' : 'Saved context reset.');
+    onNotice(t(locale, 'questions.notices.contextReset'));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -518,19 +522,19 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
 
   async function doSubmit(addAnother: boolean) {
     if (!subjectId) {
-      onError(isArabic ? 'اختر المادة أولاً.' : 'Pick a subject first.');
+      onError(t(locale, 'questions.validation.pickSubjectFirst'));
       return;
     }
     // W14.3 D5: tabs hide fields from the DOM, so HTML5 validation cannot see
     // them — validate manually and jump to the offending tab, fail visibly.
     if (!form.text.trim()) {
       setEditorTab('content');
-      onError(isArabic ? 'اكتب نص السؤال.' : 'Write the question text.');
+      onError(t(locale, 'questions.validation.writeQuestionText'));
       return;
     }
     if (isEssay && !form.correctAnswer.trim()) {
       setEditorTab('content');
-      onError(isArabic ? 'اكتب الإجابة النموذجية للسؤال التحريري.' : 'Provide the model answer for the essay question.');
+      onError(t(locale, 'questions.validation.writeModelAnswer'));
       return;
     }
     // W21.1 — وصل invariants BEFORE any network call: ≥2 rows per list, non-empty
@@ -547,12 +551,12 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     }
     if (!isEssay && !isMatching && (form.options.length < 2 || form.options.some(option => !option.text.trim()) || !form.options.some(option => option.isCorrect))) {
       setEditorTab('content');
-      onError(isArabic ? 'أدخل خيارين على الأقل وحدد إجابة صحيحة.' : 'Provide at least two options and mark a correct answer.');
+      onError(t(locale, 'questions.validation.twoOptionsAndCorrect'));
       return;
     }
     if (!form.explanation.trim()) {
       setEditorTab('explanation');
-      onError(isArabic ? 'اكتب شرح السؤال العلمي.' : 'Write the scientific explanation.');
+      onError(t(locale, 'questions.validation.writeExplanation'));
       return;
     }
     setBusy(true);
@@ -583,7 +587,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
       };
       if (form.id) {
         await request(`/api/v1/questions/${form.id}`, { method: 'PUT', headers: requestHeaders, body: JSON.stringify(payload) });
-        onNotice(isArabic ? 'تم تحديث السؤال.' : 'Question updated.');
+        onNotice(t(locale, 'questions.notices.questionUpdated'));
         setForm(emptyForm()); setShowEditor(false); await loadQuestions();
       } else {
         await request('/api/v1/questions', { method: 'POST', headers: requestHeaders, body: JSON.stringify(payload) });
@@ -593,16 +597,16 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
           const kept = currentStickyContext();
           writeSticky(kept);
           setForm(formFromSticky(kept));
-          onNotice(isArabic ? 'تم حفظ السؤال. أضف السؤال التالي — السياق محفوظ.' : 'Question saved. Add the next one — context kept.');
+          onNotice(t(locale, 'questions.notices.savedAddAnother'));
         } else {
           writeSticky(currentStickyContext());
-          onNotice(isArabic ? 'تم حفظ السؤال كمسودة.' : 'Question saved as a draft.');
+          onNotice(t(locale, 'questions.notices.savedDraft'));
           setForm(emptyForm()); setShowEditor(false);
         }
         await loadQuestions();
       }
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر حفظ السؤال.');
+      onError(error instanceof Error ? error.message : t(locale, 'questions.errors.saveQuestion'));
     } finally { setBusy(false); }
   }
 
@@ -612,16 +616,16 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
       if (action === 'unpublish') {
         // W14.3 B.3 — unpublish lives on the admin controller (W14.2).
         await request(`/api/v1/admin/questions/${id}/unpublish`, { method: 'POST' });
-        onNotice(isArabic ? 'تم إلغاء نشر السؤال وعاد مسودة.' : 'Question unpublished and returned to draft.');
+        onNotice(t(locale, 'questions.notices.unpublished'));
       } else {
         await request(`/api/v1/questions/${id}/${action}`, { method: 'POST' });
         onNotice(action === 'publish'
-          ? (isArabic ? 'تم نشر السؤال.' : 'Question published.')
-          : (isArabic ? 'تمت أرشفة السؤال.' : 'Question archived.'));
+          ? t(locale, 'questions.notices.published')
+          : t(locale, 'questions.notices.archived'));
       }
       await loadQuestions();
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر تحديث حالة السؤال.');
+      onError(error instanceof Error ? error.message : t(locale, 'questions.errors.updateStatus'));
     } finally { setBusy(false); }
   }
 
@@ -629,10 +633,10 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     setBusy(true);
     try {
       await request(`/api/v1/questions/${id}`, { method: 'DELETE' });
-      onNotice(isArabic ? 'تم حذف السؤال.' : 'Question deleted.');
+      onNotice(t(locale, 'questions.notices.questionDeleted'));
       await loadQuestions();
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر حذف السؤال.');
+      onError(error instanceof Error ? error.message : t(locale, 'questions.errors.deleteQuestion'));
     } finally { setBusy(false); }
   }
 
@@ -650,7 +654,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     try {
       setPreview(await request<QuestionPreview>(`/api/v1/admin/questions/${id}/preview`));
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر فتح المعاينة.');
+      onError(error instanceof Error ? error.message : t(locale, 'questions.errors.openPreview'));
     } finally { setPreviewLoading(false); }
   }
 
@@ -658,10 +662,10 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     setBusy(true);
     try {
       await request(`/api/v1/admin/questions/${id}/duplicate`, { method: 'POST' });
-      onNotice(isArabic ? 'تم تكرار السؤال كمسودة جديدة.' : 'Question duplicated as a new draft.');
+      onNotice(t(locale, 'questions.notices.duplicated'));
       await loadQuestions();
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر تكرار السؤال.');
+      onError(error instanceof Error ? error.message : t(locale, 'questions.errors.duplicateQuestion'));
     } finally { setBusy(false); }
   }
 
@@ -682,13 +686,11 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
         `/api/v1/admin/questions/bulk-${action}`,
         { method: 'POST', headers: requestHeaders, body: JSON.stringify({ ids: Array.from(selectedIds) }) },
       );
-      onNotice(isArabic
-        ? `تم تنفيذ الإجراء على ${result.succeeded} من ${result.requested} سؤال.`
-        : `Applied to ${result.succeeded} of ${result.requested} questions.`);
+      onNotice(t(locale, 'questions.notices.bulkApplied', { succeeded: result.succeeded, requested: result.requested }));
       setSelectedIds(new Set());
       await loadQuestions();
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر تنفيذ الإجراء الجماعي.');
+      onError(error instanceof Error ? error.message : t(locale, 'questions.errors.bulkAction'));
     } finally { setBulkBusy(false); }
   }
 
@@ -696,15 +698,15 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
 
   async function uploadOptionImage(optionIndex: number, file: File) {
     if (!subjectId) {
-      onError(isArabic ? 'اختر المادة أولاً.' : 'Pick a subject first.');
+      onError(t(locale, 'questions.validation.pickSubjectFirst'));
       return;
     }
     if (!file.type.startsWith('image/')) {
-      onError(isArabic ? 'الملف المرفق ليس صورة.' : 'The attached file is not an image.');
+      onError(t(locale, 'questions.upload.notAnImage'));
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      onError(isArabic ? 'حجم الصورة يتجاوز 5 ميغابايت.' : 'The image exceeds the 5 MB limit.');
+      onError(t(locale, 'questions.upload.exceedsSizeLimit'));
       return;
     }
     setUploadingOption(optionIndex);
@@ -720,12 +722,12 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
           subjectId,
           lectureId: form.lectureId || null,
           type: 'Image',
-          title: (form.text.trim() || (isArabic ? 'صورة خيار سؤال' : 'Question option image')).slice(0, 120),
+          title: (form.text.trim() || t(locale, 'questions.upload.optionImageTitle')).slice(0, 120),
           description: null,
         }),
       });
       const put = await fetch(presign.uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
-      if (!put.ok) throw new Error(isArabic ? `فشل رفع الملف إلى التخزين (${put.status}).` : `Storage upload failed (${put.status}).`);
+      if (!put.ok) throw new Error(t(locale, 'questions.upload.storageFailed', { status: put.status }));
       await request('/api/v1/library/complete-upload', {
         method: 'POST',
         headers: requestHeaders,
@@ -735,15 +737,13 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
       // a publicly fetchable URL, built from the deployment's public bucket base.
       const publicBase = ((import.meta.env?.VITE_R2_PUBLIC_BASE as string | undefined) ?? '').replace(/\/$/, '');
       if (!publicBase) {
-        onError(isArabic
-          ? 'تم رفع الصورة، لكن رابطها العام غير قابل للتوليد — اضبط VITE_R2_PUBLIC_BASE ثم أعد الإرفاق، أو الصق رابط الصورة يدوياً.'
-          : 'Image uploaded, but its public URL cannot be derived — set VITE_R2_PUBLIC_BASE and re-attach, or paste the image URL manually.');
+        onError(t(locale, 'questions.upload.publicUrlMissing'));
         return;
       }
       updateOption(optionIndex, { imageUrl: `${publicBase}/${presign.fileKey}` });
-      onNotice(isArabic ? 'تم إرفاق الصورة بالخيار.' : 'Image attached to the option.');
+      onNotice(t(locale, 'questions.notices.imageAttached'));
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر رفع الصورة.');
+      onError(error instanceof Error ? error.message : t(locale, 'questions.errors.uploadImage'));
     } finally { setUploadingOption(null); }
   }
 
@@ -765,10 +765,10 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
               className="text-xs font-semibold uppercase tracking-wider"
               style={{ color: 'var(--cms-text-muted)' }}
             >
-              {isArabic ? 'إدارة المحتوى الأكاديمي' : 'Academic content management'}
+              {t(locale, 'questions.header.sectionLabel')}
             </p>
             <h2 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
-              {isArabic ? 'بنك الأسئلة' : 'Question Bank'}
+              {t(locale, 'questions.header.title')}
               {subjectId && (
                 <span
                   className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded-full text-xs font-semibold"
@@ -779,9 +779,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
               )}
             </h2>
             <p className="text-sm mt-1 max-w-2xl" style={{ color: 'var(--cms-text-soft)' }}>
-              {isArabic
-                ? 'أدارة أسئلة المادة، الإجابات النموذجية، والشرح العلمي.'
-                : 'Manage subject questions, model answers, and scientific explanations.'}
+              {t(locale, 'questions.header.subtitle')}
             </p>
           </div>
         </div>
@@ -795,7 +793,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
             onMouseLeave={(event) => { event.currentTarget.style.background = 'var(--cms-teal-700)'; }}
           >
             <Plus className="w-4 h-4" />
-            {isArabic ? 'سؤال جديد' : 'New question'}
+            {t(locale, 'questions.header.newQuestion')}
           </button>
         )}
         {subjectId && can('btn:questions.import') && (
@@ -807,7 +805,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
             data-testid="open-question-import"
           >
             <Upload className="w-4 h-4" />
-            {isArabic ? 'استيراد أسئلة' : 'Import questions'}
+            {t(locale, 'questions.header.importQuestions')}
           </button>
         )}
       </header>
@@ -818,11 +816,11 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
         style={{ background: 'var(--cms-ivory-100)', borderColor: 'var(--cms-line)' }}
       >
         {[
-          { label: isArabic ? 'الجامعة' : 'University', value: universityId, onChange: chooseUniversity, items: universities, disabled: false },
-          { label: isArabic ? 'الكلية' : 'College', value: collegeId, onChange: chooseCollege, items: colleges, disabled: !universityId },
-          { label: isArabic ? 'السنة' : 'Year', value: yearId, onChange: chooseYear, items: years, disabled: !collegeId },
-          { label: isArabic ? 'الفصل' : 'Semester', value: semesterId, onChange: chooseSemester, items: semesters, disabled: !yearId },
-          { label: isArabic ? 'المادة' : 'Subject', value: subjectId, onChange: chooseSubject, items: subjects, disabled: !semesterId },
+          { label: t(locale, 'questions.filters.university'), value: universityId, onChange: chooseUniversity, items: universities, disabled: false },
+          { label: t(locale, 'questions.filters.college'), value: collegeId, onChange: chooseCollege, items: colleges, disabled: !universityId },
+          { label: t(locale, 'questions.filters.year'), value: yearId, onChange: chooseYear, items: years, disabled: !collegeId },
+          { label: t(locale, 'questions.filters.semester'), value: semesterId, onChange: chooseSemester, items: semesters, disabled: !yearId },
+          { label: t(locale, 'questions.filters.subject'), value: subjectId, onChange: chooseSubject, items: subjects, disabled: !semesterId },
         ].map((field) => (
           <label key={field.label} className="block">
             <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
@@ -835,7 +833,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
               className="w-full px-3 py-2 rounded-lg border text-sm bg-white transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
               style={{ borderColor: 'var(--cms-line-strong)' }}
             >
-              <option value="">{isArabic ? `اختر ${field.label}` : `Select ${field.label.toLowerCase()}`}</option>
+              <option value="">{t(locale, 'questions.filters.select', { label: field.label, labelLower: field.label.toLowerCase() })}</option>
               {field.items.map(item => (
                 <option key={item.id} value={item.id}>{label(isArabic, item)}</option>
               ))}
@@ -853,10 +851,10 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
             <FileText className="w-7 h-7" />
           </div>
           <p className="mt-3 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
-            {isArabic ? 'اختر مادة لفتح بنك أسئلتها.' : 'Select a subject to open its question bank.'}
+            {t(locale, 'questions.empty.pickSubject')}
           </p>
           <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-            {isArabic ? 'التدرج الأكاديمي أعلاه يقودك من الجامعة إلى المادة.' : 'The hierarchy above leads from university down to subject.'}
+            {t(locale, 'questions.empty.hierarchyHint')}
           </p>
         </div>
       ) : (
@@ -871,7 +869,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder={isArabic ? 'ابحث في نص السؤال' : 'Search question text'}
+                placeholder={t(locale, 'questions.toolbar.searchPlaceholder')}
                 className="w-full pr-10 pl-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 style={{ borderColor: 'var(--cms-line-strong)' }}
               />
@@ -882,12 +880,12 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
               className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
               style={{ borderColor: 'var(--cms-line-strong)' }}
             >
-              <option value="">{isArabic ? 'كل الأنواع' : 'All types'}</option>
-              <option value="Mcq">{isArabic ? 'اختيار من متعدد' : 'MCQ'}</option>
-              <option value="TrueFalse">{isArabic ? 'صح أو خطأ' : 'True / False'}</option>
-              <option value="MultipleSelect">{isArabic ? 'اختيارات متعددة' : 'Multiple select'}</option>
-              <option value="Essay">{isArabic ? 'تحريري' : 'Essay'}</option>
-              <option value="Matching">{isArabic ? 'وصل' : 'Matching'}</option>
+              <option value="">{t(locale, 'questions.toolbar.allTypes')}</option>
+              <option value="Mcq">{t(locale, 'questions.typeOptions.mcq')}</option>
+              <option value="TrueFalse">{t(locale, 'questions.typeOptions.trueFalse')}</option>
+              <option value="MultipleSelect">{t(locale, 'questions.typeOptions.multipleSelect')}</option>
+              <option value="Essay">{t(locale, 'questions.typeOptions.essay')}</option>
+              <option value="Matching">{t(locale, 'questions.typeOptions.matching')}</option>
             </select>
             <select
               value={statusFilter}
@@ -895,11 +893,11 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
               className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
               style={{ borderColor: 'var(--cms-line-strong)' }}
             >
-              <option value="">{isArabic ? 'كل الحالات' : 'All statuses'}</option>
-              <option value="Draft">{isArabic ? 'مسودة' : 'Draft'}</option>
-              <option value="Review">{isArabic ? 'مراجعة' : 'Review'}</option>
-              <option value="Published">{isArabic ? 'منشور' : 'Published'}</option>
-              <option value="Archived">{isArabic ? 'مؤرشف' : 'Archived'}</option>
+              <option value="">{t(locale, 'questions.toolbar.allStatuses')}</option>
+              <option value="Draft">{t(locale, 'questions.statusDraft')}</option>
+              <option value="Review">{t(locale, 'questions.statusReview')}</option>
+              <option value="Published">{t(locale, 'questions.statusPublished')}</option>
+              <option value="Archived">{t(locale, 'questions.statusArchived')}</option>
             </select>
           </div>
 
@@ -909,10 +907,10 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
               className="flex items-center gap-2 flex-wrap rounded-xl border px-4 py-3"
               style={{ borderColor: 'var(--cms-teal-100)', background: 'var(--cms-teal-50)' }}
               role="toolbar"
-              aria-label={isArabic ? 'إجراءات جماعية' : 'Bulk actions'}
+              aria-label={t(locale, 'questions.bulk.toolbarLabel')}
             >
               <span className="text-sm font-semibold" style={{ color: 'var(--cms-teal-700)' }}>
-                {isArabic ? `تم تحديد ${selectedIds.size} سؤال` : `${selectedIds.size} selected`}
+                {t(locale, 'questions.bulk.selected', { count: selectedIds.size })}
               </span>
               {can('btn:questions.publish') && (
                 <button
@@ -923,7 +921,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                   style={{ background: 'var(--cms-success)' }}
                 >
                   <Send className="w-3.5 h-3.5" />
-                  {isArabic ? 'نشر المحدد' : 'Publish selected'}
+                  {t(locale, 'questions.bulk.publishSelected')}
                 </button>
               )}
               {can('btn:questions.archive') && (
@@ -935,7 +933,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                   style={{ background: 'var(--cms-warning)' }}
                 >
                   <Archive className="w-3.5 h-3.5" />
-                  {isArabic ? 'أرشفة المحدد' : 'Archive selected'}
+                  {t(locale, 'questions.bulk.archiveSelected')}
                 </button>
               )}
               <button
@@ -945,7 +943,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                 className="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
                 style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
               >
-                {isArabic ? 'إلغاء التحديد' : 'Clear selection'}
+                {t(locale, 'questions.bulk.clearSelection')}
               </button>
             </div>
           )}
@@ -979,10 +977,10 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                 <FileText className="w-6 h-6" />
               </div>
               <p className="mt-3 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
-                {isArabic ? 'لا توجد أسئلة' : 'No questions'}
+                {t(locale, 'questions.empty.noQuestions')}
               </p>
               <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                {isArabic ? 'لا توجد أسئلة ضمن هذه التصفية.' : 'No questions match these filters.'}
+                {t(locale, 'questions.empty.noQuestionsFiltered')}
               </p>
             </div>
           ) : (
@@ -993,21 +991,21 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <th className="px-4 py-3 w-10">
                       <input
                         type="checkbox"
-                        aria-label={isArabic ? 'تحديد كل الأسئلة' : 'Select all questions'}
+                        aria-label={t(locale, 'questions.table.selectAll')}
                         checked={questions.length > 0 && selectedIds.size === questions.length}
                         onChange={(event) => setSelectedIds(event.target.checked ? new Set(questions.map(item => item.id)) : new Set())}
                         className="h-4 w-4 accent-teal-600"
                       />
                     </th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'نص السؤال' : 'Question'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'النوع' : 'Type'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الصعوبة' : 'Difficulty'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الحالة' : 'Status'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'المحاضرة' : 'Lecture'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الوسوم' : 'Tags'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'المحاولات' : 'Attempts'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'نسبة الإصابة' : 'Correct rate'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider"><span className="sr-only">{isArabic ? 'إجراءات' : 'Actions'}</span></th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'questions.table.colQuestion')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'questions.table.colType')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'questions.table.colDifficulty')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'questions.table.colStatus')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'questions.table.colLecture')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'questions.table.colTags')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'questions.table.colAttempts')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'questions.table.colCorrectRate')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider"><span className="sr-only">{t(locale, 'questions.table.colActions')}</span></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y" style={{ borderColor: 'var(--cms-line)' }}>
@@ -1016,7 +1014,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                       <td className="px-4 py-3">
                         <input
                           type="checkbox"
-                          aria-label={isArabic ? `تحديد السؤال: ${question.text.slice(0, 40)}` : `Select question: ${question.text.slice(0, 40)}`}
+                          aria-label={t(locale, 'questions.table.selectQuestion', { text: question.text.slice(0, 40) })}
                           checked={selectedIds.has(question.id)}
                           onChange={() => toggleSelect(question.id)}
                           className="h-4 w-4 accent-teal-600"
@@ -1049,15 +1047,15 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border ${statusBadgeClass(question.status)}`}>
                           <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
-                          {statusLabel(question.status, isArabic)}
+                          {publicationLabel(question.status, isArabic)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                        {question.lectureTitle || (isArabic ? 'على مستوى المادة' : 'Subject-level')}
+                        {question.lectureTitle || t(locale, 'questions.table.subjectLevel')}
                       </td>
                       <td className="px-4 py-3">
                         <span className="text-xs font-mono" style={{ color: 'var(--cms-text-muted)' }}>
-                          {question.optionsCount} {isArabic ? 'خيارات' : 'opts'}
+                          {question.optionsCount} {t(locale, 'questions.table.optionsCountSuffix')}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -1067,7 +1065,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         {/* W14.3 B.4: no attempts → say so; never show a misleading red 0%. */}
                         {question.attemptsCount === 0 ? (
                           <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                            {isArabic ? 'لا توجد محاولات بعد' : 'No attempts yet'}
+                            {t(locale, 'questions.table.noAttempts')}
                           </span>
                         ) : (
                           <div className="flex items-center gap-2">
@@ -1091,7 +1089,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                           {can('btn:questions.edit') && (
                             <button
                               type="button"
-                              title={isArabic ? 'تعديل' : 'Edit'}
+                              title={t(locale, 'questions.actions.edit')}
                               disabled={busy}
                               onClick={() => void editQuestion(question.id)}
                               className="p-1.5 rounded-md transition-colors"
@@ -1107,12 +1105,12 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               instead of a per-row button cluster. Destructive entries stay
                               confirm-gated downstream via the existing setConfirm flows. */}
                           <RowActionsMenu
-                            label={isArabic ? `إجراءات: ${question.text.slice(0, 40)}` : `Actions: ${question.text.slice(0, 40)}`}
+                            label={t(locale, 'questions.actions.menuLabel', { text: question.text.slice(0, 40) })}
                             dir={isArabic ? 'rtl' : 'ltr'}
                             items={[
                               {
                                 key: 'preview',
-                                label: isArabic ? 'معاينة (كما يراها الطالب)' : 'Preview (student view)',
+                                label: t(locale, 'questions.actions.preview'),
                                 icon: <Eye className="w-4 h-4" />,
                                 disabled: busy || previewLoading,
                                 onSelect: () => void previewQuestion(question.id),
@@ -1120,7 +1118,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               ...(can('btn:questions.create')
                                 ? [{
                                     key: 'duplicate',
-                                    label: isArabic ? 'تكرار كمسودة جديدة' : 'Duplicate as new draft',
+                                    label: t(locale, 'questions.actions.duplicate'),
                                     icon: <Copy className="w-4 h-4" />,
                                     disabled: busy,
                                     onSelect: () => void duplicateQuestion(question.id),
@@ -1129,7 +1127,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               ...(can('btn:questions.publish') && question.status === 'Published'
                                 ? [{
                                     key: 'unpublish',
-                                    label: isArabic ? 'إلغاء النشر' : 'Unpublish',
+                                    label: t(locale, 'questions.actions.unpublish'),
                                     icon: <Undo2 className="w-4 h-4" />,
                                     disabled: busy,
                                     onSelect: () => setConfirm({ id: question.id, action: 'unpublish' }),
@@ -1138,7 +1136,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               ...(can('btn:questions.publish') && question.status !== 'Published' && question.status !== 'Archived'
                                 ? [{
                                     key: 'publish',
-                                    label: isArabic ? 'نشر' : 'Publish',
+                                    label: t(locale, 'questions.actions.publish'),
                                     icon: <Send className="w-4 h-4" />,
                                     disabled: busy,
                                     onSelect: () => setConfirm({ id: question.id, action: 'publish' }),
@@ -1147,7 +1145,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               ...(can('btn:questions.archive')
                                 ? [{
                                     key: 'archive',
-                                    label: isArabic ? 'أرشفة' : 'Archive',
+                                    label: t(locale, 'questions.actions.archive'),
                                     icon: <Archive className="w-4 h-4" />,
                                     disabled: busy,
                                     dividerBefore: true,
@@ -1157,7 +1155,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               ...(can('btn:questions.delete')
                                 ? [{
                                     key: 'delete',
-                                    label: isArabic ? 'حذف' : 'Delete',
+                                    label: t(locale, 'questions.actions.delete'),
                                     danger: true,
                                     icon: <Trash2 className="w-4 h-4" />,
                                     disabled: busy,
@@ -1167,7 +1165,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               ...(isSuperAdmin
                                 ? [{
                                     key: 'hard-delete',
-                                    label: isArabic ? 'حذف نهائي (تجاوز الأرشفة)' : 'Hard delete (bypass archive)',
+                                    label: t(locale, 'questions.actions.hardDelete'),
                                     danger: true,
                                     dividerBefore: true,
                                     icon: <Trash2 className="w-4 h-4" />,
@@ -1194,8 +1192,10 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
               onPageChange={(next) => void loadQuestions(next)}
               dir={isArabic ? 'rtl' : 'ltr'}
               labels={isArabic ? undefined : {
-                prev: 'Previous', next: 'Next', navLabel: 'Question list pagination',
-                pageOf: (p, tp) => `Page ${p} of ${tp}`,
+                prev: t(locale, 'questions.pager.prev'),
+                next: t(locale, 'questions.pager.next'),
+                navLabel: t(locale, 'questions.pager.navLabel'),
+                pageOf: (p, tp) => t(locale, 'questions.pager.pageOf', { page: p, totalPages: tp }),
               }}
               testId="questions-list-pagination"
             />
@@ -1237,10 +1237,10 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                   >
                     <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                        {form.id ? (isArabic ? 'تعديل السؤال' : 'Edit question') : (isArabic ? 'سؤال جديد' : 'New question')}
+                        {form.id ? t(locale, 'questions.editor.editTitle') : t(locale, 'questions.header.newQuestion')}
                       </p>
                       <h3 className="text-base font-bold truncate" style={{ color: 'var(--cms-text)' }}>
-                        {activeSubject ? label(isArabic, activeSubject) : (isArabic ? 'بنك الأسئلة' : 'Question Bank')}
+                        {activeSubject ? label(isArabic, activeSubject) : t(locale, 'questions.header.title')}
                       </h3>
                     </div>
                     <button
@@ -1257,20 +1257,20 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
 
                   {/* Editor body — W14.3 D5: 4-tab layout; one Save persists every tab */}
                   <div className="flex-1 px-5 py-4 space-y-5">
-                    <div role="tablist" aria-label={isArabic ? 'أقسام محرر السؤال' : 'Question editor sections'} className="flex gap-1 overflow-x-auto pb-1 border-b" style={{ borderColor: 'var(--cms-line)' }}>
+                    <div role="tablist" aria-label={t(locale, 'questions.editor.tablistLabel')} className="flex gap-1 overflow-x-auto pb-1 border-b" style={{ borderColor: 'var(--cms-line)' }}>
                       {EDITOR_TABS.map(tab => (
                         <button
-                          key={tab.key}
+                          key={tab}
                           type="button"
                           role="tab"
-                          aria-selected={editorTab === tab.key}
-                          onClick={() => setEditorTab(tab.key)}
+                          aria-selected={editorTab === tab}
+                          onClick={() => setEditorTab(tab)}
                           className="px-3 py-2 rounded-t-lg text-xs font-semibold whitespace-nowrap transition-colors"
-                          style={editorTab === tab.key
+                          style={editorTab === tab
                             ? { background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)', borderBottom: '2px solid var(--cms-teal-600)' }
                             : { color: 'var(--cms-text-muted)' }}
                         >
-                          {isArabic ? tab.labelAr : tab.labelEn}
+                          {t(locale, `questions.editor.tabs.${tab}`)}
                         </button>
                       ))}
                     </div>
@@ -1280,7 +1280,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     {/* Question text */}
                     <label className="block">
                       <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                        {isArabic ? 'نص السؤال' : 'Question text'}
+                        {t(locale, 'questions.editor.questionTextLabel')}
                       </span>
                       <textarea
                         rows={3}
@@ -1294,7 +1294,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     {/* Type (difficulty lives in التصنيف والوسوم — D5) */}
                     <label className="block">
                       <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                        {isArabic ? 'النوع' : 'Type'}
+                        {t(locale, 'questions.table.colType')}
                       </span>
                       <select
                         value={form.type}
@@ -1303,15 +1303,15 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-60"
                         style={{ borderColor: 'var(--cms-line-strong)' }}
                       >
-                        <option value="Mcq">{isArabic ? 'اختيار من متعدد' : 'MCQ'}</option>
-                        <option value="TrueFalse">{isArabic ? 'صح أو خطأ' : 'True / False'}</option>
-                        <option value="MultipleSelect">{isArabic ? 'اختيارات متعددة' : 'Multiple select'}</option>
-                        <option value="Essay">{isArabic ? 'تحريري' : 'Essay'}</option>
-                        <option value="Matching">{isArabic ? 'وصل' : 'Matching'}</option>
+                        <option value="Mcq">{t(locale, 'questions.typeOptions.mcq')}</option>
+                        <option value="TrueFalse">{t(locale, 'questions.typeOptions.trueFalse')}</option>
+                        <option value="MultipleSelect">{t(locale, 'questions.typeOptions.multipleSelect')}</option>
+                        <option value="Essay">{t(locale, 'questions.typeOptions.essay')}</option>
+                        <option value="Matching">{t(locale, 'questions.typeOptions.matching')}</option>
                       </select>
                       {form.id && (
                         <small className="block mt-1 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
-                          {isArabic ? 'لا يمكن تغيير النوع بعد الإنشاء.' : 'Type cannot change after creation.'}
+                          {t(locale, 'questions.editor.typeLocked')}
                         </small>
                       )}
                     </label>
@@ -1325,21 +1325,19 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         <div className="flex items-center gap-2" style={{ color: 'var(--cms-teal-700)' }}>
                           <CheckCircle2 className="w-4 h-4" />
                           <strong className="text-sm font-semibold">
-                            {isArabic ? 'الإجابة النموذجية' : 'Essay model answer'}
+                            {t(locale, 'questions.editor.modelAnswerTitle')}
                           </strong>
                         </div>
                         <textarea
                           rows={5}
                           value={form.correctAnswer}
                           onChange={event => setForm(current => ({ ...current, correctAnswer: event.target.value }))}
-                          placeholder={isArabic ? 'هذه الإجابة ستظهر للطالب تحت جوابه بعد التصحيح.' : 'This answer appears under the student response after grading.'}
+                          placeholder={t(locale, 'questions.editor.modelAnswerPlaceholder')}
                           className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 resize-y"
                           style={{ borderColor: 'var(--cms-line-strong)' }}
                         />
                         <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic
-                            ? 'يُجرى التصحيح الآلي بمطابقة النص بعد توحيد المسافات وحالة الأحرف.'
-                            : 'Automatic grading normalizes whitespace and letter case.'}
+                          {t(locale, 'questions.editor.gradingNote')}
                         </p>
                       </div>
                     ) : isMatching ? (
@@ -1352,12 +1350,12 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                              {isArabic ? 'عناصر الوصل' : 'Matching items'}
+                              {t(locale, 'questions.matching.itemsTitle')}
                             </p>
                             <h4 className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>
                               {form.matching.allowMultiMap
-                                ? (isArabic ? 'علّم لكل عنصر كل الإجابات الصحيحة له — إجابة واحدة على الأقل.' : 'Tick every correct target for each prompt — at least one.')
-                                : (isArabic ? 'اربط كل عنصر من القائمة الأولى بإجابته في القائمة الثانية.' : 'Pair every prompt with its target — each side used exactly once.')}
+                                ? t(locale, 'questions.matching.hintMulti')
+                                : t(locale, 'questions.matching.hintSingle')}
                             </h4>
                           </div>
                           <span
@@ -1381,10 +1379,10 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               data-testid="matching-allow-multimap"
                               className="h-4 w-4 accent-teal-600"
                             />
-                            {isArabic ? 'إجابة متعددة لكل عنصر (وصل متعدد)' : 'Multi-map (prompt → several targets)'}
+                            {t(locale, 'questions.matching.multiMapToggle')}
                           </label>
                           <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                            <span className="font-semibold">{isArabic ? 'ترقيم القائمة الأولى:' : 'Prompt numbering:'}</span>
+                            <span className="font-semibold">{t(locale, 'questions.matching.promptNumbering')}</span>
                             <select
                               value={form.matching.promptNumbering ?? 'arabicLetters'}
                               onChange={event => patchMatching({ promptNumbering: event.target.value as MatchingNumberingStyle })}
@@ -1392,13 +1390,13 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               className="px-2 py-1 rounded-md border text-xs bg-white"
                               style={{ borderColor: 'var(--cms-line)' }}
                             >
-                              <option value="arabicLetters">{isArabic ? 'أ ب ج' : 'أ ب ج (Arabic)'}</option>
-                              <option value="digits">{isArabic ? '1 2 3' : '1 2 3 (digits)'}</option>
-                              <option value="latinLetters">{isArabic ? 'A B C' : 'A B C (Latin)'}</option>
+                              <option value="arabicLetters">{t(locale, 'questions.matching.numbering.arabicLetters')}</option>
+                              <option value="digits">{t(locale, 'questions.matching.numbering.digits')}</option>
+                              <option value="latinLetters">{t(locale, 'questions.matching.numbering.latinLetters')}</option>
                             </select>
                           </label>
                           <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                            <span className="font-semibold">{isArabic ? 'ترقيم القائمة الثانية:' : 'Target numbering:'}</span>
+                            <span className="font-semibold">{t(locale, 'questions.matching.targetNumbering')}</span>
                             <select
                               value={form.matching.targetNumbering ?? 'digits'}
                               onChange={event => patchMatching({ targetNumbering: event.target.value as MatchingNumberingStyle })}
@@ -1406,9 +1404,9 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               className="px-2 py-1 rounded-md border text-xs bg-white"
                               style={{ borderColor: 'var(--cms-line)' }}
                             >
-                              <option value="digits">{isArabic ? '1 2 3' : '1 2 3 (digits)'}</option>
-                              <option value="arabicLetters">{isArabic ? 'أ ب ج' : 'أ ب ج (Arabic)'}</option>
-                              <option value="latinLetters">{isArabic ? 'A B C' : 'A B C (Latin)'}</option>
+                              <option value="digits">{t(locale, 'questions.matching.numbering.digits')}</option>
+                              <option value="arabicLetters">{t(locale, 'questions.matching.numbering.arabicLetters')}</option>
+                              <option value="latinLetters">{t(locale, 'questions.matching.numbering.latinLetters')}</option>
                             </select>
                           </label>
                         </div>
@@ -1416,7 +1414,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                           {/* ===== Prompts (right column in RTL) — each pairs via select ===== */}
                           <div className="space-y-2">
                             <p className="text-xs font-bold" style={{ color: 'var(--cms-text-soft)' }}>
-                              {isArabic ? 'القائمة الأولى — العناصر' : 'List 1 — prompts'}
+                              {t(locale, 'questions.matching.list1Title')}
                             </p>
                             {form.matching.prompts.map((prompt, index) => {
                               const taken = takenTargetIds(form.matching, prompt.id);
@@ -1434,14 +1432,14 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                     <input
                                       value={prompt.text}
                                       onChange={event => setPromptText(prompt.id, event.target.value)}
-                                      placeholder={isArabic ? 'نص العنصر' : 'Prompt text'}
+                                      placeholder={t(locale, 'questions.matching.promptPlaceholder')}
                                       data-testid={`matching-prompt-text-${prompt.id}`}
                                       className="flex-1 px-2 py-1.5 rounded-md border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                                       style={{ borderColor: 'var(--cms-line)' }}
                                     />
                                     <button
                                       type="button"
-                                      title={isArabic ? 'حذف العنصر' : 'Remove prompt'}
+                                      title={t(locale, 'questions.matching.removePrompt')}
                                       disabled={form.matching.prompts.length <= 2}
                                       onClick={() => patchMatching(removePrompt(form.matching, prompt.id))}
                                       data-testid={`matching-prompt-remove-${prompt.id}`}
@@ -1474,7 +1472,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                               data-testid={`matching-multi-${prompt.id}-${target.id}`}
                                               className="h-3.5 w-3.5 accent-teal-600"
                                             />
-                                            <span>{matchingNumberingLabel(targetIndex, form.matching.targetNumbering ?? 'digits')}. {target.text.trim() || (isArabic ? '(عنصر جديد)' : '(new item)')}</span>
+                                            <span>{matchingNumberingLabel(targetIndex, form.matching.targetNumbering ?? 'digits')}. {target.text.trim() || t(locale, 'questions.matching.newItem')}</span>
                                           </label>
                                         );
                                       })}
@@ -1486,19 +1484,19 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                       value={form.matching.pairs[prompt.id] ?? ''}
                                       onChange={event => pairPrompt(prompt.id, event.target.value)}
                                       data-testid={`matching-prompt-pair-${prompt.id}`}
-                                      aria-label={isArabic ? `الإجابة الصحيحة للعنصر ${matchingNumberingLabel(index, form.matching.promptNumbering ?? 'arabicLetters')}` : `Correct target for prompt ${index + 1}`}
+                                      aria-label={t(locale, 'questions.matching.pairSelectLabel', { label: matchingNumberingLabel(index, form.matching.promptNumbering ?? 'arabicLetters'), index: index + 1 })}
                                       className="flex-1 px-2 py-1.5 rounded-md border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                                       style={{ borderColor: 'var(--cms-line)' }}
                                     >
-                                      <option value="">{isArabic ? 'اختر الإجابة الصحيحة…' : 'Select the correct target…'}</option>
+                                      <option value="">{t(locale, 'questions.matching.selectTargetPlaceholder')}</option>
                                       {form.matching.targets.map((target, targetIndex) => (
                                         <option
                                           key={target.id}
                                           value={target.id}
                                           disabled={taken.has(target.id)}
                                         >
-                                          {matchingNumberingLabel(targetIndex, form.matching.targetNumbering ?? 'digits')}. {target.text.trim() || (isArabic ? '(عنصر جديد)' : '(new item)')}
-                                          {taken.has(target.id) ? (isArabic ? ' — مستخدم لعنصر آخر' : ' — taken') : ''}
+                                          {matchingNumberingLabel(targetIndex, form.matching.targetNumbering ?? 'digits')}. {target.text.trim() || t(locale, 'questions.matching.newItem')}
+                                          {taken.has(target.id) ? t(locale, 'questions.matching.takenSuffix') : ''}
                                         </option>
                                       ))}
                                     </select>
@@ -1515,13 +1513,13 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
                             >
                               <Plus className="w-3.5 h-3.5" />
-                              {isArabic ? 'إضافة عنصر' : 'Add prompt'}
+                              {t(locale, 'questions.matching.addPrompt')}
                             </button>
                           </div>
                           {/* ===== Targets (left column in RTL) ===== */}
                           <div className="space-y-2">
                             <p className="text-xs font-bold" style={{ color: 'var(--cms-text-soft)' }}>
-                              {isArabic ? 'القائمة الثانية — الإجابات' : 'List 2 — targets'}
+                              {t(locale, 'questions.matching.list2Title')}
                             </p>
                             {form.matching.targets.map((target, index) => {
                               const pairedTo = form.matching.allowMultiMap
@@ -1540,19 +1538,19 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                   <input
                                     value={target.text}
                                     onChange={event => setTargetText(target.id, event.target.value)}
-                                    placeholder={isArabic ? 'نص الإجابة' : 'Target text'}
+                                    placeholder={t(locale, 'questions.matching.targetPlaceholder')}
                                     data-testid={`matching-target-text-${target.id}`}
                                     className="flex-1 px-2 py-1.5 rounded-md border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                                     style={{ borderColor: 'var(--cms-line)' }}
                                   />
                                   {pairedTo && (
                                     <span className="text-[10px] font-bold shrink-0" style={{ color: 'var(--cms-teal-700)' }}>
-                                      {isArabic ? 'مربوط' : 'paired'}
+                                      {t(locale, 'questions.matching.paired')}
                                     </span>
                                   )}
                                   <button
                                     type="button"
-                                    title={isArabic ? 'حذف الإجابة' : 'Remove target'}
+                                    title={t(locale, 'questions.matching.removeTarget')}
                                     disabled={form.matching.targets.length <= 2}
                                     onClick={() => patchMatching(removeTarget(form.matching, target.id))}
                                     data-testid={`matching-target-remove-${target.id}`}
@@ -1571,18 +1569,14 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
                             >
                               <Plus className="w-3.5 h-3.5" />
-                              {isArabic ? 'إضافة إجابة' : 'Add target'}
+                              {t(locale, 'questions.matching.addTarget')}
                             </button>
                           </div>
                         </div>
                         <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
                           {form.matching.allowMultiMap
-                            ? (isArabic
-                              ? 'قاعدة التصحيح (وصل متعدد): يُحسب العنصر صحيحاً فقط إذا اختار الطالب مجموعة إجاباته الصحيحة كاملة بلا زيادة — والدرجة الكاملة تتطلب كل العناصر صحيحة.'
-                              : 'Multi-map grading: a prompt is correct only when the student selects exactly its full set of correct targets; full marks need every prompt correct.')
-                            : (isArabic
-                              ? 'قاعدة التصحيح: تُحسب الإجابة صحيحة فقط إذا تطابقت كل الأزواج — يُعرض للطالب بعد التصحيح الزوج الصحيح لكل عنصر أخطأ فيه.'
-                              : 'Grading is all-or-nothing across pairs — after grading the student sees the correct target for every wrong pair.')}
+                            ? t(locale, 'questions.matching.gradingMulti')
+                            : t(locale, 'questions.matching.gradingSingle')}
                         </p>
                       </div>
                     ) : (
@@ -1593,12 +1587,12 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                              {isArabic ? 'الخيارات' : 'Options'}
+                              {t(locale, 'questions.options.title')}
                             </p>
                             <h4 className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>
                               {isTrueFalse
-                                ? (isArabic ? 'حدد الإجابة الصحيحة ثم أضف الشرح.' : 'Choose the correct answer, then add the explanation.')
-                                : (isArabic ? 'حدد خياراً صحيحاً واحداً على الأقل.' : 'Mark at least one correct option.')}
+                                ? t(locale, 'questions.options.hintTrueFalse')
+                                : t(locale, 'questions.options.hintDefault')}
                             </h4>
                           </div>
                         </div>
@@ -1637,7 +1631,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                               <>
                                 <button
                                   type="button"
-                                  title={isArabic ? 'أعلى' : 'Up'}
+                                  title={t(locale, 'questions.options.moveUp')}
                                   disabled={index === 0}
                                   onClick={() => moveOption(index, -1)}
                                   className="p-1 rounded transition-colors disabled:opacity-30"
@@ -1647,7 +1641,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                 </button>
                                 <button
                                   type="button"
-                                  title={isArabic ? 'أسفل' : 'Down'}
+                                  title={t(locale, 'questions.options.moveDown')}
                                   disabled={index === form.options.length - 1}
                                   onClick={() => moveOption(index, 1)}
                                   className="p-1 rounded transition-colors disabled:opacity-30"
@@ -1657,7 +1651,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                 </button>
                                 <button
                                   type="button"
-                                  title={isArabic ? 'حذف' : 'Remove'}
+                                  title={t(locale, 'questions.options.remove')}
                                   disabled={form.options.length <= 2}
                                   onClick={() => setForm(current => ({ ...current, options: current.options.filter((_, itemIndex) => itemIndex !== index) }))}
                                   className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-30"
@@ -1676,7 +1670,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                   {option.imageUrl && (
                                     <img
                                       src={option.imageUrl}
-                                      alt={isArabic ? 'صورة الخيار' : 'Option image'}
+                                      alt={t(locale, 'questions.options.imageAlt')}
                                       className="h-10 w-16 rounded border object-cover"
                                       style={{ borderColor: 'var(--cms-line)' }}
                                     />
@@ -1687,7 +1681,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                   {option.imageUrl && (
                                     <button
                                       type="button"
-                                      title={isArabic ? 'إزالة الصورة' : 'Remove image'}
+                                      title={t(locale, 'questions.options.removeImage')}
                                       onClick={() => updateOption(index, { imageUrl: null })}
                                       className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
                                     >
@@ -1700,8 +1694,8 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                 <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: 'var(--cms-text-muted)' }}>
                                   <ImagePlus className="w-3.5 h-3.5" />
                                   {uploadingOption === index
-                                    ? (isArabic ? 'جارٍ الرفع…' : 'Uploading…')
-                                    : (isArabic ? 'رفع صورة' : 'Upload image')}
+                                    ? t(locale, 'questions.options.uploading')
+                                    : t(locale, 'questions.options.uploadImage')}
                                   <input
                                     type="file"
                                     accept="image/*"
@@ -1717,7 +1711,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                                 <input
                                   value={option.imageUrl ?? ''}
                                   onChange={event => updateOption(index, { imageUrl: event.target.value || null })}
-                                  placeholder={isArabic ? 'أو الصق رابط الصورة العام' : 'or paste a public image URL'}
+                                  placeholder={t(locale, 'questions.options.imageUrlPlaceholder')}
                                   className="flex-1 min-w-[160px] px-2 py-1 rounded-md border text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                                   style={{ borderColor: 'var(--cms-line)' }}
                                 />
@@ -1736,7 +1730,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                             onMouseLeave={(event) => { event.currentTarget.style.borderColor = 'var(--cms-line-strong)'; event.currentTarget.style.color = 'var(--cms-text-soft)'; }}
                           >
                             <Plus className="w-3.5 h-3.5" />
-                            {isArabic ? 'إضافة خيار' : 'Add option'}
+                            {t(locale, 'questions.options.addOption')}
                           </button>
                         )}
                       </div>
@@ -1749,20 +1743,20 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     {/* Explanation */}
                     <label className="block">
                       <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                        {isArabic ? 'الشرح' : 'Explanation'}
+                        {t(locale, 'questions.editor.explanationLabel')}
                       </span>
                       <textarea
                         rows={4}
                         value={form.explanation}
                         onChange={event => setForm(current => ({ ...current, explanation: event.target.value }))}
-                        placeholder={isArabic ? 'اكتب التوضيح العلمي للسؤال وإجابته.' : 'Write the scientific explanation shown after grading.'}
+                        placeholder={t(locale, 'questions.editor.explanationPlaceholder')}
                         className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 resize-y"
                         style={{ borderColor: 'var(--cms-line-strong)' }}
                       />
                     </label>
                     <label className="block">
                       <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                        {isArabic ? 'المرجع (اختياري)' : 'Reference (optional)'}
+                        {t(locale, 'questions.editor.referenceLabel')}
                       </span>
                       <input
                         value={form.reference}
@@ -1778,7 +1772,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <label className="block">
                         <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic ? 'المحاضرة (اختياري)' : 'Lecture (optional)'}
+                          {t(locale, 'questions.editor.lectureLabel')}
                         </span>
                         <select
                           value={form.lectureId}
@@ -1786,13 +1780,13 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                           className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                           style={{ borderColor: 'var(--cms-line-strong)' }}
                         >
-                          <option value="">{isArabic ? 'سؤال عام للمادة' : 'Subject-level question'}</option>
+                          <option value="">{t(locale, 'questions.editor.subjectLevelOption')}</option>
                           {lectures.map(item => <option key={item.id} value={item.id}>{label(isArabic, item)}</option>)}
                         </select>
                       </label>
                       <label className="block">
                         <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic ? 'الصعوبة' : 'Difficulty'}
+                          {t(locale, 'questions.table.colDifficulty')}
                         </span>
                         <select
                           value={form.difficulty}
@@ -1800,14 +1794,14 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                           className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                           style={{ borderColor: 'var(--cms-line-strong)' }}
                         >
-                          <option value="Easy">{isArabic ? 'سهل' : 'Easy'}</option>
-                          <option value="Medium">{isArabic ? 'متوسط' : 'Medium'}</option>
-                          <option value="Hard">{isArabic ? 'صعب' : 'Hard'}</option>
+                          <option value="Easy">{t(locale, 'questions.difficultyOptions.easy')}</option>
+                          <option value="Medium">{t(locale, 'questions.difficultyOptions.medium')}</option>
+                          <option value="Hard">{t(locale, 'questions.difficultyOptions.hard')}</option>
                         </select>
                       </label>
                       <label className="block">
                         <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic ? 'الوسوم (مفصولة بفواصل)' : 'Tags (comma-separated)'}
+                          {t(locale, 'questions.editor.tagsLabel')}
                         </span>
                         <input
                           value={form.tags}
@@ -1818,7 +1812,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                       </label>
                       <label className="block">
                         <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic ? 'سنة الامتحان (اختياري)' : 'Exam year (optional)'}
+                          {t(locale, 'questions.editor.yearLabel')}
                         </span>
                         <input
                           type="number"
@@ -1827,19 +1821,19 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                           inputMode="numeric"
                           value={form.year}
                           onChange={event => setForm(current => ({ ...current, year: event.target.value }))}
-                          placeholder={isArabic ? 'مثال: 2024' : 'e.g. 2024'}
+                          placeholder={t(locale, 'questions.editor.yearPlaceholder')}
                           className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                           style={{ borderColor: 'var(--cms-line-strong)' }}
                         />
                       </label>
                       <label className="block sm:col-span-2">
                         <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic ? 'وسم الفقرة (اختياري — موقع السؤال في المنهاج)' : 'Paragraph tag (optional — position in curriculum)'}
+                          {t(locale, 'questions.editor.paragraphTagLabel')}
                         </span>
                         <input
                           value={form.paragraphTag}
                           onChange={event => setForm(current => ({ ...current, paragraphTag: event.target.value }))}
-                          placeholder={isArabic ? 'مثال: الفصل الأول' : 'e.g. Chapter 1'}
+                          placeholder={t(locale, 'questions.editor.paragraphTagPlaceholder')}
                           className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                           style={{ borderColor: 'var(--cms-line-strong)' }}
                         />
@@ -1849,18 +1843,18 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     {form.id && editingRow && (
                       <div className="rounded-lg border p-4" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
                         <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--cms-text-muted)' }}>
-                          {isArabic ? 'الاستخدام' : 'Usage'}
+                          {t(locale, 'questions.editor.usageTitle')}
                         </p>
                         <div className="flex items-center gap-6 text-sm">
                           <span style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'المحاولات' : 'Attempts'}:{' '}
+                            {t(locale, 'questions.table.colAttempts')}:{' '}
                             <strong style={{ color: 'var(--cms-text)' }}>{editingRow.attemptsCount}</strong>
                           </span>
                           <span style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'نسبة الإصابة' : 'Correct rate'}:{' '}
+                            {t(locale, 'questions.table.colCorrectRate')}:{' '}
                             {editingRow.attemptsCount > 0
                               ? <strong style={{ color: 'var(--cms-text)' }}>{editingRow.correctRate.toFixed(0)}%</strong>
-                              : <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'لا توجد محاولات بعد' : 'No attempts yet'}</span>}
+                              : <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'questions.table.noAttempts')}</span>}
                           </span>
                         </div>
                       </div>
@@ -1871,26 +1865,22 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <div hidden={editorTab !== 'settings'} className="space-y-4">
                       <div className="rounded-lg border p-4 space-y-2" style={{ borderColor: 'var(--cms-line)' }}>
                         <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                          {isArabic ? 'حالة النشر' : 'Publish status'}
+                          {t(locale, 'questions.settings.publishStatusTitle')}
                         </p>
                         <div>
                           {form.id && editingRow
                             ? <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border ${statusBadgeClass(editingRow.status)}`}>
                                 <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
-                                {statusLabel(editingRow.status, isArabic)}
+                                {publicationLabel(editingRow.status, isArabic)}
                               </span>
-                            : <span className="text-sm" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'مسودة (سؤال جديد)' : 'Draft (new question)'}</span>}
+                            : <span className="text-sm" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'questions.settings.draftNewQuestion')}</span>}
                         </div>
                         <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                          {isArabic
-                            ? 'أزرار النشر/الأرشفة/إلغاء النشر في شريط الإجراءات أسفل المحرر.'
-                            : 'Publish / archive / unpublish buttons live in the action bar below.'}
+                          {t(locale, 'questions.settings.actionBarNote')}
                         </p>
                       </div>
                       <div className="rounded-lg border p-4 text-xs leading-relaxed" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)', color: 'var(--cms-text-soft)' }}>
-                        {isArabic
-                          ? 'ملاحظة: إظهار الشرح بعد التصحيح إعداد على مستوى الاختبار وليس لكل سؤال — يُضبط عند إنشاء الاختبار في مركز الاختبارات.'
-                          : 'Note: showing explanations after grading is an exam-level setting, not per-question — configure it when creating the exam in the Exams Center.'}
+                        {t(locale, 'questions.settings.explanationScopeNote')}
                       </div>
                     </div>
                   </div>
@@ -1907,7 +1897,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                       className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
                       style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
                     >
-                      {isArabic ? 'إغلاق' : 'Close'}
+                      {t(locale, 'questions.actionBar.close')}
                     </button>
                     {/* Push 2 / Track 1: reset the saved sticky context */}
                     <button
@@ -1916,9 +1906,9 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                       onClick={resetContext}
                       className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
                       style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
-                      title={isArabic ? 'مسح السياق المحفوظ (الشلال والنوع والوسوم والسنة ووسم الفقرة)' : 'Clear the saved context (cascade, type, tags, year, paragraph tag)'}
+                      title={t(locale, 'questions.actionBar.resetContextTitle')}
                     >
-                      {isArabic ? 'إعادة تعيين السياق' : 'Reset context'}
+                      {t(locale, 'questions.actionBar.resetContext')}
                     </button>
                     {/* Push 2 / Track 1: save & keep the context for rapid question entry.
                         Push 3: covered by btn:questions.create (Q4) — same family as New question. */}
@@ -1929,10 +1919,10 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         onClick={() => { void doSubmit(true); }}
                         className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50"
                         style={{ borderColor: 'var(--cms-teal-700)', color: 'var(--cms-teal-700)' }}
-                        title={isArabic ? 'حفظ السؤال والبدء بالتالي مع الاحتفاظ بالسياق (الشلال، النوع، الصعوبة، الوسوم، السنة، وسم الفقرة)' : 'Save this question and start the next with the context kept (cascade, type, difficulty, tags, year, paragraph tag)'}
+                        title={t(locale, 'questions.actionBar.saveAddAnotherTitle')}
                       >
                         <PlusCircle className="w-4 h-4" />
-                        {isArabic ? 'حفظ وإضافة آخر' : 'Save & add another'}
+                        {t(locale, 'questions.actionBar.saveAddAnother')}
                       </button>
                     )}
                     {form.id && can('btn:questions.archive') && (
@@ -1944,7 +1934,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         style={{ borderColor: 'var(--cms-warning)', color: 'var(--cms-warning)' }}
                       >
                         <Archive className="w-4 h-4" />
-                        {isArabic ? 'أرشفة' : 'Archive'}
+                        {t(locale, 'questions.actions.archive')}
                       </button>
                     )}
                     {form.id && can('btn:questions.publish') && (
@@ -1956,7 +1946,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         style={{ background: 'var(--cms-success)' }}
                       >
                         <Send className="w-4 h-4" />
-                        {isArabic ? 'نشر' : 'Publish'}
+                        {t(locale, 'questions.actions.publish')}
                       </button>
                     )}
                     {form.id && editingRow?.status === 'Published' && can('btn:questions.publish') && (
@@ -1968,7 +1958,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         style={{ borderColor: 'var(--cms-warning)', color: 'var(--cms-warning)' }}
                       >
                         <Undo2 className="w-4 h-4" />
-                        {isArabic ? 'إلغاء النشر' : 'Unpublish'}
+                        {t(locale, 'questions.actions.unpublish')}
                       </button>
                     )}
                     <button
@@ -1981,8 +1971,8 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     >
                       {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                       {form.id
-                        ? (isArabic ? 'حفظ التعديل' : 'Save changes')
-                        : (isArabic ? 'حفظ كمسودة' : 'Save as draft')}
+                        ? t(locale, 'questions.actionBar.saveChanges')
+                        : t(locale, 'questions.actionBar.saveAsDraft')}
                     </button>
                   </div>
                 </form>
@@ -2025,21 +2015,21 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
               <div className="min-w-0">
                 <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
                   {confirm.action === 'publish'
-                    ? (isArabic ? 'نشر السؤال' : 'Publish question')
+                    ? t(locale, 'questions.confirm.publishTitle')
                     : confirm.action === 'archive'
-                    ? (isArabic ? 'أرشفة السؤال' : 'Archive question')
+                    ? t(locale, 'questions.confirm.archiveTitle')
                     : confirm.action === 'unpublish'
-                    ? (isArabic ? 'إلغاء نشر السؤال' : 'Unpublish question')
-                    : (isArabic ? 'حذف السؤال' : 'Delete question')}
+                    ? t(locale, 'questions.confirm.unpublishTitle')
+                    : t(locale, 'questions.confirm.deleteTitle')}
                 </h3>
                 <p className="text-sm mt-1" style={{ color: 'var(--cms-text-soft)' }}>
                   {confirm.action === 'publish'
-                    ? (isArabic ? 'سيُتاح السؤال للطلاب المخوّلين ضمن مادته.' : 'The question will become available to entitled students within its subject.')
+                    ? t(locale, 'questions.confirm.publishBody')
                     : confirm.action === 'archive'
-                    ? (isArabic ? 'سيُخفى السؤال من الطلاب لكنه يبقى في قاعدة البيانات.' : 'The question will be hidden from students but kept in the database.')
+                    ? t(locale, 'questions.confirm.archiveBody')
                     : confirm.action === 'unpublish'
-                    ? (isArabic ? 'سيعود السؤال إلى مسودة ويُخفى عن الطلاب حتى إعادة نشره.' : 'The question returns to draft and stays hidden from students until republished.')
-                    : (isArabic ? 'هذا الإجراء دائم. سيُحذف السؤال نهائياً من قاعدة البيانات.' : 'This action is permanent. The question will be removed permanently.')}
+                    ? t(locale, 'questions.confirm.unpublishBody')
+                    : t(locale, 'questions.confirm.deleteBody')}
                 </p>
                 {confirm.action === 'delete' && (
                   <p className="text-sm font-medium mt-2 truncate" style={{ color: 'var(--cms-text)' }}>
@@ -2055,7 +2045,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                 className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
                 style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
               >
-                {isArabic ? 'إلغاء' : 'Cancel'}
+                {t(locale, 'questions.confirm.cancel')}
               </button>
               <button
                 onClick={() => {
@@ -2093,12 +2083,12 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                   : <Send className="w-4 h-4" />
                 )}
                 {confirm.action === 'publish'
-                  ? (isArabic ? 'نشر' : 'Publish')
+                  ? t(locale, 'questions.actions.publish')
                   : confirm.action === 'archive'
-                  ? (isArabic ? 'أرشفة' : 'Archive')
+                  ? t(locale, 'questions.actions.archive')
                   : confirm.action === 'unpublish'
-                  ? (isArabic ? 'إلغاء النشر' : 'Unpublish')
-                  : (isArabic ? 'حذف' : 'Delete')}
+                  ? t(locale, 'questions.actions.unpublish')
+                  : t(locale, 'questions.actions.delete')}
               </button>
             </div>
           </div>
@@ -2116,7 +2106,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
             className="bg-white rounded-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto"
             role="dialog"
             aria-modal="true"
-            aria-label={isArabic ? 'معاينة السؤال' : 'Question preview'}
+            aria-label={t(locale, 'questions.preview.title')}
             style={{ boxShadow: 'var(--cms-shadow-xl)' }}
             onMouseDown={(event) => event.stopPropagation()}
           >
@@ -2126,7 +2116,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                   <Eye className="w-5 h-5" />
                 </div>
                 <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
-                  {isArabic ? 'معاينة السؤال' : 'Question preview'}
+                  {t(locale, 'questions.preview.title')}
                 </h3>
               </div>
               <button
@@ -2163,7 +2153,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <img
                       key={`${image.sortOrder}-${index}`}
                       src={image.imageUrl}
-                      alt={image.altText ?? (isArabic ? 'صورة مرفقة بالسؤال' : 'Question image')}
+                      alt={image.altText ?? t(locale, 'questions.preview.imageAlt')}
                       className="rounded-lg max-h-72 object-contain border"
                       style={{ borderColor: 'var(--cms-line)' }}
                     />
@@ -2189,7 +2179,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                       {option.imageUrl && (
                         <img
                           src={option.imageUrl}
-                          alt={isArabic ? 'صورة الخيار' : 'Option image'}
+                          alt={t(locale, 'questions.options.imageAlt')}
                           className="mt-2 rounded max-h-40 object-contain border"
                           style={{ borderColor: 'var(--cms-line)' }}
                         />
@@ -2206,13 +2196,11 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                   data-testid="preview-matching-note"
                   style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)', color: 'var(--cms-text-soft)' }}
                 >
-                  {isArabic
-                    ? 'سؤال وصل — تعرض المعاينة نص السؤال فقط. العناصر والأزواج تُحرَّر وتُعاين من محرر السؤال.'
-                    : 'Matching question — the preview shows the question text only. Items and pairs are authored and reviewed in the question editor.'}
+                  {t(locale, 'questions.preview.matchingNote')}
                 </div>
               )}
               <p className="text-xs text-center" style={{ color: 'var(--cms-text-muted)' }}>
-                {isArabic ? 'معاينة كما يراها الطالب — دون الإجابة الصحيحة أو الشرح.' : 'Previewed exactly as the student sees it — no correct answer or explanation.'}
+                {t(locale, 'questions.preview.footerNote')}
               </p>
             </div>
           </div>
@@ -2224,9 +2212,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
         token={token}
         isArabic={isArabic}
         target={hardTarget}
-        consequence={isArabic
-          ? 'سيُحذف السؤال نهائيًا مع خياراته وصوره وسجلّ استخدامه في الاختبارات والممارسة (تجاوز الأرشفة).'
-          : 'The question is physically deleted with its options, images and usage history (bypassing archive).'}
+        consequence={t(locale, 'questions.hardDelete.consequence')}
         onDone={() => { void loadQuestions(); }}
         onClose={() => setHardTarget(null)}
       />

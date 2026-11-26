@@ -23,6 +23,7 @@ import { apiRequest, type PagedResult } from '../lib/api';
 import { ConfirmDialog } from '@cms/ui';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
+import { t, localeOf } from '../lib/dictionary';
 
 type University = { id: string; nameAr: string; nameEn?: string | null; slug: string; collegesCount: number; isArchived: boolean };
 type College = { id: string; universityId: string; nameAr: string; nameEn?: string | null; slug: string; yearsCount: number; isArchived: boolean };
@@ -65,6 +66,7 @@ const emptyLectureForm = (): LectureForm => ({
 });
 
 export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotice }: Props) {
+  const locale = localeOf(isArabic);
   // Push 3: cosmetic gating — 5 stage adds + lecture add + archive (7 keys).
   // lecture publish stays ungated (out-of-census control); backend policy is the gate.
   const { can } = useUiPermissions();
@@ -187,8 +189,8 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
       await request(`/api/v1/academic/${kind}/${id}/${restore ? 'restore' : 'archive'}`, { method: 'POST' });
       await refreshAfterLifecycle(kind);
       onNotice(restore
-        ? (isArabic ? 'تمت استعادة العنصر الأكاديمي.' : 'Academic item restored.')
-        : (isArabic ? 'تمت أرشفة العنصر الأكاديمي وإخفاؤه عن الطلاب.' : 'Academic item archived and hidden from students.'));
+        ? t(locale, 'academic.toasts.itemRestored')
+        : t(locale, 'academic.toasts.itemArchived'));
     } catch (error) {
       onError(error instanceof Error ? error.message : 'Request failed.');
     } finally {
@@ -201,7 +203,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
     try {
       await request(`/api/v1/lectures/${id}/publish`, { method: 'POST' });
       await refreshAfterLifecycle('lecture');
-      onNotice(isArabic ? 'تم نشر المحاضرة وأصبحت متاحة للطلاب المخوّلين.' : 'Lecture published for entitled students.');
+      onNotice(t(locale, 'academic.toasts.lecturePublished'));
       setPublishLectureTarget(null);
     } catch (error) {
       onError(error instanceof Error ? error.message : 'Request failed.');
@@ -233,11 +235,11 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
         await request('/api/v1/subjects', { method: 'POST', body: JSON.stringify({ semesterId, nameAr: form.name, nameEn: form.nameEn || null, slug, code: form.code || null, description: null, color: '#0f766e' }) });
         await loadSubjects(semesterId);
       } else {
-        throw new Error(isArabic ? 'اختر العنصر الأب أولًا.' : 'Select the parent item first.');
+        throw new Error(t(locale, 'academic.errors.parentFirst'));
       }
       setQuickForms((current) => ({ ...current, [kind]: emptyQuickForm() }));
       setOpenQuick(null);
-      onNotice(isArabic ? 'تم حفظ العنصر الأكاديمي.' : 'Academic item saved.');
+      onNotice(t(locale, 'academic.toasts.itemSaved'));
     } catch (error) {
       onError(error instanceof Error ? error.message : 'Request failed.');
     } finally {
@@ -268,7 +270,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
       await loadLectures(subjectId);
       setLectureForm(emptyLectureForm());
       setShowLectureForm(false);
-      onNotice(isArabic ? 'تم حفظ المحاضرة.' : 'Lecture saved.');
+      onNotice(t(locale, 'academic.toasts.lectureSaved'));
     } catch (error) {
       onError(error instanceof Error ? error.message : 'Request failed.');
     } finally {
@@ -280,7 +282,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
     {
       key: 'university' as StageKey,
       icon: Building2,
-      title: isArabic ? 'الجامعات' : 'Universities',
+      title: t(locale, 'academic.stages.universities'),
       items: universities,
       selected: universityId,
       choose: chooseUniversity,
@@ -290,7 +292,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
     {
       key: 'college' as StageKey,
       icon: School,
-      title: isArabic ? 'الكليات' : 'Colleges',
+      title: t(locale, 'academic.stages.colleges'),
       items: colleges,
       selected: collegeId,
       choose: chooseCollege,
@@ -300,7 +302,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
     {
       key: 'year' as StageKey,
       icon: GraduationCap,
-      title: isArabic ? 'السنوات' : 'Years',
+      title: t(locale, 'academic.stages.years'),
       items: years,
       selected: yearId,
       choose: chooseYear,
@@ -310,7 +312,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
     {
       key: 'semester' as StageKey,
       icon: CalendarDays,
-      title: isArabic ? 'الفصول' : 'Semesters',
+      title: t(locale, 'academic.stages.semesters'),
       items: semesters,
       selected: semesterId,
       choose: chooseSemester,
@@ -320,7 +322,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
     {
       key: 'subject' as StageKey,
       icon: Stethoscope,
-      title: isArabic ? 'المواد' : 'Subjects',
+      title: t(locale, 'academic.stages.subjects'),
       items: subjects,
       selected: subjectId,
       choose: chooseSubject,
@@ -345,15 +347,13 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-              {isArabic ? 'البنية الأكاديمية' : 'Academic Structure'}
+              {t(locale, 'academic.header.eyebrow')}
             </p>
             <h2 className="text-2xl font-bold" style={{ color: 'var(--cms-text)' }}>
-              {isArabic ? 'من الجامعة إلى المحاضرة' : 'University to lecture'}
+              {t(locale, 'academic.header.title')}
             </h2>
             <p className="text-sm mt-1 max-w-2xl" style={{ color: 'var(--cms-text-soft)' }}>
-              {isArabic
-                ? 'تنقّل عبر الهرم الأكاديمي، أضف العناصر، وأرشف أو استعد حسب الحاجة.'
-                : 'Navigate the academic hierarchy, add items, and archive or restore as needed.'}
+              {t(locale, 'academic.header.subtitle')}
             </p>
           </div>
         </div>
@@ -368,7 +368,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
           }
         >
           {showArchived ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-          {showArchived ? (isArabic ? 'إخفاء المؤرشف' : 'Hide archived') : (isArabic ? 'إظهار المؤرشف' : 'Show archived')}
+          {showArchived ? t(locale, 'academic.header.hideArchived') : t(locale, 'academic.header.showArchived')}
         </button>
       </header>
 
@@ -402,7 +402,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                 {stage.canAdd && can(`btn:academic.add-${stage.key}`) && (
                   <button
                     type="button"
-                    title={isArabic ? 'إضافة' : 'Add'}
+                    title={t(locale, 'academic.add')}
                     onClick={() => setOpenQuick(isOpen ? null : stage.key)}
                     className="p-1 rounded-md transition-colors"
                     style={{ color: isOpen ? 'var(--cms-teal-700)' : 'var(--cms-text-muted)' }}
@@ -419,8 +419,8 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                     <Icon className="w-5 h-5" style={{ color: 'var(--cms-line-strong)' }} />
                     <p className="mt-2 text-xs">
                       {stage.requiresParent && !stage.canAdd
-                        ? (isArabic ? 'اختر العنصر الأب أولاً' : 'Select parent first')
-                        : (isArabic ? 'لا توجد عناصر بعد' : 'No items yet')}
+                        ? t(locale, 'academic.stageList.selectParentFirst')
+                        : t(locale, 'academic.stageList.noItems')}
                     </p>
                   </div>
                 ) : (
@@ -455,7 +455,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                               className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide"
                               style={{ color: 'var(--cms-warning)', background: 'var(--cms-warning-50)' }}
                             >
-                              {isArabic ? 'مؤرشف' : 'Archived'}
+                              {t(locale, 'academic.archived')}
                             </em>
                           )}
                         </button>
@@ -463,7 +463,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                           <button
                             type="button"
                             disabled={busy}
-                            title={item.isArchived ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')}
+                            title={item.isArchived ? t(locale, 'academic.restore') : t(locale, 'academic.archive')}
                             onClick={() => setConfirmArchive({
                               kind: stage.key,
                               id: item.id,
@@ -493,14 +493,14 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                     required
                     value={quickForms[stage.key].name}
                     onChange={(event) => setQuickForms((current) => ({ ...current, [stage.key]: { ...current[stage.key], name: event.target.value } }))}
-                    placeholder={isArabic ? 'الاسم العربي' : 'Arabic name'}
+                    placeholder={t(locale, 'academic.quickForm.arabicName')}
                     className="w-full px-2.5 py-1.5 rounded-md border text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                     style={{ borderColor: 'var(--cms-line-strong)' }}
                   />
                   <input
                     value={quickForms[stage.key].nameEn}
                     onChange={(event) => setQuickForms((current) => ({ ...current, [stage.key]: { ...current[stage.key], nameEn: event.target.value } }))}
-                    placeholder={isArabic ? 'الاسم الإنجليزي (اختياري)' : 'English name (optional)'}
+                    placeholder={t(locale, 'academic.quickForm.englishName')}
                     className="w-full px-2.5 py-1.5 rounded-md border text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                     style={{ borderColor: 'var(--cms-line-strong)' }}
                   />
@@ -510,7 +510,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                       min="1"
                       value={quickForms[stage.key].number}
                       onChange={(event) => setQuickForms((current) => ({ ...current, [stage.key]: { ...current[stage.key], number: event.target.value } }))}
-                      placeholder={isArabic ? 'الترتيب' : 'Order'}
+                      placeholder={t(locale, 'academic.quickForm.order')}
                       className="w-full px-2.5 py-1.5 rounded-md border text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                       style={{ borderColor: 'var(--cms-line-strong)' }}
                     />
@@ -519,7 +519,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                     <input
                       value={quickForms[stage.key].code}
                       onChange={(event) => setQuickForms((current) => ({ ...current, [stage.key]: { ...current[stage.key], code: event.target.value } }))}
-                      placeholder={isArabic ? 'رمز المادة (اختياري)' : 'Subject code (optional)'}
+                      placeholder={t(locale, 'academic.quickForm.subjectCode')}
                       className="w-full px-2.5 py-1.5 rounded-md border text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                       style={{ borderColor: 'var(--cms-line-strong)' }}
                     />
@@ -531,7 +531,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                     style={{ background: 'var(--cms-teal-700)' }}
                   >
                     {busy ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                    {isArabic ? 'إضافة' : 'Add'}
+                    {t(locale, 'academic.add')}
                   </button>
                 </form>
               )}
@@ -559,12 +559,12 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                {isArabic ? 'المحاضرات' : 'Lectures'}
+                {t(locale, 'academic.lectures.eyebrow')}
               </p>
               <h3 className="text-base font-bold" style={{ color: 'var(--cms-text)' }}>
                 {subjectId
-                  ? (isArabic ? 'محاضرات المادة المحددة' : 'Lectures for selected subject')
-                  : (isArabic ? 'اختر مادة لعرض محاضراتها' : 'Select a subject to view lectures')}
+                  ? t(locale, 'academic.lectures.forSubject')
+                  : t(locale, 'academic.lectures.selectSubject')}
               </h3>
             </div>
           </div>
@@ -579,7 +579,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
               style={{ background: 'var(--cms-teal-700)' }}
             >
               {showLectureForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-              {isArabic ? 'إضافة محاضرة' : 'Add lecture'}
+              {t(locale, 'academic.lectures.add')}
             </button>
           )}
         </div>
@@ -589,7 +589,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
             <div className="flex flex-col items-center justify-center text-center py-10" style={{ color: 'var(--cms-text-muted)' }}>
               <Presentation className="w-6 h-6" style={{ color: 'var(--cms-line-strong)' }} />
               <p className="mt-2 text-sm">
-                {subjectId ? (isArabic ? 'لا توجد محاضرات بعد.' : 'No lectures yet.') : (isArabic ? 'اختر مادة للبدء.' : 'Select a subject to begin.')}
+                {subjectId ? t(locale, 'academic.lectures.empty') : t(locale, 'academic.lectures.selectToBegin')}
               </p>
             </div>
           ) : (
@@ -616,16 +616,16 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                     </strong>
                     <div className="mt-0.5 space-y-0.5">
                       <small className="block text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                        {lecture.durationMinutes ? `${lecture.durationMinutes} ${isArabic ? 'د' : 'min'}` : '—'}
+                        {lecture.durationMinutes ? t(locale, 'academic.lectures.duration', { count: lecture.durationMinutes }) : '—'}
                       </small>
                       {lecture.instructorName && (
                         <small className="block text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                          {isArabic ? `المحاضر: ${lecture.instructorName}` : `Instructor: ${lecture.instructorName}`}
+                          {t(locale, 'academic.lectures.instructor', { name: lecture.instructorName })}
                         </small>
                       )}
                       {lecture.sourceReference && (
                         <small className="block text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                          {isArabic ? `المصدر: ${lecture.sourceReference}` : `Source: ${lecture.sourceReference}`}
+                          {t(locale, 'academic.lectures.source', { name: lecture.sourceReference })}
                         </small>
                       )}
                     </div>
@@ -635,21 +635,21 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                           className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide"
                           style={{ color: 'var(--cms-warning)', background: 'var(--cms-warning-50)' }}
                         >
-                          {isArabic ? 'مؤرشف' : 'Archived'}
+                          {t(locale, 'academic.archived')}
                         </em>
                       )}
                       {lecture.status === 'draft' && (
                         <em
                           className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide text-sky-700 bg-sky-100"
                         >
-                          {isArabic ? 'مسودة' : 'Draft'}
+                          {t(locale, 'academic.lectures.draft')}
                         </em>
                       )}
                       {lecture.status === 'published' && (
                         <em
                           className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-50"
                         >
-                          {isArabic ? 'منشور' : 'Published'}
+                          {t(locale, 'academic.lectures.published')}
                         </em>
                       )}
                     </div>
@@ -659,7 +659,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                       <button
                         type="button"
                         disabled={busy}
-                        title={isArabic ? 'نشر' : 'Publish'}
+                        title={t(locale, 'academic.publish')}
                         onClick={() => setPublishLectureTarget({ id: lecture.id, title: label(isArabic, lecture) })}
                         className="p-1.5 rounded-md transition-colors disabled:opacity-50"
                         style={{ color: 'var(--cms-teal-600)' }}
@@ -671,7 +671,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                       <button
                         type="button"
                         disabled={busy}
-                        title={lecture.isArchived ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')}
+                        title={lecture.isArchived ? t(locale, 'academic.restore') : t(locale, 'academic.archive')}
                         onClick={() => setConfirmArchive({
                           kind: 'lecture',
                           id: lecture.id,
@@ -701,16 +701,16 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
         >
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-              {isArabic ? 'محاضرة جديدة' : 'New lecture'}
+              {t(locale, 'academic.lectureForm.newLecture')}
             </p>
             <h3 className="text-base font-bold" style={{ color: 'var(--cms-text)' }}>
-              {isArabic ? 'إضافة محاضرة إلى الهيكل' : 'Add a lecture to the hierarchy'}
+              {t(locale, 'academic.lectureForm.addToHierarchy')}
             </h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             <label className="block">
               <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                {isArabic ? 'العنوان العربي' : 'Arabic title'}
+                {t(locale, 'academic.lectureForm.arabicTitle')}
               </span>
               <input
                 required
@@ -722,7 +722,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
             </label>
             <label className="block">
               <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                {isArabic ? 'العنوان الإنجليزي' : 'English title'}
+                {t(locale, 'academic.lectureForm.englishTitle')}
               </span>
               <input
                 value={lectureForm.nameEn}
@@ -733,7 +733,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
             </label>
             <label className="block">
               <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                {isArabic ? 'رقم المحاضرة' : 'Lecture number'}
+                {t(locale, 'academic.lectureForm.lectureNumber')}
               </span>
               <input
                 type="number"
@@ -746,7 +746,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
             </label>
             <label className="block">
               <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                {isArabic ? 'المدة بالدقائق' : 'Duration (minutes)'}
+                {t(locale, 'academic.lectureForm.duration')}
               </span>
               <input
                 type="number"
@@ -759,7 +759,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
             </label>
             <label className="block">
               <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                {isArabic ? 'اسم المحاضر' : 'Instructor name'}
+                {t(locale, 'academic.lectureForm.instructorName')}
               </span>
               <input
                 value={lectureForm.instructor}
@@ -770,7 +770,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
             </label>
             <label className="block">
               <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                {isArabic ? 'المصدر أو المرجع' : 'Source / reference'}
+                {t(locale, 'academic.lectureForm.sourceReference')}
               </span>
               <input
                 value={lectureForm.source}
@@ -781,7 +781,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
             </label>
             <label className="block md:col-span-2 lg:col-span-3">
               <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                {isArabic ? 'وصف المحاضرة' : 'Lecture description'}
+                {t(locale, 'academic.lectureForm.description')}
               </span>
               <input
                 value={lectureForm.description}
@@ -799,7 +799,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
               style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}
               disabled={busy}
             >
-              {isArabic ? 'إلغاء' : 'Cancel'}
+              {t(locale, 'academic.cancel')}
             </button>
             <button
               type="submit"
@@ -808,7 +808,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
               disabled={busy}
             >
               {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              {isArabic ? 'حفظ' : 'Save'}
+              {t(locale, 'academic.save')}
             </button>
           </div>
         </form>
@@ -819,14 +819,12 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
       <ConfirmDialog
         open={publishLectureTarget !== null}
         onOpenChange={(next) => { if (!next) setPublishLectureTarget(null); }}
-        title={isArabic ? 'نشر المحاضرة' : 'Publish lecture'}
+        title={t(locale, 'academic.publishConfirm.title')}
         description={publishLectureTarget
-          ? (isArabic
-            ? `ستصبح المحاضرة "${publishLectureTarget.title}" متاحة للطلاب المخوّلين بالمادة، وستظهر في قائمة محاضراتها.`
-            : `"${publishLectureTarget.title}" will become available to students entitled to the subject and appear in its lecture list.`)
+          ? t(locale, 'academic.publishConfirm.description', { title: publishLectureTarget.title })
           : undefined}
-        confirmLabel={isArabic ? 'نشر' : 'Publish'}
-        cancelLabel={isArabic ? 'إلغاء' : 'Cancel'}
+        confirmLabel={t(locale, 'academic.publish')}
+        cancelLabel={t(locale, 'academic.cancel')}
         dir={isArabic ? 'rtl' : 'ltr'}
         busy={busy}
         onConfirm={() => { if (publishLectureTarget) void publishLecture(publishLectureTarget.id); }}
@@ -861,19 +859,19 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                    {confirmArchive.restore ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')}
+                    {confirmArchive.restore ? t(locale, 'academic.restore') : t(locale, 'academic.archive')}
                   </p>
                   <h2 className="text-base font-bold" style={{ color: 'var(--cms-text)' }}>
                     {confirmArchive.restore
-                      ? (isArabic ? `استعادة "${confirmArchive.name}"؟` : `Restore "${confirmArchive.name}"?`)
-                      : (isArabic ? `أرشفة "${confirmArchive.name}"؟` : `Archive "${confirmArchive.name}"?`)}
+                      ? t(locale, 'academic.archiveConfirm.restoreTitle', { name: confirmArchive.name })
+                      : t(locale, 'academic.archiveConfirm.archiveTitle', { name: confirmArchive.name })}
                   </h2>
                 </div>
               </div>
               <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
                 {confirmArchive.restore
-                  ? (isArabic ? 'سيُعاد إظهار العنصر للطلاب ضمن صلاحياتهم.' : 'The item will become visible to students within their scope.')
-                  : (isArabic ? 'سيُخفى العنصر عن الطلاب دون حذفه نهائياً.' : 'The item will be hidden from students without permanent deletion.')}
+                  ? t(locale, 'academic.archiveConfirm.restoreText')
+                  : t(locale, 'academic.archiveConfirm.archiveText')}
               </p>
               <div className="flex gap-3 justify-end mt-5">
                 <button
@@ -883,7 +881,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                   onClick={() => setConfirmArchive(null)}
                   disabled={busy}
                 >
-                  {isArabic ? 'إلغاء' : 'Cancel'}
+                  {t(locale, 'academic.cancel')}
                 </button>
                 <button
                   type="button"
@@ -897,7 +895,7 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
                   }}
                 >
                   {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : confirmArchive.restore ? <RotateCcw className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
-                  {confirmArchive.restore ? (isArabic ? 'استعادة' : 'Restore') : (isArabic ? 'أرشفة' : 'Archive')}
+                  {confirmArchive.restore ? t(locale, 'academic.restore') : t(locale, 'academic.archive')}
                 </button>
               </div>
             </div>

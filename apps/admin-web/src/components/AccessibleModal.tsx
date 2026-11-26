@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
+import { t, localeOf } from '../lib/dictionary';
 
 /**
  * Push 10.4 — AccessibleModal (admin-web).
@@ -169,7 +170,7 @@ export function AccessibleModal({
                 type="button"
                 onClick={close}
                 disabled={dismissGuard}
-                aria-label={isArabic ? 'إغلاق النافذة' : 'Close dialog'}
+                aria-label={t(localeOf(isArabic), 'modal.closeLabel')}
                 data-testid="modal-close"
                 className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-slate-100 disabled:opacity-40"
                 style={{ color: 'var(--cms-text-muted)' }}

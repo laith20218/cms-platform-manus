@@ -16,6 +16,7 @@ import { useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, FileUp, LoaderCircle, Upload, XCircle } from 'lucide-react';
 import { Button, Dialog } from '@cms/ui';
 import { apiRequest } from '../lib/api';
+import { t, localeOf } from '../lib/dictionary';
 
 type ImportRow = {
   text: string;
@@ -163,7 +164,9 @@ const problemLabel = (code: string, isArabic: boolean): string => {
     YEAR: ['السنة يجب أن تكون رقمًا', 'year must be a number'],
   };
   const [ar, en] = labels[what] ?? [code, code];
-  return isArabic ? `السطر ${row}: ${ar}` : `Row ${row}: ${en}`;
+  // PR-3: the row-error template moved to the dictionary (questions.rowError);
+  // the message token keeps the legacy per-locale problem text selection.
+  return t(localeOf(isArabic), 'questions.rowError', { row, message: isArabic ? ar : en });
 };
 
 export function QuestionImportModal({ token, isArabic, subjectId, onClose, onError, onNotice, onImported }: Props) {

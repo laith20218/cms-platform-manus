@@ -25,6 +25,7 @@ import {
   RefreshCw, Search, ShieldAlert, ShieldCheck, Smartphone, X,
 } from 'lucide-react';
 import { ApiError, apiRequest } from '../lib/api';
+import { t, localeOf, type Locale } from '../lib/dictionary';
 import { AuditLogViewer } from './AuditLogViewer';
 
 type Props = {
@@ -131,19 +132,19 @@ function eventTypeLabel(eventType: string, isArabic: boolean) {
   return eventType.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
-function severityLabel(severity: string, isArabic: boolean) {
+function severityLabel(severity: string, locale: Locale) {
   const value = (severity || '').toLowerCase();
-  if (value === 'critical') return isArabic ? 'حرج' : 'Critical';
-  if (value === 'warning') return isArabic ? 'تحذير' : 'Warning';
-  return isArabic ? 'معلومات' : 'Info';
+  if (value === 'critical') return t(locale, 'audit.severity.critical');
+  if (value === 'warning') return t(locale, 'audit.severity.warning');
+  return t(locale, 'audit.severity.info');
 }
 
-function actorLabel(alert: SecurityAlert, isArabic: boolean) {
-  if (alert.adminName) return isArabic ? `مدير · ${alert.adminName}` : `Admin · ${alert.adminName}`;
-  if (alert.adminId) return isArabic ? `مدير · ${alert.adminId.slice(0, 8)}` : `Admin · ${alert.adminId.slice(0, 8)}`;
-  if (alert.studentName) return isArabic ? `طالب · ${alert.studentName}` : `Student · ${alert.studentName}`;
-  if (alert.studentId) return isArabic ? `طالب · ${alert.studentId.slice(0, 8)}` : `Student · ${alert.studentId.slice(0, 8)}`;
-  return isArabic ? 'النظام' : 'System';
+function actorLabel(alert: SecurityAlert, locale: Locale) {
+  if (alert.adminName) return t(locale, 'audit.actor.admin', { name: alert.adminName });
+  if (alert.adminId) return t(locale, 'audit.actor.admin', { name: alert.adminId.slice(0, 8) });
+  if (alert.studentName) return t(locale, 'audit.actor.student', { name: alert.studentName });
+  if (alert.studentId) return t(locale, 'audit.actor.student', { name: alert.studentId.slice(0, 8) });
+  return t(locale, 'audit.actor.system');
 }
 
 export function AuditCenter({ token, isArabic, onError }: Props) {
@@ -156,6 +157,7 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
   const [query, setQuery] = useState('');
   // P1-07: real severity counts from /audit-logs (not just /alerts which returns Critical only)
   const [realCounts, setRealCounts] = useState<{ critical: number; warning: number; info: number } | null>(null);
+  const locale = localeOf(isArabic);
 
   useEffect(() => {
     if (!token) return;
@@ -171,11 +173,9 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
         .catch((error) => {
           if (cancelled) return;
           if (error instanceof ApiError && error.status === 403) {
-            onError(isArabic
-              ? 'لا تملك صلاحية عرض السجل الأمني. هذه الميزة مخصصة للمدير العام.'
-              : 'You do not have permission to view the security audit. This feature is reserved for super-administrators.');
+            onError(t(locale, 'audit.center.errorForbidden'));
           } else {
-            onError(error instanceof Error ? error.message : (isArabic ? 'تعذر تحميل السجل الأمني.' : 'Unable to load the security audit.'));
+            onError(error instanceof Error ? error.message : t(locale, 'audit.center.errorLoad'));
           }
           setAlerts([]);
         })
@@ -251,10 +251,10 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-              {isArabic ? 'التحقق المؤسسي' : 'Institutional assurance'}
+              {t(locale, 'audit.center.eyebrow')}
             </p>
             <h2 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
-              {isArabic ? 'السجل الأمني' : 'Security Audit'}
+              {t(locale, 'audit.center.title')}
               <span
                 className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded-full text-xs font-semibold"
                 style={{ background: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)' }}
@@ -263,9 +263,7 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
               </span>
             </h2>
             <p className="text-sm mt-1 max-w-2xl" style={{ color: 'var(--cms-text-soft)' }}>
-              {isArabic
-                ? 'سجل زمني للأحداث الحساسة عبر المنصة: الدخول، الأجهزة، التحقق الثنائي، والمحاولات المشبوهة.'
-                : 'Chronological log of sensitive platform events: sign-ins, devices, multi-factor, and suspicious attempts.'}
+              {t(locale, 'audit.center.subtitle')}
             </p>
           </div>
         </div>
@@ -274,9 +272,9 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
       {/* ===== Severity summary cards ===== */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {([
-          { key: 'Critical', count: counts.critical, label: isArabic ? 'حرج' : 'Critical', tint: 'var(--cms-danger-50)', color: 'var(--cms-danger)' },
-          { key: 'Warning', count: counts.warning, label: isArabic ? 'تحذير' : 'Warning', tint: 'var(--cms-warning-50)', color: 'var(--cms-warning)' },
-          { key: 'Info', count: counts.info, label: isArabic ? 'معلومات' : 'Info', tint: 'var(--cms-info-50)', color: 'var(--cms-info)' },
+          { key: 'Critical', count: counts.critical, label: t(locale, 'audit.severity.critical'), tint: 'var(--cms-danger-50)', color: 'var(--cms-danger)' },
+          { key: 'Warning', count: counts.warning, label: t(locale, 'audit.severity.warning'), tint: 'var(--cms-warning-50)', color: 'var(--cms-warning)' },
+          { key: 'Info', count: counts.info, label: t(locale, 'audit.severity.info'), tint: 'var(--cms-info-50)', color: 'var(--cms-info)' },
         ]).map((card) => (
           <div
             key={card.key}
@@ -291,7 +289,7 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                {isArabic ? 'الخطورة' : 'Severity'}
+                {t(locale, 'audit.severity.heading')}
               </p>
               <p className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>{card.label}</p>
             </div>
@@ -309,7 +307,7 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={isArabic ? 'ابحث في الأحداث' : 'Search events'}
+            placeholder={t(locale, 'audit.center.searchPlaceholder')}
             className={`${inputClass} pr-10`}
             style={{ borderColor: 'var(--cms-line-strong)' }}
           />
@@ -320,10 +318,10 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
           className={inputClass}
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
-          <option value="">{isArabic ? 'الخطورة: الكل' : 'Severity: All'}</option>
-          <option value="Critical">{isArabic ? 'حرج' : 'Critical'}</option>
-          <option value="Warning">{isArabic ? 'تحذير' : 'Warning'}</option>
-          <option value="Info">{isArabic ? 'معلومات' : 'Info'}</option>
+          <option value="">{t(locale, 'audit.center.severityAll')}</option>
+          <option value="Critical">{t(locale, 'audit.severity.critical')}</option>
+          <option value="Warning">{t(locale, 'audit.severity.warning')}</option>
+          <option value="Info">{t(locale, 'audit.severity.info')}</option>
         </select>
         {/* P1-07: structured event-type filter */}
         <select
@@ -332,21 +330,21 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
           className={inputClass}
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
-          <option value="">{isArabic ? 'النوع: الكل' : 'Event type: All'}</option>
-          <option value="LoginSuccess">{isArabic ? 'نجاح الدخول' : 'Login Success'}</option>
-          <option value="LoginFailed">{isArabic ? 'فشل الدخول' : 'Login Failed'}</option>
-          <option value="Logout">{isArabic ? 'تسجيل الخروج' : 'Logout'}</option>
-          <option value="SessionCreated">{isArabic ? 'إنشاء جلسة' : 'Session Created'}</option>
-          <option value="SessionRevoked">{isArabic ? 'إنهاء جلسة' : 'Session Revoked'}</option>
-          <option value="DeviceRegistered">{isArabic ? 'تسجيل جهاز' : 'Device Registered'}</option>
-          <option value="BanIssued">{isArabic ? 'تطبيق حظر' : 'Ban Issued'}</option>
-          <option value="BanLifted">{isArabic ? 'رفع حظر' : 'Ban Lifted'}</option>
-          <option value="MfaEnabled">{isArabic ? 'تفعيل التحقق الثنائي' : 'MFA Enabled'}</option>
-          <option value="MfaDisabled">{isArabic ? 'تعطيل التحقق الثنائي' : 'MFA Disabled'}</option>
-          <option value="PermissionChange">{isArabic ? 'تغيير صلاحية' : 'Permission Change'}</option>
-          <option value="RoleChange">{isArabic ? 'تغيير دور' : 'Role Change'}</option>
-          <option value="SecurityAlert">{isArabic ? 'تنبيه أمني' : 'Security Alert'}</option>
-          <option value="SuspiciousActivity">{isArabic ? 'نشاط مشبوه' : 'Suspicious Activity'}</option>
+          <option value="">{t(locale, 'audit.center.eventTypeAll')}</option>
+          <option value="LoginSuccess">{t(locale, 'audit.eventTypes.loginSuccess')}</option>
+          <option value="LoginFailed">{t(locale, 'audit.eventTypes.loginFailed')}</option>
+          <option value="Logout">{t(locale, 'audit.eventTypes.logout')}</option>
+          <option value="SessionCreated">{t(locale, 'audit.eventTypes.sessionCreated')}</option>
+          <option value="SessionRevoked">{t(locale, 'audit.eventTypes.sessionRevoked')}</option>
+          <option value="DeviceRegistered">{t(locale, 'audit.eventTypes.deviceRegistered')}</option>
+          <option value="BanIssued">{t(locale, 'audit.eventTypes.banIssued')}</option>
+          <option value="BanLifted">{t(locale, 'audit.eventTypes.banLifted')}</option>
+          <option value="MfaEnabled">{t(locale, 'audit.eventTypes.mfaEnabled')}</option>
+          <option value="MfaDisabled">{t(locale, 'audit.eventTypes.mfaDisabled')}</option>
+          <option value="PermissionChange">{t(locale, 'audit.eventTypes.permissionChange')}</option>
+          <option value="RoleChange">{t(locale, 'audit.eventTypes.roleChange')}</option>
+          <option value="SecurityAlert">{t(locale, 'audit.eventTypes.securityAlert')}</option>
+          <option value="SuspiciousActivity">{t(locale, 'audit.eventTypes.suspiciousActivity')}</option>
         </select>
         {/* P1-07: date range filter */}
         <input
@@ -355,7 +353,7 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
           onChange={(event) => setDateFrom(event.target.value)}
           className={inputClass}
           style={{ borderColor: 'var(--cms-line-strong)', maxWidth: '160px' }}
-          aria-label={isArabic ? 'من تاريخ' : 'From date'}
+          aria-label={t(locale, 'audit.center.dateFrom')}
         />
         <input
           type="date"
@@ -363,7 +361,7 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
           onChange={(event) => setDateTo(event.target.value)}
           className={inputClass}
           style={{ borderColor: 'var(--cms-line-strong)', maxWidth: '160px' }}
-          aria-label={isArabic ? 'إلى تاريخ' : 'To date'}
+          aria-label={t(locale, 'audit.center.dateTo')}
         />
         {(severityFilter || eventTypeFilter || dateFrom || dateTo || query.trim()) && (
           <button
@@ -373,7 +371,7 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
             style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
           >
             <X className="w-4 h-4" />
-            {isArabic ? 'إزالة التصفية' : 'Clear filters'}
+            {t(locale, 'audit.center.clearFilters')}
           </button>
         )}
       </div>
@@ -405,12 +403,12 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
             <ClipboardList className="w-7 h-7" />
           </div>
           <p className="mt-3 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
-            {isArabic ? 'لا توجد أحداث أمنية' : 'No security events'}
+            {t(locale, 'audit.center.emptyTitle')}
           </p>
           <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
             {alerts.length === 0
-              ? (isArabic ? 'لم تُسجَّل أحداث ضمن الصلاحيات الحالية.' : 'No events are visible within your current permissions.')
-              : (isArabic ? 'عدّل عوامل التصفية لرؤية المزيد.' : 'Adjust the filters to see more.')}
+              ? t(locale, 'audit.center.emptyNoEvents')
+              : t(locale, 'audit.center.emptyFiltered')}
           </p>
         </div>
       ) : (
@@ -418,11 +416,11 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
               <tr>
-                <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الوقت' : 'Time'}</th>
-                <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'النوع' : 'Type'}</th>
-                <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الخطورة' : 'Severity'}</th>
-                <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الوصف' : 'Description'}</th>
-                <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الفاعل' : 'Actor'}</th>
+                <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'audit.headings.time')}</th>
+                <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'audit.headings.type')}</th>
+                <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'audit.severity.heading')}</th>
+                <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'audit.headings.description')}</th>
+                <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'audit.headings.actor')}</th>
                 <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">IP</th>
               </tr>
             </thead>
@@ -455,7 +453,7 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border ${badgeClass}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${dotClass} opacity-80`} />
-                        {severityLabel(alert.severity, isArabic)}
+                        {severityLabel(alert.severity, locale)}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -468,7 +466,7 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
                         className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-mono"
                         style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}
                       >
-                        {actorLabel(alert, isArabic)}
+                        {actorLabel(alert, locale)}
                       </span>
                     </td>
                     <td className="px-4 py-3">

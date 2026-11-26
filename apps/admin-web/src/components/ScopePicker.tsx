@@ -21,6 +21,7 @@
 import { useEffect, useState } from 'react';
 import { Building2, School, GraduationCap, Stethoscope, LoaderCircle, Info } from 'lucide-react';
 import { apiRequest } from '../lib/api';
+import { t as dictT, localeOf } from '../lib/dictionary';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
 type College = { id: string; nameAr: string; nameEn?: string | null; universityId: string };
@@ -242,7 +243,7 @@ export function ScopePicker({ token, isArabic, value, onChange, existingNames }:
       {loading && (
         <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
           <LoaderCircle size={11} className="animate-spin" />
-          {isArabic ? 'جارٍ التحميل...' : 'Loading...'}
+          {dictT(localeOf(isArabic), 'common.loading')}
         </div>
       )}
     </div>

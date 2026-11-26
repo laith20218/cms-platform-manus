@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { LoaderCircle, Save } from 'lucide-react';
 import { apiRequest, type CourseEpisode } from '../lib/api';
 import { normalizeDifficulty, normalizeTargetQuality } from '../lib/mediaProcessing';
+// PR-3 — episode-edit strings resolve through the shared dictionary.
+import { t, localeOf } from '../lib/dictionary';
 import { AccessibleModal } from './AccessibleModal';
 import { EpisodeMetadataFields, type EpisodeMetadataValues } from './EpisodeMetadataFields';
 
@@ -34,6 +36,7 @@ export interface EpisodeEditModalProps {
 }
 
 export function EpisodeEditModal({ episode, token, isArabic, onClose, onSaved, onStructuredError }: EpisodeEditModalProps) {
+  const locale = localeOf(isArabic);
   const [values, setValues] = useState<EpisodeMetadataValues>({
     title: episode.title ?? '',
     description: episode.description ?? '',
@@ -74,7 +77,7 @@ export function EpisodeEditModal({ episode, token, isArabic, onClose, onSaved, o
           targetQuality: values.targetQuality,
         }),
       });
-      onSaved(isArabic ? 'تم حفظ بيانات الحلقة.' : 'Episode updated.');
+      onSaved(t(locale, 'courses.episodeEdit.saved'));
       onClose();
     } catch (error) {
       // Route the structured payload (humanMessage/technicalDetails) to the
@@ -83,27 +86,20 @@ export function EpisodeEditModal({ episode, token, isArabic, onClose, onSaved, o
       onStructuredError({
         humanMessage: apiError.humanMessage,
         technicalDetails: apiError.technicalDetails,
-        message: error instanceof Error ? error.message : (isArabic ? 'فشل حفظ التعديلات.' : 'Failed to update episode.'),
+        message: error instanceof Error ? error.message : t(locale, 'courses.episodeEdit.updateFailed'),
       });
     } finally {
       setBusy(false);
     }
   };
 
-  const copy = isArabic ? {
-    number: 'رقم الحلقة',
-    duration: 'المدة (ثانية، اختياري)',
-    save: 'حفظ التعديلات',
-    cancel: 'إلغاء',
-    heading: 'تعديل بيانات الحلقة',
-    sub: 'العنوان والوصف ومستوى الصعوبة يظهرون للطالب في صفحة المشغّل',
-  } : {
-    number: 'Episode number',
-    duration: 'Duration (seconds, optional)',
-    save: 'Save changes',
-    cancel: 'Cancel',
-    heading: 'Edit episode',
-    sub: 'Title, description and difficulty are shown to the student on the player page',
+  const copy = {
+    number: t(locale, 'courses.episodeEdit.number'),
+    duration: t(locale, 'courses.episodeEdit.duration'),
+    save: t(locale, 'courses.episodeEdit.save'),
+    cancel: t(locale, 'courses.episodeEdit.cancel'),
+    heading: t(locale, 'courses.episodeEdit.heading'),
+    sub: t(locale, 'courses.episodeEdit.sub'),
   };
 
   return (

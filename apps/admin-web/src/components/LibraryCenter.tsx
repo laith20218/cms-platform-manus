@@ -60,6 +60,11 @@ import { isPdfProcessingActive, pdfHealthBadge, pdfTimelineSteps } from '../lib/
 import { ProcessingErrorModal } from './ProcessingErrorModal';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 import { CoursesCenter } from './CoursesCenter';
+// PR-3 — every inline bilingual string resolves through the shared dictionary
+// (`lib/dictionary/library.ts`); wire-status labels resolve through the central
+// status registry (libraryType/libraryScan/libraryCategory/publication/
+// mediaProtection domains — byte-identical to the legacy local helpers).
+import { t, localeOf, statusLabel as registryLabel } from '../lib/dictionary';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
 type College = { id: string; nameAr: string; nameEn?: string | null };
@@ -159,16 +164,11 @@ const contentStatusBadgeClass = (status: string) => {
   return 'text-sky-700 bg-sky-50 border-sky-200';
 };
 
-const contentStatusLabel = (status: string, isArabic: boolean) => {
-  switch (status) {
-    case 'Pending': return isArabic ? 'جارٍ الحماية' : 'Protecting';
-    case 'Sanitized': return isArabic ? 'تم التعقيم' : 'Sanitized';
-    case 'CSPApplied': return isArabic ? 'تم الحماية' : 'CSP applied';
-    case 'Ready': return isArabic ? 'جاهز' : 'Ready';
-    case 'Failed': return isArabic ? 'فشلت المعالجة' : 'Failed';
-    default: return status;
-  }
-};
+// PR-3 — the HTML pipeline labels resolve through the `mediaProtection` registry
+// domain; unknown wire values pass through verbatim, exactly as the legacy
+// switch default did.
+const contentStatusLabel = (status: string, isArabic: boolean) =>
+  registryLabel(localeOf(isArabic), 'mediaProtection', status);
 
 // Wave 13 (F3/G-6) — client-side mirror of the server's code-level hard cap:
 // text/html uploads above 20 MB are blocked BEFORE any presigned URL is requested
@@ -232,35 +232,26 @@ const htmlTimelineSteps = (uploadInFlight: boolean, status: string | null | unde
   });
 };
 
-const typeLabel = (type: string, isArabic: boolean) => {
-  switch (type) {
-    case 'Pdf': return isArabic ? 'ملف PDF' : 'PDF';
-    case 'Html': return isArabic ? 'صفحة HTML' : 'HTML';
-    case 'Image': return isArabic ? 'صورة' : 'Image';
-    case 'Video': return isArabic ? 'فيديو' : 'Video';
-    case 'Audio': return isArabic ? 'صوت' : 'Audio';
-    case 'Summary': return isArabic ? 'ملخص' : 'Summary';
-    case 'Comprehensive': return isArabic ? 'شامل' : 'Comprehensive';
-    case 'Paragraph': return isArabic ? 'فقرة' : 'Paragraph';
-    default: return type;
-  }
-};
+// PR-3 — the `libraryType` registry domain (exact-case keys, unknown passes
+// through raw) matches the legacy switch byte-for-byte.
+const typeLabel = (type: string, isArabic: boolean) =>
+  registryLabel(localeOf(isArabic), 'libraryType', type);
 
+// PR-3 — legacy contract kept byte-identical: ANY value other than
+// published/archived (draft included) renders the Draft label, so the
+// publication registry's «Unspecified» never leaks onto this surface.
 const statusLabel = (status: string, isArabic: boolean) => {
   const value = status.toLowerCase();
-  if (value === 'published') return isArabic ? 'منشور' : 'Published';
-  if (value === 'archived') return isArabic ? 'مؤرشف' : 'Archived';
-  return isArabic ? 'مسودة' : 'Draft';
+  if (value === 'published' || value === 'archived') {
+    return registryLabel(localeOf(isArabic), 'publication', value);
+  }
+  return registryLabel(localeOf(isArabic), 'publication', 'draft');
 };
 
-const scanLabel = (scan: string, isArabic: boolean) => {
-  const value = scan.toLowerCase();
-  if (value === 'clean') return isArabic ? 'نظيف' : 'Clean';
-  if (value === 'pending') return isArabic ? 'قيد الفحص' : 'Pending';
-  if (value === 'infected') return isArabic ? 'مصاب' : 'Infected';
-  if (value === 'error') return isArabic ? 'خطأ' : 'Error';
-  return scan;
-};
+// PR-3 — the `libraryScan` registry domain (lower-cased keys, unknown passes
+// through the raw wire value) matches the legacy switch byte-for-byte.
+const scanLabel = (scan: string, isArabic: boolean) =>
+  registryLabel(localeOf(isArabic), 'libraryScan', scan);
 
 const contentTypeMap: Record<string, { type: UploadForm['type']; ct: string }> = {
   'application/pdf': { type: 'Pdf', ct: 'application/pdf' },
@@ -276,15 +267,10 @@ const contentTypeMap: Record<string, { type: UploadForm['type']; ct: string }> =
 
 // Push 4: institutional category (منهاج/محاضرة/تلخيص/أفكار ذهبية) — backend-complete since A2-2,
 // surfaced here for the first time. NULL/'' keeps legacy rows uncategorized.
-const categoryLabel = (category: string | null | undefined, isArabic: boolean) => {
-  switch (category) {
-    case 'Curriculum': return isArabic ? 'منهاج' : 'Curriculum';
-    case 'Lecture': return isArabic ? 'محاضرة' : 'Lecture';
-    case 'Summary': return isArabic ? 'تلخيص' : 'Summary';
-    case 'GoldenIdeas': return isArabic ? 'أفكار ذهبية' : 'Golden ideas';
-    default: return isArabic ? 'غير مصنّف' : 'Uncategorized';
-  }
-};
+// PR-3 — the `libraryCategory` registry domain (exact-case keys, unknown →
+// «غير مصنّف»/«Uncategorized») matches the legacy switch byte-for-byte.
+const categoryLabel = (category: string | null | undefined, isArabic: boolean) =>
+  registryLabel(localeOf(isArabic), 'libraryCategory', category);
 
 const categoryBadgeClass = (category: string | null | undefined) => {
   switch (category) {
@@ -297,6 +283,8 @@ const categoryBadgeClass = (category: string | null | undefined) => {
 };
 
 export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
+  // PR-3 — dictionary locale derived from the legacy bilingual flag.
+  const locale = localeOf(isArabic);
   // Push 3: cosmetic gating — the API policies remain the real boundary.
   const { can, bundle } = useUiPermissions();
   // Command Center P1: hard delete is a SuperAdmin-only system action (backend-gated too).
@@ -379,7 +367,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   useEffect(() => {
     void request<PagedResult<University>>('/api/v1/universities?Page=1&PageSize=100')
       .then(data => setUniversities(data.items))
-      .catch(error => onError(error instanceof Error ? error.message : 'تعذر تحميل الجامعات.'));
+      .catch(error => onError(error instanceof Error ? error.message : t(locale, 'library.errors.loadUniversities')));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -444,7 +432,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       setPage(targetPage);
       setTotal(data.total);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر تحميل الملفات.');
+      onError(error instanceof Error ? error.message : t(locale, 'library.errors.loadFiles'));
     } finally {
       setLoading(false);
     }
@@ -515,19 +503,13 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       if (trackingStatus == null) return;
       if (trackingStatus === 'Ready') {
         const broken = trackedFile?.healthStatus === 'BrokenArabic';
-        onNotice(isArabic
-          ? broken
-            ? `تم تجهيز الملف "${trackedFile?.title ?? ''}" — به مشاكل في النص، تم تفعيل وضع العرض الاحتياطي.`
-            : `تم إصلاح خطوط الملف "${trackedFile?.title ?? ''}" بنجاح.`
-          : broken
-            ? `Prepared "${trackedFile?.title ?? ''}" — text issues detected; fallback rendering is active.`
-            : `Font processing finished for "${trackedFile?.title ?? ''}".`);
+        onNotice(t(locale,
+          broken ? 'library.processing.pdfReadyBroken' : 'library.processing.pdfReadyFixed',
+          { title: trackedFile?.title ?? '' }));
         setQualityChecking(true); // brief «تحليل جودة العرض» beat, then the badge
       } else if (trackingStatus === 'Failed') {
         setFontErrorModal({
-          human: isArabic
-            ? 'تعذّر إصلاح خطوط هذا الملف على الخادم. يمكن إعادة المحاولة بإعادة رفع الملف.'
-            : 'Font processing failed on the server. Retry by uploading the file again.',
+          human: t(locale, 'library.processing.pdfFailedHuman'),
           technical: trackedFile?.processingError ?? null,
           // R22.2 — the support collapsible prefers the structured diagnosticReport;
           // the raw stderr tail is the fallback so support ALWAYS gets evidence.
@@ -538,14 +520,10 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     } else if (trackingKind === 'html') {
       if (htmlTrackingStatus == null) return;
       if (htmlTrackingStatus === 'Ready') {
-        onNotice(isArabic
-          ? `تم تجهيز الدرس التفاعلي "${trackedFile?.title ?? ''}" بنجاح — الحماية مفعّلة وجاهز للطلاب.`
-          : `Interactive lesson "${trackedFile?.title ?? ''}" is ready — protection applied.`);
+        onNotice(t(locale, 'library.processing.htmlReady', { title: trackedFile?.title ?? '' }));
       } else if (htmlTrackingStatus === 'Failed') {
         setFontErrorModal({
-          human: isArabic
-            ? 'تعذّر تجهيز هذا الدرس التفاعلي على الخادم. يمكن إعادة المحاولة بإعادة رفع الملف.'
-            : 'Failed to prepare this interactive lesson on the server. Retry by uploading the file again.',
+          human: t(locale, 'library.processing.htmlFailedHuman'),
           // HTML rows carry no stderr-style payload — the human sentence is the evidence.
           technical: null,
           diagnostic: null,
@@ -600,15 +578,13 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   const handleUpload = async (e: FormEvent) => {
     e.preventDefault();
     if (!selectedFile || !form.subjectId || !form.title) {
-      onError('الرجاء اختيار ملف ومادة وعنوان.');
+      onError(t(locale, 'library.errors.validation'));
       return;
     }
     // 13.A.2 (C) — belt over the disabled submit button: never presign an
     // oversized HTML lesson (the server enforces the same 20 MB cap).
     if (htmlTooLarge) {
-      onError(isArabic
-        ? `حجم ملف HTML يتجاوز الحد الأقصى (${HTML_MAX_MB} ميجابايت)`
-        : `HTML file exceeds the ${HTML_MAX_MB} MB limit`);
+      onError(t(locale, 'library.errors.htmlTooLarge', { limit: HTML_MAX_MB }));
       return;
     }
     setBusy(true);
@@ -685,11 +661,11 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       } else {
         // R22.5.2 guardrail — non-PDF rows never enter the Ghostscript pipeline;
         // tracking them would spin the timeline forever (11.9 regression fix).
-        onNotice(isArabic ? 'تم رفع الملف بنجاح.' : 'File uploaded successfully.');
+        onNotice(t(locale, 'library.processing.uploadedNotice'));
         closeUpload();
       }
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'فشل رفع الملف.');
+      onError(error instanceof Error ? error.message : t(locale, 'library.errors.upload'));
       setUploadProgress(0);
     } finally {
       setBusy(false);
@@ -705,7 +681,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       setPublishTarget(null);
       await loadFiles(page);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'فشل نشر الملف.');
+      onError(error instanceof Error ? error.message : t(locale, 'library.errors.publish'));
     } finally {
       setBusy(false);
     }
@@ -719,7 +695,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       setArchiveTarget(null);
       await loadFiles(page);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'فشلت أرشفة الملف.');
+      onError(error instanceof Error ? error.message : t(locale, 'library.errors.archive'));
     } finally {
       setBusy(false);
     }
@@ -758,7 +734,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       setEditTarget(null);
       await loadFiles(page);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'فشل تحديث بيانات الملف.');
+      onError(error instanceof Error ? error.message : t(locale, 'library.errors.updateMetadata'));
     } finally {
       setBusy(false);
     }
@@ -772,7 +748,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       setConfirmDelete(null);
       await loadFiles(page);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'فشل حذف الملف.');
+      onError(error instanceof Error ? error.message : t(locale, 'library.errors.delete'));
     } finally {
       setBusy(false);
     }
@@ -793,43 +769,28 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     setHtmlPreviewLoading(false);
   }
 
-  const copy = useMemo(() => isArabic ? {
-    eyebrow: 'إدارة المحتوى الرقمي',
-    title: 'مركز المكتبة والملفات',
-    desc: 'إدارة ملفات المكتبة الرقمية: رفع، نشر، أرشفة، حذف.',
-    selectUniversity: 'الجامعة', selectCollege: 'الكلية', selectYear: 'السنة', selectSemester: 'الفصل', selectSubject: 'المادة', selectLecture: 'المحاضرة',
-    search: 'ابحث بالعنوان', filterStatus: 'الحالة', all: 'الكل',
-    addFile: 'رفع ملف', refresh: 'تحديث', loading: 'جارٍ التحميل…',
-    upload: 'رفع ملف جديد', fileToUpload: 'الملف', title_ar: 'العنوان', description: 'الوصف', type: 'النوع', submit: 'رفع', cancel: 'إلغاء',
-    progress: 'التقدم', uploading: 'جارٍ الرفع…',
-    status: 'الحالة', scanStatus: 'الفحص', size: 'الحجم', subject: 'المادة', created: 'تاريخ الإنشاء', actions: 'إجراءات',
-    publish: 'نشر', archive: 'أرشفة', delete: 'حذف', deleteTitle: 'تأكيد الحذف', deleteText: 'هذا الإجراء دائم. سيُحذف الملف من التخزين والقاعدة.',
-    confirmDelete: 'حذف نهائي', close: 'إغلاق',
-    noFiles: 'لا توجد ملفات مطابقة.',
-    noSubject: 'اختر مادة لعرض ملفاتها.',
-    noSubjectHint: 'التدرج الأكاديمي أعلاه يقودك من الجامعة إلى المادة.',
-    noFilesHint: 'جرّب تعديل التصفية أو الكلمة المفتاحية.',
-    selectFile: 'اختر ملفاً', fillRequired: 'الرجاء اختيار ملف ومادة وعنوان',
-    selectSubjectForm: 'اختر المادة', selectLectureForm: 'على مستوى المادة',
-  } : {
-    eyebrow: 'Digital content management',
-    title: 'Library & Files Center', desc: 'Manage library files: upload, publish, archive, delete.',
-    selectUniversity: 'University', selectCollege: 'College', selectYear: 'Year', selectSemester: 'Semester', selectSubject: 'Subject', selectLecture: 'Lecture',
-    search: 'Search by title', filterStatus: 'Status', all: 'All',
-    addFile: 'Upload file', refresh: 'Refresh', loading: 'Loading…',
-    upload: 'Upload new file', fileToUpload: 'File', title_ar: 'Title', description: 'Description', type: 'Type', submit: 'Upload', cancel: 'Cancel',
-    progress: 'Progress', uploading: 'Uploading…',
-    status: 'Status', scanStatus: 'Scan', size: 'Size', subject: 'Subject', created: 'Created', actions: 'Actions',
-    publish: 'Publish', archive: 'Archive', delete: 'Delete', deleteTitle: 'Confirm delete', deleteText: 'This is permanent. The file will be removed from storage and database.',
-    confirmDelete: 'Delete permanently', close: 'Close',
-    noFiles: 'No matching files.',
-    noSubject: 'Select a subject to view its files.',
-    noSubjectHint: 'The hierarchy above leads from university down to subject.',
-    noFilesHint: 'Try adjusting the filters or search keywords.',
-    selectFile: 'Choose file', fillRequired: 'Please select a file, subject, and title',
-    selectSubjectForm: 'Select subject', selectLectureForm: 'Subject-level',
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isArabic]);
+  // PR-3 — the legacy inline bilingual copy object now resolves through the
+  // shared dictionary; the KEYS are unchanged so every `copy.*` consumer below
+  // keeps working, the VALUES are dictionary-sourced (byte-identical strings).
+  const copy = useMemo(() => ({
+    eyebrow: t(locale, 'library.header.eyebrow'),
+    title: t(locale, 'library.header.title'),
+    desc: t(locale, 'library.header.desc'),
+    selectUniversity: t(locale, 'library.fields.university'), selectCollege: t(locale, 'library.fields.college'), selectYear: t(locale, 'library.fields.year'), selectSemester: t(locale, 'library.fields.semester'), selectSubject: t(locale, 'library.fields.subject'), selectLecture: t(locale, 'library.fields.lecture'),
+    search: t(locale, 'library.toolbar.search'), filterStatus: t(locale, 'common.status'), all: t(locale, 'common.all'),
+    addFile: t(locale, 'library.toolbar.addFile'), refresh: t(locale, 'library.toolbar.refresh'), loading: t(locale, 'library.toolbar.loading'),
+    upload: t(locale, 'library.upload.panelEyebrow'), fileToUpload: t(locale, 'library.fields.file'), title_ar: t(locale, 'library.fields.title'), description: t(locale, 'library.fields.description'), type: t(locale, 'library.fields.type'), submit: t(locale, 'library.upload.submit'), cancel: t(locale, 'common.cancel'),
+    progress: t(locale, 'library.upload.progress'), uploading: t(locale, 'library.upload.uploading'),
+    status: t(locale, 'common.status'), scanStatus: t(locale, 'library.fields.scan'), size: t(locale, 'library.fields.size'), subject: t(locale, 'library.fields.subject'), created: t(locale, 'library.fields.created'), actions: t(locale, 'library.fields.actions'),
+    publish: t(locale, 'library.actions.publish'), archive: t(locale, 'library.actions.archive'), delete: t(locale, 'library.actions.delete'), deleteTitle: t(locale, 'library.confirm.deleteTitle'), deleteText: t(locale, 'library.confirm.deleteText'),
+    confirmDelete: t(locale, 'library.confirm.deleteButton'), close: t(locale, 'common.close'),
+    noFiles: t(locale, 'library.list.noFiles'),
+    noSubject: t(locale, 'library.list.noSubject'),
+    noSubjectHint: t(locale, 'library.list.noSubjectHint'),
+    noFilesHint: t(locale, 'library.list.noFilesHint'),
+    selectFile: t(locale, 'library.upload.selectFile'), fillRequired: t(locale, 'library.upload.fillRequired'),
+    selectSubjectForm: t(locale, 'library.upload.selectSubjectForm'), selectLectureForm: t(locale, 'library.upload.selectLectureForm'),
+  }), [locale]);
 
   const dir = isArabic ? 'rtl' : 'ltr';
   const hasFilters = Boolean(subjectId || statusFilter || query);
@@ -926,7 +887,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
           style={activeTab === 'files' ? undefined : { color: 'var(--cms-text-muted)' }}
         >
           <Library className="w-4 h-4" />
-          {isArabic ? 'الملفات' : 'Documents'}
+          {t(locale, 'library.tabs.files')}
         </button>
         {can('tab:library.courses') && (
           <button
@@ -938,7 +899,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
             style={activeTab === 'courses' ? undefined : { color: 'var(--cms-text-muted)' }}
           >
             <Film className="w-4 h-4" />
-            {isArabic ? 'الكورسات' : 'Courses'}
+            {t(locale, 'library.tabs.courses')}
           </button>
         )}
       </div>
@@ -1003,23 +964,23 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
           <option value="">{copy.filterStatus}: {copy.all}</option>
-          <option value="Draft">{isArabic ? 'مسودة' : 'Draft'}</option>
-          <option value="Published">{isArabic ? 'منشور' : 'Published'}</option>
-          <option value="Archived">{isArabic ? 'مؤرشف' : 'Archived'}</option>
+          <option value="Draft">{statusLabel('Draft', isArabic)}</option>
+          <option value="Published">{statusLabel('Published', isArabic)}</option>
+          <option value="Archived">{statusLabel('Archived', isArabic)}</option>
         </select>
         {/* Push 4: institutional category filter (منهاج/محاضرة/تلخيص/أفكار ذهبية). */}
         <select
           value={categoryFilter}
           onChange={(event) => setCategoryFilter(event.target.value)}
-          aria-label={isArabic ? 'التصنيف' : 'Category'}
+          aria-label={t(locale, 'library.fields.category')}
           className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
-          <option value="">{isArabic ? 'التصنيف: الكل' : 'Category: All'}</option>
-          <option value="Curriculum">{isArabic ? 'منهاج' : 'Curriculum'}</option>
-          <option value="Lecture">{isArabic ? 'محاضرة' : 'Lecture'}</option>
-          <option value="Summary">{isArabic ? 'تلخيص' : 'Summary'}</option>
-          <option value="GoldenIdeas">{isArabic ? 'أفكار ذهبية' : 'Golden ideas'}</option>
+          <option value="">{t(locale, 'library.toolbar.categoryAll')}</option>
+          <option value="Curriculum">{categoryLabel('Curriculum', isArabic)}</option>
+          <option value="Lecture">{categoryLabel('Lecture', isArabic)}</option>
+          <option value="Summary">{categoryLabel('Summary', isArabic)}</option>
+          <option value="GoldenIdeas">{categoryLabel('GoldenIdeas', isArabic)}</option>
         </select>
         <button
           type="button"
@@ -1078,7 +1039,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
               <tr>
                 <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.title_ar}</th>
                 <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.type}</th>
-                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'التصنيف' : 'Category'}</th>
+                <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'library.fields.category')}</th>
                 <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.subject}</th>
                 <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.size}</th>
                 <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.status}</th>
@@ -1149,7 +1110,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                           grouped into one trigger. Destructive entries stay confirm-gated
                           downstream (publishTarget / archiveTarget / confirmDelete). */}
                       <RowActionsMenu
-                        label={isArabic ? `إجراءات ${file.title}` : `Actions for ${file.title}`}
+                        label={t(locale, 'library.actions.rowMenuLabel', { title: file.title })}
                         dir={isArabic ? 'rtl' : 'ltr'}
                         items={[
                           ...(file.type === 'Pdf'
@@ -1157,18 +1118,16 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                                 // R22.4 — Wave 12 placeholder: the escape hatch for severely
                                 // broken PDFs (image conversion) is VISIBLE but not built.
                                 key: 'convert-images',
-                                label: isArabic ? 'تحويل إلى صور عالية الجودة' : 'Convert to high-quality images',
+                                label: t(locale, 'library.actions.convertToImages'),
                                 icon: <Images className="w-4 h-4" />,
                                 disabled: busy,
-                                onSelect: () => onNotice(isArabic
-                                  ? 'هذه الميزة ستكون متاحة في التحديث القادم (Wave 12).'
-                                  : 'This feature will be available in the next update (Wave 12).'),
+                                onSelect: () => onNotice(t(locale, 'library.actions.convertNotice')),
                               }]
                             : []),
                           // W6 (complete API coverage): metadata edit joins the menu.
                           {
                             key: 'edit-metadata',
-                            label: isArabic ? 'تعديل البيانات' : 'Edit metadata',
+                            label: t(locale, 'library.actions.editMetadata'),
                             icon: <Pencil className="w-4 h-4" />,
                             disabled: busy,
                             onSelect: () => openEdit(file),
@@ -1205,7 +1164,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                           ...(isSuperAdmin
                             ? [{
                                 key: 'hard-delete',
-                                label: isArabic ? 'حذف نهائي (تجاوز الأرشفة)' : 'Hard delete (bypass archive)',
+                                label: t(locale, 'library.actions.hardDelete'),
                                 danger: true,
                                 icon: <Trash2 className="w-4 h-4" />,
                                 onSelect: () => setHardTarget({ module: 'library-file', targetId: file.id, label: file.title }),
@@ -1270,7 +1229,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                     {copy.upload}
                   </p>
                   <h3 className="text-base font-bold truncate" style={{ color: 'var(--cms-text)' }}>
-                    {isArabic ? 'رفع ملف جديد' : 'New file upload'}
+                    {t(locale, 'library.upload.panelTitle')}
                   </h3>
                 </div>
                 <button
@@ -1338,8 +1297,8 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                       className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                       style={{ borderColor: 'var(--cms-line-strong)' }}
                     >
-                      {(['Pdf', 'Html', 'Image', 'Video', 'Audio', 'Summary', 'Comprehensive', 'Paragraph'] as const).map(t => (
-                        <option key={t} value={t}>{typeLabel(t, isArabic)}</option>
+                      {(['Pdf', 'Html', 'Image', 'Video', 'Audio', 'Summary', 'Comprehensive', 'Paragraph'] as const).map(typeValue => (
+                        <option key={typeValue} value={typeValue}>{typeLabel(typeValue, isArabic)}</option>
                       ))}
                     </select>
                   </label>
@@ -1365,13 +1324,13 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                       >
                         <span className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>
                           <MonitorPlay className="w-4 h-4 shrink-0" style={{ color: 'var(--cms-teal-700)' }} />
-                          {isArabic ? 'معاينة تفاعلية' : 'Interactive preview'}
+                          {t(locale, 'library.upload.html.previewTitle')}
                         </span>
                         <span
                           className="inline-flex items-center rounded-full border bg-white px-2 py-0.5 text-[11px]"
                           style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-muted)' }}
                         >
-                          {isArabic ? 'محلية فقط' : 'Local only'}
+                          {t(locale, 'library.upload.html.localOnly')}
                         </span>
                       </header>
                       <div className="p-3">
@@ -1385,7 +1344,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                           <iframe
                             srcDoc={htmlPreview ?? ''}
                             sandbox={form.enableScripts ? 'allow-scripts' : ''}
-                            title={isArabic ? 'معاينة تفاعلية للدرس' : 'Interactive lesson preview'}
+                            title={t(locale, 'library.upload.html.previewFrameTitle')}
                             className="w-full h-56 sm:h-64 rounded-lg border bg-white"
                             data-testid="html-preview-frame"
                           />
@@ -1395,9 +1354,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                           style={{ color: 'var(--cms-text-muted)' }}
                           data-testid="html-preview-note"
                         >
-                          {isArabic
-                            ? 'المعاينة تعمل داخل متصفحك فقط — لم يُرفع أي ملف بعد، وتعمل بنفس قواعد القفص التي سيراها الطلاب.'
-                            : 'The preview runs inside your browser only — nothing is uploaded yet, and it uses the same sandbox rules students will get.'}
+                          {t(locale, 'library.upload.html.previewNote')}
                         </p>
                       </div>
                     </section>
@@ -1418,12 +1375,10 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                       >
                         <span className="min-w-0">
                           <span className="block text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>
-                            {isArabic ? 'تفعيل السكربتات التفاعلية' : 'Enable interactive scripts'}
+                            {t(locale, 'library.upload.html.enableScripts')}
                           </span>
                           <span className="mt-1 block text-[11px] leading-relaxed" style={{ color: 'var(--cms-text-muted)' }}>
-                            {isArabic
-                              ? 'المحتوى سيعمل داخل قفص حماية (Sandbox) ولا يمكنه الاتصال بأي سيرفر خارجي.'
-                              : 'Content runs inside a sandbox cage and cannot contact any external server.'}
+                            {t(locale, 'library.upload.html.enableScriptsHint')}
                           </span>
                         </span>
                         <span
@@ -1438,10 +1393,11 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                       </button>
                       {/* What the admin gets regardless of the toggle — kills the "is this safe?" question. */}
                       <div className="mt-3 flex flex-wrap gap-1.5">
-                        {(isArabic
-                          ? ['حماية CSP مفعّلة', 'فحص فيروسي تلقائي', 'قفص حماية معزول']
-                          : ['CSP shield on', 'Virus scanned', 'Isolated sandbox']
-                        ).map((chip) => (
+                        {[
+                          t(locale, 'library.upload.html.chipCsp'),
+                          t(locale, 'library.upload.html.chipVirus'),
+                          t(locale, 'library.upload.html.chipSandbox'),
+                        ].map((chip) => (
                           <span
                             key={chip}
                             className="inline-flex items-center gap-1 rounded-full border bg-white px-2 py-0.5 text-[11px]"
@@ -1461,7 +1417,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                       data-testid="html-size-meter"
                     >
                       <div className="flex items-center justify-between gap-2 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                        <span className="font-medium">{isArabic ? 'حجم الملف' : 'File size'}</span>
+                        <span className="font-medium">{t(locale, 'library.upload.html.sizeLabel')}</span>
                         <span
                           className={`font-semibold tabular-nums ${htmlTooLarge ? 'text-red-700' : ''}`}
                           data-testid="html-size-readout"
@@ -1485,9 +1441,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                           data-testid="html-size-error"
                           role="alert"
                         >
-                          {isArabic
-                            ? `الحجم يتجاوز الحد الأقصى (${HTML_MAX_MB} ميجابايت) — أزل الملف واختر ملفًا أصغر.`
-                            : `Exceeds the ${HTML_MAX_MB} MB limit — remove it and pick a smaller file.`}
+                          {t(locale, 'library.upload.html.sizeError', { limit: HTML_MAX_MB })}
                         </p>
                       )}
                     </section>
@@ -1535,7 +1489,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                 {/* Push 4: institutional category (منهاج/محاضرة/تلخيص/أفكار ذهبية) */}
                 <label className="block">
                   <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {isArabic ? 'التصنيف' : 'Category'}
+                    {t(locale, 'library.fields.category')}
                   </span>
                   <select
                     value={form.category}
@@ -1543,11 +1497,11 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                     className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                     style={{ borderColor: 'var(--cms-line-strong)' }}
                   >
-                    <option value="">{isArabic ? 'غير مصنّف' : 'Uncategorized'}</option>
-                    <option value="Curriculum">{isArabic ? 'منهاج' : 'Curriculum'}</option>
-                    <option value="Lecture">{isArabic ? 'محاضرة' : 'Lecture'}</option>
-                    <option value="Summary">{isArabic ? 'تلخيص' : 'Summary'}</option>
-                    <option value="GoldenIdeas">{isArabic ? 'أفكار ذهبية' : 'Golden ideas'}</option>
+                    <option value="">{categoryLabel('', isArabic)}</option>
+                    <option value="Curriculum">{categoryLabel('Curriculum', isArabic)}</option>
+                    <option value="Lecture">{categoryLabel('Lecture', isArabic)}</option>
+                    <option value="Summary">{categoryLabel('Summary', isArabic)}</option>
+                    <option value="GoldenIdeas">{categoryLabel('GoldenIdeas', isArabic)}</option>
                   </select>
                 </label>
 
@@ -1593,16 +1547,12 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                   >
                     <div className="flex items-center justify-between gap-2 text-xs font-semibold" style={{ color: 'var(--cms-text)' }}>
                       <span className="inline-flex items-center gap-1.5">
-                        {isArabic ? 'معالجة الخطوط' : 'Font processing'}
+                        {t(locale, 'library.processing.pdfTitle')}
                         {/* The task-book tooltip — WHY this step exists, in plain Arabic. */}
                         <span
                           className="inline-flex cursor-help"
-                          title={isArabic
-                            ? 'هذه الخطوة تضمن أن النص العربي سيظهر متصلاً وسليماً على جميع الأجهزة.'
-                            : 'This step ensures Arabic text renders connected and correct on every device.'}
-                          aria-label={isArabic
-                            ? 'هذه الخطوة تضمن أن النص العربي سيظهر متصلاً وسليماً على جميع الأجهزة.'
-                            : 'This step ensures Arabic text renders connected and correct on every device.'}
+                          title={t(locale, 'library.processing.pdfTooltip')}
+                          aria-label={t(locale, 'library.processing.pdfTooltip')}
                           role="note"
                           data-testid="pdf-fonts-tooltip"
                         >
@@ -1619,7 +1569,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                     </div>
                     {timelineSteps.map((step) => {
                       const label = step.state === 'failed' && step.key === 'ready'
-                        ? (isArabic ? 'تعذر معالجة الملف ❌' : 'The file could not be processed ❌')
+                        ? t(locale, 'library.processing.pdfFailedStep')
                         : (isArabic ? step.labelAr : step.labelEn);
                       const sub = step.state === 'active'
                         ? (isArabic ? step.subTextAr : step.subTextEn) ?? null
@@ -1665,9 +1615,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                     )}
                     {pollTimedOut && trackingActive && (
                       <p className="text-xs" style={{ color: 'var(--cms-danger)' }}>
-                        {isArabic
-                          ? 'تجاوزت المعالجة المهلة (15 دقيقة) — تم إيقاف التحديث. أعد المحاولة لاحقاً.'
-                          : 'Processing exceeded the 15-minute watchdog — polling stopped. Retry later.'}
+                        {t(locale, 'library.processing.pollTimeout')}
                       </p>
                     )}
                   </div>
@@ -1686,7 +1634,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                     <div className="flex items-center justify-between gap-2 text-xs font-semibold" style={{ color: 'var(--cms-text)' }}>
                       <span className="inline-flex items-center gap-1.5">
                         <ShieldCheck className="w-3.5 h-3.5" style={{ color: 'var(--cms-teal-600)' }} />
-                        {isArabic ? 'تجهيز الدرس التفاعلي' : 'Interactive lesson processing'}
+                        {t(locale, 'library.processing.htmlTitle')}
                       </span>
                       <span className="tabular-nums" style={{ color: 'var(--cms-text-soft)' }} data-testid="html-timeline-percent">
                         {uploadInFlight ? `${uploadProgress}%` : htmlTimelineSettled ? '100%' : '—'}
@@ -1694,7 +1642,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                     </div>
                     {htmlTimelineStepsView.map((step) => {
                       const label = step.state === 'failed' && step.key === 'ready'
-                        ? (isArabic ? 'تعذر تجهيز الدرس ❌' : 'The lesson could not be prepared ❌')
+                        ? t(locale, 'library.processing.htmlFailedStep')
                         : (isArabic ? step.labelAr : step.labelEn);
                       return (
                         <div
@@ -1719,15 +1667,13 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                           data-testid="html-ready-badge"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                          <span>{isArabic ? 'جاهز — الحماية مفعّلة وقفص السكربتات يعمل' : 'Ready — protection applied, sandbox active'}</span>
+                          <span>{t(locale, 'library.processing.htmlReadyBadge')}</span>
                         </span>
                       </div>
                     )}
                     {pollTimedOut && trackingActive && (
                       <p className="text-xs" style={{ color: 'var(--cms-danger)' }}>
-                        {isArabic
-                          ? 'تجاوزت المعالجة المهلة (15 دقيقة) — تم إيقاف التحديث. أعد المحاولة لاحقاً.'
-                          : 'Processing exceeded the 15-minute watchdog — polling stopped. Retry later.'}
+                        {t(locale, 'library.processing.pollTimeout')}
                       </p>
                     )}
                   </div>
@@ -1772,11 +1718,9 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       <ConfirmDialog
         open={publishTarget !== null}
         onOpenChange={(next) => { if (!next) setPublishTarget(null); }}
-        title={isArabic ? 'نشر الملف' : 'Publish file'}
+        title={t(locale, 'library.confirm.publishTitle')}
         description={publishTarget
-          ? (isArabic
-            ? `سيصبح الملف "${publishTarget.title}" مرئيًا لجميع الطلاب ضمن المادة وسيظهر في نتائج البحث.`
-            : `"${publishTarget.title}" will become visible to all students of the subject and appear in search results.`)
+          ? t(locale, 'library.confirm.publishDescription', { title: publishTarget.title })
           : undefined}
         confirmLabel={copy.publish}
         cancelLabel={copy.cancel}
@@ -1788,11 +1732,9 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       <ConfirmDialog
         open={archiveTarget !== null}
         onOpenChange={(next) => { if (!next) setArchiveTarget(null); }}
-        title={isArabic ? 'أرشفة الملف' : 'Archive file'}
+        title={t(locale, 'library.confirm.archiveTitle')}
         description={archiveTarget
-          ? (isArabic
-            ? `سيُخفى الملف "${archiveTarget.title}" من اكتشاف الطلاب. يمكن استعادته بالنشر لاحقًا ولا يُحذف نهائيًا.`
-            : `"${archiveTarget.title}" will be hidden from student discovery. It can be re-published later and is not permanently deleted.`)
+          ? t(locale, 'library.confirm.archiveDescription', { title: archiveTarget.title })
           : undefined}
         confirmLabel={copy.archive}
         cancelLabel={copy.cancel}
@@ -1822,7 +1764,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         <Dialog
           open
           onOpenChange={(next) => { if (!next && !busy) setEditTarget(null); }}
-          title={isArabic ? 'تعديل بيانات الملف' : 'Edit file metadata'}
+          title={t(locale, 'library.metadata.title')}
           description={editTarget.title}
           dir={isArabic ? 'rtl' : 'ltr'}
           size="sm"
@@ -1832,7 +1774,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
           <form onSubmit={(event) => { event.preventDefault(); void handleUpdateMetadata(event); }} className="px-5 py-4 space-y-3.5">
             <div className="space-y-1.5">
               <label htmlFor="library-edit-title" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
-                {isArabic ? 'العنوان' : 'Title'} <span aria-hidden="true" style={{ color: 'var(--cms-danger)' }}>*</span>
+                {t(locale, 'library.fields.title')} <span aria-hidden="true" style={{ color: 'var(--cms-danger)' }}>*</span>
               </label>
               <input
                 id="library-edit-title"
@@ -1848,7 +1790,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
             </div>
             <div className="space-y-1.5">
               <label htmlFor="library-edit-description" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
-                {isArabic ? 'الوصف' : 'Description'}
+                {t(locale, 'library.fields.description')}
               </label>
               <textarea
                 id="library-edit-description"
@@ -1857,7 +1799,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                 rows={3}
                 maxLength={1000}
                 disabled={busy}
-                placeholder={isArabic ? 'اتركه فارغًا للمسح' : 'Leave empty to clear'}
+                placeholder={t(locale, 'library.metadata.descriptionPlaceholder')}
                 data-testid="library-edit-description"
                 className="w-full rounded-lg border text-sm p-2.5 disabled:opacity-50"
                 style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
@@ -1865,7 +1807,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
             </div>
             <div className="space-y-1.5">
               <label htmlFor="library-edit-tags" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
-                {isArabic ? 'الوسوم (فاصلة بين كل وسم)' : 'Tags (comma-separated)'}
+                {t(locale, 'library.metadata.tagsLabel')}
               </label>
               <input
                 id="library-edit-tags"
@@ -1881,7 +1823,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label htmlFor="library-edit-lecture" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
-                  {isArabic ? 'المحاضرة' : 'Lecture'}
+                  {t(locale, 'library.fields.lecture')}
                 </label>
                 <select
                   id="library-edit-lecture"
@@ -1892,13 +1834,13 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                   className="w-full h-10 px-3 rounded-lg border text-sm disabled:opacity-50"
                   style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
                 >
-                  <option value="">{isArabic ? 'بدون محاضرة' : 'No lecture'}</option>
+                  <option value="">{t(locale, 'library.metadata.noLecture')}</option>
                   {lectures.map((l) => <option key={l.id} value={l.id}>{label(isArabic, l)}</option>)}
                 </select>
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="library-edit-difficulty" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
-                  {isArabic ? 'الصعوبة' : 'Difficulty'}
+                  {t(locale, 'library.metadata.difficulty')}
                 </label>
                 <select
                   id="library-edit-difficulty"
@@ -1909,17 +1851,17 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                   className="w-full h-10 px-3 rounded-lg border text-sm disabled:opacity-50"
                   style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
                 >
-                  <option value="">{isArabic ? 'بدون تغيير' : 'Unchanged'}</option>
-                  <option value="Easy">{isArabic ? 'سهل' : 'Easy'}</option>
-                  <option value="Medium">{isArabic ? 'متوسط' : 'Medium'}</option>
-                  <option value="Hard">{isArabic ? 'صعب' : 'Hard'}</option>
+                  <option value="">{t(locale, 'library.metadata.unchanged')}</option>
+                  <option value="Easy">{registryLabel(locale, 'questionDifficulty', 'Easy')}</option>
+                  <option value="Medium">{registryLabel(locale, 'questionDifficulty', 'Medium')}</option>
+                  <option value="Hard">{registryLabel(locale, 'questionDifficulty', 'Hard')}</option>
                 </select>
               </div>
             </div>
             {editTarget.type === 'Video' && (
               <div className="space-y-1.5">
                 <label htmlFor="library-edit-quality" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
-                  {isArabic ? 'جودة التحويل المستهدفة' : 'Transcoding target quality'}
+                  {t(locale, 'library.metadata.targetQuality')}
                 </label>
                 <select
                   id="library-edit-quality"
@@ -1930,7 +1872,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                   className="w-full h-10 px-3 rounded-lg border text-sm disabled:opacity-50"
                   style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
                 >
-                  <option value="">{isArabic ? 'بدون تغيير' : 'Unchanged'}</option>
+                  <option value="">{t(locale, 'library.metadata.unchanged')}</option>
                   <option value="Auto">Auto</option>
                   <option value="P360">360p</option>
                   <option value="P720">720p</option>
@@ -1947,7 +1889,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                 className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-50"
                 style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
               >
-                {isArabic ? 'إلغاء' : 'Cancel'}
+                {t(locale, 'common.cancel')}
               </button>
               <button
                 type="submit"
@@ -1957,7 +1899,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                 style={{ background: 'var(--cms-teal-700)' }}
               >
                 {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                {isArabic ? 'حفظ' : 'Save'}
+                {t(locale, 'common.save')}
               </button>
             </div>
           </form>
@@ -1969,7 +1911,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         open={fontErrorModal !== null}
         onOpenChange={(open) => { if (!open) setFontErrorModal(null); }}
         isArabic={isArabic}
-        headline={isArabic ? 'تعذر معالجة الملف' : 'The file could not be processed'}
+        headline={t(locale, 'library.processing.errorHeadline')}
         humanMessage={fontErrorModal?.human}
         technicalDetails={fontErrorModal?.technical}
         diagnosticReport={fontErrorModal?.diagnostic}
@@ -1981,9 +1923,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         token={token}
         isArabic={isArabic}
         target={hardTarget}
-        consequence={isArabic
-          ? 'سيُحذف الملف نهائيًا من قاعدة البيانات مع علاماته وتعليقاته ومشاهداته (تجاوز الأرشفة).'
-          : 'The file is physically deleted with its bookmarks, annotations and views (bypassing archive).'}
+        consequence={t(locale, 'library.confirm.hardDeleteConsequence')}
         onDone={() => { void loadFiles(page); }}
         onClose={() => setHardTarget(null)}
       />

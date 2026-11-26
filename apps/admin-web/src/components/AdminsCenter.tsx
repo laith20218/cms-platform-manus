@@ -22,6 +22,7 @@ import {
 import { PageHeader, useModalA11y } from '@cms/ui';
 import type { AdminRecord, RoleRecord } from '../lib/api';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
+import { t, localeOf } from '../lib/dictionary';
 import { ScopePicker } from './ScopePicker';
 
 type Copy = Record<string, string>;
@@ -107,6 +108,8 @@ export function AdminsCenter(props: AdminsCenterProps) {
     clearFilters, onCreate, onEdit, onReset, onDelete, onStatus,
   } = props;
 
+  const locale = localeOf(isArabic);
+
   const filtersActive = Boolean(query || roleFilter || statusFilter !== 'all');
   const inputClass = 'w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors';
 
@@ -116,14 +119,10 @@ export function AdminsCenter(props: AdminsCenterProps) {
       <PageHeader
         icon={UsersRound}
         iconClassName="bg-[color:var(--cms-teal-50)] text-[color:var(--cms-teal-700)]"
-        eyebrow={isArabic ? 'الإدارة المركزية' : 'Central administration'}
+        eyebrow={t(locale, 'admincenters.adminsCenter.eyebrow')}
         title={copy.adminList}
         count={total}
-        description={
-          isArabic
-            ? 'تُدار المدراء والصلاحيات والنطاقات الأكاديمية من هذا المركز المؤسسي.'
-            : 'Manage administrators, their roles and academic scopes from this institutional center.'
-        }
+        description={t(locale, 'admincenters.adminsCenter.description')}
         dir={isArabic ? 'rtl' : 'ltr'}
         testId="admins-page-header"
         actions={can('btn:admins.create') ? (
@@ -222,7 +221,7 @@ export function AdminsCenter(props: AdminsCenterProps) {
           </div>
           <p className="mt-3 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>{copy.noAdmins}</p>
           <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-            {isArabic ? 'عدّل عوامل التصفية أو أضف مديراً جديداً.' : 'Adjust filters or add a new administrator.'}
+            {t(locale, 'admincenters.adminsCenter.emptyHint')}
           </p>
           {filtersActive && (
             <button
@@ -241,7 +240,7 @@ export function AdminsCenter(props: AdminsCenterProps) {
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
               <tr>
-                <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'المدير' : 'Administrator'}</th>
+                <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'admincenters.adminsCenter.identityColumn')}</th>
                 <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.role}</th>
                 <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.scope}</th>
                 <th className="text-start px-4 py-3 font-semibold text-xs uppercase tracking-wider">{copy.status}</th>
@@ -267,11 +266,11 @@ export function AdminsCenter(props: AdminsCenterProps) {
                           <div className="text-xs truncate" style={{ color: 'var(--cms-text-muted)' }}>{admin.email}</div>
                           {admin.phone && (
                             <div className="text-xs truncate" style={{ color: 'var(--cms-text-muted)' }}>
-                              {isArabic ? `هاتف: ${admin.phone}` : `Phone: ${admin.phone}`}
+                              {t(locale, 'admincenters.adminsCenter.phoneLabel', { phone: admin.phone })}
                             </div>
                           )}
                           <div className="text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
-                            {isArabic ? `أُنشئ في ${dateLabel(admin.createdAt, isArabic)}` : `Created ${dateLabel(admin.createdAt, isArabic)}`}
+                            {t(locale, 'admincenters.adminsCenter.createdLabel', { date: dateLabel(admin.createdAt, isArabic) })}
                           </div>
                         </div>
                       </div>
@@ -392,6 +391,8 @@ export function DialogLayer(props: DialogLayerProps) {
     onSubmitDelete, onSubmitRole,
   } = props;
 
+  const locale = localeOf(isArabic);
+
   // PR-2 — a11y retrofit: the layer predates @cms/ui Dialog; the shared
   // useModalA11y contract adds Escape-close (busy-guarded), the Tab focus
   // trap, body scroll lock, initial focus on the panel, and focus restore to
@@ -443,14 +444,14 @@ export function DialogLayer(props: DialogLayerProps) {
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                {isArabic ? 'إجراء إداري' : 'Administrative action'}
+                {t(locale, 'admincenters.adminsCenter.dialogEyebrow')}
               </p>
               <h2 className="text-lg font-bold" style={{ color: 'var(--cms-text)' }}>{title}</h2>
             </div>
           </div>
           <button
             type="button"
-            aria-label={isArabic ? 'إغلاق' : 'Close dialog'}
+            aria-label={t(locale, 'admincenters.adminsCenter.dialogClose')}
             onClick={onClose}
             disabled={busy}
             className="p-1.5 rounded-md transition-colors hover:bg-slate-100 disabled:opacity-50"
@@ -589,9 +590,7 @@ export function DialogLayer(props: DialogLayerProps) {
               <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{dialog.admin.email}</p>
             </div>
             <p className="text-sm" style={{ color: 'var(--cms-text-soft)' }}>
-              {isArabic
-                ? `سيتم إبطال جميع جلسات ${dialog.admin.fullName} فورًا.`
-                : `All ${dialog.admin.fullName}'s live sessions will be invalidated immediately.`}
+              {t(locale, 'admincenters.adminsCenter.resetSessionsNotice', { name: dialog.admin.fullName })}
             </p>
             <div>
               <label className={labelClass} style={{ color: 'var(--cms-text-soft)' }}>{copy.newPassword}</label>
@@ -695,7 +694,7 @@ export function DialogLayer(props: DialogLayerProps) {
                   style={{ borderColor: 'var(--cms-line-strong)' }}
                 />
                 <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                  {isArabic ? 'أحرف وأرقام وشرطة سفلية فقط، من 3 إلى 50 رمزًا.' : 'Letters, numbers and underscores only; 3–50 characters.'}
+                  {t(locale, 'admincenters.adminsCenter.roleNamePatternHint')}
                 </p>
               </div>
               <div>
@@ -724,7 +723,7 @@ export function DialogLayer(props: DialogLayerProps) {
               style={{ background: 'var(--cms-ivory-100)', borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}
             >
               <KeyRound className="w-4 h-4 mt-0.5 shrink-0" style={{ color: 'var(--cms-teal-600)' }} />
-              <p>{isArabic ? 'ينشأ الدور بلا صلاحيات. أضف الصلاحيات قبل تعيينه لأي مدير.' : 'The role begins with no permissions. Add grants before assigning it.'}</p>
+              <p>{t(locale, 'admincenters.adminsCenter.roleEmptyPermissionsNote')}</p>
             </div>
             <div className="flex gap-3 justify-end pt-2 border-t" style={{ borderColor: 'var(--cms-line)' }}>
               <button

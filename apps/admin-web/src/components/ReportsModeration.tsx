@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Dialog, Select } from '@cms/ui';
 import { ApiError, apiRequest } from '../lib/api';
+import { t, localeOf } from '../lib/dictionary';
 
 type Props = {
   token: string;
@@ -59,12 +60,12 @@ type ReportsResponse = {
 const PAGE_SIZE = 15;
 
 const STATUS_OPTIONS = [
-  { value: '', ar: 'كل الحالات', en: 'All statuses' },
-  { value: 'Pending', ar: 'معلّق', en: 'Pending' },
-  { value: 'Reviewing', ar: 'قيد المراجعة', en: 'Reviewing' },
-  { value: 'Resolved', ar: 'محلول', en: 'Resolved' },
-  { value: 'Rejected', ar: 'مرفوض', en: 'Rejected' },
-  { value: 'Closed', ar: 'مغلق', en: 'Closed' },
+  { value: '', labelKey: 'reports.moderation.statusAll' },
+  { value: 'Pending', labelKey: 'reports.moderation.statusPending' },
+  { value: 'Reviewing', labelKey: 'reports.moderation.statusReviewing' },
+  { value: 'Resolved', labelKey: 'reports.moderation.statusResolved' },
+  { value: 'Rejected', labelKey: 'reports.moderation.statusRejected' },
+  { value: 'Closed', labelKey: 'reports.moderation.statusClosed' },
 ];
 
 const VALID_TRANSITIONS: Record<string, Array<{ value: string; ar: string; en: string; needsNotes: boolean }>> = {
@@ -120,6 +121,7 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
   // W5: refresh driver — setPage(page) is a no-op when already on page 1, so
   // post-action refreshes bump this counter instead.
   const [refreshTick, setRefreshTick] = useState(0);
+  const locale = localeOf(isArabic);
 
   useEffect(() => {
     const t = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 300);
@@ -137,7 +139,7 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
       .then(res => { if (!cancelled) setData(res); })
       .catch((err: unknown) => {
         if (cancelled) return;
-        const msg = err instanceof ApiError ? err.message : isArabic ? 'تعذّر تحميل البلاغات' : 'Could not load reports';
+        const msg = err instanceof ApiError ? err.message : t(localeOf(isArabic), 'reports.moderation.loadError');
         onError(msg);
         setData(null);
       })
@@ -154,45 +156,17 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: transitionTarget, resolutionNotes: transitionNotes || null }),
       });
-      onNotice(isArabic ? 'تم تحديث حالة البلاغ' : 'Report status updated');
+      onNotice(t(locale, 'reports.moderation.statusUpdatedToast'));
       setTransitioningReport(null);
       setTransitionTarget('');
       setTransitionNotes('');
       // Refresh data
       setPage(page); // trigger re-fetch
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.message : isArabic ? 'فشل التحديث' : 'Update failed';
+      const msg = err instanceof ApiError ? err.message : t(locale, 'reports.moderation.updateFailed');
       onError(msg);
     } finally { setBusy(false); }
   };
-
-  const t = isArabic
-    ? {
-        title: 'إدارة البلاغات', desc: 'مراجعة البلاغات + انتقال الحالة + تعيين المسؤول',
-        search: 'بحث في الوصف...', status: 'الحالة', clear: 'إزالة الفلاتر',
-        question: 'السؤال', student: 'الطالب', reason: 'السبب', assigned: 'المسؤول',
-        created: 'الإنشاء', updated: 'آخر تحديث', actions: 'إجراءات',
-        transition: 'تغيير الحالة', notes: 'ملاحظات الحل (مطلوبة للرفض)', save: 'حفظ', cancel: 'إلغاء',
-        noTransitions: 'لا توجد انتقالات متاحة', noNotes: 'لا توجد ملاحظات',
-        prev: 'السابق', next: 'التالي', page: 'صفحة', of: 'من', showing: 'عرض', results: 'نتائج',
-        noData: 'لا توجد بلاغات', loading: 'جارٍ التحميل...', resolvedBy: 'حلّه', reviewedBy: 'راجعه',
-        assign: 'تعيين', assignTitle: 'تعيين البلاغ لمدير',
-        assignBody: 'اختر المدير المسؤول عن مراجعة هذا البلاغ. سيظهر اسمه في عمود «المسؤول».',
-        selectAdmin: 'اختر المدير', assignOk: 'تم تعيين المسؤول للبلاغ', assignFail: 'فشل التعيين',
-      }
-    : {
-        title: 'Reports Moderation', desc: 'Review reports + transition status + assign',
-        search: 'Search description...', status: 'Status', clear: 'Clear filters',
-        question: 'Question', student: 'Student', reason: 'Reason', assigned: 'Assigned',
-        created: 'Created', updated: 'Updated', actions: 'Actions',
-        transition: 'Transition status', notes: 'Resolution notes (required for rejection)', save: 'Save', cancel: 'Cancel',
-        noTransitions: 'No transitions available', noNotes: 'No notes',
-        prev: 'Previous', next: 'Next', page: 'Page', of: 'of', showing: 'Showing', results: 'results',
-        noData: 'No reports found', loading: 'Loading...', resolvedBy: 'Resolved by', reviewedBy: 'Reviewed by',
-        assign: 'Assign', assignTitle: 'Assign report to an administrator',
-        assignBody: 'Choose the administrator responsible for reviewing this report. Their name shows in the Assigned column.',
-        selectAdmin: 'Select administrator', assignOk: 'Report assigned', assignFail: 'Assign failed',
-      };
 
   // W5: load the administrator directory once when the assign dialog opens.
   // PR-2 (lint closure): isArabic joins the deps — the catch message is
@@ -203,7 +177,7 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
     setAdminsLoading(true);
     apiRequest<{ items: Array<{ id: string; fullName: string }> }>('/api/v1/admin/admins?page=1&pageSize=100', token)
       .then(res => setAdminsList(res.items ?? []))
-      .catch(() => { onError(isArabic ? 'تعذّر تحميل قائمة المدراء' : 'Could not load administrators'); setAssignTarget(null); })
+      .catch(() => { onError(t(localeOf(isArabic), 'reports.moderation.adminsLoadError')); setAssignTarget(null); })
       .finally(() => setAdminsLoading(false));
   }, [assignTarget, adminsList.length, token, onError, isArabic]);
 
@@ -216,13 +190,13 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ adminId: assignAdminId }),
       });
-      onNotice(t.assignOk);
+      onNotice(t(locale, 'reports.moderation.assignOk'));
       setAssignTarget(null);
       setAssignAdminId('');
       // Refresh data (the counter actually re-triggers the effect).
       setRefreshTick(n => n + 1);
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.message : t.assignFail;
+      const msg = err instanceof ApiError ? err.message : t(locale, 'reports.moderation.assignFail');
       onError(msg);
     } finally { setAssignBusy(false); }
   };
@@ -238,10 +212,10 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
       <div className="p-5 border-b" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
         <div className="flex items-center gap-2">
           <ShieldCheck size={18} style={{ color: 'var(--cms-teal-700)' }} />
-          <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.title}</h3>
+          <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.moderation.title')}</h3>
           <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>{total}</span>
         </div>
-        <p className="text-xs mt-1" style={{ color: 'var(--cms-text-muted)' }}>{t.desc}</p>
+        <p className="text-xs mt-1" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.moderation.desc')}</p>
       </div>
 
       {/* Filter bar */}
@@ -253,7 +227,7 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={t.search}
+              placeholder={t(locale, 'reports.moderation.search')}
               className="w-full h-9 rounded-lg border text-xs"
               style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)', paddingInlineStart: '30px' }}
             />
@@ -261,13 +235,13 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
           <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}
             className="h-9 rounded-lg border text-xs px-2"
             style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
-            {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{isArabic ? o.ar : o.en}</option>)}
+            {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{t(locale, o.labelKey)}</option>)}
           </select>
           {hasFilters && (
             <button onClick={() => { setSearch(''); setStatus(''); setPage(1); }}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 h-9 rounded-lg border text-xs"
               style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
-              <X size={12} /> {t.clear}
+              <X size={12} /> {t(locale, 'reports.moderation.clear')}
             </button>
           )}
         </div>
@@ -278,23 +252,23 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
         {loading ? (
           <div className="p-8 flex items-center justify-center">
             <LoaderCircle size={18} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} />
-            <span className="text-xs ml-2" style={{ color: 'var(--cms-text-muted)' }}>{t.loading}</span>
+            <span className="text-xs ml-2" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.moderation.loading')}</span>
           </div>
         ) : items.length === 0 ? (
           <div className="p-8 text-center">
             <AlertTriangle size={24} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
-            <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>{t.noData}</p>
+            <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.moderation.noData')}</p>
           </div>
         ) : (
           <table className="w-full text-xs">
             <thead><tr style={{ background: 'var(--cms-ivory-100)' }}>
-              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t.question}</th>
-              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t.student}</th>
-              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t.reason}</th>
-              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t.status}</th>
-              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t.assigned}</th>
-              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t.created}</th>
-              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t.actions}</th>
+              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.moderation.question')}</th>
+              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.moderation.student')}</th>
+              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.moderation.reason')}</th>
+              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.moderation.status')}</th>
+              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.moderation.assigned')}</th>
+              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.moderation.created')}</th>
+              <th className="text-start py-2 px-3 font-semibold uppercase" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.moderation.actions')}</th>
             </tr></thead>
             <tbody>
               {items.map(r => {
@@ -326,12 +300,12 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <button
                           onClick={() => { setAssignTarget(r); setAssignAdminId(r.assignedTo ?? ''); }}
-                          title={t.assign}
+                          title={t(locale, 'reports.moderation.assign')}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-medium"
                           style={{ borderColor: 'var(--cms-info-50)', color: 'var(--cms-info)', background: 'var(--cms-ivory-50)' }}
                           data-testid={`report-assign-${r.id}`}
                         >
-                          <UserCheck size={11} /> {t.assign}
+                          <UserCheck size={11} /> {t(locale, 'reports.moderation.assign')}
                         </button>
                         {transitions.length > 0 ? (
                           <button
@@ -339,10 +313,10 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
                             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-medium"
                             style={{ borderColor: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)', background: 'var(--cms-teal-50)' }}
                           >
-                            <ShieldCheck size={11} /> {t.transition}
+                            <ShieldCheck size={11} /> {t(locale, 'reports.moderation.transition')}
                           </button>
                         ) : (
-                          <span className="text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>{t.noTransitions}</span>
+                          <span className="text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.moderation.noTransitions')}</span>
                         )}
                       </div>
                     </td>
@@ -358,20 +332,20 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
       {!loading && items.length > 0 && (
         <div className="p-3 border-t flex items-center justify-between gap-3 flex-wrap" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
           <span className="text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
-            {t.showing} {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, total)} {t.of} {total} {t.results}
+            {t(locale, 'reports.moderation.showing')} {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, total)} {t(locale, 'reports.moderation.of')} {total} {t(locale, 'reports.moderation.results')}
           </span>
           <div className="flex items-center gap-2">
             <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page <= 1}
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs disabled:opacity-40"
               style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
               {isArabic ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
-              {t.prev}
+              {t(locale, 'reports.moderation.prev')}
             </button>
-            <span className="text-[11px]" style={{ color: 'var(--cms-text-soft)' }}>{t.page} {page} {t.of} {totalPages}</span>
+            <span className="text-[11px]" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'reports.moderation.page')} {page} {t(locale, 'reports.moderation.of')} {totalPages}</span>
             <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page >= totalPages}
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs disabled:opacity-40"
               style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
-              {t.next}
+              {t(locale, 'reports.moderation.next')}
               {isArabic ? <ChevronLeft size={12} /> : <ChevronRight size={12} />}
             </button>
           </div>
@@ -383,8 +357,8 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
         <Dialog
           open
           onOpenChange={(next) => { if (!next && !assignBusy) { setAssignTarget(null); setAssignAdminId(''); } }}
-          title={t.assignTitle}
-          description={t.assignBody}
+          title={t(locale, 'reports.moderation.assignTitle')}
+          description={t(locale, 'reports.moderation.assignBody')}
           dir={isArabic ? 'rtl' : 'ltr'}
           size="sm"
           dismissGuard={assignBusy}
@@ -393,11 +367,11 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
           <div className="px-5 py-4 space-y-4">
             {adminsLoading ? (
               <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                <LoaderCircle size={14} className="animate-spin" /> {t.loading}
+                <LoaderCircle size={14} className="animate-spin" /> {t(locale, 'reports.moderation.loading')}
               </div>
             ) : (
               <Select
-                label={t.selectAdmin}
+                label={t(locale, 'reports.moderation.selectAdmin')}
                 value={assignAdminId}
                 onChange={(event) => setAssignAdminId(event.target.value)}
                 disabled={assignBusy}
@@ -414,7 +388,7 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
               className="px-3 py-1.5 rounded-lg border text-xs"
               style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
             >
-              {t.cancel}
+              {t(locale, 'reports.moderation.cancel')}
             </button>
             <button
               type="button"
@@ -425,7 +399,7 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
               style={{ background: 'var(--cms-teal-700)' }}
             >
               {assignBusy ? <LoaderCircle size={12} className="animate-spin" /> : <CheckCircle size={12} />}
-              {t.save}
+              {t(locale, 'reports.moderation.save')}
             </button>
           </div>
         </Dialog>
@@ -437,14 +411,14 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onMouseDown={() => !busy && setTransitioningReport(null)} />
           <div className="relative w-full max-w-md rounded-xl border shadow-2xl" style={{ background: 'var(--cms-surface)', borderColor: 'var(--cms-line)' }}>
             <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
-              <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.transition}</h3>
+              <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.moderation.transition')}</h3>
               <button onClick={() => !busy && setTransitioningReport(null)} disabled={busy} className="p-1">
                 <X size={16} style={{ color: 'var(--cms-text-muted)' }} />
               </button>
             </div>
             <div className="p-4 space-y-3">
               <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                {isArabic ? 'الحالة الحالية' : 'Current status'}:
+                {t(locale, 'reports.moderation.currentStatus')}:
                 <span className={`ml-1.5 inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${statusBadge(transitioningReport.status)}`}>
                   {transitioningReport.status}
                 </span>
@@ -462,14 +436,14 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
                       : { borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}
                   >
                     {trans.value}
-                    {trans.needsNotes && <span className="block text-[10px] mt-0.5" style={{ color: 'var(--cms-warning)' }}>⚠ {t.notes}</span>}
+                    {trans.needsNotes && <span className="block text-[10px] mt-0.5" style={{ color: 'var(--cms-warning)' }}>⚠ {t(locale, 'reports.moderation.notes')}</span>}
                   </button>
                 ))}
               </div>
               {/* Resolution notes */}
               {transitionTarget && (
                 <div>
-                  <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t.notes}</label>
+                  <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'reports.moderation.notes')}</label>
                   <textarea
                     value={transitionNotes}
                     onChange={(e) => setTransitionNotes(e.target.value)}
@@ -484,13 +458,13 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
             <div className="flex gap-2 justify-end p-4 border-t" style={{ borderColor: 'var(--cms-line)' }}>
               <button onClick={() => setTransitioningReport(null)} disabled={busy}
                 className="px-3 py-1.5 rounded-lg border text-xs" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
-                {t.cancel}
+                {t(locale, 'reports.moderation.cancel')}
               </button>
               <button onClick={() => void submitTransition()} disabled={!transitionTarget || busy}
                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-white disabled:opacity-50"
                 style={{ background: 'var(--cms-teal-700)' }}>
                 {busy ? <LoaderCircle size={12} className="animate-spin" /> : <CheckCircle size={12} />}
-                {t.save}
+                {t(locale, 'reports.moderation.save')}
               </button>
             </div>
           </div>

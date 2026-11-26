@@ -1,0 +1,998 @@
+{
+  "generatedAt": "2026-11-26T03:35:37.897Z",
+  "pr": "PR-3 — localization/dictionary adoption",
+  "scope": "apps/admin-web/src (dictionary module excluded — it is the source)",
+  "methodology": [
+    "ternaries: occurrences of `isArabic ?` (JSX, object literals, helpers)",
+    "dir/localeTag/langSwitch/icon/data: LEGITIMATE non-string uses (direction, Intl tags, toggle, RTL icons, API data fields) — retained by design",
+    "string: inline bilingual UI strings remaining inline — the deferred inventory",
+    "arabicOnlyLines: lines with Arabic literals not routed through t(locale,…) — secondary heuristic (includes comments)"
+  ],
+  "totals": {
+    "ternaries": 149,
+    "dir": 54,
+    "localeTag": 32,
+    "langSwitch": 2,
+    "data": 38,
+    "icon": 9,
+    "string": 16,
+    "arabicOnly": 1047
+  },
+  "files": [
+    {
+      "file": "src/components/DangerZone.tsx",
+      "ternaries": 5,
+      "classification": {
+        "dir": 1,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 1,
+        "icon": 0,
+        "string": 3
+      },
+      "arabicOnlyLines": 72
+    },
+    {
+      "file": "src/components/LibraryCenter.tsx",
+      "ternaries": 13,
+      "classification": {
+        "dir": 7,
+        "localeTag": 1,
+        "langSwitch": 0,
+        "data": 3,
+        "icon": 0,
+        "string": 2
+      },
+      "arabicOnlyLines": 40
+    },
+    {
+      "file": "src/components/CodesCenter.tsx",
+      "ternaries": 6,
+      "classification": {
+        "dir": 1,
+        "localeTag": 2,
+        "langSwitch": 0,
+        "data": 1,
+        "icon": 0,
+        "string": 2
+      },
+      "arabicOnlyLines": 6
+    },
+    {
+      "file": "src/components/StudentsCenter.tsx",
+      "ternaries": 17,
+      "classification": {
+        "dir": 3,
+        "localeTag": 7,
+        "langSwitch": 0,
+        "data": 4,
+        "icon": 2,
+        "string": 1
+      },
+      "arabicOnlyLines": 0
+    },
+    {
+      "file": "src/components/ExamsCenter.tsx",
+      "ternaries": 9,
+      "classification": {
+        "dir": 4,
+        "localeTag": 4,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 1
+      },
+      "arabicOnlyLines": 1
+    },
+    {
+      "file": "src/components/AdminsCenter.tsx",
+      "ternaries": 7,
+      "classification": {
+        "dir": 3,
+        "localeTag": 1,
+        "langSwitch": 0,
+        "data": 2,
+        "icon": 0,
+        "string": 1
+      },
+      "arabicOnlyLines": 0
+    },
+    {
+      "file": "src/components/CoursesCenter.tsx",
+      "ternaries": 5,
+      "classification": {
+        "dir": 3,
+        "localeTag": 1,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 1
+      },
+      "arabicOnlyLines": 5
+    },
+    {
+      "file": "src/components/UiPermissionsEditor.tsx",
+      "ternaries": 5,
+      "classification": {
+        "dir": 1,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 3,
+        "icon": 0,
+        "string": 1
+      },
+      "arabicOnlyLines": 0
+    },
+    {
+      "file": "src/components/QuestionsCenter.tsx",
+      "ternaries": 4,
+      "classification": {
+        "dir": 3,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 1
+      },
+      "arabicOnlyLines": 18
+    },
+    {
+      "file": "src/components/EpisodeMetadataFields.tsx",
+      "ternaries": 3,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 2,
+        "icon": 0,
+        "string": 1
+      },
+      "arabicOnlyLines": 4
+    },
+    {
+      "file": "src/components/QuestionImportModal.tsx",
+      "ternaries": 3,
+      "classification": {
+        "dir": 1,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 1,
+        "icon": 0,
+        "string": 1
+      },
+      "arabicOnlyLines": 40
+    },
+    {
+      "file": "src/components/ScopePicker.tsx",
+      "ternaries": 2,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 1,
+        "icon": 0,
+        "string": 1
+      },
+      "arabicOnlyLines": 5
+    },
+    {
+      "file": "src/App.tsx",
+      "ternaries": 12,
+      "classification": {
+        "dir": 9,
+        "localeTag": 3,
+        "langSwitch": 2,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 1
+    },
+    {
+      "file": "src/components/NotificationCompose.tsx",
+      "ternaries": 10,
+      "classification": {
+        "dir": 0,
+        "localeTag": 2,
+        "langSwitch": 0,
+        "data": 8,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 13
+    },
+    {
+      "file": "src/components/ContentCenter.tsx",
+      "ternaries": 5,
+      "classification": {
+        "dir": 3,
+        "localeTag": 1,
+        "langSwitch": 0,
+        "data": 1,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 9
+    },
+    {
+      "file": "src/components/ReportsModeration.tsx",
+      "ternaries": 4,
+      "classification": {
+        "dir": 1,
+        "localeTag": 1,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 2,
+        "string": 0
+      },
+      "arabicOnlyLines": 7
+    },
+    {
+      "file": "src/components/RolesCenter.tsx",
+      "ternaries": 4,
+      "classification": {
+        "dir": 1,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 3,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 0
+    },
+    {
+      "file": "src/components/SentNotificationsDialog.tsx",
+      "ternaries": 4,
+      "classification": {
+        "dir": 1,
+        "localeTag": 1,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 2,
+        "string": 0
+      },
+      "arabicOnlyLines": 0
+    },
+    {
+      "file": "src/components/SettingsCenter.tsx",
+      "ternaries": 4,
+      "classification": {
+        "dir": 1,
+        "localeTag": 1,
+        "langSwitch": 0,
+        "data": 2,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 7
+    },
+    {
+      "file": "src/components/AuditLogViewer.tsx",
+      "ternaries": 3,
+      "classification": {
+        "dir": 0,
+        "localeTag": 1,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 2,
+        "string": 0
+      },
+      "arabicOnlyLines": 0
+    },
+    {
+      "file": "src/components/DashboardFeeds.tsx",
+      "ternaries": 3,
+      "classification": {
+        "dir": 1,
+        "localeTag": 1,
+        "langSwitch": 0,
+        "data": 1,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 5
+    },
+    {
+      "file": "src/components/OfflineCenter.tsx",
+      "ternaries": 3,
+      "classification": {
+        "dir": 1,
+        "localeTag": 2,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 5
+    },
+    {
+      "file": "src/components/PermissionMatrixEditor.tsx",
+      "ternaries": 3,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 3,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 27
+    },
+    {
+      "file": "src/components/AcademicCenter.tsx",
+      "ternaries": 2,
+      "classification": {
+        "dir": 1,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 1,
+        "string": 0
+      },
+      "arabicOnlyLines": 0
+    },
+    {
+      "file": "src/components/ActivityMonitor.tsx",
+      "ternaries": 2,
+      "classification": {
+        "dir": 1,
+        "localeTag": 1,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 1
+    },
+    {
+      "file": "src/components/AuditCenter.tsx",
+      "ternaries": 2,
+      "classification": {
+        "dir": 1,
+        "localeTag": 1,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 20
+    },
+    {
+      "file": "src/components/AccessibleModal.tsx",
+      "ternaries": 1,
+      "classification": {
+        "dir": 1,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 0
+    },
+    {
+      "file": "src/components/CommandPalette.tsx",
+      "ternaries": 1,
+      "classification": {
+        "dir": 1,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 0
+    },
+    {
+      "file": "src/components/ExamCoursesCenter.tsx",
+      "ternaries": 1,
+      "classification": {
+        "dir": 1,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 2
+    },
+    {
+      "file": "src/components/HardDeleteDialog.tsx",
+      "ternaries": 1,
+      "classification": {
+        "dir": 1,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 2
+    },
+    {
+      "file": "src/components/NotFoundView.tsx",
+      "ternaries": 1,
+      "classification": {
+        "dir": 1,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 0
+    },
+    {
+      "file": "src/components/ProcessingTimeline.tsx",
+      "ternaries": 1,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 1,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 0
+    },
+    {
+      "file": "src/components/ReportsTabs.tsx",
+      "ternaries": 1,
+      "classification": {
+        "dir": 0,
+        "localeTag": 1,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 0
+    },
+    {
+      "file": "src/components/TwoFactorCard.tsx",
+      "ternaries": 1,
+      "classification": {
+        "dir": 1,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 1
+    },
+    {
+      "file": "src/lib/mediaProcessing.ts",
+      "ternaries": 1,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 1,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 33
+    },
+    {
+      "file": "src/components/ProcessingErrorModal.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 5
+    },
+    {
+      "file": "src/lib/api.ts",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 5
+    },
+    {
+      "file": "src/lib/matchingEditor.ts",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 3
+    },
+    {
+      "file": "src/lib/mediaType.ts",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 3
+    },
+    {
+      "file": "src/lib/questionLabels.ts",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 3
+    },
+    {
+      "file": "src/lib/uiPermissions.ts",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 75
+    },
+    {
+      "file": "src/main.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 1
+    },
+    {
+      "file": "src/test/app-boot.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 7
+    },
+    {
+      "file": "src/test/app-routing.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 13
+    },
+    {
+      "file": "src/test/audit-log-viewer.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 1
+    },
+    {
+      "file": "src/test/codes-center-bulk-revoke.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 21
+    },
+    {
+      "file": "src/test/command-palette.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 6
+    },
+    {
+      "file": "src/test/courses-center-confirm.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 17
+    },
+    {
+      "file": "src/test/courses-center.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 29
+    },
+    {
+      "file": "src/test/danger-zone-hard-delete.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 17
+    },
+    {
+      "file": "src/test/dashboard-feeds.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 19
+    },
+    {
+      "file": "src/test/dictionary.test.ts",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 34
+    },
+    {
+      "file": "src/test/exams-center-results-pager.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 14
+    },
+    {
+      "file": "src/test/exams-preview-unpublish.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 42
+    },
+    {
+      "file": "src/test/exams-question-labels.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 34
+    },
+    {
+      "file": "src/test/library-center-lifecycle.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 20
+    },
+    {
+      "file": "src/test/library-edit-metadata.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 18
+    },
+    {
+      "file": "src/test/login-two-factor.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 9
+    },
+    {
+      "file": "src/test/matching-editor.test.ts",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 22
+    },
+    {
+      "file": "src/test/matching-rules-night7.test.ts",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 14
+    },
+    {
+      "file": "src/test/mediaProcessing.test.ts",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 14
+    },
+    {
+      "file": "src/test/mediaType.test.ts",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 4
+    },
+    {
+      "file": "src/test/notification-compose-cascade.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 18
+    },
+    {
+      "file": "src/test/offline-center.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 4
+    },
+    {
+      "file": "src/test/query-state.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 13
+    },
+    {
+      "file": "src/test/question-import-modal.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 12
+    },
+    {
+      "file": "src/test/questions-center-matching.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 77
+    },
+    {
+      "file": "src/test/questions-center-pager.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 5
+    },
+    {
+      "file": "src/test/reports-assign.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 10
+    },
+    {
+      "file": "src/test/scope-picker.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 12
+    },
+    {
+      "file": "src/test/sent-notifications.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 12
+    },
+    {
+      "file": "src/test/settings-center-reset-confirm.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 5
+    },
+    {
+      "file": "src/test/settings-center.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 1
+    },
+    {
+      "file": "src/test/shell-copy.test.ts",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 96
+    },
+    {
+      "file": "src/test/two-factor-card.test.tsx",
+      "ternaries": 0,
+      "classification": {
+        "dir": 0,
+        "localeTag": 0,
+        "langSwitch": 0,
+        "data": 0,
+        "icon": 0,
+        "string": 0
+      },
+      "arabicOnlyLines": 8
+    }
+  ]
+}

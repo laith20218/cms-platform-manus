@@ -20,6 +20,7 @@ import {
   Search, ShieldCheck, ChevronLeft, ChevronRight, Download, X, LoaderCircle,
 } from 'lucide-react';
 import { ApiError, apiRequest } from '../lib/api';
+import { t, localeOf, type Locale } from '../lib/dictionary';
 
 type Props = {
   token: string;
@@ -53,34 +54,34 @@ type AuditLogResponse = {
 const PAGE_SIZE = 25;
 
 const SEVERITY_OPTIONS = [
-  { value: '', ar: 'كل الخطورة', en: 'All severities' },
-  { value: 'Critical', ar: 'حرج', en: 'Critical' },
-  { value: 'Warning', ar: 'تحذير', en: 'Warning' },
-  { value: 'Info', ar: 'معلومات', en: 'Info' },
+  { value: '', labelKey: 'audit.viewer.severityAll' },
+  { value: 'Critical', labelKey: 'audit.severity.critical' },
+  { value: 'Warning', labelKey: 'audit.severity.warning' },
+  { value: 'Info', labelKey: 'audit.severity.info' },
 ];
 
 const EVENT_TYPE_OPTIONS = [
-  { value: '', ar: 'كل الأنواع', en: 'All types' },
-  { value: 'LoginSuccess', ar: 'نجاح الدخول', en: 'Login Success' },
-  { value: 'LoginFailed', ar: 'فشل الدخول', en: 'Login Failed' },
-  { value: 'Logout', ar: 'تسجيل الخروج', en: 'Logout' },
-  { value: 'SessionCreated', ar: 'إنشاء جلسة', en: 'Session Created' },
-  { value: 'SessionRevoked', ar: 'إنهاء جلسة', en: 'Session Revoked' },
-  { value: 'DeviceRegistered', ar: 'تسجيل جهاز', en: 'Device Registered' },
-  { value: 'DeviceChange', ar: 'تغيير جهاز', en: 'Device Change' },
-  { value: 'BanIssued', ar: 'تطبيق حظر', en: 'Ban Issued' },
-  { value: 'BanLifted', ar: 'رفع حظر', en: 'Ban Lifted' },
-  { value: 'MfaEnabled', ar: 'تفعيل التحقق الثنائي', en: 'MFA Enabled' },
-  { value: 'MfaDisabled', ar: 'تعطيل التحقق الثنائي', en: 'MFA Disabled' },
-  { value: 'PermissionChange', ar: 'تغيير صلاحية', en: 'Permission Change' },
-  { value: 'RoleChange', ar: 'تغيير دور', en: 'Role Change' },
-  { value: 'SubscriptionActivated', ar: 'تفعيل اشتراك', en: 'Subscription Activated' },
-  { value: 'SubscriptionRevoked', ar: 'إلغاء اشتراك', en: 'Subscription Revoked' },
-  { value: 'FileAccess', ar: 'وصول لملف', en: 'File Access' },
-  { value: 'FileAccessDenied', ar: 'رفض وصول لملف', en: 'File Access Denied' },
-  { value: 'FileScanRejected', ar: 'رفض فحص ملف', en: 'File Scan Rejected' },
-  { value: 'SecurityAlert', ar: 'تنبيه أمني', en: 'Security Alert' },
-  { value: 'SuspiciousActivity', ar: 'نشاط مشبوه', en: 'Suspicious Activity' },
+  { value: '', labelKey: 'audit.viewer.eventTypeAll' },
+  { value: 'LoginSuccess', labelKey: 'audit.eventTypes.loginSuccess' },
+  { value: 'LoginFailed', labelKey: 'audit.eventTypes.loginFailed' },
+  { value: 'Logout', labelKey: 'audit.eventTypes.logout' },
+  { value: 'SessionCreated', labelKey: 'audit.eventTypes.sessionCreated' },
+  { value: 'SessionRevoked', labelKey: 'audit.eventTypes.sessionRevoked' },
+  { value: 'DeviceRegistered', labelKey: 'audit.eventTypes.deviceRegistered' },
+  { value: 'DeviceChange', labelKey: 'audit.eventTypes.deviceChange' },
+  { value: 'BanIssued', labelKey: 'audit.eventTypes.banIssued' },
+  { value: 'BanLifted', labelKey: 'audit.eventTypes.banLifted' },
+  { value: 'MfaEnabled', labelKey: 'audit.eventTypes.mfaEnabled' },
+  { value: 'MfaDisabled', labelKey: 'audit.eventTypes.mfaDisabled' },
+  { value: 'PermissionChange', labelKey: 'audit.eventTypes.permissionChange' },
+  { value: 'RoleChange', labelKey: 'audit.eventTypes.roleChange' },
+  { value: 'SubscriptionActivated', labelKey: 'audit.eventTypes.subscriptionActivated' },
+  { value: 'SubscriptionRevoked', labelKey: 'audit.eventTypes.subscriptionRevoked' },
+  { value: 'FileAccess', labelKey: 'audit.eventTypes.fileAccess' },
+  { value: 'FileAccessDenied', labelKey: 'audit.eventTypes.fileAccessDenied' },
+  { value: 'FileScanRejected', labelKey: 'audit.eventTypes.fileScanRejected' },
+  { value: 'SecurityAlert', labelKey: 'audit.eventTypes.securityAlert' },
+  { value: 'SuspiciousActivity', labelKey: 'audit.eventTypes.suspiciousActivity' },
 ];
 
 function dateLabel(value: string | null | undefined, isArabic: boolean) {
@@ -106,22 +107,29 @@ function severityDot(severity: string) {
   return 'bg-sky-500';
 }
 
-function actorLabel(entry: AuditLogEntry, isArabic: boolean) {
-  if (entry.adminName) return isArabic ? `مدير · ${entry.adminName}` : `Admin · ${entry.adminName}`;
-  if (entry.adminId) return isArabic ? `مدير · ${entry.adminId.slice(0, 8)}` : `Admin · ${entry.adminId.slice(0, 8)}`;
-  if (entry.studentName) return isArabic ? `طالب · ${entry.studentName}` : `Student · ${entry.studentName}`;
-  if (entry.studentId) return isArabic ? `طالب · ${entry.studentId.slice(0, 8)}` : `Student · ${entry.studentId.slice(0, 8)}`;
-  return isArabic ? 'النظام' : 'System';
+function actorLabel(entry: AuditLogEntry, locale: Locale) {
+  if (entry.adminName) return t(locale, 'audit.actor.admin', { name: entry.adminName });
+  if (entry.adminId) return t(locale, 'audit.actor.admin', { name: entry.adminId.slice(0, 8) });
+  if (entry.studentName) return t(locale, 'audit.actor.student', { name: entry.studentName });
+  if (entry.studentId) return t(locale, 'audit.actor.student', { name: entry.studentId.slice(0, 8) });
+  return t(locale, 'audit.actor.system');
 }
 
-function exportCsv(entries: AuditLogEntry[], isArabic: boolean) {
+/** Row event-type label: dictionary entry when the wire value is known, else the legacy camelCase-spaced fallback. */
+function eventTypeRowLabel(eventType: string, locale: Locale): string {
+  const option = EVENT_TYPE_OPTIONS.find(o => o.value === eventType);
+  if (option) return t(locale, option.labelKey);
+  return eventType.replace(/([a-z])([A-Z])/g, '$1 $2');
+}
+
+function exportCsv(entries: AuditLogEntry[], locale: Locale) {
   const headers = ['createdAt', 'eventType', 'severity', 'description', 'actor', 'ipAddress', 'correlationId'];
   const rows = entries.map(e => [
     e.createdAt,
     e.eventType,
     e.severity,
     `"${(e.description || '').replace(/"/g, '""')}"`,
-    `"${actorLabel(e, isArabic).replace(/"/g, '""')}"`,
+    `"${actorLabel(e, locale).replace(/"/g, '""')}"`,
     e.ipAddress || '',
     e.correlationId || '',
   ]);
@@ -147,6 +155,7 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const locale = localeOf(isArabic);
 
   // Debounce search input (300ms)
   useEffect(() => {
@@ -173,35 +182,13 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
       .then((res) => { if (!cancelled) setData(res); })
       .catch((err: unknown) => {
         if (cancelled) return;
-        const msg = err instanceof ApiError ? err.message : isArabic ? 'تعذّر تحميل السجل' : 'Could not load audit logs';
+        const msg = err instanceof ApiError ? err.message : t(localeOf(isArabic), 'audit.viewer.loadError');
         onError(msg);
         setData(null);
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [token, page, debouncedSearch, severity, eventType, dateFrom, dateTo, isArabic, onError]);
-
-  const t = isArabic
-    ? {
-        title: 'سجل التدقيق الكامل', desc: 'كل الأحداث الأمنية مع فلاتر وترقيم صفحات',
-        search: 'بحث في الوصف...', severity: 'الخطورة', eventType: 'النوع',
-        dateFrom: 'من تاريخ', dateTo: 'إلى تاريخ', clear: 'إزالة الفلاتر',
-        time: 'الوقت', type: 'النوع', sev: 'الخطورة', description: 'الوصصف',
-        actor: 'الفاعل', ip: 'IP', correlation: 'معرف الارتباط',
-        prev: 'السابق', next: 'التالي', page: 'صفحة', of: 'من',
-        export: 'تصدير CSV', noData: 'لا توجد سجلات', loading: 'جارٍ التحميل...',
-        results: 'النتائج', showing: 'عرض',
-      }
-    : {
-        title: 'Full Audit Log', desc: 'All security events with filters + pagination',
-        search: 'Search description...', severity: 'Severity', eventType: 'Event type',
-        dateFrom: 'From date', dateTo: 'To date', clear: 'Clear filters',
-        time: 'Time', type: 'Type', sev: 'Severity', description: 'Description',
-        actor: 'Actor', ip: 'IP', correlation: 'Correlation ID',
-        prev: 'Previous', next: 'Next', page: 'Page', of: 'of',
-        export: 'Export CSV', noData: 'No audit log entries', loading: 'Loading...',
-        results: 'Results', showing: 'Showing',
-      };
 
   const hasFilters = debouncedSearch || severity || eventType || dateFrom || dateTo;
   const items = data?.items ?? [];
@@ -220,20 +207,20 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <ShieldCheck size={18} style={{ color: 'var(--cms-teal-700)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.title}</h3>
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'audit.viewer.title')}</h3>
           </div>
           {items.length > 0 && (
             <button
-              onClick={() => exportCsv(items, isArabic)}
+              onClick={() => exportCsv(items, locale)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all hover:shadow-sm"
               style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text-soft)' }}
             >
               <Download size={13} />
-              {t.export}
+              {t(locale, 'audit.viewer.exportCsv')}
             </button>
           )}
         </div>
-        <p className="text-xs mt-1" style={{ color: 'var(--cms-text-muted)' }}>{t.desc}</p>
+        <p className="text-xs mt-1" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.viewer.desc')}</p>
       </div>
 
       {/* Filter bar */}
@@ -246,7 +233,7 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={t.search}
+              placeholder={t(locale, 'audit.viewer.search')}
               className="w-full h-9 rounded-lg border text-xs pr-8"
               style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)', paddingInlineStart: '30px' }}
             />
@@ -258,7 +245,7 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
             className="h-9 rounded-lg border text-xs px-2"
             style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
           >
-            {SEVERITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{isArabic ? o.ar : o.en}</option>)}
+            {SEVERITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{t(locale, o.labelKey)}</option>)}
           </select>
           {/* Event type */}
           <select
@@ -267,7 +254,7 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
             className="h-9 rounded-lg border text-xs px-2"
             style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
           >
-            {EVENT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{isArabic ? o.ar : o.en}</option>)}
+            {EVENT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{t(locale, o.labelKey)}</option>)}
           </select>
           {/* Date from */}
           <input
@@ -276,7 +263,7 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
             onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
             className="h-9 rounded-lg border text-xs px-2"
             style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
-            aria-label={t.dateFrom}
+            aria-label={t(locale, 'audit.viewer.dateFrom')}
           />
           {/* Date to */}
           <input
@@ -285,7 +272,7 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
             onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
             className="h-9 rounded-lg border text-xs px-2"
             style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
-            aria-label={t.dateTo}
+            aria-label={t(locale, 'audit.viewer.dateTo')}
           />
           {/* Clear */}
           {hasFilters && (
@@ -295,7 +282,7 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
               style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text-soft)' }}
             >
               <X size={13} />
-              {t.clear}
+              {t(locale, 'audit.viewer.clear')}
             </button>
           )}
         </div>
@@ -306,23 +293,23 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
         {loading ? (
           <div className="p-8 flex items-center justify-center">
             <LoaderCircle size={20} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} />
-            <span className="text-xs ml-2" style={{ color: 'var(--cms-text-muted)' }}>{t.loading}</span>
+            <span className="text-xs ml-2" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.viewer.loading')}</span>
           </div>
         ) : items.length === 0 ? (
           <div className="p-8 text-center">
             <ShieldCheck size={28} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
-            <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>{t.noData}</p>
+            <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.viewer.noData')}</p>
           </div>
         ) : (
           <table className="w-full text-xs">
             <thead>
               <tr style={{ background: 'var(--cms-ivory-100)' }}>
-                <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t.time}</th>
-                <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t.type}</th>
-                <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t.sev}</th>
-                <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t.description}</th>
-                <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t.actor}</th>
-                <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t.ip}</th>
+                <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.headings.time')}</th>
+                <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.headings.type')}</th>
+                <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.severity.heading')}</th>
+                <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.viewer.descriptionHeader')}</th>
+                <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.headings.actor')}</th>
+                <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'audit.viewer.ip')}</th>
               </tr>
             </thead>
             <tbody>
@@ -333,9 +320,7 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
                   </td>
                   <td className="py-2 px-3">
                     <span className="font-medium" style={{ color: 'var(--cms-text)' }}>
-                      {isArabic
-                        ? (EVENT_TYPE_OPTIONS.find(o => o.value === entry.eventType)?.ar ?? entry.eventType.replace(/([a-z])([A-Z])/g, '$1 $2'))
-                        : (EVENT_TYPE_OPTIONS.find(o => o.value === entry.eventType)?.en ?? entry.eventType.replace(/([a-z])([A-Z])/g, '$1 $2'))}
+                      {eventTypeRowLabel(entry.eventType, locale)}
                     </span>
                   </td>
                   <td className="py-2 px-3">
@@ -356,7 +341,7 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
                   </td>
                   <td className="py-2 px-3 whitespace-nowrap">
                     <span className="text-[11px] font-mono px-1.5 py-0.5 rounded" style={{ background: 'var(--cms-ivory-200)', color: 'var(--cms-text-soft)' }}>
-                      {actorLabel(entry, isArabic)}
+                      {actorLabel(entry, locale)}
                     </span>
                   </td>
                   <td className="py-2 px-3 whitespace-nowrap">
@@ -375,7 +360,7 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
       {!loading && items.length > 0 && (
         <div className="p-3 border-t flex items-center justify-between gap-3 flex-wrap" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
           <span className="text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
-            {t.showing} {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, total)} {t.of} {total} {t.results}
+            {t(locale, 'audit.viewer.showing')} {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, total)} {t(locale, 'audit.viewer.of')} {total} {t(locale, 'audit.viewer.results')}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -385,10 +370,10 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
               style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text-soft)' }}
             >
               {isArabic ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
-              {t.prev}
+              {t(locale, 'audit.viewer.prev')}
             </button>
             <span className="text-[11px] font-medium" style={{ color: 'var(--cms-text-soft)' }}>
-              {t.page} {page} {t.of} {totalPages}
+              {t(locale, 'audit.viewer.page')} {page} {t(locale, 'audit.viewer.of')} {totalPages}
             </span>
             <button
               onClick={() => setPage(Math.min(totalPages, page + 1))}
@@ -396,7 +381,7 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-medium disabled:opacity-40"
               style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text-soft)' }}
             >
-              {t.next}
+              {t(locale, 'audit.viewer.next')}
               {isArabic ? <ChevronLeft size={13} /> : <ChevronRight size={13} />}
             </button>
           </div>

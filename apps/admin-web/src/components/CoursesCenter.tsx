@@ -38,6 +38,8 @@ import {
   TARGET_QUALITY_DOWNGRADE_WARNING_AR, TARGET_QUALITY_DOWNGRADE_WARNING_EN,
 } from '../lib/mediaProcessing';
 import { sniffEpisodeMediaType } from '../lib/mediaType';
+// PR-3 — courses strings resolve through the shared dictionary.
+import { t, localeOf } from '../lib/dictionary';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 import { EpisodeEditModal } from './EpisodeEditModal';
 import { EpisodeMetadataFields, type EpisodeMetadataValues } from './EpisodeMetadataFields';
@@ -60,9 +62,10 @@ const statusBadgeClass = (status: string) => {
 };
 
 const statusLabel = (status: string, isArabic: boolean) => {
-  if (status === 'Published') return isArabic ? 'منشور' : 'Published';
-  if (status === 'Archived') return isArabic ? 'مؤرشف' : 'Archived';
-  return isArabic ? 'مسودة' : 'Draft';
+  const locale = localeOf(isArabic);
+  if (status === 'Published') return t(locale, 'courses.courseStatus.published');
+  if (status === 'Archived') return t(locale, 'courses.courseStatus.archived');
+  return t(locale, 'courses.courseStatus.draft');
 };
 
 const formatBytes = (bytes?: number | null) => {
@@ -75,6 +78,7 @@ const formatBytes = (bytes?: number | null) => {
 const VIDEO_MIME_ALLOWLIST = ['video/mp4', 'video/webm', 'video/quicktime', 'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/webm'];
 
 export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, refreshSignal }: Props) {
+  const locale = localeOf(isArabic);
   const { can, bundle } = useUiPermissions();
   // Command Center P1: hard delete is a SuperAdmin-only system action (backend-gated too).
   const isSuperAdmin = bundle?.isSuperAdmin ?? false;
@@ -110,7 +114,7 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
       const data = await request<PagedResult<AdminCourseListItem>>(`/api/v1/admin/courses?${params.toString()}`);
       setCourses(data.items);
     } catch (error) {
-      onError(error instanceof Error ? error.message : isArabic ? 'تعذر تحميل الكورسات.' : 'Failed to load courses.');
+      onError(error instanceof Error ? error.message : t(locale, 'courses.feedback.loadFailed'));
     } finally {
       if (!silent) setLoading(false);
     }
@@ -123,7 +127,7 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
 
   const handleCreate = async () => {
     if (!subjectId || !createForm.title.trim()) {
-      onError(isArabic ? 'اختر مادة وأدخل عنوان الكورس.' : 'Select a subject and enter a course title.');
+      onError(t(locale, 'courses.feedback.createValidation'));
       return;
     }
     setBusy(true);
@@ -138,12 +142,12 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
           coverImageUrl: createForm.coverImageUrl.trim() || null,
         }),
       });
-      onNotice(isArabic ? `تم إنشاء الكورس "${createForm.title.trim()}".` : `Course "${createForm.title.trim()}" created.`);
+      onNotice(t(locale, 'courses.feedback.created', { title: createForm.title.trim() }));
       setShowCreate(false);
       setCreateForm({ title: '', description: '', coverImageUrl: '' });
       await loadCourses();
     } catch (error) {
-      onError(error instanceof Error ? error.message : isArabic ? 'فشل إنشاء الكورس.' : 'Failed to create course.');
+      onError(error instanceof Error ? error.message : t(locale, 'courses.feedback.createFailed'));
     } finally { setBusy(false); }
   };
 
@@ -160,11 +164,11 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
           coverImageUrl: editForm.coverImageUrl.trim() || null,
         }),
       });
-      onNotice(isArabic ? 'تم حفظ تعديلات الكورس.' : 'Course updated.');
+      onNotice(t(locale, 'courses.feedback.updated'));
       setEditCourse(null);
       await loadCourses();
     } catch (error) {
-      onError(error instanceof Error ? error.message : isArabic ? 'فشل حفظ التعديلات.' : 'Failed to update.');
+      onError(error instanceof Error ? error.message : t(locale, 'courses.feedback.updateFailed'));
     } finally { setBusy(false); }
   };
 
@@ -173,12 +177,12 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
     try {
       await request(`/api/v1/admin/courses/${course.id}/${action}`, { method: 'POST' });
       onNotice(action === 'publish'
-        ? isArabic ? `تم نشر الكورس "${course.title}".` : `Course "${course.title}" published.`
-        : isArabic ? `تمت أرشفة الكورس "${course.title}".` : `Course "${course.title}" archived.`);
+        ? t(locale, 'courses.feedback.publishToast', { title: course.title })
+        : t(locale, 'courses.feedback.archiveToast', { title: course.title }));
       setLifecycleTarget(null);
       await loadCourses();
     } catch (error) {
-      onError(error instanceof Error ? error.message : isArabic ? 'فشل الإجراء.' : 'Action failed.');
+      onError(error instanceof Error ? error.message : t(locale, 'courses.feedback.actionFailed'));
     } finally { setBusy(false); }
   };
 
@@ -186,42 +190,54 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
     setBusy(true);
     try {
       await request(`/api/v1/admin/courses/${course.id}`, { method: 'DELETE' });
-      onNotice(isArabic ? `تم حذف الكورس "${course.title}".` : `Course "${course.title}" deleted.`);
+      onNotice(t(locale, 'courses.feedback.deleteToast', { title: course.title }));
       setDeleteTarget(null);
       if (expandedId === course.id) setExpandedId(null);
       await loadCourses();
     } catch (error) {
-      onError(error instanceof Error ? error.message : isArabic ? 'فشل حذف الكورس.' : 'Failed to delete course.');
+      onError(error instanceof Error ? error.message : t(locale, 'courses.feedback.deleteFailed'));
     } finally { setBusy(false); }
   };
 
   const dir = isArabic ? 'rtl' : 'ltr';
-  const copy = isArabic ? {
-    title: 'الكورسات', desc: 'إنشاء وإدارة كورسات الفيديو وحلقاتها (رفع وسائط حتى 2.5GB أو يوتيوب).',
-    create: 'إنشاء كورس', refresh: 'تحديث', episodes: 'حلقات', episodesCount: 'الحلقات', views: 'مشاهدات',
-    created: 'تاريخ الإنشاء', status: 'الحالة', subject: 'المادة', actions: 'إجراءات',
-    publish: 'نشر', archive: 'أرشفة', delete: 'حذف', edit: 'تعديل',
-    noSubject: 'اختر مادة من التدرج الأكاديمي أعلاه لعرض كورساتها أو إنشاء كورس جديد.',
-    noCourses: 'لا توجد كورسات في هذه المادة بعد.',
-    formTitle: 'عنوان الكورس', formDesc: 'الوصف', formCover: 'رابط صورة الغلاف (اختياري)',
-    save: 'حفظ', cancel: 'إلغاء', createCourse: 'إنشاء كورس جديد', editCourse: 'تعديل الكورس',
-    addEpisode: 'إضافة حلقة', youtubeId: 'معرّف فيديو يوتيوب', episodeTitle: 'عنوان الحلقة',
-    episodeNumber: 'رقم الحلقة', duration: 'المدة (ثانية، اختياري)', add: 'إضافة', uploadVideo: 'رفع وسائط (فيديو/صوت)',
-    uploading: 'جارٍ الرفع…', abort: 'إلغاء الرفع',
-    incomplete: 'لم يكتمل الرفع', ready: 'جاهز', close: 'إغلاق', selectFile: 'اختر ملف الفيديو أو الصوت',
-  } : {
-    title: 'Courses', desc: 'Create and manage video courses and their episodes (media upload up to 2.5GB, or YouTube).',
-    create: 'Create course', refresh: 'Refresh', episodes: 'Episodes', episodesCount: 'Episodes', views: 'Views',
-    created: 'Created', status: 'Status', subject: 'Subject', actions: 'Actions',
-    publish: 'Publish', archive: 'Archive', delete: 'Delete', edit: 'Edit',
-    noSubject: 'Pick a subject in the hierarchy above to list or create its courses.',
-    noCourses: 'No courses in this subject yet.',
-    formTitle: 'Course title', formDesc: 'Description', formCover: 'Cover image URL (optional)',
-    save: 'Save', cancel: 'Cancel', createCourse: 'Create new course', editCourse: 'Edit course',
-    addEpisode: 'Add episode', youtubeId: 'YouTube video id', episodeTitle: 'Episode title',
-    episodeNumber: 'Episode number', duration: 'Duration (seconds, optional)', add: 'Add', uploadVideo: 'Upload media (video/audio)',
-    uploading: 'Uploading…', abort: 'Abort upload',
-    incomplete: 'Upload incomplete', ready: 'Ready', close: 'Close', selectFile: 'Choose a video or audio file',
+  const copy = {
+    title: t(locale, 'courses.title'),
+    desc: t(locale, 'courses.desc'),
+    create: t(locale, 'courses.create'),
+    refresh: t(locale, 'courses.refresh'),
+    episodes: t(locale, 'courses.episodes'),
+    episodesCount: t(locale, 'courses.episodesCount'),
+    views: t(locale, 'courses.views'),
+    created: t(locale, 'courses.created'),
+    status: t(locale, 'courses.status'),
+    subject: t(locale, 'courses.subject'),
+    actions: t(locale, 'courses.actions'),
+    publish: t(locale, 'courses.publish'),
+    archive: t(locale, 'courses.archive'),
+    delete: t(locale, 'courses.delete'),
+    edit: t(locale, 'courses.edit'),
+    noSubject: t(locale, 'courses.noSubject'),
+    noCourses: t(locale, 'courses.noCourses'),
+    formTitle: t(locale, 'courses.formTitle'),
+    formDesc: t(locale, 'courses.formDesc'),
+    formCover: t(locale, 'courses.formCover'),
+    save: t(locale, 'courses.save'),
+    cancel: t(locale, 'courses.cancel'),
+    createCourse: t(locale, 'courses.createCourse'),
+    editCourse: t(locale, 'courses.editCourse'),
+    addEpisode: t(locale, 'courses.addEpisode'),
+    youtubeId: t(locale, 'courses.youtubeId'),
+    episodeTitle: t(locale, 'courses.episodeTitle'),
+    episodeNumber: t(locale, 'courses.episodeNumber'),
+    duration: t(locale, 'courses.duration'),
+    add: t(locale, 'courses.add'),
+    uploadVideo: t(locale, 'courses.uploadVideo'),
+    uploading: t(locale, 'courses.uploading'),
+    abort: t(locale, 'courses.abort'),
+    incomplete: t(locale, 'courses.incomplete'),
+    ready: t(locale, 'courses.ready'),
+    close: t(locale, 'courses.close'),
+    selectFile: t(locale, 'courses.selectFile'),
   };
 
   return (
@@ -317,16 +333,12 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
         open={lifecycleTarget !== null}
         onOpenChange={(next) => { if (!next) setLifecycleTarget(null); }}
         title={lifecycleTarget?.action === 'publish'
-          ? (isArabic ? 'نشر الكورس' : 'Publish course')
-          : (isArabic ? 'أرشفة الكورس' : 'Archive course')}
+          ? t(locale, 'courses.confirm.publishTitle')
+          : t(locale, 'courses.confirm.archiveTitle')}
         description={lifecycleTarget
           ? (lifecycleTarget.action === 'publish'
-            ? (isArabic
-              ? `سيصبح الكورس "${lifecycleTarget.course.title}" مع جميع حلقاته مرئيًا لجميع الطلاب.`
-              : `"${lifecycleTarget.course.title}" and all its episodes will become visible to all students.`)
-            : (isArabic
-              ? `سيُخفى الكورس "${lifecycleTarget.course.title}" من اكتشاف الطلاب. يمكن استعادته بالنشر لاحقًا.`
-              : `"${lifecycleTarget.course.title}" will be hidden from student discovery. It can be re-published later.`))
+            ? t(locale, 'courses.confirm.publishDescription', { title: lifecycleTarget.course.title })
+            : t(locale, 'courses.confirm.archiveDescription', { title: lifecycleTarget.course.title }))
           : undefined}
         confirmLabel={lifecycleTarget?.action === 'publish' ? copy.publish : copy.archive}
         cancelLabel={copy.cancel}
@@ -338,16 +350,14 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
       <ConfirmDialog
         open={deleteTarget !== null}
         onOpenChange={(next) => { if (!next) setDeleteTarget(null); }}
-        title={isArabic ? 'حذف الكورس نهائيًا' : 'Permanently delete course'}
+        title={t(locale, 'courses.confirm.deleteTitle')}
         description={deleteTarget
-          ? (isArabic
-            ? `سيُحذف الكورس "${deleteTarget.title}" نهائيًا مع جميع حلقاته وملفات الفيديو المخزنة. لا يمكن التراجع عن هذا الإجراء.`
-            : `"${deleteTarget.title}" will be permanently deleted together with all its episodes and stored videos. This cannot be undone.`)
+          ? t(locale, 'courses.confirm.deleteDescription', { title: deleteTarget.title })
           : undefined}
         confirmLabel={copy.delete}
         cancelLabel={copy.cancel}
         variant="danger"
-        requireAcknowledge={{ label: isArabic ? 'أفهم أن الحذف نهائي ولا يمكن التراجع عنه' : 'I understand this deletion is permanent and cannot be undone' }}
+        requireAcknowledge={{ label: t(locale, 'courses.confirm.deleteAcknowledge') }}
         dir={dir}
         busy={busy}
         onConfirm={() => { if (deleteTarget) void handleDelete(deleteTarget); }}
@@ -359,9 +369,7 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
         token={token}
         isArabic={isArabic}
         target={hardTarget}
-        consequence={isArabic
-          ? 'سيُحذف الكورس نهائيًا مع جميع حلقاته (تجاوز الأرشفة).'
-          : 'The course is physically deleted with all its episodes (bypassing archive).'}
+        consequence={t(locale, 'courses.confirm.hardDeleteConsequence')}
         onDone={() => { void loadCourses({ silent: true }); }}
         onClose={() => setHardTarget(null)}
       />
@@ -410,7 +418,7 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
                       grouped into one trigger. Destructive entries stay confirm-gated
                       downstream (lifecycleTarget / deleteTarget dialogs). */}
                   <RowActionsMenu
-                    label={isArabic ? `إجراءات ${course.title}` : `Actions for ${course.title}`}
+                    label={t(locale, 'courses.confirm.rowActionsLabel', { title: course.title })}
                     dir={isArabic ? 'rtl' : 'ltr'}
                     items={[
                       ...(can('btn:library.course.edit')
@@ -454,7 +462,7 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
                       ...(isSuperAdmin
                         ? [{
                             key: 'hard-delete',
-                            label: isArabic ? 'حذف نهائي (تجاوز الأرشفة)' : 'Hard delete (bypass archive)',
+                            label: t(locale, 'courses.confirm.hardDeleteAction'),
                             danger: true,
                             icon: <Trash2 className="w-4 h-4" />,
                             onSelect: () => setHardTarget({ module: 'course', targetId: course.id, label: course.title }),
@@ -492,25 +500,31 @@ const PROCESSING_POLL_INTERVAL_MS = 3000;
 const PROCESSING_POLL_TIMEOUT_MS = 15 * 60 * 1000;
 
 /** Hotfix 10.6-2 (1.D): the task-book timeout sentence (exact). */
-const processingTimeoutMessage = (isArabic: boolean) => isArabic
-  ? 'استغرق الترميز وقتاً طويلاً جداً. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.'
-  : 'Transcoding is taking too long. Please try again or contact support.';
+const processingTimeoutMessage = (isArabic: boolean) => t(localeOf(isArabic), 'courses.feedback.processingTimeout');
 
 function buildCopy(isArabic: boolean) {
-  return isArabic ? {
-    addEpisode: 'إضافة حلقة', youtubeId: 'معرّف فيديو يوتيوب', episodeTitle: 'عنوان الحلقة',
-    episodeNumber: 'رقم الحلقة', duration: 'المدة (ثانية، اختياري)', add: 'إضافة', uploadVideo: 'رفع وسائط (فيديو/صوت)',
-    uploading: 'جارٍ الرفع…', retry: 'إعادة المحاولة', abort: 'إلغاء الرفع',
-    incomplete: 'لم يكتمل الرفع', ready: 'جاهز', close: 'إغلاق', selectFile: 'اختر ملف الفيديو أو الصوت',
-    deleteEpisode: 'حذف الحلقة', episodes: 'الحلقات', retrying: 'إعادة المحاولة…', cancel: 'إلغاء',
-    editEpisode: 'تعديل بيانات الحلقة', processingChip: 'المعالجة',
-  } : {
-    addEpisode: 'Add episode', youtubeId: 'YouTube video id', episodeTitle: 'Episode title',
-    episodeNumber: 'Episode number', duration: 'Duration (seconds, optional)', add: 'Add', uploadVideo: 'Upload media (video/audio)',
-    uploading: 'Uploading…', retry: 'Retry', abort: 'Abort upload',
-    incomplete: 'Upload incomplete', ready: 'Ready', close: 'Close', selectFile: 'Choose a video or audio file',
-    deleteEpisode: 'Delete episode', episodes: 'Episodes', retrying: 'Retrying…', cancel: 'Cancel',
-    editEpisode: 'Edit episode', processingChip: 'Processing',
+  const locale = localeOf(isArabic);
+  return {
+    addEpisode: t(locale, 'courses.addEpisode'),
+    youtubeId: t(locale, 'courses.youtubeId'),
+    episodeTitle: t(locale, 'courses.episodeTitle'),
+    episodeNumber: t(locale, 'courses.episodeNumber'),
+    duration: t(locale, 'courses.duration'),
+    add: t(locale, 'courses.add'),
+    uploadVideo: t(locale, 'courses.uploadVideo'),
+    uploading: t(locale, 'courses.uploading'),
+    retry: t(locale, 'courses.manager.retry'),
+    abort: t(locale, 'courses.abort'),
+    incomplete: t(locale, 'courses.incomplete'),
+    ready: t(locale, 'courses.ready'),
+    close: t(locale, 'courses.close'),
+    selectFile: t(locale, 'courses.selectFile'),
+    deleteEpisode: t(locale, 'courses.deleteEpisode'),
+    episodes: t(locale, 'courses.manager.episodes'),
+    retrying: t(locale, 'courses.manager.retrying'),
+    cancel: t(locale, 'courses.cancel'),
+    editEpisode: t(locale, 'courses.manager.editEpisode'),
+    processingChip: t(locale, 'courses.manager.processingChip'),
   };
 }
 
@@ -522,6 +536,7 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
   course: AdminCourseListItem;
   onChanged: () => void | Promise<void>;
 }) {
+  const locale = localeOf(isArabic);
   const copy = buildCopy(isArabic);
   const { can } = useUiPermissions();
   const [detail, setDetail] = useState<CourseDetail | null>(null);
@@ -635,7 +650,7 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
 
   const addYouTube = async () => {
     if (!ytForm.title.trim() || !ytForm.youtubeId.trim() || !ytForm.episodeNumber.trim()) {
-      onError(isArabic ? 'أكمل عنوان الحلقة ورقمها ومعرّف اليوتيوب.' : 'Fill episode title, number and YouTube id.');
+      onError(t(locale, 'courses.feedback.youtubeValidation'));
       return;
     }
     setBusy(true);
@@ -650,7 +665,7 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
           youtubeVideoId: ytForm.youtubeId.trim(),
         }),
       });
-      onNotice(isArabic ? 'تمت إضافة حلقة اليوتيوب.' : 'YouTube episode added.');
+      onNotice(t(locale, 'courses.feedback.youtubeAdded'));
       setYtForm({ title: '', episodeNumber: '', duration: '', youtubeId: '' });
       setShowAdd(false);
       await loadDetail();
@@ -664,7 +679,7 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
     setBusy(true);
     try {
       await request(`/api/v1/admin/courses/episodes/${episode.id}`, { method: 'DELETE' });
-      onNotice(isArabic ? 'تم حذف الحلقة.' : 'Episode deleted.');
+      onNotice(t(locale, 'courses.feedback.episodeDeleted'));
       setDeleteEpisodeTarget(null);
       await loadDetail();
       await onChanged();
@@ -816,13 +831,14 @@ function EpisodesManager({ token, isArabic, onError, onNotice, course, onChanged
       <ConfirmDialog
         open={deleteEpisodeTarget !== null}
         onOpenChange={(next) => { if (!next) setDeleteEpisodeTarget(null); }}
-        title={isArabic ? 'حذف الحلقة' : 'Delete episode'}
+        title={t(locale, 'courses.deleteEpisode')}
         description={deleteEpisodeTarget
-          ? (isArabic
-            ? `سيُحذف الحلقة "${deleteEpisodeTarget.title}"${deleteEpisodeTarget.sourceType === 'Upload' ? ' مع ملف الفيديو المخزن' : ''} نهائيًا. لا يمكن التراجع عن هذا الإجراء.`
-            : `"${deleteEpisodeTarget.title}"${deleteEpisodeTarget.sourceType === 'Upload' ? ' and its stored video' : ''} will be permanently deleted. This cannot be undone.`)
+          ? t(locale, 'courses.confirm.episodeDeleteDescription', {
+              title: deleteEpisodeTarget.title,
+              storedVideo: deleteEpisodeTarget.sourceType === 'Upload' ? t(locale, 'courses.confirm.episodeDeleteStoredVideo') : '',
+            })
           : undefined}
-        confirmLabel={isArabic ? 'حذف' : 'Delete'}
+        confirmLabel={t(locale, 'courses.delete')}
         cancelLabel={copy.cancel}
         variant="danger"
         dir={isArabic ? 'rtl' : 'ltr'}
@@ -880,6 +896,7 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
   pollNow: () => void;
   onDone: () => void | Promise<void>;
 }) {
+  const locale = localeOf(isArabic);
   const copy = buildCopy(isArabic);
   const [file, setFile] = useState<File | null>(null);
   const [episodeNumber, setEpisodeNumber] = useState(String(defaultEpisodeNumber));
@@ -948,7 +965,7 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
   const describeUploadError = (error: unknown, fallback: string): string => {
     const message = error instanceof Error ? error.message : '';
     if (isArabic && /unexpected error occurred/i.test(message)) {
-      return 'حدث خطأ مؤقت في الخادم أثناء الرفع — أعد المحاولة، وإن استمر الخطأ فتحقّق من الاتصال ثم أعد المحاولة لاحقاً.';
+      return t(locale, 'courses.feedback.uploadTransientError');
     }
     return message || fallback;
   };
@@ -1056,7 +1073,7 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
   const start = async () => {
     if (!file || !metadata.title.trim() || !episodeNumber.trim()) {
       if (!metadata.title.trim()) setTitleInvalid(true);
-      onError(isArabic ? 'اختر ملف الفيديو وأدخل عنوان الحلقة ورقمها.' : 'Choose a video file, episode title and number.');
+      onError(t(locale, 'courses.feedback.uploadValidation'));
       return;
     }
     // Push 7: honest typing — never invent a content type. The old
@@ -1065,9 +1082,7 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     // <video> then could not decode the MP3 bytes and the episode never played.
     const contentType = sniffEpisodeMediaType(file, VIDEO_MIME_ALLOWLIST);
     if (!contentType) {
-      onError(isArabic
-        ? `لا يمكن التعرّف على نوع الملف «${file.name}» — الصيغ المدعومة: MP4, WebM, MOV, MP3, M4A, WAV.`
-        : `Unrecognized media type "${file.name}" — supported formats: MP4, WebM, MOV, MP3, M4A, WAV.`);
+      onError(t(locale, 'courses.feedback.unrecognizedMediaType', { fileName: file.name }));
       return;
     }
     setState('initiating');
@@ -1128,7 +1143,7 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     session.xhr?.abort(); // stop the in-flight PUT (atomic — nothing partial is stored)
     try {
       await request(`/api/v1/admin/courses/episodes/${session.episodeId}/abort-upload`, { method: 'POST' });
-      onNotice(isArabic ? 'تم إلغاء الرفع وحذف الحلقة غير المكتملة.' : 'Upload aborted; the incomplete episode was removed.');
+      onNotice(t(locale, 'courses.feedback.uploadAborted'));
     } catch (error) {
       onError(error instanceof Error ? error.message : 'abort-upload failed.');
     }
@@ -1162,11 +1177,9 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     if (processingStatus === 'Failed') {
       unwatchEpisode(episodeId);
       setState('failed');
-      setLastError(isArabic ? 'فشلت معالجة الفيديو على الخادم.' : 'Server-side video processing failed.');
+      setLastError(t(locale, 'courses.feedback.processingFailed'));
       setErrorDialog({
-        humanMessage: isArabic
-          ? 'تعذّر تجهيز نسخ المشاهدة لهذه الحلقة على الخادم.'
-          : 'The server could not prepare watchable copies for this episode.',
+        humanMessage: t(locale, 'courses.feedback.processingFailedHuman'),
         technicalDetails: processingEpisode?.processingError ?? null,
         retryProcessing: true,
       });
@@ -1182,7 +1195,7 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     if (ready) {
       unwatchEpisode(episodeId);
       setState('ready');
-      onNotice(isArabic ? 'الفيديو جاهز للمشاهدة ✅' : 'The video is ready to watch ✅');
+      onNotice(t(locale, 'courses.upload.readyTitle'));
       void onDone();
     }
     // Processing episodes that disappear from the list (deleted elsewhere)
@@ -1216,12 +1229,8 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
       sessionRef.current = null; // the upload is long-committed — no resume path after an abort
       setState('failed');
       setCancelledProcessing(true);
-      setLastError(isArabic
-        ? 'تم إلغاء معالجة هذا الفيديو بناءً على طلبك. لإعادة المحاولة، عدّل الحلقة أو ارفع ملفاً جديداً.'
-        : 'Processing was cancelled at your request. To retry, edit the episode or upload a new file.');
-      onNotice(isArabic
-        ? 'تم إلغاء المعالجة — الحلقة الآن بحالة «فشلت المعالجة».'
-        : 'Processing aborted — the episode is now marked Failed.');
+      setLastError(t(locale, 'courses.feedback.processingCancelled'));
+      onNotice(t(locale, 'courses.feedback.processingCancelledToast'));
       pollNow();
     } catch (error) {
       onError(error instanceof Error ? error.message : 'abort-processing failed.');
@@ -1253,12 +1262,10 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
     ? Math.min(100, Math.round((uploadStats.uploadedBytes / uploadStats.totalBytes) * 100))
     : 0;
 
-  const copy2 = isArabic ? {
-    start: 'بدء الرفع', another: 'رفع وسائط أخرى',
-    details: 'عرض التفاصيل التقنية',
-  } : {
-    start: 'Start upload', another: 'Upload another media file',
-    details: 'View technical details',
+  const copy2 = {
+    start: t(locale, 'courses.upload.start'),
+    another: t(locale, 'courses.upload.another'),
+    details: t(locale, 'courses.upload.details'),
   };
 
   return (
@@ -1284,7 +1291,7 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
           }}
           className="text-sm px-3 py-2 rounded-lg border w-full" style={{ borderColor: 'var(--cms-line-strong)' }} />
         <input value={episodeNumber} disabled={busyState || state === 'processing'} onChange={(e) => setEpisodeNumber(e.target.value)}
-          inputMode="numeric" placeholder={isArabic ? 'رقم الحلقة' : 'Episode number'} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
+          inputMode="numeric" placeholder={t(locale, 'courses.episodeNumber')} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--cms-line-strong)' }} />
       </div>
       <EpisodeMetadataFields
         values={metadata}
@@ -1328,8 +1335,8 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
         <p className="inline-flex items-center gap-1.5 text-sm" style={{ color: 'var(--cms-text-soft)' }}>
           <LoaderCircle className="w-4 h-4 animate-spin" />
           {state === 'initiating'
-            ? (isArabic ? 'جارٍ تهيئة رابط الرفع…' : 'Requesting the upload URL…')
-            : (isArabic ? 'جارٍ التحقق من الملف المرفوع…' : 'Verifying the uploaded file…')}
+            ? t(locale, 'courses.upload.initiating')
+            : t(locale, 'courses.upload.completing')}
         </p>
       )}
       {/* The ladder stays mounted through Ready — the admin sees the full
@@ -1350,9 +1357,9 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
           style={{ background: 'rgba(16, 185, 129, 0.06)', borderColor: 'var(--cms-teal-200)', color: 'var(--cms-teal-700)' }}>
           <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
-            <p className="font-medium">{isArabic ? 'الفيديو جاهز للمشاهدة ✅' : 'The video is ready to watch ✅'}</p>
+            <p className="font-medium">{t(locale, 'courses.upload.readyTitle')}</p>
             <p className="mt-0.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-              {isArabic ? 'اكتملت المعالجة — يمكنك رفع وسائط أخرى أو إغلاق اللوحة.' : 'Processing finished — you can upload another media file or close the panel.'}
+              {t(locale, 'courses.upload.readyBody')}
             </p>
           </div>
         </div>
@@ -1366,15 +1373,15 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <div className="min-w-0">
             <p className="font-medium">{cancelledProcessing
-              ? (isArabic ? 'تم إلغاء المعالجة' : 'Processing cancelled')
-              : (isArabic ? 'تعذّر إتمام الرفع' : 'Upload failed')}</p>
+              ? t(locale, 'courses.upload.cancelledTitle')
+              : t(locale, 'courses.upload.failedTitle')}</p>
             <p className="mt-0.5 text-xs leading-relaxed" style={{ color: 'var(--cms-text-soft)' }}>{lastError}</p>
             <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
               {cancelledProcessing
-                ? (isArabic ? 'الحالة على الخادم: «فشلت المعالجة» — إعادة المحاولة تكون برفع جديد أو بعد تعديل الحلقة.' : 'Server status: Processing failed — retry with a new upload or after editing the episode.')
+                ? t(locale, 'courses.upload.cancelledStatusHint')
                 : episodeId && sessionRef.current
-                  ? (isArabic ? 'اضغط «إعادة المحاولة» لإعادة إرسال الملف كاملاً — لا توجد أجزاء محفوظة في الرفع الأحادي. إن استمر خطأ 403 فانتهت صلاحية الرابط: ألغِ الرفع وابدأ من جديد.' : 'Press Retry to re-send the entire file — a single PUT keeps no partial parts. A persistent 403 means the URL expired: cancel and start a fresh upload.')
-                  : (isArabic ? 'اضغط «بدء الرفع» لإعادة المحاولة.' : 'Press Start upload to try again.')}
+                  ? t(locale, 'courses.upload.retryHint')
+                  : t(locale, 'courses.upload.restartHint')}
             </p>
             {errorDialog && (errorDialog.technicalDetails || errorDialog.humanMessage) && (
               <button type="button" onClick={() => setErrorDialog((dialog) => ({ ...dialog }))}
@@ -1429,7 +1436,7 @@ function SinglePutUploadPanel({ token, isArabic, onError, onNotice, courseId, de
             {cancelling
               ? <LoaderCircle className="w-4 h-4 animate-spin" />
               : <Ban className="w-4 h-4" />}
-            {isArabic ? 'إلغاء المعالجة' : 'Cancel processing'}
+            {t(locale, 'courses.upload.cancelProcessing')}
           </button>
         )}
       </div>

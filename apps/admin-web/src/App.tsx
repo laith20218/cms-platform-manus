@@ -43,6 +43,10 @@ import { Breadcrumbs, ConfirmDialog, ErrorState } from '@cms/ui';
 import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
 import { NotFoundView } from './components/NotFoundView';
 import { useQueryState, useClearQueryParams } from './lib/useQueryState';
+// PR-3 — the shell copy and every remaining inline shell ternary now resolve
+// through the shared dictionary (lib/dictionary → lib/shellCopy).
+import { t, localeOf } from './lib/dictionary';
+import { buildShellCopy } from './lib/shellCopy';
 import { UiPermissionsProvider } from './hooks/useUiPermissions';
 import { useUiPermissions } from './hooks/uiPermissionsContext';
 import { useUiPermissionsBundle } from './hooks/useUiPermissionsBundle';
@@ -211,13 +215,13 @@ function App() {
   const uiPermissionsState = useUiPermissionsBundle(token, isSuperAdmin);
   const can = createCanFunction(uiPermissionsState.phase === 'ready' ? uiPermissionsState.bundle : null);
 
-  const copy = isArabic
-    ? {
-        title: 'لوحة تحكم منصة CMS', loginTitle: 'دخول إلى لوحة الإدارة', loginDescription: 'أدر المحتوى والاختبارات والصلاحيات ضمن نطاقك الأكاديمي.', signIn: 'دخول آمن', email: 'البريد الإلكتروني', password: 'كلمة المرور', systemReady: 'قناة الإدارة مؤمّنة', overview: 'لوحة القيادة', admins: 'المدراء', roles: 'الأدوار والصلاحيات', signOut: 'تسجيل الخروج', connected: 'الخدمة تعمل', command: 'مركز القيادة المؤسسي لإدارة المنصة الأكاديمية.', commandSub: 'راجع الصلاحيات قبل نشر التغيير، ثم تابع الإدارة ضمن نطاقك الأكاديمي.', adminList: 'قائمة المدراء', addAdmin: 'إضافة مدير', addRole: 'إنشاء دور', search: 'ابحث بالاسم أو البريد أو الهاتف', clear: 'إزالة التصفية', active: 'مفعّل', disabled: 'معطّل', all: 'الكل', role: 'الدور', scope: 'النطاق الأكاديمي', status: 'الحالة', lastLogin: 'آخر دخول', created: 'تاريخ الإنشاء', actions: 'إجراءات', edit: 'تعديل', reset: 'إعادة تعيين كلمة المرور', delete: 'حذف نهائي', view: 'عرض التفاصيل', deactivate: 'تعطيل الحساب', activate: 'تفعيل الحساب', noAdmins: 'لا توجد نتائج مطابقة.', newAdmin: 'إضافة مدير جديد', updateAdmin: 'تعديل بيانات المدير', fullName: 'الاسم الكامل', phone: 'رقم الهاتف (اختياري)', save: 'حفظ التغيير', cancel: 'إلغاء', initialPassword: 'كلمة المرور الأولية', passwordReminder: 'يجب تذكير المدير بتغيير كلمة المرور الأولية عند الدخول، دون حجب اللوحة.', resetTitle: 'إعادة تعيين كلمة المرور', newPassword: 'كلمة المرور الجديدة', deleteTitle: 'تأكيد الحذف النهائي', deleteText: 'هذا الإجراء دائم. أدخل كلمة مرور المدير العام الحالية للتأكيد.', currentPassword: 'كلمة مرور المدير العام الحالية', deleteConfirm: 'حذف المدير نهائيًا', rolesTitle: 'أدوار الوصول', roleName: 'الاسم التقني', roleNameAr: 'الاسم العربي', description: 'الوصف', system: 'نظامي', custom: 'مخصص', adminsCount: 'عدد المدراء', permissions: 'الصلاحيات', create: 'إنشاء', noRoles: 'لا توجد أدوار بعد.', scopeLabel: 'حسب النطاق المعيّن', limited: 'الوصول مقيّد بالدور والنطاق', dataError: 'تعذر تحميل بيانات الإدارة.', apiLabel: 'بيئة الإنتاج', welcome: 'Cliver Medical Student', tagline: 'Study smart...Not study hard', profile: 'المشغّل الحالي', language: 'English', initialNote: 'تم إنشاء المدير. شارك كلمة المرور الأولية عبر قناة آمنة، وذكّره بتغييرها عند أول دخول.', darkMode: 'الوضع الليلي', lightMode: 'الوضع النهاري', toggleTheme: 'تبديل المظهر', heroLine1: 'إدارة أكاديمية', heroLine2: 'بدقة مؤسسية.', heroBody: 'راجع الصلاحيات قبل نشر أي تغيير. هذه قناة التشغيل المؤسسية للتعليم الطبي.', securityNote: 'لا تُحفظ بيانات الدخول في المتصفح. ينتهي الوصول عند تسجيل الخروج.', statsLoading: 'جارٍ تحميل المؤشرات…', statsError: 'تعذّر تحميل المؤشرات.', statStudents: 'إجمالي الطلاب', statActiveToday: 'نشط اليوم', statQuestions: 'الأسئلة المنشورة', statCodes: 'أكواد نشطة', statSubs: 'اشتراكات فعّالة', statFiles: 'ملفات المكتبة', statExams: 'اختبارات منشورة', statReports: 'بلاغات معلّقة', statRevenue: 'إيراد الشهر', welcomeShort: 'مرحبًا بك', welcomeAdmin: 'لوحة المشغّل', welcomeBody: 'لا تتوفر مؤشرات تشغيلية لهذا الحساب. تواصل مع المدير العام لترقية الصلاحيات أو لربط نطاق أكاديمي.', otpLabel: 'رمز التحقق الثنائي (2FA)', otpHint: 'أدخل الرمز المؤقت من تطبيق المصادقة لديك لإكمال الدخول.', backToCredentials: 'العودة إلى بيانات الدخول', paletteTitle: 'لوحة الأوامر', palettePlaceholder: 'ابحث في مراكز الإدارة…', paletteNoResults: 'لا توجد نتائج مطابقة', paletteOpenHint: 'بحث سريع في مراكز الإدارة', breadcrumbNav: 'مسار التنقل', notFoundTitle: 'الصفحة غير موجودة'
-      }
-    : {
-        title: 'CMS Administration Console', loginTitle: 'Sign in to the administration console', loginDescription: 'Manage content, exams, and permissions within your academic scope.', signIn: 'Secure sign in', email: 'Email address', password: 'Password', systemReady: 'Administration channel secured', overview: 'Command center', admins: 'Administrators', roles: 'Roles & permissions', signOut: 'Sign out', connected: 'Operational', command: 'Institutional command center for academic platform management.', commandSub: 'Review access before publishing a change, then manage within your academic scope.', adminList: 'Administrator directory', addAdmin: 'Add administrator', addRole: 'Create role', search: 'Search name, email or phone', clear: 'Clear filters', active: 'Active', disabled: 'Disabled', all: 'All', role: 'Role', scope: 'Academic scope', status: 'Status', lastLogin: 'Last login', created: 'Created', actions: 'Actions', edit: 'Edit', reset: 'Reset password', delete: 'Permanent delete', view: 'View details', deactivate: 'Disable account', activate: 'Enable account', noAdmins: 'No matching administrators.', newAdmin: 'Add administrator', updateAdmin: 'Edit administrator', fullName: 'Full name', phone: 'Phone (optional)', save: 'Save changes', cancel: 'Cancel', initialPassword: 'Initial password', passwordReminder: 'Remind this administrator to change the initial password at first sign-in; do not block their console.', resetTitle: 'Reset password', newPassword: 'New password', deleteTitle: 'Confirm permanent deletion', deleteText: 'This action is permanent. Enter the current super-administrator password to confirm.', currentPassword: 'Current super-administrator password', deleteConfirm: 'Delete administrator permanently', rolesTitle: 'Access roles', roleName: 'Technical name', roleNameAr: 'Arabic name', description: 'Description', system: 'System', custom: 'Custom', adminsCount: 'Administrators', permissions: 'Permissions', create: 'Create', noRoles: 'No roles available yet.', scopeLabel: 'By assigned scope', limited: 'Access is limited by your role and academic scope', dataError: 'Could not load administration data.', apiLabel: 'Production environment', welcome: 'Cliver Medical Student', tagline: 'Study smart...Not study hard', profile: 'Current operator', language: 'العربية', initialNote: 'Administrator created. Share the initial password through a secure channel and remind them to change it on first sign-in.', darkMode: 'Dark mode', lightMode: 'Light mode', toggleTheme: 'Toggle theme', heroLine1: 'Academic operations,', heroLine2: 'institutional precision.', heroBody: 'Review access before publishing any change. This is the institutional operations channel for medical education.', securityNote: 'Credentials are not stored in the browser. Access ends when you sign out.', statsLoading: 'Loading metrics…', statsError: 'Could not load metrics.', statStudents: 'Total students', statActiveToday: 'Active today', statQuestions: 'Published questions', statCodes: 'Active codes', statSubs: 'Active subscriptions', statFiles: 'Library files', statExams: 'Published exams', statReports: 'Pending reports', statRevenue: 'Monthly revenue', welcomeShort: 'Welcome', welcomeAdmin: 'Operator console', welcomeBody: 'No operational metrics are available for this account. Contact the super-administrator to upgrade your scope or assign an academic range.', otpLabel: 'Two-factor code (2FA)', otpHint: 'Enter the temporary code from your authenticator app to complete sign-in.', backToCredentials: 'Back to sign-in details', paletteTitle: 'Command palette', palettePlaceholder: 'Search admin centers…', paletteNoResults: 'No matching results', paletteOpenHint: 'Quick search across admin centers', breadcrumbNav: 'Breadcrumb', notFoundTitle: 'Page not found'
-      };
+  // PR-3 — the shell copy is built from the shared dictionary
+  // (lib/dictionary → lib/shellCopy). The legacy inline bilingual ternary
+  // (~120 keys × 2 locales) is gone; the byte-identity is pinned by
+  // src/test/shell-copy.test.ts. Key names are unchanged so the copy-drilled
+  // consumers (AdminsCenter, RolesCenter, DialogLayer, Overview, palette
+  // labels) are untouched.
+  const copy = useMemo(() => buildShellCopy(locale), [locale]);
 
   // Apply theme to <html data-theme="…">.
   useEffect(() => {
@@ -329,12 +333,12 @@ function App() {
   }
 
   const scopeText = (admin: AdminRecord) => {
-    if (admin.roleName === 'super_admin') return isArabic ? 'المنصة بالكامل' : 'Entire platform';
-    if (admin.scopeSubjectId) return isArabic ? 'مادة محددة' : 'Specific subject';
-    if (admin.scopeYearId) return isArabic ? 'سنة محددة' : 'Specific year';
-    if (admin.scopeCollegeId) return isArabic ? 'كلية محددة' : 'Specific college';
-    if (admin.scopeUniversityId) return isArabic ? 'جامعة محددة' : 'Specific university';
-    return isArabic ? 'غير محدد' : 'Unassigned';
+    if (admin.roleName === 'super_admin') return t(locale, 'scope.entire');
+    if (admin.scopeSubjectId) return t(locale, 'scope.subject');
+    if (admin.scopeYearId) return t(locale, 'scope.year');
+    if (admin.scopeCollegeId) return t(locale, 'scope.college');
+    if (admin.scopeUniversityId) return t(locale, 'scope.university');
+    return t(locale, 'scope.unassigned');
   };
 
   const fetchManagementData = async () => {
@@ -394,7 +398,7 @@ function App() {
       const intendedPath = location.pathname !== '/' ? location.pathname + location.search : '';
       if (intendedPath) navigate(intendedPath);
       else setView(result.user.role === 'super_admin' ? 'admins' : 'overview');
-      toast.success(isArabic ? `أهلًا ${result.user.fullName}` : `Welcome, ${result.user.fullName}`);
+      toast.success(t(locale, 'shell.welcomeToast', { name: result.user.fullName }));
     } catch (error) {
       if (error instanceof ApiError && error.errorCode === 'TWO_FACTOR_REQUIRED') {
         // Password accepted; the backend demands the 2FA challenge — advance
@@ -403,7 +407,7 @@ function App() {
         setOtp('');
         setLoginError('');
       } else {
-        setLoginError(error instanceof Error ? error.message : 'تعذر التحقق من بيانات الدخول.');
+        setLoginError(error instanceof Error ? error.message : t(locale, 'login.errorGeneric'));
       }
     } finally {
       setBusy(false);
@@ -475,7 +479,7 @@ function App() {
         notify(copy.initialNote);
       } else if (dialog.kind === 'edit-admin') {
         await apiRequest<AdminRecord>(`/api/v1/admin/admins/${dialog.admin.id}`, token, { method: 'PUT', body: JSON.stringify(payload) });
-        notify(isArabic ? 'تم حفظ بيانات المدير.' : 'Administrator details saved.');
+        notify(t(locale, 'admins.savedToast'));
       }
       setDialog(null);
       await fetchManagementData();
@@ -491,7 +495,7 @@ function App() {
     setBusy(true);
     try {
       await apiRequest<void>(`/api/v1/admin/admins/${admin.id}/status`, token, { method: 'POST', body: JSON.stringify({ isActive }) });
-      notify(isActive ? (isArabic ? 'تم تفعيل الحساب.' : 'Account enabled.') : (isArabic ? 'تم تعطيل الحساب وإبطال جلساته.' : 'Account disabled and sessions revoked.'));
+      notify(isActive ? t(locale, 'admins.enabledToast') : t(locale, 'admins.disabledToast'));
       setAdminStatusTarget(null);
       await fetchManagementData();
     } catch (error) {
@@ -509,7 +513,7 @@ function App() {
     setBusy(true);
     try {
       await apiRequest<void>(`/api/v1/admin/admins/${dialog.admin.id}/reset-password`, token, { method: 'POST', body: JSON.stringify({ newPassword }) });
-      notify(isArabic ? 'تمت إعادة تعيين كلمة المرور وإبطال الجلسات.' : 'Password reset and live sessions revoked.');
+      notify(t(locale, 'admins.passwordResetToast'));
       setDialog(null);
     } catch (error) {
       reportError(error instanceof Error ? error.message : copy.dataError);
@@ -526,7 +530,7 @@ function App() {
     setBusy(true);
     try {
       await apiRequest<void>(`/api/v1/admin/admins/${dialog.admin.id}`, token, { method: 'DELETE', body: JSON.stringify({ currentSuperAdminPassword }) });
-      notify(isArabic ? 'تم الحذف النهائي للمدير.' : 'Administrator permanently deleted.');
+      notify(t(locale, 'admins.deletedToast'));
       setDialog(null);
       await fetchManagementData();
     } catch (error) {
@@ -542,7 +546,7 @@ function App() {
     setBusy(true);
     try {
       await apiRequest<RoleRecord>('/api/v1/admin/roles', token, { method: 'POST', body: JSON.stringify(roleForm) });
-      notify(isArabic ? 'تم إنشاء الدور فارغًا. أضف الصلاحيات قبل تعيينه.' : 'Role created empty. Add permissions before assigning it.');
+      notify(t(locale, 'roles.createdEmptyToast'));
       setDialog(null);
       setRoleForm({ name: '', nameAr: '', description: '' });
       await fetchManagementData();
@@ -558,7 +562,7 @@ function App() {
     setBusy(true);
     try {
       await apiRequest<void>(`/api/v1/admin/roles/${role.id}/status`, token, { method: 'POST', body: JSON.stringify({ isActive }) });
-      notify(isActive ? (isArabic ? 'تم تفعيل الدور.' : 'Role enabled.') : (isArabic ? 'تم تعطيل الدور وإبطال جلسات المدراء المعيّنين.' : 'Role disabled and assigned sessions revoked.'));
+      notify(isActive ? t(locale, 'roles.enabledToast') : t(locale, 'roles.disabledToast'));
       setRoleStatusTarget(null);
       await fetchManagementData();
     } catch (error) {
@@ -573,7 +577,7 @@ function App() {
     setBusy(true);
     try {
       await apiRequest<void>(`/api/v1/admin/roles/${role.id}`, token, { method: 'DELETE' });
-      notify(isArabic ? 'تم حذف الدور.' : 'Role deleted.');
+      notify(t(locale, 'roles.deletedToast'));
       setRoleDeleteTarget(null);
       await fetchManagementData();
     } catch (error) {
@@ -678,39 +682,39 @@ function App() {
   type NavItem = { key: View; label: string; icon: typeof LayoutDashboard; superOnly?: boolean; gateKey?: string };
   const navGroups: Array<{ label: string; items: NavItem[] }> = [
     {
-      label: isArabic ? 'التشغيل اليومي' : 'Daily Operations',
+      label: t(locale, 'navGroups.daily'),
       items: [
         { key: 'overview', label: copy.overview, icon: LayoutDashboard },
       ],
     },
     {
-      label: isArabic ? 'المحتوى الأكاديمي' : 'Academic Content',
+      label: t(locale, 'navGroups.content'),
       items: [
-        { key: 'academic', label: isArabic ? 'البنية الأكاديمية' : 'Academic Structure', icon: Building2 },
-        { key: 'questions', label: isArabic ? 'بنك الأسئلة' : 'Question Bank', icon: BookOpenCheck },
-        { key: 'exams', label: isArabic ? 'الاختبارات' : 'Exams', icon: ClipboardCheck },
-        { key: 'exam-courses', label: isArabic ? 'الدورات الامتحانية' : 'Exam Courses', icon: GraduationCap, gateKey: 'view:exams' },
-        { key: 'library', label: isArabic ? 'المكتبة والملفات' : 'Library & Files', icon: FileText },
+        { key: 'academic', label: t(locale, 'nav.academic'), icon: Building2 },
+        { key: 'questions', label: t(locale, 'nav.questions'), icon: BookOpenCheck },
+        { key: 'exams', label: t(locale, 'nav.exams'), icon: ClipboardCheck },
+        { key: 'exam-courses', label: t(locale, 'nav.examCourses'), icon: GraduationCap, gateKey: 'view:exams' },
+        { key: 'library', label: t(locale, 'nav.library'), icon: FileText },
       ],
     },
     {
-      label: isArabic ? 'المستخدمون والوصول' : 'Users & Access',
+      label: t(locale, 'navGroups.access'),
       items: [
-        { key: 'students', label: isArabic ? 'الطلاب' : 'Students', icon: UsersRound },
-        { key: 'codes', label: isArabic ? 'رموز الوصول' : 'Access Codes', icon: KeyRound },
+        { key: 'students', label: t(locale, 'nav.students'), icon: UsersRound },
+        { key: 'codes', label: t(locale, 'nav.codes'), icon: KeyRound },
       ],
     },
     {
-      label: isArabic ? 'القياس والتدقيق' : 'Measurement & Audit',
+      label: t(locale, 'navGroups.audit'),
       items: [
-        { key: 'reports', label: isArabic ? 'التقارير والتحليلات' : 'Reports & Analytics', icon: BarChart3, superOnly: true },
+        { key: 'reports', label: t(locale, 'nav.reports'), icon: BarChart3, superOnly: true },
         { key: 'admins', label: copy.admins, icon: UsersRound, superOnly: true },
         { key: 'roles', label: copy.roles, icon: KeyRound, superOnly: true },
-        { key: 'audit', label: isArabic ? 'السجل الأمني' : 'Security Audit', icon: ShieldCheck, superOnly: true },
+        { key: 'audit', label: t(locale, 'nav.auditLog'), icon: ShieldCheck, superOnly: true },
         // Wave 4 (Owner decision 2026-11-23): offline package ledger + revocation.
-        { key: 'offline', label: isArabic ? 'الحزم دون اتصال' : 'Offline Packages', icon: PackageX, superOnly: true },
-        { key: 'settings', label: isArabic ? 'إعدادات النظام' : 'System Settings', icon: Settings, superOnly: true },
-        { key: 'content', label: isArabic ? 'صفحات المحتوى' : 'Content Pages', icon: ScrollText, superOnly: true },
+        { key: 'offline', label: t(locale, 'nav.offline'), icon: PackageX, superOnly: true },
+        { key: 'settings', label: t(locale, 'nav.settings'), icon: Settings, superOnly: true },
+        { key: 'content', label: t(locale, 'nav.content'), icon: ScrollText, superOnly: true },
       ],
     },
   ];
@@ -724,22 +728,22 @@ function App() {
   const viewTitle = view === 'not-found' ? copy.notFoundTitle
     : view === 'admins' ? copy.adminList
     : view === 'roles' ? copy.rolesTitle
-    : view === 'offline' ? (isArabic ? 'الحزم دون اتصال' : 'Offline Packages')
-    : view === 'audit' ? (isArabic ? 'السجل الأمني' : 'Security Audit')
-    : view === 'reports' ? (isArabic ? 'التقارير والتحليلات' : 'Reports & Analytics')
-    : view === 'settings' ? (isArabic ? 'إعدادات النظام' : 'System Settings')
-    : view === 'content' ? (isArabic ? 'صفحات المحتوى' : 'Content Pages')
-    : view === 'students' ? (isArabic ? 'الطلاب' : 'Students')
-    : view === 'academic' ? (isArabic ? 'البنية الأكاديمية' : 'Academic Structure')
-    : view === 'questions' ? (isArabic ? 'بنك الأسئلة' : 'Question Bank')
-    : view === 'exams' ? (isArabic ? 'الاختبارات' : 'Exams')
-    : view === 'exam-courses' ? (isArabic ? 'الدورات الامتحانية' : 'Exam Courses')
-    : view === 'library' ? (isArabic ? 'المكتبة والملفات' : 'Library & Files')
-    : view === 'codes' ? (isArabic ? 'رموز الوصول' : 'Access Codes')
+    : view === 'offline' ? t(locale, 'nav.offline')
+    : view === 'audit' ? t(locale, 'nav.auditLog')
+    : view === 'reports' ? t(locale, 'nav.reports')
+    : view === 'settings' ? t(locale, 'nav.settings')
+    : view === 'content' ? t(locale, 'nav.content')
+    : view === 'students' ? t(locale, 'nav.students')
+    : view === 'academic' ? t(locale, 'nav.academic')
+    : view === 'questions' ? t(locale, 'nav.questions')
+    : view === 'exams' ? t(locale, 'nav.exams')
+    : view === 'exam-courses' ? t(locale, 'nav.examCourses')
+    : view === 'library' ? t(locale, 'nav.library')
+    : view === 'codes' ? t(locale, 'nav.codes')
     : copy.overview;
-  const statusLabel = apiStatus === 'healthy' ? (isArabic ? 'الخدمة تعمل' : 'Operational')
-    : apiStatus === 'degraded' ? (isArabic ? 'أداء متدنٍ' : 'Degraded')
-    : (isArabic ? 'غير متحقق' : 'Unknown');
+  const statusLabel = apiStatus === 'healthy' ? t(locale, 'shell.statusHealthyShort')
+    : apiStatus === 'degraded' ? t(locale, 'topbar.statusDegraded')
+    : t(locale, 'shell.statusNotChecked');
 
   return (
     <UiPermissionsProvider value={uiPermissionsState}>
@@ -748,7 +752,7 @@ function App() {
         <div className="side-brand">
           <img src={BRAND_MARK} alt="CMS" />
           {!sidebarCollapsed && <span>CMS <i>CONTROL</i></span>}
-          <button className="menu-close" aria-label={isArabic ? 'إغلاق القائمة' : 'Close navigation'} onClick={() => setMobileNavOpen(false)} style={{ display: mobileNavOpen ? 'flex' : 'none' }}>
+          <button className="menu-close" aria-label={t(locale, 'shell.closeNav')} onClick={() => setMobileNavOpen(false)} style={{ display: mobileNavOpen ? 'flex' : 'none' }}>
             <X size={20} />
           </button>
         </div>
@@ -781,7 +785,7 @@ function App() {
             onClick={() => setOperatorMenuOpen(!operatorMenuOpen)}
             aria-haspopup="menu"
             aria-expanded={operatorMenuOpen}
-            aria-label={isArabic ? `قائمة المشغّل: ${user.fullName}` : `Operator menu: ${user.fullName}`}
+            aria-label={t(locale, 'shell.operatorMenuWith', { name: user.fullName })}
             data-testid="operator-menu-trigger"
             style={{ cursor: 'pointer', background: 'transparent', border: 'none', width: '100%', textAlign: 'start', font: 'inherit' }}
           >
@@ -797,7 +801,7 @@ function App() {
             <div
               className="operator-menu"
               role="menu"
-              aria-label={isArabic ? 'قائمة المشغّل' : 'Operator menu'}
+              aria-label={t(locale, 'shell.operatorMenu')}
               data-testid="operator-menu"
               onKeyDown={(event) => {
                 if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
@@ -845,15 +849,15 @@ function App() {
       {mobileNavOpen && <div className="sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />}
       <section className={`workspace ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
         <header className="topbar">
-          <button className="menu-toggle" aria-label={isArabic ? 'فتح القائمة' : 'Open navigation'} onClick={() => setMobileNavOpen(true)}>
+          <button className="menu-toggle" aria-label={t(locale, 'shell.openNav')} onClick={() => setMobileNavOpen(true)}>
             <Menu />
           </button>
-          <button className="menu-toggle collapse-toggle" aria-label={isArabic ? 'طي القائمة' : 'Toggle sidebar'} onClick={() => setSidebarCollapsed(!sidebarCollapsed)} style={{ display: 'flex' }}>
+          <button className="menu-toggle collapse-toggle" aria-label={t(locale, 'shell.toggleSidebar')} onClick={() => setSidebarCollapsed(!sidebarCollapsed)} style={{ display: 'flex' }}>
             {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
           </button>
           {/* PR-2 — the hand-rolled topbar breadcrumb replaced by the shared primitive. */}
           <Breadcrumbs
-            items={[{ label: isArabic ? 'الإدارة' : 'Admin' }, { label: viewTitle }]}
+            items={[{ label: t(locale, 'shell.adminCrumb') }, { label: viewTitle }]}
             navLabel={copy.breadcrumbNav}
             dir={isArabic ? 'rtl' : 'ltr'}
             testId="topbar-breadcrumbs"
@@ -862,7 +866,7 @@ function App() {
             <button
               className="lang-btn"
               onClick={() => setCommandPaletteOpen(true)}
-              aria-label={isArabic ? 'فتح لوحة الأوامر' : 'Open command palette'}
+              aria-label={t(locale, 'topbar.openPalette')}
               aria-haspopup="dialog"
               aria-expanded={commandPaletteOpen}
               aria-keyshortcuts="Control+K"
@@ -885,7 +889,7 @@ function App() {
             </button>
             {/* Push 3: compose bell gated by btn:overview.compose-notification. */}
             {can('btn:overview.compose-notification') && (
-              <button className="icon-btn" aria-label={isArabic ? 'التنبيهات' : 'Notifications'} onClick={() => setNotificationComposeOpen(true)} title={isArabic ? 'إنشاء إشعار' : 'Compose notification'}>
+              <button className="icon-btn" aria-label={t(locale, 'topbar.notifications')} onClick={() => setNotificationComposeOpen(true)} title={t(locale, 'topbar.composeNotification')}>
                 <Bell size={19} />
                 {unreadCount > 0 && <span className="dot">{unreadCount > 99 ? '99+' : unreadCount}</span>}
               </button>
@@ -894,9 +898,9 @@ function App() {
             {isSuperAdmin && (
               <button
                 className="icon-btn"
-                aria-label={isArabic ? 'سجل الإشعارات المرسلة' : 'Sent notifications'}
+                aria-label={t(locale, 'topbar.sentNotifications')}
                 onClick={() => setSentNotificationsOpen(true)}
-                title={isArabic ? 'سجل الإشعارات المرسلة' : 'Sent notifications'}
+                title={t(locale, 'topbar.sentNotifications')}
                 data-testid="open-sent-notifications"
               >
                 <History size={19} />
@@ -1026,19 +1030,15 @@ function App() {
         open={adminStatusTarget !== null}
         onOpenChange={(next) => { if (!next) setAdminStatusTarget(null); }}
         title={adminStatusTarget?.isActive
-          ? (isArabic ? 'تفعيل حساب مدير' : 'Enable administrator account')
-          : (isArabic ? 'تعطيل حساب مدير' : 'Disable administrator account')}
+          ? t(locale, 'admins.enableTitle')
+          : t(locale, 'admins.disableTitle')}
         description={adminStatusTarget
           ? (adminStatusTarget.isActive
-            ? (isArabic
-              ? `سيُعاد تفعيل حساب "${adminStatusTarget.admin.fullName}" ويمكنه تسجيل الدخول من جديد.`
-              : `"${adminStatusTarget.admin.fullName}" will be re-enabled and can sign in again.`)
-            : (isArabic
-              ? `سيُعطَّل حساب "${adminStatusTarget.admin.fullName}" وتُبطل جميع جلساته النشطة فورًا.`
-              : `"${adminStatusTarget.admin.fullName}" will be disabled and all their live sessions revoked immediately.`))
+            ? t(locale, 'admins.enableDescription', { name: adminStatusTarget.admin.fullName })
+            : t(locale, 'admins.disableDescription', { name: adminStatusTarget.admin.fullName }))
           : undefined}
         confirmLabel={adminStatusTarget?.isActive ? copy.activate : copy.deactivate}
-        cancelLabel={isArabic ? 'إلغاء' : 'Cancel'}
+        cancelLabel={t(locale, 'common.cancel')}
         dir={isArabic ? 'rtl' : 'ltr'}
         busy={busy}
         onConfirm={() => { if (adminStatusTarget) void setAccountStatus(adminStatusTarget.admin, adminStatusTarget.isActive); }}
@@ -1048,19 +1048,15 @@ function App() {
         open={roleStatusTarget !== null}
         onOpenChange={(next) => { if (!next) setRoleStatusTarget(null); }}
         title={roleStatusTarget?.isActive
-          ? (isArabic ? 'تفعيل الدور' : 'Enable role')
-          : (isArabic ? 'تعطيل الدور' : 'Disable role')}
+          ? t(locale, 'roles.enableTitle')
+          : t(locale, 'roles.disableTitle')}
         description={roleStatusTarget
           ? (roleStatusTarget.isActive
-            ? (isArabic
-              ? `سيُفعَّل الدور "${roleStatusTarget.role.nameAr}" لجميع المدراء المعيّنين له.`
-              : `Role "${roleStatusTarget.role.nameAr ?? roleStatusTarget.role.name}" will be enabled for all assigned administrators.`)
-            : (isArabic
-              ? `سيُعطَّل الدور "${roleStatusTarget.role.nameAr}" وتُبطل جلسات جميع المدراء المعيّنين له حتى يُعاد تفعيله.`
-              : `Role "${roleStatusTarget.role.nameAr ?? roleStatusTarget.role.name}" will be disabled and every assigned administrator's sessions revoked until it is re-enabled.`))
+            ? t(locale, 'roles.enableDescription', { name: roleStatusTarget.role.nameAr ?? roleStatusTarget.role.name })
+            : t(locale, 'roles.disableDescription', { name: roleStatusTarget.role.nameAr ?? roleStatusTarget.role.name }))
           : undefined}
         confirmLabel={roleStatusTarget?.isActive ? copy.activate : copy.deactivate}
-        cancelLabel={isArabic ? 'إلغاء' : 'Cancel'}
+        cancelLabel={t(locale, 'common.cancel')}
         dir={isArabic ? 'rtl' : 'ltr'}
         busy={busy}
         onConfirm={() => { if (roleStatusTarget) void setRoleStatus(roleStatusTarget.role, roleStatusTarget.isActive); }}
@@ -1069,16 +1065,14 @@ function App() {
       <ConfirmDialog
         open={roleDeleteTarget !== null}
         onOpenChange={(next) => { if (!next) setRoleDeleteTarget(null); }}
-        title={isArabic ? 'حذف الدور نهائيًا' : 'Permanently delete role'}
+        title={t(locale, 'roles.deleteTitle')}
         description={roleDeleteTarget
-          ? (isArabic
-            ? `سيُحذف الدور "${roleDeleteTarget.nameAr}" نهائيًا. يجب أن لا يكون معيّنًا لأي مدير حاليًا. لا يمكن التراجع عن هذا الإجراء.`
-            : `Role "${roleDeleteTarget.nameAr ?? roleDeleteTarget.name}" will be permanently deleted. It must not currently be assigned to any administrator. This cannot be undone.`)
+          ? t(locale, 'roles.deleteDescription', { name: roleDeleteTarget.nameAr ?? roleDeleteTarget.name })
           : undefined}
         confirmLabel={copy.delete}
-        cancelLabel={isArabic ? 'إلغاء' : 'Cancel'}
+        cancelLabel={t(locale, 'common.cancel')}
         variant="danger"
-        requireAcknowledge={{ label: isArabic ? 'أفهم أن حذف الدور نهائي ولا يمكن التراجع عنه' : 'I understand this role deletion is permanent and cannot be undone' }}
+        requireAcknowledge={{ label: t(locale, 'roles.deleteAck') }}
         dir={isArabic ? 'rtl' : 'ltr'}
         busy={busy}
         onConfirm={() => { if (roleDeleteTarget) void deleteRole(roleDeleteTarget); }}
@@ -1157,6 +1151,9 @@ function LimitedNotice({ copy, isArabic }: { copy: Record<string, string>; isAra
 }
 
 function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewProps) {
+  // PR-3 — the Overview subcomponent resolves its locale from the isArabic
+  // prop (the dictionary is the string source; copy remains prop-drilled).
+  const locale = localeOf(isArabic);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -1207,17 +1204,17 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
         </section>
         <section className="stat-grid">
           {([
-            { key: 'students' as View, label: isArabic ? 'الطلاب' : 'Students', tint: 'rgba(18,135,125,0.12)', icon: UsersRound },
-            { key: 'questions' as View, label: isArabic ? 'بنك الأسئلة' : 'Question Bank', tint: 'rgba(76,184,174,0.14)', icon: BookOpenCheck },
-            { key: 'library' as View, label: isArabic ? 'المكتبة والملفات' : 'Library & Files', tint: 'rgba(163,108,31,0.12)', icon: FileText },
-            { key: 'exams' as View, label: isArabic ? 'الاختبارات' : 'Exams', tint: 'rgba(53,113,138,0.12)', icon: ClipboardCheck },
+            { key: 'students' as View, label: t(locale, 'nav.students'), tint: 'rgba(18,135,125,0.12)', icon: UsersRound },
+            { key: 'questions' as View, label: t(locale, 'nav.questions'), tint: 'rgba(76,184,174,0.14)', icon: BookOpenCheck },
+            { key: 'library' as View, label: t(locale, 'nav.library'), tint: 'rgba(163,108,31,0.12)', icon: FileText },
+            { key: 'exams' as View, label: t(locale, 'nav.exams'), tint: 'rgba(53,113,138,0.12)', icon: ClipboardCheck },
           ]).map((card) => (
             <article key={card.key} className="stat-card" style={{ cursor: 'pointer' }} onClick={() => onNavigate(card.key)}>
               <div className="stat-icon" style={{ background: card.tint, color: 'var(--cms-teal-700)' }}>
                 <card.icon size={20} />
               </div>
               <div className="stat-label">{card.label}</div>
-              <div className="stat-value" style={{ fontSize: 'var(--cms-text-sm)', fontWeight: 500, color: 'var(--cms-text-soft)' }}>{isArabic ? 'افتح المركز' : 'Open center'}</div>
+              <div className="stat-value" style={{ fontSize: 'var(--cms-text-sm)', fontWeight: 500, color: 'var(--cms-text-soft)' }}>{t(locale, 'dashboard.openCenter')}</div>
             </article>
           ))}
         </section>
@@ -1255,10 +1252,10 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
   });
 
   const quickActions: Array<{ key: View; label: string; icon: typeof Activity }> = [
-    { key: 'admins', label: isArabic ? 'قائمة المدراء' : 'Administrator directory', icon: UsersRound },
-    { key: 'students', label: isArabic ? 'الطلاب' : 'Students', icon: UsersRound },
-    { key: 'questions', label: isArabic ? 'بنك الأسئلة' : 'Question Bank', icon: BookOpenCheck },
-    { key: 'codes', label: isArabic ? 'رموز الوصول' : 'Access Codes', icon: KeyRound },
+    { key: 'admins', label: t(locale, 'admins.list'), icon: UsersRound },
+    { key: 'students', label: t(locale, 'nav.students'), icon: UsersRound },
+    { key: 'questions', label: t(locale, 'nav.questions'), icon: BookOpenCheck },
+    { key: 'codes', label: t(locale, 'nav.codes'), icon: KeyRound },
   ];
 
   const TrendIcon = ({ trend }: { trend: Trend }) => {
@@ -1280,7 +1277,7 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
       {/* Push 2 / Track 2: tab switch between metrics and the activity monitor (super-admin only).
           Push 3: each tab additionally gated by its tab key (activity stays super-only AND). */}
       {isSuperAdmin && (can('tab:overview.metrics') || can('tab:overview.activity')) && (
-        <div className="flex gap-2" role="tablist" aria-label={isArabic ? 'أقسام لوحة القيادة' : 'Overview sections'} dir={isArabic ? 'rtl' : 'ltr'}>
+        <div className="flex gap-2" role="tablist" aria-label={t(locale, 'dashboard.sectionsA11y')} dir={isArabic ? 'rtl' : 'ltr'}>
           {can('tab:overview.metrics') && (
             <button
               type="button"
@@ -1292,7 +1289,7 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
                 ? { background: 'var(--cms-teal-700)', borderColor: 'var(--cms-teal-700)' }
                 : { borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
             >
-              {isArabic ? 'المؤشرات' : 'Metrics'}
+              {t(locale, 'dashboard.metricsTab')}
             </button>
           )}
           {can('tab:overview.activity') && (
@@ -1306,7 +1303,7 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
                 ? { background: 'var(--cms-teal-700)', borderColor: 'var(--cms-teal-700)' }
                 : { borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
             >
-              {isArabic ? 'مراقبة النشاط' : 'Activity monitor'}
+              {t(locale, 'dashboard.activityTab')}
             </button>
           )}
         </div>
@@ -1376,7 +1373,7 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
             </span>
             <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span style={{ fontSize: 'var(--cms-text-sm)', fontWeight: 600, color: 'var(--cms-text)' }}>{action.label}</span>
-              <span style={{ fontSize: 'var(--cms-text-2xs)', color: 'var(--cms-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{isArabic ? 'افتح' : 'Open'}</span>
+              <span style={{ fontSize: 'var(--cms-text-2xs)', color: 'var(--cms-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t(locale, 'dashboard.open')}</span>
             </span>
           </button>
         ))}
@@ -1389,7 +1386,7 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
       )}
 
       <p style={{ marginTop: 'var(--cms-space-4)', fontSize: 'var(--cms-text-2xs)', color: 'var(--cms-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-        {isArabic ? 'آخر تحديث' : 'Last updated'}: {updatedLabel}
+        {t(locale, 'dashboard.lastUpdated')}: {updatedLabel}
       </p>
         </>
       )}
