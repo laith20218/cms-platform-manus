@@ -177,7 +177,10 @@ export function QuestionImportModal({ token, isArabic, subjectId, onClose, onErr
 
   const dir = isArabic ? 'rtl' : 'ltr';
 
-  const t = isArabic
+  // PR-2 (lint closure): the dictionary literal is memoized per locale — the
+  // raw ternary recreated the object every render, so the useMemo at the
+  // parseErrorLabels consumer had unstable deps (react-hooks/exhaustive-deps).
+  const t = useMemo(() => isArabic
     ? {
         title: 'استيراد أسئلة (CSV)',
         intro: 'ارفع ملف CSV يحتوي أسئلة اختيار من متعدد. الأعمدة المطلوبة: text، optionA…optionD، correctOption. الأعمدة الاختيارية: explanation، difficulty، tags، year، reference. الحد الأقصى 500 سؤال.',
@@ -223,7 +226,7 @@ export function QuestionImportModal({ token, isArabic, subjectId, onClose, onErr
         reportFailed: 'Failed',
         reportErrors: 'Server error details:',
         restart: 'Import another file',
-      };
+      }, [isArabic]);
 
   const parseErrorLabels = useMemo(
     () => parseErrors.map((code) => {

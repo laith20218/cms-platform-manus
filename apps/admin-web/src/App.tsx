@@ -1,7 +1,7 @@
 /** غرفة القيادة المؤسسية: navy authority, ivory work surface, teal clinical signal.
  *  Navigation grouped by domain; status indicator verifies API health;
  *  skeleton loading + trend chips on the overview dashboard. */
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster, toast } from 'sonner';
@@ -13,8 +13,6 @@ import {
   Bell, History,
   BookOpenCheck,
   Building2,
-  ChevronLeft,
-  ChevronRight,
   ClipboardCheck,
   CircleAlert,
   FileText,
@@ -40,7 +38,11 @@ import {
   X,
 } from 'lucide-react';
 import { API_BASE_URL, apiRequest, ApiError, type AdminRecord, type AdminUser, type PagedResult, type RoleRecord, login, refreshAccessToken } from './lib/api';
-import { ConfirmDialog } from '@cms/ui';
+import { Breadcrumbs, ConfirmDialog, ErrorState } from '@cms/ui';
+// PR-2 — command palette (ARIA combobox surface) + the real 404 view + URL query state.
+import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
+import { NotFoundView } from './components/NotFoundView';
+import { useQueryState, useClearQueryParams } from './lib/useQueryState';
 import { UiPermissionsProvider } from './hooks/useUiPermissions';
 import { useUiPermissions } from './hooks/uiPermissionsContext';
 import { useUiPermissionsBundle } from './hooks/useUiPermissionsBundle';
@@ -76,14 +78,16 @@ const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 
 type Locale = 'ar' | 'en';
 type Theme = 'light' | 'dark';
-type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'exam-courses' | 'library' | 'reports' | 'settings' | 'content' | 'offline';
+type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'exam-courses' | 'library' | 'reports' | 'settings' | 'content' | 'offline' | 'not-found';
 
 // D-26 (Command Center P1) — every view is a real URL: browser back/forward
 // and page refresh work, and views are directly shareable. BrowserRouter is
 // already mounted in main.tsx and vercel.json rewrites every non-asset path
-// to index.html, so no deploy change is needed. Unknown paths resolve to the
-// overview view (single-shell admin — no 404 page).
-const VIEW_PATHS: Record<View, string> = {
+// to index.html, so no deploy change is needed.
+// PR-2 — unknown paths now resolve to the dedicated 404 view (NotFoundView)
+// instead of silently landing on the overview screen.
+type RoutableView = Exclude<View, 'not-found'>;
+const VIEW_PATHS: Record<RoutableView, string> = {
   overview: '/',
   admins: '/admins',
   roles: '/roles',
@@ -101,8 +105,12 @@ const VIEW_PATHS: Record<View, string> = {
   offline: '/offline',
 };
 const PATH_VIEWS = new Map<string, View>(
-  (Object.entries(VIEW_PATHS) as [View, string][]).map(([view, path]) => [path, view]),
+  (Object.entries(VIEW_PATHS) as [RoutableView, string][]).map(([view, path]) => [path, view]),
 );
+
+// PR-2 — admins-filter URL parameters (module constant: one list shared by
+// the per-param hooks and the atomic clear below).
+const ADMINS_FILTER_PARAMS = ['q', 'role', 'status'] as const;
 
 type Dialog =
   | { kind: 'create-admin' }
@@ -141,14 +149,22 @@ function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
+  // PR-2 — 2FA login challenge: the backend answers TWO_FACTOR_REQUIRED after
+  // the password is verified (AdminHandlers.HandleLoginAsync); the operator
+  // then submits the authenticator code on the same form. 2FA is never
+  // weakened — the step only appears when the backend demands it.
+  const [twoFactorRequired, setTwoFactorRequired] = useState(false);
+  const [otp, setOtp] = useState('');
   const [busy, setBusy] = useState(false);
   // D-26: view state is DERIVED from the URL (source of truth = location bar).
   // setView keeps the historical signature so nav items, the command palette,
   // cross-center navigation and the login redirect all work unchanged.
   const location = useLocation();
   const navigate = useNavigate();
-  const view: View = PATH_VIEWS.get(location.pathname) ?? 'overview';
+  const view: View = PATH_VIEWS.get(location.pathname) ?? 'not-found';
   const setView = useCallback((next: View) => {
+    // 'not-found' is derived state, never a navigation target.
+    if (next === 'not-found') return;
     navigate(VIEW_PATHS[next]);
   }, [navigate]);
   // A view change is a fresh page arrival: start at the top (matches a reload).
@@ -160,7 +176,6 @@ function App() {
     try { return localStorage.getItem('cms-admin-sidebar-collapsed') === 'true'; } catch { return false; }
   });
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [commandQuery, setCommandQuery] = useState('');
   const [unreadCount, setUnreadCount] = useState(0);
   const [operatorMenuOpen, setOperatorMenuOpen] = useState(false);
   const [notificationComposeOpen, setNotificationComposeOpen] = useState(false);
@@ -170,9 +185,17 @@ function App() {
   const [roles, setRoles] = useState<RoleRecord[]>([]);
   const [totalAdmins, setTotalAdmins] = useState(0);
   const [loadingData, setLoadingData] = useState(false);
-  const [query, setQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  // PR-2 — the admins-center filters live in the URL query string (?q=…&role=…&status=…)
+  // so refresh, deep links, back/forward and shared links restore the exact list
+  // state (same pattern as the W14.3 D4 academic context). Writes use history
+  // replace; navigating to another view drops the params (fresh page arrival).
+  const queryState = useQueryState('q', '');
+  const roleState = useQueryState('role', '');
+  const statusState = useQueryState('status', 'all', ['all', 'active', 'disabled']);
+  const clearAdminsFilters = useClearQueryParams(ADMINS_FILTER_PARAMS);
+  const query = queryState.value;
+  const roleFilter = roleState.value;
+  const statusFilter = statusState.value;
   const [dialog, setDialog] = useState<Dialog>(null);
   const [adminForm, setAdminForm] = useState(initialAdminForm);
   const [roleForm, setRoleForm] = useState({ name: '', nameAr: '', description: '' });
@@ -190,10 +213,10 @@ function App() {
 
   const copy = isArabic
     ? {
-        title: 'لوحة تحكم منصة CMS', loginTitle: 'دخول إلى لوحة الإدارة', loginDescription: 'أدر المحتوى والاختبارات والصلاحيات ضمن نطاقك الأكاديمي.', signIn: 'دخول آمن', email: 'البريد الإلكتروني', password: 'كلمة المرور', systemReady: 'قناة الإدارة مؤمّنة', overview: 'لوحة القيادة', admins: 'المدراء', roles: 'الأدوار والصلاحيات', signOut: 'تسجيل الخروج', connected: 'الخدمة تعمل', command: 'مركز القيادة المؤسسي لإدارة المنصة الأكاديمية.', commandSub: 'راجع الصلاحيات قبل نشر التغيير، ثم تابع الإدارة ضمن نطاقك الأكاديمي.', adminList: 'قائمة المدراء', addAdmin: 'إضافة مدير', addRole: 'إنشاء دور', search: 'ابحث بالاسم أو البريد أو الهاتف', clear: 'إزالة التصفية', active: 'مفعّل', disabled: 'معطّل', all: 'الكل', role: 'الدور', scope: 'النطاق الأكاديمي', status: 'الحالة', lastLogin: 'آخر دخول', created: 'تاريخ الإنشاء', actions: 'إجراءات', edit: 'تعديل', reset: 'إعادة تعيين كلمة المرور', delete: 'حذف نهائي', view: 'عرض التفاصيل', deactivate: 'تعطيل الحساب', activate: 'تفعيل الحساب', noAdmins: 'لا توجد نتائج مطابقة.', newAdmin: 'إضافة مدير جديد', updateAdmin: 'تعديل بيانات المدير', fullName: 'الاسم الكامل', phone: 'رقم الهاتف (اختياري)', save: 'حفظ التغيير', cancel: 'إلغاء', initialPassword: 'كلمة المرور الأولية', passwordReminder: 'يجب تذكير المدير بتغيير كلمة المرور الأولية عند الدخول، دون حجب اللوحة.', resetTitle: 'إعادة تعيين كلمة المرور', newPassword: 'كلمة المرور الجديدة', deleteTitle: 'تأكيد الحذف النهائي', deleteText: 'هذا الإجراء دائم. أدخل كلمة مرور المدير العام الحالية للتأكيد.', currentPassword: 'كلمة مرور المدير العام الحالية', deleteConfirm: 'حذف المدير نهائيًا', rolesTitle: 'أدوار الوصول', roleName: 'الاسم التقني', roleNameAr: 'الاسم العربي', description: 'الوصف', system: 'نظامي', custom: 'مخصص', adminsCount: 'عدد المدراء', permissions: 'الصلاحيات', create: 'إنشاء', noRoles: 'لا توجد أدوار بعد.', scopeLabel: 'حسب النطاق المعيّن', limited: 'الوصول مقيّد بالدور والنطاق', dataError: 'تعذر تحميل بيانات الإدارة.', apiLabel: 'بيئة الإنتاج', welcome: 'Cliver Medical Student', tagline: 'Study smart...Not study hard', profile: 'المشغّل الحالي', language: 'English', initialNote: 'تم إنشاء المدير. شارك كلمة المرور الأولية عبر قناة آمنة، وذكّره بتغييرها عند أول دخول.', darkMode: 'الوضع الليلي', lightMode: 'الوضع النهاري', toggleTheme: 'تبديل المظهر', heroLine1: 'إدارة أكاديمية', heroLine2: 'بدقة مؤسسية.', heroBody: 'راجع الصلاحيات قبل نشر أي تغيير. هذه قناة التشغيل المؤسسية للتعليم الطبي.', securityNote: 'لا تُحفظ بيانات الدخول في المتصفح. ينتهي الوصول عند تسجيل الخروج.', statsLoading: 'جارٍ تحميل المؤشرات…', statsError: 'تعذّر تحميل المؤشرات.', statStudents: 'إجمالي الطلاب', statActiveToday: 'نشط اليوم', statQuestions: 'الأسئلة المنشورة', statCodes: 'أكواد نشطة', statSubs: 'اشتراكات فعّالة', statFiles: 'ملفات المكتبة', statExams: 'اختبارات منشورة', statReports: 'بلاغات معلّقة', statRevenue: 'إيراد الشهر', welcomeShort: 'مرحبًا بك', welcomeAdmin: 'لوحة المشغّل', welcomeBody: 'لا تتوفر مؤشرات تشغيلية لهذا الحساب. تواصل مع المدير العام لترقية الصلاحيات أو لربط نطاق أكاديمي.'
+        title: 'لوحة تحكم منصة CMS', loginTitle: 'دخول إلى لوحة الإدارة', loginDescription: 'أدر المحتوى والاختبارات والصلاحيات ضمن نطاقك الأكاديمي.', signIn: 'دخول آمن', email: 'البريد الإلكتروني', password: 'كلمة المرور', systemReady: 'قناة الإدارة مؤمّنة', overview: 'لوحة القيادة', admins: 'المدراء', roles: 'الأدوار والصلاحيات', signOut: 'تسجيل الخروج', connected: 'الخدمة تعمل', command: 'مركز القيادة المؤسسي لإدارة المنصة الأكاديمية.', commandSub: 'راجع الصلاحيات قبل نشر التغيير، ثم تابع الإدارة ضمن نطاقك الأكاديمي.', adminList: 'قائمة المدراء', addAdmin: 'إضافة مدير', addRole: 'إنشاء دور', search: 'ابحث بالاسم أو البريد أو الهاتف', clear: 'إزالة التصفية', active: 'مفعّل', disabled: 'معطّل', all: 'الكل', role: 'الدور', scope: 'النطاق الأكاديمي', status: 'الحالة', lastLogin: 'آخر دخول', created: 'تاريخ الإنشاء', actions: 'إجراءات', edit: 'تعديل', reset: 'إعادة تعيين كلمة المرور', delete: 'حذف نهائي', view: 'عرض التفاصيل', deactivate: 'تعطيل الحساب', activate: 'تفعيل الحساب', noAdmins: 'لا توجد نتائج مطابقة.', newAdmin: 'إضافة مدير جديد', updateAdmin: 'تعديل بيانات المدير', fullName: 'الاسم الكامل', phone: 'رقم الهاتف (اختياري)', save: 'حفظ التغيير', cancel: 'إلغاء', initialPassword: 'كلمة المرور الأولية', passwordReminder: 'يجب تذكير المدير بتغيير كلمة المرور الأولية عند الدخول، دون حجب اللوحة.', resetTitle: 'إعادة تعيين كلمة المرور', newPassword: 'كلمة المرور الجديدة', deleteTitle: 'تأكيد الحذف النهائي', deleteText: 'هذا الإجراء دائم. أدخل كلمة مرور المدير العام الحالية للتأكيد.', currentPassword: 'كلمة مرور المدير العام الحالية', deleteConfirm: 'حذف المدير نهائيًا', rolesTitle: 'أدوار الوصول', roleName: 'الاسم التقني', roleNameAr: 'الاسم العربي', description: 'الوصف', system: 'نظامي', custom: 'مخصص', adminsCount: 'عدد المدراء', permissions: 'الصلاحيات', create: 'إنشاء', noRoles: 'لا توجد أدوار بعد.', scopeLabel: 'حسب النطاق المعيّن', limited: 'الوصول مقيّد بالدور والنطاق', dataError: 'تعذر تحميل بيانات الإدارة.', apiLabel: 'بيئة الإنتاج', welcome: 'Cliver Medical Student', tagline: 'Study smart...Not study hard', profile: 'المشغّل الحالي', language: 'English', initialNote: 'تم إنشاء المدير. شارك كلمة المرور الأولية عبر قناة آمنة، وذكّره بتغييرها عند أول دخول.', darkMode: 'الوضع الليلي', lightMode: 'الوضع النهاري', toggleTheme: 'تبديل المظهر', heroLine1: 'إدارة أكاديمية', heroLine2: 'بدقة مؤسسية.', heroBody: 'راجع الصلاحيات قبل نشر أي تغيير. هذه قناة التشغيل المؤسسية للتعليم الطبي.', securityNote: 'لا تُحفظ بيانات الدخول في المتصفح. ينتهي الوصول عند تسجيل الخروج.', statsLoading: 'جارٍ تحميل المؤشرات…', statsError: 'تعذّر تحميل المؤشرات.', statStudents: 'إجمالي الطلاب', statActiveToday: 'نشط اليوم', statQuestions: 'الأسئلة المنشورة', statCodes: 'أكواد نشطة', statSubs: 'اشتراكات فعّالة', statFiles: 'ملفات المكتبة', statExams: 'اختبارات منشورة', statReports: 'بلاغات معلّقة', statRevenue: 'إيراد الشهر', welcomeShort: 'مرحبًا بك', welcomeAdmin: 'لوحة المشغّل', welcomeBody: 'لا تتوفر مؤشرات تشغيلية لهذا الحساب. تواصل مع المدير العام لترقية الصلاحيات أو لربط نطاق أكاديمي.', otpLabel: 'رمز التحقق الثنائي (2FA)', otpHint: 'أدخل الرمز المؤقت من تطبيق المصادقة لديك لإكمال الدخول.', backToCredentials: 'العودة إلى بيانات الدخول', paletteTitle: 'لوحة الأوامر', palettePlaceholder: 'ابحث في مراكز الإدارة…', paletteNoResults: 'لا توجد نتائج مطابقة', paletteOpenHint: 'بحث سريع في مراكز الإدارة', breadcrumbNav: 'مسار التنقل', notFoundTitle: 'الصفحة غير موجودة'
       }
     : {
-        title: 'CMS Administration Console', loginTitle: 'Sign in to the administration console', loginDescription: 'Manage content, exams, and permissions within your academic scope.', signIn: 'Secure sign in', email: 'Email address', password: 'Password', systemReady: 'Administration channel secured', overview: 'Command center', admins: 'Administrators', roles: 'Roles & permissions', signOut: 'Sign out', connected: 'Operational', command: 'Institutional command center for academic platform management.', commandSub: 'Review access before publishing a change, then manage within your academic scope.', adminList: 'Administrator directory', addAdmin: 'Add administrator', addRole: 'Create role', search: 'Search name, email or phone', clear: 'Clear filters', active: 'Active', disabled: 'Disabled', all: 'All', role: 'Role', scope: 'Academic scope', status: 'Status', lastLogin: 'Last login', created: 'Created', actions: 'Actions', edit: 'Edit', reset: 'Reset password', delete: 'Permanent delete', view: 'View details', deactivate: 'Disable account', activate: 'Enable account', noAdmins: 'No matching administrators.', newAdmin: 'Add administrator', updateAdmin: 'Edit administrator', fullName: 'Full name', phone: 'Phone (optional)', save: 'Save changes', cancel: 'Cancel', initialPassword: 'Initial password', passwordReminder: 'Remind this administrator to change the initial password at first sign-in; do not block their console.', resetTitle: 'Reset password', newPassword: 'New password', deleteTitle: 'Confirm permanent deletion', deleteText: 'This action is permanent. Enter the current super-administrator password to confirm.', currentPassword: 'Current super-administrator password', deleteConfirm: 'Delete administrator permanently', rolesTitle: 'Access roles', roleName: 'Technical name', roleNameAr: 'Arabic name', description: 'Description', system: 'System', custom: 'Custom', adminsCount: 'Administrators', permissions: 'Permissions', create: 'Create', noRoles: 'No roles available yet.', scopeLabel: 'By assigned scope', limited: 'Access is limited by your role and academic scope', dataError: 'Could not load administration data.', apiLabel: 'Production environment', welcome: 'Cliver Medical Student', tagline: 'Study smart...Not study hard', profile: 'Current operator', language: 'العربية', initialNote: 'Administrator created. Share the initial password through a secure channel and remind them to change it on first sign-in.', darkMode: 'Dark mode', lightMode: 'Light mode', toggleTheme: 'Toggle theme', heroLine1: 'Academic operations,', heroLine2: 'institutional precision.', heroBody: 'Review access before publishing any change. This is the institutional operations channel for medical education.', securityNote: 'Credentials are not stored in the browser. Access ends when you sign out.', statsLoading: 'Loading metrics…', statsError: 'Could not load metrics.', statStudents: 'Total students', statActiveToday: 'Active today', statQuestions: 'Published questions', statCodes: 'Active codes', statSubs: 'Active subscriptions', statFiles: 'Library files', statExams: 'Published exams', statReports: 'Pending reports', statRevenue: 'Monthly revenue', welcomeShort: 'Welcome', welcomeAdmin: 'Operator console', welcomeBody: 'No operational metrics are available for this account. Contact the super-administrator to upgrade your scope or assign an academic range.'
+        title: 'CMS Administration Console', loginTitle: 'Sign in to the administration console', loginDescription: 'Manage content, exams, and permissions within your academic scope.', signIn: 'Secure sign in', email: 'Email address', password: 'Password', systemReady: 'Administration channel secured', overview: 'Command center', admins: 'Administrators', roles: 'Roles & permissions', signOut: 'Sign out', connected: 'Operational', command: 'Institutional command center for academic platform management.', commandSub: 'Review access before publishing a change, then manage within your academic scope.', adminList: 'Administrator directory', addAdmin: 'Add administrator', addRole: 'Create role', search: 'Search name, email or phone', clear: 'Clear filters', active: 'Active', disabled: 'Disabled', all: 'All', role: 'Role', scope: 'Academic scope', status: 'Status', lastLogin: 'Last login', created: 'Created', actions: 'Actions', edit: 'Edit', reset: 'Reset password', delete: 'Permanent delete', view: 'View details', deactivate: 'Disable account', activate: 'Enable account', noAdmins: 'No matching administrators.', newAdmin: 'Add administrator', updateAdmin: 'Edit administrator', fullName: 'Full name', phone: 'Phone (optional)', save: 'Save changes', cancel: 'Cancel', initialPassword: 'Initial password', passwordReminder: 'Remind this administrator to change the initial password at first sign-in; do not block their console.', resetTitle: 'Reset password', newPassword: 'New password', deleteTitle: 'Confirm permanent deletion', deleteText: 'This action is permanent. Enter the current super-administrator password to confirm.', currentPassword: 'Current super-administrator password', deleteConfirm: 'Delete administrator permanently', rolesTitle: 'Access roles', roleName: 'Technical name', roleNameAr: 'Arabic name', description: 'Description', system: 'System', custom: 'Custom', adminsCount: 'Administrators', permissions: 'Permissions', create: 'Create', noRoles: 'No roles available yet.', scopeLabel: 'By assigned scope', limited: 'Access is limited by your role and academic scope', dataError: 'Could not load administration data.', apiLabel: 'Production environment', welcome: 'Cliver Medical Student', tagline: 'Study smart...Not study hard', profile: 'Current operator', language: 'العربية', initialNote: 'Administrator created. Share the initial password through a secure channel and remind them to change it on first sign-in.', darkMode: 'Dark mode', lightMode: 'Light mode', toggleTheme: 'Toggle theme', heroLine1: 'Academic operations,', heroLine2: 'institutional precision.', heroBody: 'Review access before publishing any change. This is the institutional operations channel for medical education.', securityNote: 'Credentials are not stored in the browser. Access ends when you sign out.', statsLoading: 'Loading metrics…', statsError: 'Could not load metrics.', statStudents: 'Total students', statActiveToday: 'Active today', statQuestions: 'Published questions', statCodes: 'Active codes', statSubs: 'Active subscriptions', statFiles: 'Library files', statExams: 'Published exams', statReports: 'Pending reports', statRevenue: 'Monthly revenue', welcomeShort: 'Welcome', welcomeAdmin: 'Operator console', welcomeBody: 'No operational metrics are available for this account. Contact the super-administrator to upgrade your scope or assign an academic range.', otpLabel: 'Two-factor code (2FA)', otpHint: 'Enter the temporary code from your authenticator app to complete sign-in.', backToCredentials: 'Back to sign-in details', paletteTitle: 'Command palette', palettePlaceholder: 'Search admin centers…', paletteNoResults: 'No matching results', paletteOpenHint: 'Quick search across admin centers', breadcrumbNav: 'Breadcrumb', notFoundTitle: 'Page not found'
       };
 
   // Apply theme to <html data-theme="…">.
@@ -242,6 +265,35 @@ function App() {
   useEffect(() => {
     try { localStorage.setItem('cms-admin-sidebar-collapsed', String(sidebarCollapsed)); } catch { /* ignore */ }
   }, [sidebarCollapsed]);
+
+  // PR-2 — operator menu a11y: closes on outside interaction (pointerdown
+  // outside the sidebar footer) and restores focus to the trigger when the
+  // menu items unmount (Escape / outside click / post-action close).
+  const operatorButtonRef = useRef<HTMLButtonElement | null>(null);
+  const sideBottomRef = useRef<HTMLDivElement | null>(null);
+  const operatorMenuWasOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (!operatorMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const container = sideBottomRef.current;
+      if (container && event.target instanceof Node && !container.contains(event.target)) {
+        setOperatorMenuOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [operatorMenuOpen]);
+
+  useEffect(() => {
+    const wasOpen = operatorMenuWasOpenRef.current;
+    operatorMenuWasOpenRef.current = operatorMenuOpen;
+    if (wasOpen && !operatorMenuOpen) {
+      const active = document.activeElement;
+      const inFooter = active instanceof Node && sideBottomRef.current?.contains(active);
+      if (!inFooter) operatorButtonRef.current?.focus();
+    }
+  }, [operatorMenuOpen]);
 
   // Keyboard shortcut: Ctrl/Cmd + K opens command palette.
   useEffect(() => {
@@ -322,21 +374,47 @@ function App() {
     setLoginError('');
     setBusy(true);
     try {
-      const result = await login(email, password);
+      // PR-2: on the 2FA step the code rides along; on the credentials step
+      // it is omitted so the backend can demand the challenge when enabled.
+      const result = await login(email, password, twoFactorRequired ? otp : undefined);
       sessionStorage.setItem('cms-admin-user', JSON.stringify(result.user));
       sessionStorage.setItem('cms-admin-token', result.accessToken);
       // FIX-1: Store refreshToken for session refresh
       sessionStorage.setItem('cms-admin-refresh', result.refreshToken);
       setUser(result.user);
       setToken(result.accessToken);
-      setView(result.user.role === 'super_admin' ? 'admins' : 'overview');
       setPassword('');
+      setOtp('');
+      setTwoFactorRequired(false);
+      // PR-2 — post-login route restoration: the login screen renders over
+      // the deep-linked URL, so after authentication the operator returns to
+      // the intended location. Unauthorized deep links are still blocked by
+      // the per-view can()/superOnly gates (LimitedNotice), and the backend
+      // RBAC remains the real enforcement — this is navigation only.
+      const intendedPath = location.pathname !== '/' ? location.pathname + location.search : '';
+      if (intendedPath) navigate(intendedPath);
+      else setView(result.user.role === 'super_admin' ? 'admins' : 'overview');
       toast.success(isArabic ? `أهلًا ${result.user.fullName}` : `Welcome, ${result.user.fullName}`);
     } catch (error) {
-      setLoginError(error instanceof Error ? error.message : 'تعذر التحقق من بيانات الدخول.');
+      if (error instanceof ApiError && error.errorCode === 'TWO_FACTOR_REQUIRED') {
+        // Password accepted; the backend demands the 2FA challenge — advance
+        // to the OTP step without surfacing an error.
+        setTwoFactorRequired(true);
+        setOtp('');
+        setLoginError('');
+      } else {
+        setLoginError(error instanceof Error ? error.message : 'تعذر التحقق من بيانات الدخول.');
+      }
     } finally {
       setBusy(false);
     }
+  }
+
+  /** PR-2 — leave the 2FA step and correct the credentials (wrong account). */
+  function backToCredentials() {
+    setTwoFactorRequired(false);
+    setOtp('');
+    setLoginError('');
   }
 
   // W4 (admin-ui): the last native window.confirm surfaces on admins/roles
@@ -542,9 +620,47 @@ function App() {
             <p className="login-desc">{copy.loginDescription}</p>
             <form onSubmit={signIn}>
               <label>{copy.email}<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required placeholder="admin@university.edu" /></label>
-              <label>{copy.password}<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required placeholder="••••••••••••" /></label>
+              {/* PR-2 — the password field hides during the 2FA step (its value is
+                  retained for the re-submit); the OTP field takes its place. */}
+              {!twoFactorRequired && (
+                <label>{copy.password}<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required placeholder="••••••••••••" /></label>
+              )}
+              {twoFactorRequired && (
+                <>
+                  <label>{copy.otpLabel}
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      pattern="[0-9]*"
+                      maxLength={8}
+                      autoFocus
+                      value={otp}
+                      onChange={(event) => setOtp(event.target.value.replace(/[^0-9]/g, ''))}
+                      required
+                      placeholder="••••••"
+                      data-testid="two-factor-input"
+                    />
+                  </label>
+                  <p className="login-meta" style={{ margin: '0 0 var(--cms-space-3)' }}>
+                    <ShieldCheck size={16} style={{ flexShrink: 0 }} />
+                    <span>{copy.otpHint}</span>
+                  </p>
+                </>
+              )}
               {loginError && <p className="login-error"><CircleAlert size={16} />{loginError}</p>}
               <button type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={18} /> : <ArrowUpRight size={18} />}{copy.signIn}</button>
+              {twoFactorRequired && (
+                <button
+                  type="button"
+                  onClick={backToCredentials}
+                  disabled={busy}
+                  data-testid="two-factor-back"
+                  style={{ display: 'block', margin: 'var(--cms-space-2) auto 0', background: 'transparent', border: 'none', color: 'var(--cms-text-muted)', fontSize: 'var(--cms-text-2xs)', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  {copy.backToCredentials}
+                </button>
+              )}
             </form>
             <div className="login-meta">
               <ShieldCheck size={16} style={{ flexShrink: 0 }} />
@@ -599,7 +715,14 @@ function App() {
     },
   ];
 
-  const viewTitle = view === 'admins' ? copy.adminList
+  // PR-2 — permission-filtered palette items. App owns authorization (can() +
+  // superOnly, same rule as the sidebar); the CommandPalette owns presentation.
+  const commandPaletteItems: CommandPaletteItem[] = navGroups.flatMap((group) => group.items
+    .filter((item) => (!item.superOnly || isSuperAdmin) && can(item.gateKey ?? `view:${item.key}`))
+    .map((item) => ({ key: item.key, label: item.label, icon: item.icon, group: group.label })));
+
+  const viewTitle = view === 'not-found' ? copy.notFoundTitle
+    : view === 'admins' ? copy.adminList
     : view === 'roles' ? copy.rolesTitle
     : view === 'offline' ? (isArabic ? 'الحزم دون اتصال' : 'Offline Packages')
     : view === 'audit' ? (isArabic ? 'السجل الأمني' : 'Security Audit')
@@ -617,7 +740,6 @@ function App() {
   const statusLabel = apiStatus === 'healthy' ? (isArabic ? 'الخدمة تعمل' : 'Operational')
     : apiStatus === 'degraded' ? (isArabic ? 'أداء متدنٍ' : 'Degraded')
     : (isArabic ? 'غير متحقق' : 'Unknown');
-  const SepIcon = isArabic ? ChevronRight : ChevronLeft;
 
   return (
     <UiPermissionsProvider value={uiPermissionsState}>
@@ -650,8 +772,19 @@ function App() {
             );
           })}
         </nav>
-        <div className="side-bottom">
-          <div className="operator" onClick={() => setOperatorMenuOpen(!operatorMenuOpen)} style={{ cursor: 'pointer' }}>
+        <div className="side-bottom" ref={sideBottomRef}>
+          {/* PR-2 — real button (keyboard reachable) with menu semantics + focus management. */}
+          <button
+            type="button"
+            ref={operatorButtonRef}
+            className="operator"
+            onClick={() => setOperatorMenuOpen(!operatorMenuOpen)}
+            aria-haspopup="menu"
+            aria-expanded={operatorMenuOpen}
+            aria-label={isArabic ? `قائمة المشغّل: ${user.fullName}` : `Operator menu: ${user.fullName}`}
+            data-testid="operator-menu-trigger"
+            style={{ cursor: 'pointer', background: 'transparent', border: 'none', width: '100%', textAlign: 'start', font: 'inherit' }}
+          >
             <div>{user.fullName?.[0] ?? 'C'}</div>
             {!sidebarCollapsed && (
               <span>
@@ -659,14 +792,39 @@ function App() {
                 <small>{user.role}</small>
               </span>
             )}
-          </div>
+          </button>
           {operatorMenuOpen && (
-            <div className="operator-menu" style={{ position: 'absolute', bottom: '100%', insetInlineStart: 0, right: 0, background: 'var(--cms-ink-800)', borderRadius: 'var(--cms-radius-md)', boxShadow: 'var(--cms-shadow-lg)', padding: '4px', margin: '4px', zIndex: 100 }}>
-              <button className="side-action" onClick={toggleTheme} aria-label={copy.toggleTheme}>
+            <div
+              className="operator-menu"
+              role="menu"
+              aria-label={isArabic ? 'قائمة المشغّل' : 'Operator menu'}
+              data-testid="operator-menu"
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                event.preventDefault();
+                const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button'));
+                if (items.length === 0) return;
+                const currentIndex = items.findIndex((item) => item === document.activeElement);
+                const delta = event.key === 'ArrowDown' ? 1 : -1;
+                const next = items[(currentIndex + delta + items.length) % items.length] ?? items[0];
+                next.focus();
+              }}
+              style={{ position: 'absolute', bottom: '100%', insetInlineStart: 0, right: 0, background: 'var(--cms-ink-800)', borderRadius: 'var(--cms-radius-md)', boxShadow: 'var(--cms-shadow-lg)', padding: '4px', margin: '4px', zIndex: 100 }}
+            >
+              <button
+                role="menuitem"
+                className="side-action"
+                onClick={() => { toggleTheme(); setOperatorMenuOpen(false); }}
+                aria-label={copy.toggleTheme}
+              >
                 {theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}
                 {theme === 'light' ? copy.darkMode : copy.lightMode}
               </button>
-              <button className="side-action danger" onClick={signOut}>
+              <button
+                role="menuitem"
+                className="side-action danger"
+                onClick={signOut}
+              >
                 <LogOut size={17} />{copy.signOut}
               </button>
             </div>
@@ -693,13 +851,24 @@ function App() {
           <button className="menu-toggle collapse-toggle" aria-label={isArabic ? 'طي القائمة' : 'Toggle sidebar'} onClick={() => setSidebarCollapsed(!sidebarCollapsed)} style={{ display: 'flex' }}>
             {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
           </button>
-          <div className="breadcrumb">
-            <span className="crumb">{isArabic ? 'الإدارة' : 'Admin'}</span>
-            <SepIcon className="sep" size={14} />
-            <span className="crumb">{viewTitle}</span>
-          </div>
+          {/* PR-2 — the hand-rolled topbar breadcrumb replaced by the shared primitive. */}
+          <Breadcrumbs
+            items={[{ label: isArabic ? 'الإدارة' : 'Admin' }, { label: viewTitle }]}
+            navLabel={copy.breadcrumbNav}
+            dir={isArabic ? 'rtl' : 'ltr'}
+            testId="topbar-breadcrumbs"
+          />
           <div className="top-actions">
-            <button className="lang-btn" onClick={() => setCommandPaletteOpen(true)} aria-label={isArabic ? 'بحث سريع' : 'Command palette'} title="Ctrl+K">
+            <button
+              className="lang-btn"
+              onClick={() => setCommandPaletteOpen(true)}
+              aria-label={isArabic ? 'فتح لوحة الأوامر' : 'Open command palette'}
+              aria-haspopup="dialog"
+              aria-expanded={commandPaletteOpen}
+              aria-keyshortcuts="Control+K"
+              title="Ctrl+K"
+              data-testid="command-palette-trigger"
+            >
               <Search size={15} />
               {/* W14.3 §13: opacity 0.6 → soft token — the hint failed contrast (2.68:1). */}
               <span style={{ fontSize: '11px', color: 'var(--cms-text-soft)' }}>⌘K</span>
@@ -774,7 +943,11 @@ function App() {
               {view === 'codes' && (can('view:codes')
                 ? <CodesCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
-              {view === 'admins' && isSuperAdmin && (can('view:admins')
+              {/* PR-2 — super-only views: unauthorized deep links now render the
+                  LimitedNotice fallback instead of an empty content area. The
+                  backend RBAC remains the real gate; this is honest UX, not
+                  authorization. */}
+              {view === 'admins' && (isSuperAdmin && can('view:admins')
                 ? (
                   <AdminsCenter
                     copy={copy}
@@ -788,10 +961,10 @@ function App() {
                     busy={busy}
                     loading={loadingData}
                     scopeText={scopeText}
-                    setQuery={setQuery}
-                    setRoleFilter={setRoleFilter}
-                    setStatusFilter={setStatusFilter}
-                    clearFilters={() => { setQuery(''); setRoleFilter(''); setStatusFilter('all'); }}
+                    setQuery={queryState.setValue}
+                    setRoleFilter={roleState.setValue}
+                    setStatusFilter={statusState.setValue}
+                    clearFilters={clearAdminsFilters}
                     onCreate={openCreateAdmin}
                     onEdit={openEditAdmin}
                     onReset={(admin) => setDialog({ kind: 'reset-password', admin })}
@@ -800,7 +973,7 @@ function App() {
                   />
                 )
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
-              {view === 'roles' && isSuperAdmin && (can('view:roles')
+              {view === 'roles' && (isSuperAdmin && can('view:roles')
                 ? (
                   <RolesCenter
                     copy={copy}
@@ -817,22 +990,31 @@ function App() {
                   />
                 )
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
-              {view === 'audit' && isSuperAdmin && (can('view:audit')
+              {view === 'audit' && (isSuperAdmin && can('view:audit')
                 ? <AuditCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
-              {view === 'offline' && isSuperAdmin && (can('view:audit')
+              {view === 'offline' && (isSuperAdmin && can('view:audit')
                 ? <OfflineCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
-              {view === 'reports' && isSuperAdmin && (can('view:reports')
+              {view === 'reports' && (isSuperAdmin && can('view:reports')
                 ? <ReportsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
-              {view === 'settings' && isSuperAdmin && (can('view:settings')
+              {view === 'settings' && (isSuperAdmin && can('view:settings')
                 ? <SettingsCenter token={token} isArabic={isArabic} isSuperAdmin={isSuperAdmin} onError={reportError} onNotice={notify} />
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
               {/* W16.5 — admin-managed site content pages. super_admin only (legal texts):
                   no new UI-permission registry key; the API enforces the role. */}
-              {view === 'content' && isSuperAdmin && (
-                <ContentCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />)}
+              {view === 'content' && (isSuperAdmin
+                ? <ContentCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {/* PR-2 — the real 404 view: unknown paths no longer resolve to overview. */}
+              {view === 'not-found' && (
+                <NotFoundView
+                  requestedPath={location.pathname}
+                  isArabic={isArabic}
+                  onReturnHome={() => setView('overview')}
+                />
+              )}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -938,45 +1120,23 @@ function App() {
           onNotice={notify}
         />
       )}
+      {/* PR-2 — the command palette is now the accessible CommandPalette
+          component (dialog + combobox semantics, arrow-key navigation, focus
+          restore, RTL-safe centering). Items are pre-filtered by permission. */}
       {commandPaletteOpen && (
-        <div className="sidebar-backdrop" style={{ zIndex: 60 }} onClick={() => setCommandPaletteOpen(false)} />
-      )}
-      {commandPaletteOpen && (
-        <div style={{ position: 'fixed', top: '20%', insetInlineStart: '50%', transform: 'translateX(-50%)', width: '90%', maxWidth: '480px', background: 'var(--cms-surface)', borderRadius: 'var(--cms-radius-lg)', boxShadow: 'var(--cms-shadow-xl)', zIndex: 70, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', borderBottom: '1px solid var(--cms-line)' }}>
-            <Search size={18} style={{ color: 'var(--cms-text-muted)' }} />
-            <input
-              type="text"
-              autoFocus
-              value={commandQuery}
-              onChange={(e) => setCommandQuery(e.target.value)}
-              placeholder={isArabic ? 'ابحث في القائمة...' : 'Search navigation...'}
-              style={{ flex: 1, border: 'none', background: 'transparent', color: 'var(--cms-text)', fontSize: '14px', outline: 'none' }}
-            />
-            <kbd style={{ fontSize: '10px', color: 'var(--cms-text-muted)', border: '1px solid var(--cms-line)', borderRadius: '4px', padding: '2px 6px' }}>ESC</kbd>
-          </div>
-          <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '4px' }}>
-            {navGroups.flatMap((group) => group.items.filter((item) => (!item.superOnly || isSuperAdmin) && can(item.gateKey ?? `view:${item.key}`)))
-              .filter((item) => {
-                if (!commandQuery) return true;
-                const q = commandQuery.toLowerCase();
-                return item.key.toLowerCase().includes(q) || item.label.toLowerCase().includes(q);
-              })
-              .map((item) => (
-                <button
-                  key={item.key}
-                  onClick={() => { setView(item.key); setCommandPaletteOpen(false); setCommandQuery(''); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '10px 14px', border: 'none', borderRadius: 'var(--cms-radius-sm)', background: view === item.key ? 'var(--cms-teal-50)' : 'transparent', color: view === item.key ? 'var(--cms-teal-700)' : 'var(--cms-text)', fontSize: '14px', fontWeight: 500, textAlign: 'start', cursor: 'pointer' }}
-                >
-                  <item.icon size={16} />
-                  {item.label}
-                </button>
-              ))}
-            {commandQuery && navGroups.flatMap((g) => g.items).filter((item) => (!item.superOnly || isSuperAdmin) && (item.key.toLowerCase().includes(commandQuery.toLowerCase()) || item.label.toLowerCase().includes(commandQuery.toLowerCase()))).length === 0 && (
-              <div style={{ padding: '20px', textAlign: 'center', color: 'var(--cms-text-muted)', fontSize: '13px' }}>{isArabic ? 'لا توجد نتائج' : 'No results'}</div>
-            )}
-          </div>
-        </div>
+        <CommandPalette
+          items={commandPaletteItems}
+          activeKey={view}
+          onSelect={(key) => setView(key as View)}
+          onClose={() => setCommandPaletteOpen(false)}
+          labels={{
+            dialogLabel: copy.paletteTitle,
+            placeholder: copy.palettePlaceholder,
+            noResults: copy.paletteNoResults,
+            openHint: copy.paletteOpenHint,
+          }}
+          isArabic={isArabic}
+        />
       )}
       <Toaster richColors position="top-center" />
     </main>
@@ -1001,8 +1161,12 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
-  // Push 2 / Track 2: super-admin activity monitor tab inside the overview.
-  const [overviewTab, setOverviewTab] = useState<'metrics' | 'activity'>('metrics');
+  // PR-2 — the selected overview tab lives in the URL (?tab=metrics|activity):
+  // refresh and shared links restore the exact section. Whitelisted, so a
+  // hand-edited value falls back to the default tab.
+  const overviewTabState = useQueryState('tab', 'metrics', ['metrics', 'activity']);
+  const overviewTab = overviewTabState.value as 'metrics' | 'activity';
+  const setOverviewTab = overviewTabState.setValue;
   // Push 3: the cosmetic layer for the overview tabs (activity stays super-only AND).
   const { can } = useUiPermissions();
 
@@ -1172,10 +1336,13 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
             </article>
           ))
         ) : !stats && failed ? (
-          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 'var(--cms-space-12)', color: 'var(--cms-text-muted)', fontSize: 'var(--cms-text-sm)' }}>
-            <CircleAlert size={28} style={{ marginBottom: 'var(--cms-space-3)', opacity: 0.5 }} />
-            <div>{copy.statsError}</div>
-          </div>
+          // PR-2 — standardized failure surface from @cms/ui (role=alert inside).
+          <ErrorState
+            title={copy.statsError}
+            dir={isArabic ? 'rtl' : 'ltr'}
+            testId="overview-stats-error"
+            style={{ gridColumn: '1 / -1' }}
+          />
         ) : (
           cards.map((card) => (
             <article key={card.label} className="stat-card">

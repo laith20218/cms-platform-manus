@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 import {
   X, Send, LoaderCircle, Bell, Calendar, Clock, Eye, Users,
 } from 'lucide-react';
+import { useModalA11y } from '@cms/ui';
 import { ApiError, apiRequest } from '../lib/api';
 
 type Props = {
@@ -48,6 +49,9 @@ const NOTIFICATION_TYPES = [
 ];
 
 export function NotificationCompose({ token, isArabic, onClose, onError, onNotice }: Props) {
+  // PR-2 — a11y retrofit (see the render comment): Escape busy-guarded, Tab
+  // trap, scroll lock, focus capture + restore to the invoking bell button.
+  const { surfaceRef } = useModalA11y({ open: true, onClose: () => { if (!busy) onClose(); } });
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [type, setType] = useState('announcement');
@@ -185,9 +189,18 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
       };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+    // PR-2 — a11y retrofit: outer layer is presentation; the panel carries
+    // role=dialog + the shared useModalA11y contract (Escape busy-guarded, Tab
+    // trap, scroll lock, focus capture + restore to the bell button).
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="presentation">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onMouseDown={() => !busy && onClose()} />
-      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-xl border shadow-2xl flex flex-col"
+      <div
+        ref={surfaceRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t.title}
+        className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-xl border shadow-2xl flex flex-col outline-none"
         style={{ background: 'var(--cms-surface)', borderColor: 'var(--cms-line)' }}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>

@@ -195,6 +195,9 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
       };
 
   // W5: load the administrator directory once when the assign dialog opens.
+  // PR-2 (lint closure): isArabic joins the deps — the catch message is
+  // localized, so a locale flip while the dialog is open stays consistent.
+  // The length guard no-ops the refetch, making the re-run harmless.
   useEffect(() => {
     if (!assignTarget || adminsList.length > 0) return;
     setAdminsLoading(true);
@@ -202,7 +205,7 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
       .then(res => setAdminsList(res.items ?? []))
       .catch(() => { onError(isArabic ? 'تعذّر تحميل قائمة المدراء' : 'Could not load administrators'); setAssignTarget(null); })
       .finally(() => setAdminsLoading(false));
-  }, [assignTarget, adminsList.length, token, onError]);
+  }, [assignTarget, adminsList.length, token, onError, isArabic]);
 
   const submitAssign = async () => {
     if (!assignTarget || !assignAdminId || assignBusy) return;
