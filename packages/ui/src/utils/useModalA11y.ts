@@ -10,8 +10,9 @@ import { useEffect, useRef } from 'react';
  *  - focus restored to the invoker on close
  *  - body scroll lock while open
  *
- * Not exported from the package barrel — internal building block for
- * Dialog / Drawer.
+ * PR-2: exported from the package barrel — AdminsCenter's DialogLayer and
+ * NotificationCompose predate @cms/ui Dialog and retrofit this contract
+ * directly. New surfaces should compose Dialog/Drawer instead.
  */
 
 const FOCUSABLE_SELECTOR = [

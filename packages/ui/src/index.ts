@@ -34,3 +34,17 @@ export {
   type TableShellProps,
 } from './components/Table';
 export { Pagination, type PaginationProps, type PaginationLabels } from './components/Pagination';
+
+// PR-2 (admin shell) — standardized page furniture: center headers, location
+// breadcrumbs, zero-data and failure surfaces. EmptyState/ErrorState carry
+// their a11y semantics (status / alert) inside the primitive.
+export { PageHeader, type PageHeaderProps } from './components/PageHeader';
+export { Breadcrumbs, type BreadcrumbsProps, type BreadcrumbItem } from './components/Breadcrumbs';
+export { EmptyState, type EmptyStateProps } from './components/EmptyState';
+export { ErrorState, type ErrorStateProps } from './components/ErrorState';
+
+// PR-2 — the shared modal a11y contract, now public for app-level overlays
+// that predate @cms/ui Dialog (AdminsCenter DialogLayer, NotificationCompose):
+// focus trap, Escape, scroll lock and focus restore. New surfaces should
+// prefer the Dialog/Drawer components; this hook exists for retrofitting.
+export { useModalA11y, type UseModalA11yOptions } from './utils/useModalA11y';

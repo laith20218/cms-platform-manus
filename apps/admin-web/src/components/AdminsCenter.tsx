@@ -19,6 +19,7 @@ import {
   CircleAlert, Edit3, Eye, KeyRound, LoaderCircle, LockKeyhole,
   Plus, Search, ShieldCheck, ShieldOff, Trash2, UsersRound, X,
 } from 'lucide-react';
+import { PageHeader, useModalA11y } from '@cms/ui';
 import type { AdminRecord, RoleRecord } from '../lib/api';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 import { ScopePicker } from './ScopePicker';
@@ -111,36 +112,21 @@ export function AdminsCenter(props: AdminsCenterProps) {
 
   return (
     <section className="space-y-6" dir={isArabic ? 'rtl' : 'ltr'}>
-      {/* ===== Page header ===== */}
-      <header className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-start gap-3">
-          <div
-            className="p-2.5 rounded-xl shrink-0"
-            style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}
-          >
-            <UsersRound className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-              {isArabic ? 'الإدارة المركزية' : 'Central administration'}
-            </p>
-            <h2 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
-              {copy.adminList}
-              <span
-                className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded-full text-xs font-semibold"
-                style={{ background: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)' }}
-              >
-                {total}
-              </span>
-            </h2>
-            <p className="text-sm mt-1 max-w-2xl" style={{ color: 'var(--cms-text-soft)' }}>
-              {isArabic
-                ? 'تُدار المدراء والصلاحيات والنطاقات الأكاديمية من هذا المركز المؤسسي.'
-                : 'Manage administrators, their roles and academic scopes from this institutional center.'}
-            </p>
-          </div>
-        </div>
-        {can('btn:admins.create') && (
+      {/* ===== Page header (PR-2: standardized @cms/ui PageHeader) ===== */}
+      <PageHeader
+        icon={UsersRound}
+        iconClassName="bg-[color:var(--cms-teal-50)] text-[color:var(--cms-teal-700)]"
+        eyebrow={isArabic ? 'الإدارة المركزية' : 'Central administration'}
+        title={copy.adminList}
+        count={total}
+        description={
+          isArabic
+            ? 'تُدار المدراء والصلاحيات والنطاقات الأكاديمية من هذا المركز المؤسسي.'
+            : 'Manage administrators, their roles and academic scopes from this institutional center.'
+        }
+        dir={isArabic ? 'rtl' : 'ltr'}
+        testId="admins-page-header"
+        actions={can('btn:admins.create') ? (
           <button
             type="button"
             onClick={onCreate}
@@ -149,9 +135,9 @@ export function AdminsCenter(props: AdminsCenterProps) {
           >
             <Plus className="w-4 h-4" />
             {copy.addAdmin}
-        </button>
-        )}
-      </header>
+          </button>
+        ) : undefined}
+      />
 
       {/* ===== Filter bar ===== */}
       <div
@@ -406,6 +392,12 @@ export function DialogLayer(props: DialogLayerProps) {
     onSubmitDelete, onSubmitRole,
   } = props;
 
+  // PR-2 — a11y retrofit: the layer predates @cms/ui Dialog; the shared
+  // useModalA11y contract adds Escape-close (busy-guarded), the Tab focus
+  // trap, body scroll lock, initial focus on the panel, and focus restore to
+  // the invoking row action when the dialog unmounts.
+  const { surfaceRef } = useModalA11y({ open: true, onClose: () => { if (!busy) onClose(); } });
+
   const title =
     dialog.kind === 'create-admin' ? copy.newAdmin
     : dialog.kind === 'edit-admin' ? copy.updateAdmin
@@ -425,7 +417,9 @@ export function DialogLayer(props: DialogLayerProps) {
       dir={isArabic ? 'rtl' : 'ltr'}
     >
       <section
-        className="bg-white rounded-xl max-w-xl w-full shadow-xl max-h-[calc(100vh-40px)] overflow-y-auto"
+        ref={surfaceRef}
+        tabIndex={-1}
+        className="bg-white rounded-xl max-w-xl w-full shadow-xl max-h-[calc(100vh-40px)] overflow-y-auto outline-none"
         role="dialog"
         aria-modal="true"
         aria-label={title}

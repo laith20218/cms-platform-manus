@@ -59,12 +59,18 @@ export class ApiError extends Error {
   /** English technical payload (e.g. FFmpeg logs) — surfaced in the
    * collapsible section of the Push 10.4 error modal. */
   technicalDetails?: string;
+  /** PR-2 — machine-readable ProblemDetails extension emitted by every
+   * DomainException (e.g. TWO_FACTOR_REQUIRED / TWO_FACTOR_INVALID on the
+   * admin login challenge). Lets callers branch on the contract instead of
+   * parsing localized sentences. */
+  errorCode?: string;
 
-  constructor(message: string, status: number, humanMessage?: string, technicalDetails?: string) {
+  constructor(message: string, status: number, humanMessage?: string, technicalDetails?: string, errorCode?: string) {
     super(message);
     this.status = status;
     this.humanMessage = humanMessage;
     this.technicalDetails = technicalDetails;
+    this.errorCode = errorCode;
   }
 }
 
@@ -76,9 +82,12 @@ interface ProblemDetails {
   /** ProblemDetails extensions — the media-processing 422 shape. */
   humanMessage?: string;
   technicalDetails?: string;
+  /** ProblemDetails extension carried by every DomainException response
+   * (ExceptionHandlingMiddleware writes it as `errorCode`). */
+  errorCode?: string;
 }
 
-function readProblem(payload: unknown): { message: string; humanMessage?: string; technicalDetails?: string } {
+function readProblem(payload: unknown): { message: string; humanMessage?: string; technicalDetails?: string; errorCode?: string } {
   if (payload && typeof payload === 'object') {
     const problem = payload as ProblemDetails;
     const message = problem.detail ?? problem.message ?? problem.title
@@ -87,6 +96,7 @@ function readProblem(payload: unknown): { message: string; humanMessage?: string
       message: message ?? 'تعذر إتمام الطلب. حاول مرة أخرى.',
       humanMessage: problem.humanMessage ?? problem.detail,
       technicalDetails: problem.technicalDetails,
+      errorCode: problem.errorCode,
     };
   }
   return { message: 'تعذر إتمام الطلب. حاول مرة أخرى.' };
@@ -108,7 +118,7 @@ export async function apiRequest<T>(path: string, token: string, init?: RequestI
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const problem = readProblem(payload);
-    throw new ApiError(problem.message, response.status, problem.humanMessage, problem.technicalDetails);
+    throw new ApiError(problem.message, response.status, problem.humanMessage, problem.technicalDetails, problem.errorCode);
   }
   return payload as T;
 }
@@ -129,16 +139,33 @@ function getOrCreateInstallationId(): string {
   }
 }
 
-export async function login(email: string, password: string): Promise<{ accessToken: string; refreshToken: string; user: AdminUser }> {
+/**
+ * PR-2 — admin login with the backend's optional 2FA challenge.
+ * `twoFactorCode` is omitted on the first attempt; when the backend answers
+ * TWO_FACTOR_REQUIRED (password already verified), the caller re-submits
+ * with the code from the operator's authenticator. The backend defines the
+ * contract: TWO_FACTOR_REQUIRED / TWO_FACTOR_INVALID / TWO_FACTOR_REPLAY
+ * arrive as ProblemDetails `errorCode` extensions (DomainException 400s).
+ */
+export async function login(
+  email: string,
+  password: string,
+  twoFactorCode?: string,
+): Promise<{ accessToken: string; refreshToken: string; user: AdminUser }> {
   const response = await fetch(`${API_BASE_URL}/api/v1/auth/admin/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, twoFactorCode: null, installationId: getOrCreateInstallationId() }),
+    body: JSON.stringify({
+      email,
+      password,
+      twoFactorCode: twoFactorCode?.trim() || null,
+      installationId: getOrCreateInstallationId(),
+    }),
   });
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const problem = readProblem(payload);
-    throw new ApiError(problem.message, response.status, problem.humanMessage, problem.technicalDetails);
+    throw new ApiError(problem.message, response.status, problem.humanMessage, problem.technicalDetails, problem.errorCode);
   }
   // FIX-1: Backend returns { accessToken, refreshToken, tokenType, expiresIn, user }
   const result = payload as { accessToken: string; refreshToken: string; tokenType: string; expiresIn: number; user: AdminUser };
