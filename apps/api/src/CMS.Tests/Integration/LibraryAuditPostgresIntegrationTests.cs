@@ -125,6 +125,11 @@ public sealed class LibraryAuditPostgresIntegrationTests
             // stateless service, so mirror it here or MediatR cannot activate the handler
             // (precedent: ActivityMonitorHandlerTests uses the same real injector).
             .AddSingleton<IHtmlCspInjector>(new HtmlCspInjectorService())
+            // PR-1: LibraryHandlers now also takes ISecurityAuditWriter (the library
+            // soft-delete → retention transition is audited). The real SecurityService
+            // instance above is registered — mirroring production, where DI resolves
+            // ISecurityAuditWriter to the same SecurityService.
+            .AddSingleton<ISecurityAuditWriter>(audit)
             .BuildServiceProvider();
         var entitlement = new SignedEntitlementService(db, configuration);
         var token = await entitlement.IssueAsync(student.Id, installation);
