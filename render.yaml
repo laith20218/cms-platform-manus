@@ -84,3 +84,8 @@ services:
         value: "false"
       - key: Security__PlayIntegrity__Enabled
         value: "false"
+      # PR-1 (Gate B #3): hard delete stays OFF in production unless the owner
+      # explicitly flips it to "true" in the Render dashboard. Backend-enforced
+      # fail-closed (missing/unparseable also means disabled).
+      - key: Features__HardDeleteEnabled
+        value: "false"

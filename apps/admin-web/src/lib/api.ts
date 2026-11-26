@@ -398,3 +398,14 @@ export function adminHardDelete(token: string, request: HardDeleteRequest): Prom
     body: JSON.stringify(request),
   });
 }
+
+/**
+ * PR-1: backend hard-delete flag state (GET /api/v1/admin/system/hard-delete/status).
+ * Read-only mirror for the UI — the flag is enforced server-side in the handler, so
+ * this only lets the Danger Zone show an honest "disabled in this environment" state.
+ */
+export type HardDeleteStatus = { enabled: boolean };
+
+export function adminHardDeleteStatus(token: string): Promise<HardDeleteStatus> {
+  return apiRequest<HardDeleteStatus>('/api/v1/admin/system/hard-delete/status', token);
+}
