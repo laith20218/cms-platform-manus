@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, LoaderCircle, Lock, Save, X, ShieldCheck } from 'lucide-react';
 import { ApiError, apiRequest } from '../lib/api';
+import { t, localeOf } from '../lib/dictionary';
 
 type Props = {
   token: string;
@@ -77,6 +78,7 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
   const [original, setOriginal] = useState<Grant[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const locale = localeOf(isArabic);
 
   useEffect(() => {
     if (!token || !roleId) return;
@@ -88,7 +90,7 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
         setOriginal(list);
       })
       .catch((err: unknown) => {
-        const msg = err instanceof ApiError ? err.message : isArabic ? 'تعذّر تحميل الصلاحيات' : 'Could not load permissions';
+        const msg = err instanceof ApiError ? err.message : t(localeOf(isArabic), 'admincenters.permissions.loadFailed');
         onError(msg);
       })
       .finally(() => setLoading(false));
@@ -140,9 +142,9 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
         body: JSON.stringify({ permissions: grants }),
       });
       setOriginal(grants);
-      onNotice(isArabic ? 'تم حفظ الصلاحيات' : 'Permissions saved');
+      onNotice(t(locale, 'admincenters.permissions.savedToast'));
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.message : isArabic ? 'فشل الحفظ' : 'Save failed';
+      const msg = err instanceof ApiError ? err.message : t(locale, 'admincenters.permissions.saveFailed');
       onError(msg);
     } finally {
       setSaving(false);
@@ -151,21 +153,20 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
 
   const reset = () => setGrants(original);
 
-  const t = isArabic
-    ? {
-        title: 'مصفوفة الصلاحيات', desc: 'حدد الصلاحيات لكل مورد. كل خلية قابلة للتبديل.',
-        resource: 'المورد', scope: 'النطاق', actions: 'الإجراءات',
-        save: 'حفظ', reset: 'تراجع', close: 'إغلاق', dirty: 'تغييرات غير محفوظة',
-        systemLocked: 'دور نظام — للقراءة فقط', loading: 'جارٍ التحميل...',
-        noGrants: 'لا توجد صلاحيات ممنوحة بعد',
-      }
-    : {
-        title: 'Permission Matrix', desc: 'Toggle permissions per resource. Each cell is independent.',
-        resource: 'Resource', scope: 'Scope', actions: 'Actions',
-        save: 'Save', reset: 'Reset', close: 'Close', dirty: 'Unsaved changes',
-        systemLocked: 'System role — read only', loading: 'Loading...',
-        noGrants: 'No permissions granted yet',
-      };
+  const copy = {
+    title: t(locale, 'admincenters.permissions.matrix.title'),
+    desc: t(locale, 'admincenters.permissions.matrix.desc'),
+    resource: t(locale, 'admincenters.permissions.matrix.resource'),
+    scope: t(locale, 'admincenters.permissions.matrix.scope'),
+    actions: t(locale, 'admincenters.permissions.matrix.actions'),
+    save: t(locale, 'common.save'),
+    reset: t(locale, 'admincenters.permissions.matrix.reset'),
+    close: t(locale, 'common.close'),
+    dirty: t(locale, 'admincenters.permissions.unsavedChanges'),
+    systemLocked: t(locale, 'admincenters.permissions.matrix.systemLocked'),
+    loading: t(locale, 'common.loading'),
+    noGrants: t(locale, 'admincenters.permissions.matrix.noGrants'),
+  };
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true">
@@ -178,28 +179,28 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
         <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
           <div className="flex items-center gap-2">
             <ShieldCheck size={18} style={{ color: 'var(--cms-teal-700)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.title}</h3>
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{copy.title}</h3>
             <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
               {roleName}
             </span>
             {isSystemRole && (
               <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border" style={{ borderColor: 'var(--cms-warning)', background: 'var(--cms-warning-50)', color: 'var(--cms-warning)' }}>
                 <Lock size={10} />
-                {t.systemLocked}
+                {copy.systemLocked}
               </span>
             )}
           </div>
-          <button onClick={() => !saving && onClose()} disabled={saving} className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-50" aria-label={t.close}>
+          <button onClick={() => !saving && onClose()} disabled={saving} className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-50" aria-label={copy.close}>
             <X size={18} style={{ color: 'var(--cms-text-muted)' }} />
           </button>
         </div>
 
         {/* Description + dirty indicator */}
         <div className="px-4 py-2 border-b flex items-center justify-between" style={{ borderColor: 'var(--cms-line)' }}>
-          <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t.desc}</p>
+          <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{copy.desc}</p>
           {isDirty && !isSystemRole && (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: 'var(--cms-warning-50)', color: 'var(--cms-warning)' }}>
-              {t.dirty}
+              {copy.dirty}
             </span>
           )}
         </div>
@@ -209,19 +210,19 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <LoaderCircle size={20} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} />
-              <span className="text-xs ml-2" style={{ color: 'var(--cms-text-muted)' }}>{t.loading}</span>
+              <span className="text-xs ml-2" style={{ color: 'var(--cms-text-muted)' }}>{copy.loading}</span>
             </div>
           ) : (
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr style={{ background: 'var(--cms-ivory-100)' }}>
-                  <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider border-b" style={{ color: 'var(--cms-text-muted)', borderColor: 'var(--cms-line)' }}>{t.resource}</th>
+                  <th className="text-start py-2 px-3 font-semibold uppercase tracking-wider border-b" style={{ color: 'var(--cms-text-muted)', borderColor: 'var(--cms-line)' }}>{copy.resource}</th>
                   {ACTIONS.map(a => (
                     <th key={a.value} className="text-center py-2 px-2 font-semibold uppercase tracking-wider border-b" style={{ color: 'var(--cms-text-muted)', borderColor: 'var(--cms-line)' }}>
                       {isArabic ? a.ar : a.en}
                     </th>
                   ))}
-                  <th className="text-center py-2 px-3 font-semibold uppercase tracking-wider border-b" style={{ color: 'var(--cms-text-muted)', borderColor: 'var(--cms-line)' }}>{t.scope}</th>
+                  <th className="text-center py-2 px-3 font-semibold uppercase tracking-wider border-b" style={{ color: 'var(--cms-text-muted)', borderColor: 'var(--cms-line)' }}>{copy.scope}</th>
                 </tr>
               </thead>
               <tbody>
@@ -275,7 +276,7 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
         {/* Footer — actions */}
         <div className="flex items-center justify-between gap-3 p-4 border-t" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
           <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-            {grants.length} {isArabic ? 'صلاحية ممنوحة' : 'grants'}
+            {grants.length} {t(locale, 'admincenters.permissions.grantsLabel')}
           </span>
           <div className="flex gap-2">
             <button
@@ -284,7 +285,7 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
               className="px-3 py-1.5 rounded-lg border text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}
             >
-              {t.reset}
+              {copy.reset}
             </button>
             <button
               onClick={save}
@@ -293,7 +294,7 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
               style={{ background: 'var(--cms-teal-700)' }}
             >
               {saving ? <LoaderCircle size={13} className="animate-spin" /> : <Save size={13} />}
-              {t.save}
+              {copy.save}
             </button>
           </div>
         </div>

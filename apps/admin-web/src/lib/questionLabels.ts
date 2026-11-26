@@ -9,10 +9,15 @@
  * since its Matching editor wave — and an unknown value renders the explicit
  * fallback «نوع غير معروف» / «غير محدد» instead of leaking the raw string.
  *
- * The maps are byte-identical to the (previously local) QuestionsCenter
- * helpers; this module exists so ExamsCenter and QuestionsCenter can never
- * drift apart again.
+ * PR-3: the maps live in the central status registry
+ * (lib/dictionary → statuses: questionType / questionDifficulty domains).
+ * The registry output is byte-identical to the previously local switch maps —
+ * verified per member in both locales AND for the unknown-value fallback —
+ * so this module stays the stable import surface for both centers; the
+ * exported signatures are unchanged.
  */
+
+import { localeOf, statusLabel } from './dictionary';
 
 /** Question type wire values (CMS.Domain QuestionType — JsonStringEnumConverter, no policy). */
 export type QuestionTypeValue =
@@ -28,14 +33,7 @@ export type QuestionTypeValue =
  * «نوع غير معروف» fallback — never the bare enum.
  */
 export function questionTypeLabel(type: string, isArabic: boolean): string {
-  switch (type) {
-    case 'Mcq': return isArabic ? 'اختيار من متعدد' : 'MCQ';
-    case 'TrueFalse': return isArabic ? 'صح أو خطأ' : 'True / False';
-    case 'MultipleSelect': return isArabic ? 'اختيارات متعددة' : 'Multiple select';
-    case 'Essay': return isArabic ? 'تحريري' : 'Essay';
-    case 'Matching': return isArabic ? 'وصل' : 'Matching';
-    default: return isArabic ? 'نوع غير معروف' : 'Unknown type';
-  }
+  return statusLabel(localeOf(isArabic), 'questionType', type);
 }
 
 /**
@@ -43,10 +41,5 @@ export function questionTypeLabel(type: string, isArabic: boolean): string {
  * renders «غير محدد» — never the raw string.
  */
 export function questionDifficultyLabel(difficulty: string, isArabic: boolean): string {
-  switch (difficulty) {
-    case 'Easy': return isArabic ? 'سهل' : 'Easy';
-    case 'Medium': return isArabic ? 'متوسط' : 'Medium';
-    case 'Hard': return isArabic ? 'صعب' : 'Hard';
-    default: return isArabic ? 'غير محدد' : 'Unspecified';
-  }
+  return statusLabel(localeOf(isArabic), 'questionDifficulty', difficulty);
 }

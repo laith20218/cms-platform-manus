@@ -45,6 +45,7 @@ import { apiRequest } from '../lib/api';
 import { Dialog, Pagination, RowActionsMenu } from '@cms/ui';
 import { HardDeleteDialog, type HardDeleteTarget } from './HardDeleteDialog';
 import { questionDifficultyLabel, questionTypeLabel } from '../lib/questionLabels';
+import { t, localeOf, statusLabel as registryStatusLabel, type Locale } from '../lib/dictionary';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
@@ -160,35 +161,43 @@ const statusBadgeClass = (status: string) => {
 
 // W22.1 — EXAM types only (Final/Midterm/Quiz/Practice). Question types ride
 // the shared lib/questionLabels helper so they never fall through to raw enums.
-const examTypeLabel = (type: string, isArabic: boolean) => {
+const examTypeLabel = (type: string, locale: Locale) => {
   switch (type) {
-    case 'Final': return isArabic ? 'نهائي' : 'Final';
-    case 'Midterm': return isArabic ? 'نصفي' : 'Midterm';
-    case 'Quiz': return isArabic ? 'قصير' : 'Quiz';
-    case 'Practice': return isArabic ? 'تدريبي' : 'Practice';
+    case 'Final': return t(locale, 'exams.examType.final');
+    case 'Midterm': return t(locale, 'exams.examType.midterm');
+    case 'Quiz': return t(locale, 'exams.examType.quiz');
+    case 'Practice': return t(locale, 'exams.examType.practice');
     default: return type;
   }
 };
 
-const statusLabel = (status: string, isArabic: boolean) => {
+// PR-3 — exam publication status rides the central registry's `publication`
+// domain (draft/published/archived, lower-cased wire values). The legacy
+// switch answered the default-Draft label for every value it did not know
+// (unpublished/unknown) where the registry answers «غير محدد» — this thin
+// wrapper keeps the pre-PR-3 output byte-identical.
+const statusLabel = (status: string, locale: Locale) => {
   const value = status.toLowerCase();
-  if (value === 'published') return isArabic ? 'منشور' : 'Published';
-  if (value === 'archived') return isArabic ? 'مؤرشف' : 'Archived';
-  return isArabic ? 'مسودة' : 'Draft';
+  if (value === 'published' || value === 'archived' || value === 'draft') {
+    return registryStatusLabel(locale, 'publication', value);
+  }
+  return t(locale, 'exams.status.draft');
 };
 
 // W2 (admin-ui): attempt/result session statuses (ExamSessionStatus enum:
 // InProgress/Completed/Cancelled/TimedOut + legacy Abandoned/Expired aliases).
 // Raw enum values must never leak into the Arabic surface (debt D-23).
-const resultStatusLabel = (status: string, isArabic: boolean) => {
+const resultStatusLabel = (status: string, locale: Locale) => {
   switch (status.toLowerCase()) {
-    case 'inprogress': return isArabic ? 'قيد الأداء' : 'In progress';
-    case 'completed': return isArabic ? 'مكتمل' : 'Completed';
+    case 'inprogress': return t(locale, 'exams.resultStatus.inProgress');
+    case 'completed': return t(locale, 'exams.resultStatus.completed');
     case 'cancelled':
-    case 'abandoned': return isArabic ? 'ملغى' : 'Cancelled';
+    case 'abandoned': return t(locale, 'exams.resultStatus.cancelled');
     case 'timedout':
-    case 'expired': return isArabic ? 'انتهى وقته' : 'Timed out';
-    default: return isArabic ? 'غير معروف' : status;
+    case 'expired': return t(locale, 'exams.resultStatus.timedOut');
+    // Legacy contract: unknown values render the explicit Arabic fallback;
+    // the English surface keeps passing the raw wire value through verbatim.
+    default: return locale === 'ar' ? t(locale, 'exams.resultStatus.unknown') : status;
   }
 };
 
@@ -201,12 +210,13 @@ const resultStatusBadgeClass = (status: string) => {
 };
 
 // ===== W14.3 Phase D (D12) — report classification labels (ReportType enum) =====
-const reportTypeLabel = (type: string, isArabic: boolean) => {
+// ===== W14.3 Phase D (D12) — report classification labels (ReportType enum) =====
+const reportTypeLabel = (type: string, locale: Locale) => {
   switch (type) {
-    case 'Typo': return isArabic ? 'خطأ في الصياغة' : 'Typo';
-    case 'WrongAnswer': return isArabic ? 'الإجابة الصحيحة خاطئة' : 'Wrong answer';
-    case 'BadImage': return isArabic ? 'صورة غير سليمة' : 'Bad image';
-    default: return isArabic ? 'أخرى' : 'Other';
+    case 'Typo': return t(locale, 'exams.reportType.typo');
+    case 'WrongAnswer': return t(locale, 'exams.reportType.wrongAnswer');
+    case 'BadImage': return t(locale, 'exams.reportType.badImage');
+    default: return t(locale, 'exams.reportType.other');
   }
 };
 
@@ -219,13 +229,14 @@ const reportTypeBadgeClass = (type: string) => {
   }
 };
 
-const reportStatusLabel = (status: string, isArabic: boolean) => {
+// ===== W14.3 Phase D (D12) — report status labels (local glossary) =====
+const reportStatusLabel = (status: string, locale: Locale) => {
   switch (status.toLowerCase()) {
-    case 'reviewing': return isArabic ? 'قيد المراجعة' : 'Reviewing';
-    case 'resolved': return isArabic ? 'تم الحل' : 'Resolved';
-    case 'rejected': return isArabic ? 'مرفوض' : 'Rejected';
-    case 'closed': return isArabic ? 'مغلق' : 'Closed';
-    default: return isArabic ? 'قيد الانتظار' : 'Pending';
+    case 'reviewing': return t(locale, 'exams.reportStatus.reviewing');
+    case 'resolved': return t(locale, 'exams.reportStatus.resolved');
+    case 'rejected': return t(locale, 'exams.reportStatus.rejected');
+    case 'closed': return t(locale, 'exams.reportStatus.closed');
+    default: return t(locale, 'exams.reportStatus.pending');
   }
 };
 
@@ -239,6 +250,8 @@ const reportStatusBadgeClass = (status: string) => {
 };
 
 export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQuestions }: Props) {
+  // PR-3 — dictionary locale for the shared `t()` copy.
+  const locale = localeOf(isArabic);
   // Push 3: cosmetic gating — the API policies remain the real boundary.
   const { can, bundle } = useUiPermissions();
   // Command Center P1: hard delete is a SuperAdmin-only system action (backend-gated too).
@@ -290,7 +303,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
       const data = await request<ExamPreview>(`/api/v1/admin/exams/${exam.id}/preview`);
       setPreview({ exam, data, loading: false, error: null });
     } catch (error) {
-      const message = error instanceof Error ? error.message : (isArabic ? 'تعذر تحميل معاينة الاختبار.' : 'Could not load the exam preview.');
+      const message = error instanceof Error ? error.message : (t(locale, 'exams.errors.previewLoad'));
       onError(message);
       setPreview({ exam, data: null, loading: false, error: message });
     }
@@ -320,7 +333,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
   useEffect(() => {
     void request<{ items: University[] }>('/api/v1/universities?Page=1&PageSize=100')
       .then(data => setUniversities(data.items))
-      .catch(error => onError(error instanceof Error ? error.message : 'تعذر تحميل الجامعات.'));
+      .catch(error => onError(error instanceof Error ? error.message : t(locale, 'exams.errors.loadUniversities')));
     // W14.3 D4: hydrate the cascade lists from the shared URL context
     // (e.g. arriving from the Question Bank with ?univ=…&subject=… already set).
     void (async () => {
@@ -370,34 +383,34 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
     setColleges([]); setYears([]); setSemesters([]); setSubjects([]); setLectures([]); closeEditor();
     if (!id) return;
     try { setColleges(await request<College[]>(`/api/v1/universities/${id}/colleges`)); }
-    catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل الكليات.'); }
+    catch (error) { onError(error instanceof Error ? error.message : t(locale, 'exams.errors.loadColleges')); }
   }
   async function chooseCollege(id: string) {
     academic.chooseCollege(id);
     setYears([]); setSemesters([]); setSubjects([]); setLectures([]); closeEditor();
     if (!id) return;
     try { setYears(await request<AcademicYear[]>(`/api/v1/colleges/${id}/years`)); }
-    catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل السنوات.'); }
+    catch (error) { onError(error instanceof Error ? error.message : t(locale, 'exams.errors.loadYears')); }
   }
   async function chooseYear(id: string) {
     academic.chooseYear(id);
     setSemesters([]); setSubjects([]); setLectures([]); closeEditor();
     if (!id) return;
     try { setSemesters(await request<Semester[]>(`/api/v1/years/${id}/semesters`)); }
-    catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل الفصول.'); }
+    catch (error) { onError(error instanceof Error ? error.message : t(locale, 'exams.errors.loadSemesters')); }
   }
   async function chooseSemester(id: string) {
     academic.chooseSemester(id);
     setSubjects([]); setLectures([]); closeEditor();
     if (!id) return;
     try { setSubjects(await request<Subject[]>(`/api/v1/semesters/${id}/subjects`)); }
-    catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل المواد.'); }
+    catch (error) { onError(error instanceof Error ? error.message : t(locale, 'exams.errors.loadSubjects')); }
   }
   async function chooseSubject(id: string) {
     academic.chooseSubject(id); setLectures([]); closeEditor();
     if (!id) return;
     try { setLectures(await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${id}/lectures`)); }
-    catch (error) { onError(error instanceof Error ? error.message : 'تعذر تحميل المحاضرات.'); }
+    catch (error) { onError(error instanceof Error ? error.message : t(locale, 'exams.errors.loadLectures')); }
   }
 
   async function loadExams(targetPage = 1) {
@@ -412,7 +425,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
       setExamsPage(targetPage);
       setExamsTotal(data.totalCount);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر تحميل الاختبارات.');
+      onError(error instanceof Error ? error.message : t(locale, 'exams.errors.loadExams'));
     } finally { setLoading(false); }
   }
 
@@ -425,7 +438,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
       const data = await request<Page<Candidate>>(`/api/v1/admin/exams/question-candidates?${params.toString()}`);
       setCandidates(data.items);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر تحميل الأسئلة المؤهلة للاختبار.');
+      onError(error instanceof Error ? error.message : t(locale, 'exams.errors.loadCandidates'));
     }
   }
 
@@ -449,7 +462,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
       setSelectedQuestions(data.questions);
       setShowEditor(true);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر فتح الاختبار.');
+      onError(error instanceof Error ? error.message : t(locale, 'exams.errors.openExam'));
     } finally { setBusy(false); }
   }
 
@@ -478,7 +491,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
     event.preventDefault();
     if (!subjectId || !form.titleAr.trim() || !form.slug.trim()) return;
     if (form.availableFrom && form.availableUntil && new Date(form.availableUntil) <= new Date(form.availableFrom)) {
-      onError(isArabic ? 'يجب أن ينتهي نطاق الإتاحة بعد بدايته.' : 'Availability end must be after its start.');
+      onError(t(locale, 'exams.errors.availabilityWindow'));
       return;
     }
     setBusy(true);
@@ -496,17 +509,17 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
         ? await request<ExamConfiguration>(`/api/v1/admin/exams/${form.id}`, { method: 'PUT', body: JSON.stringify(payload) })
         : await request<ExamConfiguration>('/api/v1/admin/exams', { method: 'POST', body: JSON.stringify(payload) });
       const examId = saved.id ?? form.id;
-      if (!examId) throw new Error('لم يعُد الخادم بمعرف الاختبار.');
+      if (!examId) throw new Error(t(locale, 'exams.errors.missingExamId'));
       await request(`/api/v1/admin/exams/${examId}/questions`, { method: 'PUT', body: JSON.stringify({ questionIds: selectedQuestions.map(question => question.questionId) }) });
       setForm({
         ...saved,
         availableFrom: toInputDate(saved.availableFrom),
         availableUntil: toInputDate(saved.availableUntil),
       });
-      onNotice(isArabic ? 'تم حفظ تكوين الاختبار وترتيب أسئلته كمسودة.' : 'Exam configuration and question order saved as a draft.');
+      onNotice(t(locale, 'exams.toasts.savedDraft'));
       await loadExams();
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر حفظ الاختبار.');
+      onError(error instanceof Error ? error.message : t(locale, 'exams.errors.saveExam'));
     } finally { setBusy(false); }
   }
 
@@ -515,13 +528,13 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
     try {
       await request(`/api/v1/admin/exams/${exam.id}/${action}`, { method: 'POST' });
       onNotice(action === 'publish'
-        ? (isArabic ? 'تم نشر الاختبار.' : 'Exam published.')
+        ? (t(locale, 'exams.toasts.published'))
         : action === 'unpublish'
-        ? (isArabic ? 'تم إلغاء نشر الاختبار وإعادته إلى مسودة.' : 'Exam unpublished and reverted to draft.')
-        : (isArabic ? 'تمت أرشفة الاختبار.' : 'Exam archived.'));
+        ? (t(locale, 'exams.toasts.unpublished'))
+        : (t(locale, 'exams.toasts.archived')));
       await loadExams();
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر تحديث حالة الاختبار.');
+      onError(error instanceof Error ? error.message : t(locale, 'exams.errors.updateStatus'));
     } finally { setBusy(false); }
   }
 
@@ -529,10 +542,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
     setBusy(true);
     try {
       await request(`/api/v1/admin/exams/${exam.id}`, { method: 'DELETE' });
-      onNotice(isArabic ? 'تم حذف الاختبار.' : 'Exam deleted.');
+      onNotice(t(locale, 'exams.toasts.deleted'));
       await loadExams();
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر حذف الاختبار.');
+      onError(error instanceof Error ? error.message : t(locale, 'exams.errors.deleteExam'));
     } finally { setBusy(false); }
   }
 
@@ -542,7 +555,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
       const data = await request<Page<Result>>(`/api/v1/admin/exams/${exam.id}/results?page=1&pageSize=100`);
       setResults(data.items);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر تحميل نتائج الاختبار.');
+      onError(error instanceof Error ? error.message : t(locale, 'exams.errors.loadResults'));
       setResults([]);
     } finally { setResultsLoading(false); }
   }
@@ -558,7 +571,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
       setStats(statsData);
       setQuestionStats(questionData);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر تحميل إحصائيات الاختبار.');
+      onError(error instanceof Error ? error.message : t(locale, 'exams.errors.loadStats'));
       setStatsExam(null);
     } finally { setStatsLoading(false); }
   }
@@ -573,7 +586,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
       const data = await request<ReportPage>(`/api/v1/admin/questions/reports?${params.toString()}`);
       setReports(data.items);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر تحميل بلاغات الأسئلة.');
+      onError(error instanceof Error ? error.message : t(locale, 'exams.errors.loadReports'));
     } finally { setReportsLoading(false); }
   }
 
@@ -586,12 +599,12 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
         body: JSON.stringify({ notes: reportNotes.notes.trim() || null }),
       });
       onNotice(reportNotes.action === 'resolve'
-        ? (isArabic ? 'تم حل البلاغ وتوثيق الملاحظات.' : 'Report resolved with notes recorded.')
-        : (isArabic ? 'تم رفض البلاغ وتوثيق الملاحظات.' : 'Report rejected with notes recorded.'));
+        ? (t(locale, 'exams.reports.resolvedToast'))
+        : (t(locale, 'exams.reports.rejectedToast')));
       setReportNotes(null);
       await loadReports();
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر تنفيذ إجراء البلاغ.');
+      onError(error instanceof Error ? error.message : t(locale, 'exams.errors.actOnReport'));
     } finally { setReportsBusy(false); }
   }
 
@@ -610,10 +623,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-              {isArabic ? 'إدارة المحتوى الأكاديمي' : 'Academic content management'}
+              {t(locale, 'exams.header.kicker')}
             </p>
             <h2 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
-              {isArabic ? 'الاختبارات' : 'Exams'}
+              {t(locale, 'exams.header.title')}
               {subjectId && (
                 <span
                   className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded-full text-xs font-semibold"
@@ -624,9 +637,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
               )}
             </h2>
             <p className="text-sm mt-1 max-w-2xl" style={{ color: 'var(--cms-text-soft)' }}>
-              {isArabic
-                ? 'تصميم الاختبارات، نشرها، وقراءة نتائجها.'
-                : 'Design, publish, and audit exam outcomes.'}
+              {t(locale, 'exams.header.subtitle')}
             </p>
           </div>
         </div>
@@ -640,7 +651,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
             onMouseLeave={(event) => { event.currentTarget.style.background = 'var(--cms-teal-700)'; }}
           >
             <Plus className="w-4 h-4" />
-            {isArabic ? 'اختبار جديد' : 'New exam'}
+            {t(locale, 'exams.header.newExam')}
           </button>
         )}
       </header>
@@ -651,11 +662,11 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
         style={{ background: 'var(--cms-ivory-100)', borderColor: 'var(--cms-line)' }}
       >
         {[
-          { label: isArabic ? 'الجامعة' : 'University', value: universityId, onChange: chooseUniversity, items: universities, disabled: false },
-          { label: isArabic ? 'الكلية' : 'College', value: collegeId, onChange: chooseCollege, items: colleges, disabled: !universityId },
-          { label: isArabic ? 'السنة' : 'Year', value: yearId, onChange: chooseYear, items: years, disabled: !collegeId },
-          { label: isArabic ? 'الفصل' : 'Semester', value: semesterId, onChange: chooseSemester, items: semesters, disabled: !yearId },
-          { label: isArabic ? 'المادة' : 'Subject', value: subjectId, onChange: chooseSubject, items: subjects, disabled: !semesterId },
+          { label: t(locale, 'exams.filters.university'), value: universityId, onChange: chooseUniversity, items: universities, disabled: false },
+          { label: t(locale, 'exams.filters.college'), value: collegeId, onChange: chooseCollege, items: colleges, disabled: !universityId },
+          { label: t(locale, 'exams.filters.year'), value: yearId, onChange: chooseYear, items: years, disabled: !collegeId },
+          { label: t(locale, 'exams.filters.semester'), value: semesterId, onChange: chooseSemester, items: semesters, disabled: !yearId },
+          { label: t(locale, 'exams.filters.subject'), value: subjectId, onChange: chooseSubject, items: subjects, disabled: !semesterId },
         ].map((field) => (
           <label key={field.label} className="block">
             <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
@@ -668,7 +679,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
               className="w-full px-3 py-2 rounded-lg border text-sm bg-white transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
               style={{ borderColor: 'var(--cms-line-strong)' }}
             >
-              <option value="">{isArabic ? `اختر ${field.label}` : `Select ${field.label.toLowerCase()}`}</option>
+              <option value="">{t(locale, 'exams.filters.select', { label: locale === 'ar' ? field.label : field.label.toLowerCase() })}</option>
               {field.items.map(item => (
                 <option key={item.id} value={item.id}>{label(isArabic, item)}</option>
               ))}
@@ -686,10 +697,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
             <ClipboardCheck className="w-7 h-7" />
           </div>
           <p className="mt-3 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
-            {isArabic ? 'اختر مادة لفتح إدارة اختباراتِها.' : 'Select a subject to manage its exams.'}
+            {t(locale, 'exams.filters.pickSubject')}
           </p>
           <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-            {isArabic ? 'التدرج الأكاديمي أعلاه يقودك من الجامعة إلى المادة.' : 'The hierarchy above leads from university down to subject.'}
+            {t(locale, 'exams.filters.hierarchyHint')}
           </p>
         </div>
       ) : (
@@ -704,7 +715,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder={isArabic ? 'ابحث بعنوان الاختبار أو رابطه' : 'Search title or slug'}
+                placeholder={t(locale, 'exams.toolbar.searchPlaceholder')}
                 className="w-full pr-10 pl-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 style={{ borderColor: 'var(--cms-line-strong)' }}
               />
@@ -712,14 +723,14 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
-              aria-label={isArabic ? 'تصفية حالة الاختبار' : 'Filter by exam status'}
+              aria-label={t(locale, 'exams.toolbar.statusFilterA11y')}
               className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
               style={{ borderColor: 'var(--cms-line-strong)' }}
             >
-              <option value="">{isArabic ? 'كل الحالات' : 'All statuses'}</option>
-              <option value="Draft">{isArabic ? 'مسودة' : 'Draft'}</option>
-              <option value="Published">{isArabic ? 'منشور' : 'Published'}</option>
-              <option value="Archived">{isArabic ? 'مؤرشف' : 'Archived'}</option>
+              <option value="">{t(locale, 'exams.toolbar.allStatuses')}</option>
+              <option value="Draft">{statusLabel('Draft', locale)}</option>
+              <option value="Published">{statusLabel('Published', locale)}</option>
+              <option value="Archived">{statusLabel('Archived', locale)}</option>
             </select>
             {/* W14.3 D12: question reports triage toggle. */}
             <button
@@ -732,7 +743,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                 : { borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
             >
               <Flag className="w-4 h-4" />
-              {isArabic ? 'بلاغات الأسئلة' : 'Question reports'}
+              {t(locale, 'exams.reports.title')}
             </button>
           </div>
 
@@ -746,10 +757,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   </span>
                   <div className="min-w-0">
                     <h3 className="font-semibold text-sm truncate" style={{ color: 'var(--cms-text)' }}>
-                      {isArabic ? `إحصائيات: ${statsExam.titleAr}` : `Stats: ${statsExam.titleAr}`}
+                      {t(locale, 'exams.stats.title', { title: statsExam.titleAr })}
                     </h3>
                     <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                      {isArabic ? 'مؤشرات المحاولات والدرجات وتحليل كل سؤال.' : 'Attempt metrics, score analytics, and per-question breakdown.'}
+                      {t(locale, 'exams.stats.subtitle')}
                     </p>
                   </div>
                 </div>
@@ -762,13 +773,13 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                       style={{ borderColor: 'var(--cms-teal-600)', color: 'var(--cms-teal-700)' }}
                     >
                       <ListChecks className="w-3.5 h-3.5" />
-                      {isArabic ? 'فتح بنك الأسئلة' : 'Open question bank'}
+                      {t(locale, 'exams.stats.openQuestionBank')}
                     </button>
                   )}
                   <button
                     type="button"
                     onClick={() => { setStatsExam(null); setStats(null); setQuestionStats([]); }}
-                    aria-label={isArabic ? 'إغلاق الإحصائيات' : 'Close stats'}
+                    aria-label={t(locale, 'exams.stats.closeA11y')}
                     className="p-2 rounded-lg transition-colors hover:bg-slate-100"
                     style={{ color: 'var(--cms-text-soft)' }}
                   >
@@ -791,10 +802,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                       <div className="flex flex-col items-center justify-center text-center py-10" style={{ color: 'var(--cms-text-soft)' }}>
                         <TrendingUp className="w-6 h-6 opacity-50" />
                         <p className="mt-2 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
-                          {isArabic ? 'لا توجد محاولات بعد.' : 'No attempts yet.'}
+                          {t(locale, 'exams.shared.noAttempts')}
                         </p>
                         <p className="mt-1 text-xs">
-                          {isArabic ? 'ستظهر المؤشرات هنا بعد أول محاولة طالب.' : 'Metrics appear here after the first student attempt.'}
+                          {t(locale, 'exams.stats.metricsHint')}
                         </p>
                       </div>
                     ) : (
@@ -802,12 +813,12 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         {/* Summary cards */}
                         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                           {[
-                            { icon: Users, label: isArabic ? 'بدأت' : 'Started', value: stats.started },
-                            { icon: ClipboardCheck, label: isArabic ? 'محاولات' : 'Attempts', value: stats.attempts },
-                            { icon: CheckCircle2, label: isArabic ? 'أكملت' : 'Completed', value: stats.completed },
-                            { icon: Timer, label: isArabic ? 'قيد التنفيذ' : 'In progress', value: stats.inProgress },
-                            { icon: AlertCircle, label: isArabic ? 'انتهت مهلتها' : 'Timed out', value: stats.timeouts },
-                            { icon: XCircle, label: isArabic ? 'ملغاة' : 'Cancelled', value: stats.cancelled },
+                            { icon: Users, label: t(locale, 'exams.stats.startedCard'), value: stats.started },
+                            { icon: ClipboardCheck, label: t(locale, 'exams.stats.attemptsCard'), value: stats.attempts },
+                            { icon: CheckCircle2, label: t(locale, 'exams.stats.completedCard'), value: stats.completed },
+                            { icon: Timer, label: t(locale, 'exams.stats.inProgressCard'), value: stats.inProgress },
+                            { icon: AlertCircle, label: t(locale, 'exams.stats.timedOutCard'), value: stats.timeouts },
+                            { icon: XCircle, label: t(locale, 'exams.stats.cancelledCard'), value: stats.cancelled },
                           ].map(card => (
                             <div key={card.label} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)' }}>
                               <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
@@ -823,15 +834,15 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                           <div className="rounded-lg border p-4" style={{ borderColor: 'var(--cms-line)' }}>
                             <p className="text-xs font-medium mb-2" style={{ color: 'var(--cms-text-soft)' }}>
-                              {isArabic ? 'النجاح مقابل الرسوب' : 'Pass vs fail'}
+                              {t(locale, 'exams.stats.passVsFail')}
                             </p>
                             {stats.pass + stats.fail === 0 ? (
-                              <p className="text-sm" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'لا توجد نتائج مصححة بعد.' : 'No graded results yet.'}</p>
+                              <p className="text-sm" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'exams.stats.noGradedResults')}</p>
                             ) : (
                               <div>
                                 <div className="flex items-center justify-between text-xs mb-1">
-                                  <span className="text-emerald-700 font-medium">{isArabic ? 'ناجح' : 'Pass'}: {stats.pass}</span>
-                                  <span className="text-red-700 font-medium">{isArabic ? 'راسب' : 'Fail'}: {stats.fail}</span>
+                                  <span className="text-emerald-700 font-medium">{t(locale, 'exams.stats.pass')}: {stats.pass}</span>
+                                  <span className="text-red-700 font-medium">{t(locale, 'exams.stats.fail')}: {stats.fail}</span>
                                 </div>
                                 <div className="h-2.5 rounded-full overflow-hidden flex bg-slate-100">
                                   <div className="bg-emerald-500 h-full" style={{ width: `${(stats.pass / (stats.pass + stats.fail)) * 100}%` }} />
@@ -842,27 +853,27 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                           </div>
                           <div className="rounded-lg border p-4" style={{ borderColor: 'var(--cms-line)' }}>
                             <p className="text-xs font-medium mb-2" style={{ color: 'var(--cms-text-soft)' }}>
-                              {isArabic ? 'الدرجات (من المصححة آلياً)' : 'Scores (auto-graded)'}
+                              {t(locale, 'exams.stats.scores')}
                             </p>
                             <div className="flex items-center gap-4 text-sm">
                               <div>
-                                <div className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'المعدل' : 'Mean'}</div>
+                                <div className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'exams.stats.mean')}</div>
                                 <div className="font-bold" style={{ color: 'var(--cms-text)' }}>{stats.meanScore == null ? '—' : `${stats.meanScore.toFixed(1)}%`}</div>
                               </div>
                               <div>
-                                <div className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>{isArabic ? 'الوسيط' : 'Median'}</div>
+                                <div className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'exams.stats.median')}</div>
                                 <div className="font-bold" style={{ color: 'var(--cms-text)' }}>{stats.medianScore == null ? '—' : `${stats.medianScore.toFixed(1)}%`}</div>
                               </div>
                             </div>
                           </div>
                           <div className="rounded-lg border p-4" style={{ borderColor: 'var(--cms-line)' }}>
                             <p className="text-xs font-medium mb-2" style={{ color: 'var(--cms-text-soft)' }}>
-                              {isArabic ? 'متوسط زمن الحل' : 'Average duration'}
+                              {t(locale, 'exams.stats.avgDuration')}
                             </p>
                             <div className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--cms-text)' }}>
                               <Timer className="w-4 h-4" style={{ color: 'var(--cms-text-soft)' }} />
                               {stats.avgDurationSeconds > 0
-                                ? `${Math.floor(stats.avgDurationSeconds / 60)} ${isArabic ? 'دقيقة' : 'min'} ${Math.round(stats.avgDurationSeconds % 60)} ${isArabic ? 'ثانية' : 'sec'}`
+                                ? t(locale, 'exams.stats.durationValue', { minutes: Math.floor(stats.avgDurationSeconds / 60), seconds: Math.round(stats.avgDurationSeconds % 60) })
                                 : '—'}
                             </div>
                           </div>
@@ -871,7 +882,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         {/* Score distribution (decile buckets) */}
                         <div>
                           <h4 className="text-sm font-bold mb-2" style={{ color: 'var(--cms-text)' }}>
-                            {isArabic ? 'توزيع الدرجات' : 'Score distribution'}
+                            {t(locale, 'exams.stats.distribution')}
                           </h4>
                           <div className="space-y-1.5">
                             {stats.distribution.map(bucket => {
@@ -897,11 +908,11 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     {/* Per-question stats */}
                     <div>
                       <h4 className="text-sm font-bold mb-2" style={{ color: 'var(--cms-text)' }}>
-                        {isArabic ? `إحصائيات الأسئلة (${questionStats.length})` : `Question stats (${questionStats.length})`}
+                        {t(locale, 'exams.stats.questionStatsTitle', { count: questionStats.length })}
                       </h4>
                       {questionStats.length === 0 ? (
                         <p className="text-sm py-4 text-center" style={{ color: 'var(--cms-text-soft)' }}>
-                          {isArabic ? 'لا توجد أسئلة في هذا الاختبار.' : 'This exam has no questions.'}
+                          {t(locale, 'exams.stats.noQuestions')}
                         </p>
                       ) : (
                         <div className="overflow-x-auto [contain:paint] rounded-lg border" style={{ borderColor: 'var(--cms-line)' }}>
@@ -909,12 +920,12 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}>
                               <tr>
                                 <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">#</th>
-                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'السؤال' : 'Question'}</th>
-                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'المحاولات' : 'Attempts'}</th>
-                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'إجابات صحيحة' : '% correct'}</th>
-                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'أكثر خيار خاطئ' : 'Most common wrong'}</th>
-                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'متوسط الزمن' : 'Avg time'}</th>
-                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider"><span className="sr-only">{isArabic ? 'تنبيه' : 'Flag'}</span></th>
+                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.stats.questionCol')}</th>
+                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.shared.attempts')}</th>
+                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.stats.correctCol')}</th>
+                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.stats.mostCommonWrongCol')}</th>
+                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.stats.avgTimeCol')}</th>
+                                <th className="text-start px-3 py-2.5 font-semibold text-xs uppercase tracking-wider"><span className="sr-only">{t(locale, 'exams.stats.flagCol')}</span></th>
                               </tr>
                             </thead>
                             <tbody className="divide-y" style={{ borderColor: 'var(--cms-line)' }}>
@@ -951,14 +962,14 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                                   </td>
                                   <td className="px-3 py-2.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
                                     {row.avgDurationSeconds != null && row.avgDurationSeconds > 0
-                                      ? `${Math.round(row.avgDurationSeconds)} ${isArabic ? 'ث' : 's'}`
+                                      ? t(locale, 'exams.stats.secondsValue', { seconds: Math.round(row.avgDurationSeconds) })
                                       : '—'}
                                   </td>
                                   <td className="px-3 py-2.5">
                                     {row.problematic && (
                                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border text-red-700 bg-red-50 border-red-200">
                                         <AlertTriangle className="w-3 h-3" />
-                                        {isArabic ? 'يحتاج مراجعة' : 'Needs review'}
+                                        {t(locale, 'exams.stats.needsReview')}
                                       </span>
                                     )}
                                   </td>
@@ -1004,10 +1015,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                 <ClipboardCheck className="w-6 h-6" />
               </div>
               <p className="mt-3 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
-                {isArabic ? 'لا توجد اختبارات' : 'No exams'}
+                {t(locale, 'exams.list.empty')}
               </p>
               <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                {isArabic ? 'لا توجد اختبارات ضمن هذه التصفية.' : 'No exams match this filter.'}
+                {t(locale, 'exams.list.emptyFiltered')}
               </p>
             </div>
           ) : (
@@ -1015,14 +1026,14 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
               <table className="w-full text-sm">
                 <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}>
                   <tr>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'عنوان الاختبار' : 'Exam title'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'النوع' : 'Type'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'المادة' : 'Subject'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'عدد الأسئلة' : 'Questions'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'المدة (دقيقة)' : 'Duration (min)'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'المحاولات' : 'Attempts'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الحالة' : 'Status'}</th>
-                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider"><span className="sr-only">{isArabic ? 'إجراءات' : 'Actions'}</span></th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.list.titleCol')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.shared.type')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.filters.subject')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.list.questionsCol')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.shared.durationMinutes')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.shared.attempts')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'common.status')}</th>
+                    <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider"><span className="sr-only">{t(locale, 'common.actions')}</span></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y" style={{ borderColor: 'var(--cms-line)' }}>
@@ -1038,20 +1049,20 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         {(exam.availableFrom || exam.availableUntil || exam.maxAttempts) && (
                           <div className="mt-1 text-[10px] flex flex-wrap gap-2" style={{ color: 'var(--cms-text-soft)' }}>
                             {exam.availableFrom && (
-                              <span>{isArabic ? 'من' : 'From'} {new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium' }).format(new Date(exam.availableFrom))}</span>
+                              <span>{t(locale, 'exams.list.fromWord')} {new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium' }).format(new Date(exam.availableFrom))}</span>
                             )}
                             {exam.availableUntil && (
-                              <span>{isArabic ? 'إلى' : 'Until'} {new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium' }).format(new Date(exam.availableUntil))}</span>
+                              <span>{t(locale, 'exams.list.untilWord')} {new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium' }).format(new Date(exam.availableUntil))}</span>
                             )}
                             {exam.maxAttempts && (
-                              <span>{isArabic ? 'حد المحاولات' : 'Max attempts'}: {exam.maxAttempts}</span>
+                              <span>{t(locale, 'exams.list.maxAttemptsWord')}: {exam.maxAttempts}</span>
                             )}
                           </div>
                         )}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${typeBadgeClass(exam.examType)}`}>
-                          {examTypeLabel(exam.examType, isArabic)}
+                          {examTypeLabel(exam.examType, locale)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
@@ -1072,14 +1083,14 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         </div>
                         {exam.averageScore != null && (
                           <div className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'المعدل' : 'Avg'}: {exam.averageScore.toFixed(0)}%
+                            {t(locale, 'exams.list.avgScoreWord')}: {exam.averageScore.toFixed(0)}%
                           </div>
                         )}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border ${statusBadgeClass(exam.status)}`}>
                           <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
-                          {statusLabel(exam.status, isArabic)}
+                          {statusLabel(exam.status, locale)}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -1088,19 +1099,19 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             one trigger instead of the 6-button cluster. Destructive
                             entries stay confirm-gated downstream via setConfirm. */}
                         <RowActionsMenu
-                          label={isArabic ? `إجراءات ${exam.titleAr}` : `Actions for ${exam.titleAr}`}
+                          label={t(locale, 'exams.rowActions.menuLabel', { title: exam.titleAr })}
                           dir={isArabic ? 'rtl' : 'ltr'}
                           items={[
                             {
                               key: 'stats',
-                              label: isArabic ? 'الإحصائيات' : 'Stats',
+                              label: t(locale, 'exams.rowActions.stats'),
                               icon: <TrendingUp className="w-4 h-4" />,
                               disabled: busy,
                               onSelect: () => void showStats(exam),
                             },
                             {
                               key: 'results',
-                              label: isArabic ? 'النتائج' : 'Results',
+                              label: t(locale, 'exams.results.title'),
                               icon: <BarChart3 className="w-4 h-4" />,
                               disabled: busy,
                               onSelect: () => void showResults(exam),
@@ -1109,7 +1120,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                               // Push 3 census: exams edit stays ungated (out-of-census
                               // control, like lecture-publish/copy-code) — backend policy is the gate.
                               key: 'edit',
-                              label: isArabic ? 'تعديل' : 'Edit',
+                              label: t(locale, 'common.edit'),
                               icon: <Pencil className="w-4 h-4" />,
                               disabled: busy,
                               onSelect: () => void openEdit(exam),
@@ -1117,7 +1128,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             {
                               // W6 (complete API coverage): student-view preview joins the menu.
                               key: 'preview',
-                              label: isArabic ? 'معاينة كطالب' : 'Preview as student',
+                              label: t(locale, 'exams.preview.asStudent'),
                               icon: <Eye className="w-4 h-4" />,
                               disabled: busy,
                               onSelect: () => void showPreview(exam),
@@ -1125,7 +1136,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             ...(exam.status !== 'Published' && exam.status !== 'Archived' && can('btn:exams.publish')
                               ? [{
                                   key: 'publish',
-                                  label: isArabic ? 'نشر' : 'Publish',
+                                  label: t(locale, 'common.publish'),
                                   icon: <Send className="w-4 h-4" />,
                                   disabled: busy,
                                   dividerBefore: true,
@@ -1136,7 +1147,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             ...(exam.status === 'Published' && can('btn:exams.publish')
                               ? [{
                                   key: 'unpublish',
-                                  label: isArabic ? 'إلغاء النشر (إعادة إلى مسودة)' : 'Unpublish (revert to draft)',
+                                  label: t(locale, 'exams.rowActions.unpublish'),
                                   icon: <CloudOff className="w-4 h-4" />,
                                   disabled: busy,
                                   onSelect: () => setConfirm({ exam, action: 'unpublish' }),
@@ -1145,7 +1156,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             ...(exam.status !== 'Archived' && can('btn:exams.archive')
                               ? [{
                                   key: 'archive',
-                                  label: isArabic ? 'أرشفة' : 'Archive',
+                                  label: t(locale, 'common.archive'),
                                   icon: <Archive className="w-4 h-4" />,
                                   disabled: busy,
                                   onSelect: () => setConfirm({ exam, action: 'archive' }),
@@ -1154,7 +1165,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             ...(can('btn:exams.delete')
                               ? [{
                                   key: 'delete',
-                                  label: isArabic ? 'حذف' : 'Delete',
+                                  label: t(locale, 'common.delete'),
                                   danger: true,
                                   icon: <Trash2 className="w-4 h-4" />,
                                   disabled: busy,
@@ -1164,7 +1175,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             ...(isSuperAdmin
                               ? [{
                                   key: 'hard-delete',
-                                  label: isArabic ? 'حذف نهائي (تجاوز الأرشفة)' : 'Hard delete (bypass archive)',
+                                  label: t(locale, 'exams.rowActions.hardDelete'),
                                   danger: true,
                                   dividerBefore: true,
                                   icon: <Trash2 className="w-4 h-4" />,
@@ -1189,8 +1200,8 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
               onPageChange={(next) => void loadExams(next)}
               dir={isArabic ? 'rtl' : 'ltr'}
               labels={isArabic ? undefined : {
-                prev: 'Previous', next: 'Next', navLabel: 'Exam list pagination',
-                pageOf: (p, tp) => `Page ${p} of ${tp}`,
+                prev: t(locale, 'exams.pager.prev'), next: t(locale, 'exams.pager.next'), navLabel: t(locale, 'exams.pager.navLabel'),
+                pageOf: (p, tp) => t(locale, 'exams.pager.pageOf', { page: p, total: tp }),
               }}
               testId="exams-list-pagination"
             />
@@ -1206,10 +1217,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   </span>
                   <div>
                     <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>
-                      {isArabic ? 'بلاغات الأسئلة' : 'Question reports'}
+                      {t(locale, 'exams.reports.title')}
                     </h3>
                     <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                      {isArabic ? 'بلاغات الطلاب عن أخطاء الأسئلة — ضمن نطاقك الأكاديمي.' : 'Student reports about question errors — within your academic scope.'}
+                      {t(locale, 'exams.reports.subtitle')}
                     </p>
                   </div>
                 </div>
@@ -1217,31 +1228,31 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   <select
                     value={reportStatus}
                     onChange={(event) => setReportStatus(event.target.value)}
-                    aria-label={isArabic ? 'تصفية الحالة' : 'Filter by status'}
+                    aria-label={t(locale, 'exams.reports.statusFilterA11y')}
                     className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                     style={{ borderColor: 'var(--cms-line-strong)' }}
                   >
-                    <option value="">{isArabic ? 'كل الحالات' : 'All statuses'}</option>
+                    <option value="">{t(locale, 'exams.toolbar.allStatuses')}</option>
                     {['Pending', 'Reviewing', 'Resolved', 'Rejected', 'Closed'].map(status => (
-                      <option key={status} value={status}>{reportStatusLabel(status, isArabic)}</option>
+                      <option key={status} value={status}>{reportStatusLabel(status, locale)}</option>
                     ))}
                   </select>
                   <select
                     value={reportType}
                     onChange={(event) => setReportType(event.target.value)}
-                    aria-label={isArabic ? 'تصفية النوع' : 'Filter by type'}
+                    aria-label={t(locale, 'exams.reports.typeFilterA11y')}
                     className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                     style={{ borderColor: 'var(--cms-line-strong)' }}
                   >
-                    <option value="">{isArabic ? 'كل الأنواع' : 'All types'}</option>
+                    <option value="">{t(locale, 'exams.reports.allTypes')}</option>
                     {['Typo', 'WrongAnswer', 'BadImage', 'Other'].map(type => (
-                      <option key={type} value={type}>{reportTypeLabel(type, isArabic)}</option>
+                      <option key={type} value={type}>{reportTypeLabel(type, locale)}</option>
                     ))}
                   </select>
                   <button
                     type="button"
                     onClick={() => setShowReports(false)}
-                    aria-label={isArabic ? 'إغلاق البلاغات' : 'Close reports'}
+                    aria-label={t(locale, 'exams.reports.closeA11y')}
                     className="p-2 rounded-lg transition-colors hover:bg-slate-100"
                     style={{ color: 'var(--cms-text-soft)' }}
                   >
@@ -1258,7 +1269,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   <div className="flex flex-col items-center justify-center text-center py-10" style={{ color: 'var(--cms-text-soft)' }}>
                     <Flag className="w-6 h-6 opacity-50" />
                     <p className="mt-2 text-sm">
-                      {isArabic ? 'لا توجد بلاغات ضمن هذه التصفية.' : 'No reports match this filter.'}
+                      {t(locale, 'exams.reports.emptyFiltered')}
                     </p>
                   </div>
                 ) : (
@@ -1267,10 +1278,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                       <li key={report.id} className="rounded-lg border p-4" style={{ borderColor: 'var(--cms-line)' }}>
                         <div className="flex items-center gap-2 flex-wrap mb-2">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${reportTypeBadgeClass(report.reportType)}`}>
-                            {reportTypeLabel(report.reportType, isArabic)}
+                            {reportTypeLabel(report.reportType, locale)}
                           </span>
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${reportStatusBadgeClass(report.status)}`}>
-                            {reportStatusLabel(report.status, isArabic)}
+                            {reportStatusLabel(report.status, locale)}
                           </span>
                           <span className="text-xs ms-auto" style={{ color: 'var(--cms-text-soft)' }}>
                             {new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(report.createdAt))}
@@ -1292,7 +1303,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         )}
                         {report.resolutionNotes && (
                           <p className="mt-2 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'ملاحظات الحل:' : 'Resolution notes:'} {report.resolutionNotes}
+                            {t(locale, 'exams.reports.resolutionNotes')} {report.resolutionNotes}
                           </p>
                         )}
                         <div className="flex items-center gap-2 flex-wrap mt-3">
@@ -1305,7 +1316,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                               style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
                             >
                               <Eye className="w-3.5 h-3.5" />
-                              {isArabic ? 'لقطة الشاشة' : 'Screenshot'}
+                              {t(locale, 'exams.reports.screenshot')}
                             </a>
                           )}
                           {(report.status === 'Pending' || report.status === 'Reviewing') && can('btn:questions.edit') && (
@@ -1318,7 +1329,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                                 style={{ background: 'var(--cms-teal-700)' }}
                               >
                                 <CheckCircle2 className="w-3.5 h-3.5" />
-                                {isArabic ? 'حل البلاغ' : 'Resolve'}
+                                {t(locale, 'exams.reports.resolveButton')}
                               </button>
                               <button
                                 type="button"
@@ -1328,7 +1339,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                                 style={{ borderColor: 'var(--cms-danger)', color: 'var(--cms-danger)' }}
                               >
                                 <XCircle className="w-3.5 h-3.5" />
-                                {isArabic ? 'رفض البلاغ' : 'Reject'}
+                                {t(locale, 'exams.reports.rejectButton')}
                               </button>
                             </>
                           )}
@@ -1352,7 +1363,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                 className="bg-white rounded-xl max-w-md w-full"
                 role="dialog"
                 aria-modal="true"
-                aria-label={reportNotes.action === 'resolve' ? (isArabic ? 'حل البلاغ' : 'Resolve report') : (isArabic ? 'رفض البلاغ' : 'Reject report')}
+                aria-label={reportNotes.action === 'resolve' ? (t(locale, 'exams.reports.resolveDialog')) : (t(locale, 'exams.reports.rejectDialog'))}
                 style={{ boxShadow: 'var(--cms-shadow-xl)' }}
                 onMouseDown={(event) => event.stopPropagation()}
               >
@@ -1366,8 +1377,8 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   <div className="min-w-0">
                     <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
                       {reportNotes.action === 'resolve'
-                        ? (isArabic ? 'حل البلاغ' : 'Resolve report')
-                        : (isArabic ? 'رفض البلاغ' : 'Reject report')}
+                        ? (t(locale, 'exams.reports.resolveDialog'))
+                        : (t(locale, 'exams.reports.rejectDialog'))}
                     </h3>
                     <p className="text-xs mt-1 line-clamp-2" style={{ color: 'var(--cms-text-soft)' }}>
                       {reportNotes.report.questionText}
@@ -1377,7 +1388,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                 <div className="p-5">
                   <label className="block">
                     <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                      {isArabic ? 'ملاحظات الحل (اختياري)' : 'Resolution notes (optional)'}
+                      {t(locale, 'exams.reports.notesLabel')}
                     </span>
                     <textarea
                       value={reportNotes.notes}
@@ -1396,7 +1407,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
                   >
-                    {isArabic ? 'إلغاء' : 'Cancel'}
+                    {t(locale, 'common.cancel')}
                   </button>
                   <button
                     type="button"
@@ -1406,7 +1417,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     style={{ background: reportNotes.action === 'resolve' ? 'var(--cms-teal-700)' : 'var(--cms-danger)' }}
                   >
                     {reportsBusy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : null}
-                    {reportNotes.action === 'resolve' ? (isArabic ? 'حل' : 'Resolve') : (isArabic ? 'رفض' : 'Reject')}
+                    {reportNotes.action === 'resolve' ? (t(locale, 'exams.reports.resolveAction')) : (t(locale, 'exams.reports.rejectAction'))}
                   </button>
                 </div>
               </div>
@@ -1436,10 +1447,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   >
                     <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                        {form.id ? (isArabic ? 'تعديل الاختبار' : 'Edit exam') : (isArabic ? 'اختبار جديد' : 'New exam')}
+                        {form.id ? (t(locale, 'exams.editor.editTitle')) : (t(locale, 'exams.header.newExam'))}
                       </p>
                       <h3 className="text-base font-bold truncate" style={{ color: 'var(--cms-text)' }}>
-                        {activeSubject ? label(isArabic, activeSubject) : (isArabic ? 'الاختبارات' : 'Exams')}
+                        {activeSubject ? label(isArabic, activeSubject) : (t(locale, 'exams.header.title'))}
                       </h3>
                     </div>
                     <button
@@ -1461,13 +1472,13 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                       <div className="flex items-center gap-2">
                         <FileText className="w-4 h-4" style={{ color: 'var(--cms-teal-700)' }} />
                         <h4 className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>
-                          {isArabic ? 'المعلومات الأساسية' : 'Basic info'}
+                          {t(locale, 'exams.editor.basicInfo')}
                         </h4>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <label className="block">
                           <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'عنوان الاختبار (بالعربية)' : 'Exam title (Arabic)'}
+                            {t(locale, 'exams.editor.titleArLabel')}
                           </span>
                           <input
                             required
@@ -1479,7 +1490,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         </label>
                         <label className="block">
                           <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'العنوان الإنجليزي (اختياري)' : 'English title (optional)'}
+                            {t(locale, 'exams.editor.titleEnLabel')}
                           </span>
                           <input
                             value={form.titleEn ?? ''}
@@ -1490,7 +1501,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         </label>
                         <label className="block">
                           <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'الرابط المختصر' : 'Slug'}
+                            {t(locale, 'exams.editor.slugLabel')}
                           </span>
                           <input
                             required
@@ -1504,7 +1515,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         </label>
                         <label className="block">
                           <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'النوع' : 'Type'}
+                            {t(locale, 'exams.shared.type')}
                           </span>
                           <select
                             value={form.examType}
@@ -1512,15 +1523,15 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                             style={{ borderColor: 'var(--cms-line-strong)' }}
                           >
-                            <option value="Final">{isArabic ? 'نهائي' : 'Final'}</option>
-                            <option value="Midterm">{isArabic ? 'نصفي' : 'Midterm'}</option>
-                            <option value="Quiz">{isArabic ? 'قصير' : 'Quiz'}</option>
-                            <option value="Practice">{isArabic ? 'تدريبي' : 'Practice'}</option>
+                            <option value="Final">{t(locale, 'exams.examType.final')}</option>
+                            <option value="Midterm">{t(locale, 'exams.examType.midterm')}</option>
+                            <option value="Quiz">{t(locale, 'exams.examType.quiz')}</option>
+                            <option value="Practice">{t(locale, 'exams.examType.practice')}</option>
                           </select>
                         </label>
                         <label className="block">
                           <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'المحاضرة (اختياري)' : 'Lecture (optional)'}
+                            {t(locale, 'exams.editor.lectureLabel')}
                           </span>
                           <select
                             value={form.lectureId ?? ''}
@@ -1528,13 +1539,13 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                             style={{ borderColor: 'var(--cms-line-strong)' }}
                           >
-                            <option value="">{isArabic ? 'على مستوى المادة' : 'Subject-wide'}</option>
+                            <option value="">{t(locale, 'exams.shared.subjectWide')}</option>
                             {lectures.map(item => <option key={item.id} value={item.id}>{label(isArabic, item)}</option>)}
                           </select>
                         </label>
                         <label className="block">
                           <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'السنة' : 'Year'}
+                            {t(locale, 'exams.filters.year')}
                           </span>
                           <input
                             required
@@ -1548,7 +1559,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         </label>
                         <label className="block md:col-span-2">
                           <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'الوصف (اختياري)' : 'Description (optional)'}
+                            {t(locale, 'exams.editor.descriptionLabel')}
                           </span>
                           <textarea
                             rows={3}
@@ -1566,13 +1577,13 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                       <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4" style={{ color: 'var(--cms-teal-700)' }} />
                         <h4 className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>
-                          {isArabic ? 'الإتاحة والتوقيت' : 'Availability & timing'}
+                          {t(locale, 'exams.editor.availabilityTitle')}
                         </h4>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                         <label className="block">
                           <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'المدة (دقيقة)' : 'Duration (min)'}
+                            {t(locale, 'exams.shared.durationMinutes')}
                           </span>
                           <input
                             required
@@ -1586,7 +1597,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         </label>
                         <label className="block">
                           <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'درجة النجاح %' : 'Passing score %'}
+                            {t(locale, 'exams.editor.passingScoreLabel')}
                           </span>
                           <input
                             required
@@ -1602,7 +1613,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         </label>
                         <label className="block">
                           <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'ترتيب العرض' : 'Display order'}
+                            {t(locale, 'exams.editor.displayOrderLabel')}
                           </span>
                           <input
                             required
@@ -1616,21 +1627,21 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         </label>
                         <label className="block">
                           <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'الحد الأقصى للمحاولات' : 'Max attempts'}
+                            {t(locale, 'exams.editor.maxAttemptsLabel')}
                           </span>
                           <input
                             min="1"
                             type="number"
                             value={form.maxAttempts ?? ''}
                             onChange={event => setForm(current => ({ ...current, maxAttempts: event.target.value ? Number(event.target.value) : null }))}
-                            placeholder={isArabic ? 'غير محدود' : 'Unlimited'}
+                            placeholder={t(locale, 'exams.editor.unlimitedPlaceholder')}
                             className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                             style={{ borderColor: 'var(--cms-line-strong)' }}
                           />
                         </label>
                         <label className="block">
                           <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'متاح من' : 'Available from'}
+                            {t(locale, 'exams.editor.availableFromLabel')}
                           </span>
                           <input
                             type="datetime-local"
@@ -1642,7 +1653,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                         </label>
                         <label className="block">
                           <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                            {isArabic ? 'متاح حتى' : 'Available until'}
+                            {t(locale, 'exams.editor.availableUntilLabel')}
                           </span>
                           <input
                             type="datetime-local"
@@ -1663,33 +1674,33 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                       <div className="flex items-center gap-2">
                         <ClipboardCheck className="w-4 h-4" style={{ color: 'var(--cms-teal-700)' }} />
                         <h4 className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>
-                          {isArabic ? 'سياسات الاختبار' : 'Exam policies'}
+                          {t(locale, 'exams.editor.policiesTitle')}
                         </h4>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                         <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--cms-text-soft)' }}>
                           <input type="checkbox" checked={form.shuffleQuestions} onChange={event => setForm(current => ({ ...current, shuffleQuestions: event.target.checked }))} className="h-4 w-4 accent-teal-600" />
-                          {isArabic ? 'ترتيب الأسئلة عشوائي' : 'Shuffle questions'}
+                          {t(locale, 'exams.editor.shuffleQuestions')}
                         </label>
                         <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--cms-text-soft)' }}>
                           <input type="checkbox" checked={form.shuffleOptions} onChange={event => setForm(current => ({ ...current, shuffleOptions: event.target.checked }))} className="h-4 w-4 accent-teal-600" />
-                          {isArabic ? 'ترتيب الخيارات عشوائي' : 'Shuffle options'}
+                          {t(locale, 'exams.editor.shuffleOptions')}
                         </label>
                         <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--cms-text-soft)' }}>
                           <input type="checkbox" checked={form.showResultsImmediately} onChange={event => setForm(current => ({ ...current, showResultsImmediately: event.target.checked }))} className="h-4 w-4 accent-teal-600" />
-                          {isArabic ? 'إظهار النتيجة بعد التسليم' : 'Show results after submission'}
+                          {t(locale, 'exams.editor.showResultsAfterSubmission')}
                         </label>
                         <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--cms-text-soft)' }}>
                           <input type="checkbox" checked={form.allowReview} onChange={event => setForm(current => ({ ...current, allowReview: event.target.checked }))} className="h-4 w-4 accent-teal-600" />
-                          {isArabic ? 'السماح بالمراجعة' : 'Allow review'}
+                          {t(locale, 'exams.editor.allowReview')}
                         </label>
                         <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--cms-text-soft)' }}>
                           <input type="checkbox" disabled={!form.allowReview} checked={form.showCorrectAnswers} onChange={event => setForm(current => ({ ...current, showCorrectAnswers: event.target.checked }))} className="h-4 w-4 accent-teal-600 disabled:opacity-50" />
-                          {isArabic ? 'عرض الإجابة الصحيحة' : 'Show correct answers'}
+                          {t(locale, 'exams.editor.showCorrectAnswers')}
                         </label>
                         <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--cms-text-soft)' }}>
                           <input type="checkbox" disabled={!form.allowReview} checked={form.showExplanations} onChange={event => setForm(current => ({ ...current, showExplanations: event.target.checked }))} className="h-4 w-4 accent-teal-600 disabled:opacity-50" />
-                          {isArabic ? 'عرض الشرح' : 'Show explanations'}
+                          {t(locale, 'exams.editor.showExplanations')}
                         </label>
                       </div>
                     </section>
@@ -1699,7 +1710,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                       <div className="flex items-center gap-2">
                         <ListChecks className="w-4 h-4" style={{ color: 'var(--cms-teal-700)' }} />
                         <h4 className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>
-                          {isArabic ? 'بناء الأسئلة' : 'Question builder'}
+                          {t(locale, 'exams.compose.title')}
                         </h4>
                       </div>
 
@@ -1712,10 +1723,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                           >
                             <div>
                               <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-teal-700)' }}>
-                                {isArabic ? 'أسئلة مختارة' : 'Selected questions'}
+                                {t(locale, 'exams.compose.selectedTitle')}
                               </p>
                               <h5 className="text-sm font-bold" style={{ color: 'var(--cms-text)' }}>
-                                {selectedQuestions.length} {isArabic ? 'سؤال' : 'questions'}
+                                {selectedQuestions.length} {t(locale, 'exams.units.questions')}
                               </h5>
                             </div>
                             <ListChecks className="w-5 h-5" style={{ color: 'var(--cms-teal-700)' }} />
@@ -1725,7 +1736,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                               <div className="flex flex-col items-center justify-center text-center py-8" style={{ color: 'var(--cms-text-muted)' }}>
                                 <FileText className="w-6 h-6 opacity-50" />
                                 <p className="mt-2 text-xs">
-                                  {isArabic ? 'أضف أسئلة منشورة من القائمة المقابلة.' : 'Add published questions from the candidate list.'}
+                                  {t(locale, 'exams.compose.selectedEmpty')}
                                 </p>
                               </div>
                             ) : selectedQuestions.map((question, index) => (
@@ -1745,13 +1756,13 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                                     {question.text}
                                   </strong>
                                   <small className="block mt-0.5 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
-                                    {questionTypeLabel(question.type, isArabic)} · {questionDifficultyLabel(question.difficulty, isArabic)} · {question.lectureName ?? (isArabic ? 'على مستوى المادة' : 'Subject-wide')}
+                                    {questionTypeLabel(question.type, isArabic)} · {questionDifficultyLabel(question.difficulty, isArabic)} · {question.lectureName ?? (t(locale, 'exams.shared.subjectWide'))}
                                   </small>
                                 </div>
                                 <div className="flex flex-col gap-0.5">
                                   <button
                                     type="button"
-                                    title={isArabic ? 'أعلى' : 'Up'}
+                                    title={t(locale, 'exams.compose.moveUp')}
                                     disabled={index === 0}
                                     onClick={() => moveQuestion(index, -1)}
                                     className="p-0.5 rounded transition-colors disabled:opacity-30"
@@ -1761,7 +1772,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                                   </button>
                                   <button
                                     type="button"
-                                    title={isArabic ? 'أسفل' : 'Down'}
+                                    title={t(locale, 'exams.compose.moveDown')}
                                     disabled={index === selectedQuestions.length - 1}
                                     onClick={() => moveQuestion(index, 1)}
                                     className="p-0.5 rounded transition-colors disabled:opacity-30"
@@ -1771,7 +1782,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                                   </button>
                                   <button
                                     type="button"
-                                    title={isArabic ? 'إزالة' : 'Remove'}
+                                    title={t(locale, 'exams.compose.remove')}
                                     onClick={() => removeQuestion(question.questionId)}
                                     className="p-0.5 rounded text-red-500 hover:bg-red-50 transition-colors"
                                   >
@@ -1791,10 +1802,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                           >
                             <div>
                               <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                                {isArabic ? 'أسئلة متاحة' : 'Available questions'}
+                                {t(locale, 'exams.compose.availableTitle')}
                               </p>
                               <h5 className="text-sm font-bold" style={{ color: 'var(--cms-text)' }}>
-                                {isArabic ? 'المنشورة والمصححة آلياً' : 'Published, auto-graded'}
+                                {t(locale, 'exams.compose.availableSubtitle')}
                               </h5>
                             </div>
                           </div>
@@ -1804,7 +1815,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                               <input
                                 value={candidateQuery}
                                 onChange={event => setCandidateQuery(event.target.value)}
-                                placeholder={isArabic ? 'ابحث في نص السؤال' : 'Search question text'}
+                                placeholder={t(locale, 'exams.compose.searchPlaceholder')}
                                 className="w-full pr-9 pl-3 py-1.5 rounded-md border text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                                 style={{ borderColor: 'var(--cms-line-strong)' }}
                               />
@@ -1812,7 +1823,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                             <div className="max-h-80 overflow-y-auto space-y-2">
                               {candidates.length === 0 ? (
                                 <p className="text-center text-xs py-6" style={{ color: 'var(--cms-text-muted)' }}>
-                                  {isArabic ? 'لا توجد أسئلة مؤهلة.' : 'No eligible questions.'}
+                                  {t(locale, 'exams.compose.noCandidates')}
                                 </p>
                               ) : candidates.map(candidate => {
                                 const picked = selectedIds.has(candidate.id);
@@ -1837,7 +1848,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                                         {candidate.text}
                                       </strong>
                                       <small className="block mt-0.5 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
-                                        {questionTypeLabel(candidate.type, isArabic)} · {questionDifficultyLabel(candidate.difficulty, isArabic)} · {candidate.lectureName ?? (isArabic ? 'على مستوى المادة' : 'Subject-wide')}
+                                        {questionTypeLabel(candidate.type, isArabic)} · {questionDifficultyLabel(candidate.difficulty, isArabic)} · {candidate.lectureName ?? (t(locale, 'exams.shared.subjectWide'))}
                                       </small>
                                     </div>
                                   </button>
@@ -1862,7 +1873,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                       className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
                       style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
                     >
-                      {isArabic ? 'إغلاق' : 'Close'}
+                      {t(locale, 'common.close')}
                     </button>
                     <button
                       type="submit"
@@ -1873,7 +1884,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                       onMouseLeave={(event) => { event.currentTarget.style.background = 'var(--cms-teal-700)'; }}
                     >
                       {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                      {isArabic ? 'حفظ كمسودة' : 'Save as draft'}
+                      {t(locale, 'exams.editor.saveDraft')}
                     </button>
                   </div>
                 </form>
@@ -1890,7 +1901,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
               >
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                    {isArabic ? 'النتائج' : 'Results'}
+                    {t(locale, 'exams.results.title')}
                   </p>
                   <h3 className="text-base font-bold" style={{ color: 'var(--cms-text)' }}>
                     {resultExam.titleAr}
@@ -1903,7 +1914,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
                 >
                   <X className="w-3.5 h-3.5" />
-                  {isArabic ? 'إغلاق' : 'Close'}
+                  {t(locale, 'common.close')}
                 </button>
               </div>
               <div className="p-5">
@@ -1924,7 +1935,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   <div className="flex flex-col items-center justify-center text-center py-12" style={{ color: 'var(--cms-text-muted)' }}>
                     <BarChart3 className="w-6 h-6 opacity-50" />
                     <p className="mt-2 text-sm">
-                      {isArabic ? 'لا توجد محاولات بعد.' : 'No attempts yet.'}
+                      {t(locale, 'exams.shared.noAttempts')}
                     </p>
                   </div>
                 ) : (
@@ -1932,13 +1943,13 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     <table className="w-full text-sm">
                       <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}>
                         <tr>
-                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الطالب' : 'Student'}</th>
-                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الحالة' : 'Status'}</th>
-                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الدرجة' : 'Score'}</th>
-                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'النتيجة' : 'Result'}</th>
-                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'الإجابات' : 'Answered'}</th>
-                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'إجابات صحيحة' : 'Correct answers'}</th>
-                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{isArabic ? 'البداية' : 'Started'}</th>
+                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.results.studentCol')}</th>
+                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'common.status')}</th>
+                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.results.scoreCol')}</th>
+                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.results.resultCol')}</th>
+                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.results.answeredCol')}</th>
+                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.results.correctCol')}</th>
+                          <th className="text-right px-4 py-3 font-semibold text-xs uppercase tracking-wider">{t(locale, 'exams.results.startedCol')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y" style={{ borderColor: 'var(--cms-line)' }}>
@@ -1963,7 +1974,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                               </td>
                               <td className="px-4 py-3">
                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${resultStatusBadgeClass(result.status)}`}>
-                                  {resultStatusLabel(result.status, isArabic)}
+                                  {resultStatusLabel(result.status, locale)}
                                 </span>
                               </td>
                               <td className="px-4 py-3">
@@ -1974,12 +1985,12 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                               <td className="px-4 py-3">
                                 {passed && (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border text-emerald-700 bg-emerald-50 border-emerald-200">
-                                    {isArabic ? 'ناجح' : 'Passed'}
+                                    {t(locale, 'exams.results.passed')}
                                   </span>
                                 )}
                                 {failed && (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border text-red-700 bg-red-50 border-red-200">
-                                    {isArabic ? 'راسب' : 'Failed'}
+                                    {t(locale, 'exams.results.failed')}
                                   </span>
                                 )}
                                 {result.passed == null && (
@@ -2039,21 +2050,21 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
               <div className="min-w-0">
                 <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
                   {confirm.action === 'publish'
-                    ? (isArabic ? 'نشر الاختبار' : 'Publish exam')
+                    ? (t(locale, 'exams.confirm.publishTitle'))
                     : confirm.action === 'archive'
-                    ? (isArabic ? 'أرشفة الاختبار' : 'Archive exam')
+                    ? (t(locale, 'exams.confirm.archiveTitle'))
                     : confirm.action === 'unpublish'
-                    ? (isArabic ? 'إلغاء نشر الاختبار' : 'Unpublish exam')
-                    : (isArabic ? 'حذف الاختبار' : 'Delete exam')}
+                    ? (t(locale, 'exams.confirm.unpublishTitle'))
+                    : (t(locale, 'exams.confirm.deleteTitle'))}
                 </h3>
                 <p className="text-sm mt-1" style={{ color: 'var(--cms-text-soft)' }}>
                   {confirm.action === 'publish'
-                    ? (isArabic ? 'لا يقبل النشر إلا الأسئلة المنشورة والمؤهلة.' : 'Only published, eligible questions can be used.')
+                    ? (t(locale, 'exams.confirm.publishText'))
                     : confirm.action === 'archive'
-                    ? (isArabic ? 'سيُخفى الاختبار من قائمة الطلاب.' : 'The exam will be removed from student discovery.')
+                    ? (t(locale, 'exams.confirm.archiveText'))
                     : confirm.action === 'unpublish'
-                    ? (isArabic ? 'سيُعاد الاختبار إلى مسودة ويُخفى من الطلاب الجدد. الجلسات القائمة تحتفظ بلقطتها الحالية ولا تتأثر.' : 'The exam reverts to draft and disappears for new students. Existing sessions keep their snapshot and are unaffected.')
-                    : (isArabic ? 'هذا الإجراء دائم. سيُحذف الاختبار نهائياً.' : 'This action is permanent. The exam will be removed permanently.')}
+                    ? (t(locale, 'exams.confirm.unpublishText'))
+                    : (t(locale, 'exams.confirm.deleteText'))}
                 </p>
                 <p className="text-sm font-medium mt-2 truncate" style={{ color: 'var(--cms-text)' }}>
                   "{confirm.exam.titleAr}"
@@ -2067,7 +2078,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                 className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
                 style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
               >
-                {isArabic ? 'إلغاء' : 'Cancel'}
+                {t(locale, 'common.cancel')}
               </button>
               <button
                 onClick={() => {
@@ -2102,12 +2113,12 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   : <Send className="w-4 h-4" />
                 )}
                 {confirm.action === 'publish'
-                  ? (isArabic ? 'نشر' : 'Publish')
+                  ? (t(locale, 'common.publish'))
                   : confirm.action === 'archive'
-                  ? (isArabic ? 'أرشفة' : 'Archive')
+                  ? (t(locale, 'common.archive'))
                   : confirm.action === 'unpublish'
-                  ? (isArabic ? 'إلغاء النشر' : 'Unpublish')
-                  : (isArabic ? 'حذف' : 'Delete')}
+                  ? (t(locale, 'exams.confirm.unpublishAction'))
+                  : (t(locale, 'common.delete'))}
               </button>
             </div>
           </div>
@@ -2119,7 +2130,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
         <Dialog
           open
           onOpenChange={(next) => { if (!next) setPreview(null); }}
-          title={isArabic ? 'معاينة كطالب' : 'Preview as student'}
+          title={t(locale, 'exams.preview.asStudent')}
           description={preview.exam.titleAr}
           dir={isArabic ? 'rtl' : 'ltr'}
           size="lg"
@@ -2129,7 +2140,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
             {preview.loading && (
               <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--cms-text-muted)' }}>
                 <LoaderCircle className="w-4 h-4 animate-spin" />
-                {isArabic ? 'جارٍ تحميل المعاينة…' : 'Loading preview…'}
+                {t(locale, 'exams.preview.loading')}
               </div>
             )}
             {preview.error && !preview.loading && (
@@ -2141,10 +2152,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
               <>
                 <div className="flex flex-wrap gap-2 text-[11px]">
                   <span className="px-2 py-1 rounded-full border" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
-                    {isArabic ? `المدة: ${preview.data.durationMinutes} دقيقة` : `Duration: ${preview.data.durationMinutes} min`}
+                    {t(locale, 'exams.preview.durationChip', { minutes: preview.data.durationMinutes })}
                   </span>
                   <span className="px-2 py-1 rounded-full border" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
-                    {isArabic ? `الأسئلة: ${preview.data.totalQuestions}` : `Questions: ${preview.data.totalQuestions}`}
+                    {t(locale, 'exams.preview.questionsChip', { count: preview.data.totalQuestions })}
                   </span>
                   <span className="px-2 py-1 rounded-full border" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
                     {preview.data.status}
@@ -2183,7 +2194,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   ))}
                 </ol>
                 <p className="text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
-                  {isArabic ? 'هذه المعاينة كما يراها الطالب: مرتبة الأسئلة وخياراتها دون أي مؤشر للإجابات الصحيحة.' : 'This is the student view: ordered questions and options, with no correctness indicators.'}
+                  {t(locale, 'exams.preview.note')}
                 </p>
               </>
             )}
@@ -2196,7 +2207,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
               className="px-4 py-2 rounded-lg border text-sm font-medium"
               style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
             >
-              {isArabic ? 'إغلاق' : 'Close'}
+              {t(locale, 'common.close')}
             </button>
           </div>
         </Dialog>
@@ -2207,9 +2218,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
         token={token}
         isArabic={isArabic}
         target={hardTarget}
-        consequence={isArabic
-          ? 'سيُحذف الاختبار نهائيًا من قاعدة البيانات (تجاوز الأرشفة) مع جلساته ونتائجه المرتبطة.'
-          : 'The exam is physically deleted (bypassing archive) with its sessions and results.'}
+        consequence={t(locale, 'exams.hardDelete.consequence')}
         onDone={() => { void loadExams(); }}
         onClose={() => setHardTarget(null)}
       />

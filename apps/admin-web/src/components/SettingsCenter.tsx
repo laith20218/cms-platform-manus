@@ -24,6 +24,7 @@ import {
 import { ConfirmDialog } from '@cms/ui';
 import { DangerZone } from './DangerZone';
 import { ApiError, apiRequest } from '../lib/api';
+import { t, localeOf } from '../lib/dictionary';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 
 type Props = {
@@ -63,7 +64,7 @@ function dateLabel(value: string, isArabic: boolean) {
 }
 
 function categoryLabel(cat: string | null | undefined, isArabic: boolean) {
-  if (!cat) return isArabic ? 'عام' : 'General';
+  if (!cat) return t(localeOf(isArabic), 'admincenters.settings.generalCategory');
   const found = CATEGORIES.find(c => c.value === cat);
   return found ? (isArabic ? found.ar : found.en) : cat;
 }
@@ -71,6 +72,7 @@ function categoryLabel(cat: string | null | undefined, isArabic: boolean) {
 export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotice }: Props) {
   // Push 3: cosmetic gating — save (incl. the edit pencil that starts a save) + reset.
   const { can } = useUiPermissions();
+  const locale = localeOf(isArabic);
   const [settings, setSettings] = useState<SystemSetting[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('');
@@ -91,7 +93,7 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
       const data = await apiRequest<SystemSetting[]>(`/api/v1/admin/settings${activeCategory ? `?category=${activeCategory}` : ''}`, token);
       setSettings(Array.isArray(data) ? data : []);
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.message : isArabic ? 'تعذّر تحميل الإعدادات' : 'Could not load settings';
+      const msg = err instanceof ApiError ? err.message : t(localeOf(isArabic), 'admincenters.settings.loadFailed');
       onError(msg);
       setSettings([]);
     } finally {
@@ -143,9 +145,9 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
       });
       setSettings(prev => prev.map(s => s.key === key ? { ...s, ...updated } : s));
       cancelEdit();
-      onNotice(isArabic ? 'تم تحديث الإعداد' : 'Setting updated');
+      onNotice(t(locale, 'admincenters.settings.savedToast'));
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.message : isArabic ? 'فشل التحديث' : 'Update failed';
+      const msg = err instanceof ApiError ? err.message : t(locale, 'admincenters.settings.saveFailed');
       onError(msg);
     } finally {
       setBusy(false);
@@ -155,7 +157,7 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
   const resetSetting = async (s: SystemSetting) => {
     const defaultValue = s.description?.split(':').pop()?.trim() ?? '';
     if (!defaultValue) {
-      onError(isArabic ? 'لا يوجد وصف لهذا الإعداد' : 'No description for default value');
+      onError(t(locale, 'admincenters.settings.noDefaultToast'));
       setResetTarget(null);
       return;
     }
@@ -168,28 +170,28 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
       });
       setSettings(prev => prev.map(x => x.key === s.key ? { ...x, ...updated } : x));
       setResetTarget(null);
-      onNotice(isArabic ? 'تمت إعادة التعيين' : 'Reset to default');
+      onNotice(t(locale, 'admincenters.settings.resetToast'));
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.message : isArabic ? 'فشلت إعادة التعيين' : 'Reset failed';
+      const msg = err instanceof ApiError ? err.message : t(locale, 'admincenters.settings.resetFailed');
       onError(msg);
     } finally {
       setBusy(false);
     }
   };
 
-  const t = isArabic
-    ? {
-        title: 'إعدادات النظام', desc: 'إعدادات قابلة للتعديل من قبل المدير (مفصولة عن الأسرار)',
-        search: 'ابحث بالمفتاح أو القيمة...', save: 'حفظ', cancel: 'إلغاء', edit: 'تعديل',
-        reset: 'إعادة تعيين', lastUpdated: 'آخر تحديث', locked: 'مقفل — يتطلب super_admin',
-        noData: 'لا توجد إعدادات', loading: 'جارٍ التحميل...',
-      }
-    : {
-        title: 'System Settings', desc: 'Admin-editable platform config (separated from secrets)',
-        search: 'Search by key or value...', save: 'Save', cancel: 'Cancel', edit: 'Edit',
-        reset: 'Reset', lastUpdated: 'Last updated', locked: 'Locked — requires super_admin',
-        noData: 'No settings found', loading: 'Loading...',
-      };
+  const copy = {
+    title: t(locale, 'nav.settings'),
+    desc: t(locale, 'admincenters.settings.description'),
+    search: t(locale, 'admincenters.settings.search'),
+    save: t(locale, 'common.save'),
+    cancel: t(locale, 'common.cancel'),
+    edit: t(locale, 'common.edit'),
+    reset: t(locale, 'admincenters.settings.reset'),
+    lastUpdated: t(locale, 'common.updated'),
+    locked: t(locale, 'admincenters.settings.locked'),
+    noData: t(locale, 'admincenters.settings.noData'),
+    loading: t(locale, 'common.loading'),
+  };
 
   return (
     <section className="space-y-6">
@@ -199,8 +201,8 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
           <SettingsIcon size={20} />
         </div>
         <div>
-          <h2 className="text-xl font-bold" style={{ color: 'var(--cms-text)' }}>{t.title}</h2>
-          <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>{t.desc}</p>
+          <h2 className="text-xl font-bold" style={{ color: 'var(--cms-text)' }}>{copy.title}</h2>
+          <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>{copy.desc}</p>
         </div>
       </div>
 
@@ -212,7 +214,7 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={t.search}
+            placeholder={copy.search}
             className="w-full h-9 rounded-lg border text-xs"
             style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)', color: 'var(--cms-text)', paddingInlineStart: '30px' }}
           />
@@ -237,12 +239,12 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
       {loading ? (
         <div className="p-8 flex items-center justify-center">
           <LoaderCircle size={20} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} />
-          <span className="text-xs ml-2" style={{ color: 'var(--cms-text-muted)' }}>{t.loading}</span>
+          <span className="text-xs ml-2" style={{ color: 'var(--cms-text-muted)' }}>{copy.loading}</span>
         </div>
       ) : grouped.length === 0 ? (
         <div className="p-8 text-center rounded-xl border" style={{ borderColor: 'var(--cms-line)' }}>
           <SettingsIcon size={28} className="mx-auto mb-2 opacity-40" style={{ color: 'var(--cms-text-muted)' }} />
-          <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>{t.noData}</p>
+          <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>{copy.noData}</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -271,7 +273,7 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
                           {isLocked && (
                             <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border" style={{ borderColor: 'var(--cms-warning)', background: 'var(--cms-warning-50)', color: 'var(--cms-warning)' }}>
                               <ShieldCheck size={10} />
-                              {t.locked}
+                              {copy.locked}
                             </span>
                           )}
                         </div>
@@ -294,7 +296,7 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
                               type="text"
                               value={editDescription}
                               onChange={(e) => setEditDescription(e.target.value)}
-                              placeholder={isArabic ? 'الوصف' : 'Description'}
+                              placeholder={t(locale, 'roles.description')}
                               className="w-full h-8 rounded-lg border text-xs px-2"
                               style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
                               disabled={busy}
@@ -307,7 +309,7 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
                         )}
                         {/* Last updated */}
                         <div className="text-[10px] mt-2" style={{ color: 'var(--cms-text-muted)' }}>
-                          {t.lastUpdated}: {dateLabel(s.updatedAt, isArabic)}
+                          {copy.lastUpdated}: {dateLabel(s.updatedAt, isArabic)}
                         </div>
                       </div>
                       {/* Actions */}
@@ -322,7 +324,7 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
                                 style={{ background: 'var(--cms-teal-700)' }}
                               >
                                 {busy ? <LoaderCircle size={12} className="animate-spin" /> : <Check size={12} />}
-                                {t.save}
+                                {copy.save}
                               </button>
                             )}
                             <button
@@ -332,7 +334,7 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
                               style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}
                             >
                               <X size={12} />
-                              {t.cancel}
+                              {copy.cancel}
                             </button>
                           </>
                         ) : (
@@ -343,10 +345,10 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
                                 disabled={isLocked || busy}
                                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border disabled:opacity-40 disabled:cursor-not-allowed"
                                 style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}
-                                title={isLocked ? t.locked : t.edit}
+                                title={isLocked ? copy.locked : copy.edit}
                               >
                                 <Pencil size={12} />
-                                {t.edit}
+                                {copy.edit}
                               </button>
                             )}
                             {s.description && s.description.includes(':') && can('btn:settings.reset') && (
@@ -357,7 +359,7 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
                                 style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}
                               >
                                 <RotateCcw size={12} />
-                                {t.reset}
+                                {copy.reset}
                               </button>
                             )}
                           </>
@@ -378,14 +380,16 @@ export function SettingsCenter({ token, isArabic, isSuperAdmin, onError, onNotic
       <ConfirmDialog
         open={resetTarget !== null}
         onOpenChange={(nextOpen) => { if (!nextOpen) setResetTarget(null); }}
-        title={isArabic ? 'إعادة تعيين الإعداد' : 'Reset setting'}
+        title={t(locale, 'admincenters.settings.resetConfirmTitle')}
         description={resetTarget
-          ? (isArabic
-            ? `سيتم استبدال القيمة الحالية لـ "${resetTarget.key}" (${resetTarget.value || '—'}) بالقيمة الافتراضية "${resetTarget.description?.split(':').pop()?.trim() ?? ''}".`
-            : `"${resetTarget.key}" will be reset from its current value (${resetTarget.value || '—'}) to the default "${resetTarget.description?.split(':').pop()?.trim() ?? ''}".`)
+          ? t(locale, 'admincenters.settings.resetConfirmDescription', {
+              key: resetTarget.key,
+              current: resetTarget.value || '—',
+              defaultValue: resetTarget.description?.split(':').pop()?.trim() ?? '',
+            })
           : undefined}
-        confirmLabel={isArabic ? 'تأكيد إعادة التعيين' : 'Confirm reset'}
-        cancelLabel={t.cancel}
+        confirmLabel={t(locale, 'admincenters.settings.resetConfirmLabel')}
+        cancelLabel={copy.cancel}
         dir={isArabic ? 'rtl' : 'ltr'}
         busy={busy}
         onConfirm={() => { if (resetTarget) void resetSetting(resetTarget); }}

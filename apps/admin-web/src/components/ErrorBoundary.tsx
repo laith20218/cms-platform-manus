@@ -7,6 +7,7 @@
  * and shows a bilingual fallback UI with a reload button.
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { t, localeOf } from '../lib/dictionary';
 
 interface Props {
   children: ReactNode;
@@ -43,6 +44,7 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       const isArabic = document.documentElement.lang === 'ar';
+      const locale = localeOf(isArabic);
       return (
         <div
           style={{
@@ -86,7 +88,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 marginBottom: 8,
               }}
             >
-              {isArabic ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred'}
+              {t(locale, 'errorBoundary.title')}
             </h2>
             <p
               style={{
@@ -96,9 +98,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 lineHeight: 1.6,
               }}
             >
-              {isArabic
-                ? 'يرجى تحديث الصفحة. إذا استمرت المشكلة، تواصل مع الدعم الفني.'
-                : 'Please refresh the page. If the problem persists, contact support.'}
+              {t(locale, 'errorBoundary.body')}
             </p>
             {this.state.error && (
               <details
@@ -117,7 +117,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 }}
               >
                 <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-                  {isArabic ? 'تفاصيل الخطأ' : 'Error details'}
+                  {t(locale, 'errorBoundary.details')}
                 </summary>
                 <pre style={{ marginTop: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                   {this.state.error.name}: {this.state.error.message}
@@ -139,7 +139,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
               }}
             >
-              {isArabic ? 'تحديث الصفحة' : 'Reload page'}
+              {t(locale, 'errorBoundary.reload')}
             </button>
           </div>
         </div>

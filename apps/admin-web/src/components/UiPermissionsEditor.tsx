@@ -25,6 +25,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Check, LoaderCircle, Lock, RotateCcw, Save, Search, SlidersHorizontal, X } from 'lucide-react';
 import { ConfirmDialog } from '@cms/ui';
 import { ApiError, clearRoleUiPermissions, fetchRoleUiPermissions, replaceRoleUiPermissions } from '../lib/api';
+import { t, localeOf } from '../lib/dictionary';
 import { ALL_UI_KEYS, ROLE_TEMPLATES, UI_PERMISSION_LABELS, UI_PERMISSIONS_TREE, VIEW_KEYS } from '../lib/uiPermissions';
 
 type Props = {
@@ -43,6 +44,7 @@ type RoleState = { configured: boolean; allowedKeys: string[] | null };
 export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSystemRole, onClose, onError, onNotice }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const locale = localeOf(isArabic);
   const [roleState, setRoleState] = useState<RoleState>({ configured: false, allowedKeys: null });
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
@@ -59,7 +61,7 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
         setSelection(new Set(state.allowedKeys ?? []));
       })
       .catch((error: unknown) => {
-        const message = error instanceof ApiError ? error.message : isArabic ? 'تعذّر تحميل صلاحيات الواجهة' : 'Could not load UI permissions';
+        const message = error instanceof ApiError ? error.message : t(localeOf(isArabic), 'admincenters.permissions.ui.loadFailed');
         onError(message);
       })
       .finally(() => setLoading(false));
@@ -70,57 +72,30 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
     [selection, roleState],
   );
 
-  const t = isArabic
-    ? {
-        title: 'صلاحيات الواجهة المتقدمة',
-        desc: 'حدد ما يظهر للمدراء المعيّنين لهذا الدور في لوحة الإدارة (64 مفتاحاً: مشاهد + أقسام + أزرار).',
-        close: 'إغلاق',
-        loading: 'جارٍ التحميل...',
-        configured: 'مُهيأ',
-        notConfigured: 'غير مُهيأ — وصول كامل',
-        systemLocked: 'دور نظام — للقراءة فقط (يشمل المدير العام)',
-        dirty: 'تغييرات غير محفوظة',
-        save: 'حفظ المفاتيح',
-        resetToFull: 'إعادة إلى الوصول الكامل',
-        selected: 'مفاتيح محددة',
-        searchPlaceholder: 'ابحث بالاسم أو المفتاح… (مثال: btn:codes.export)',
-        noMatches: 'لا توجد مفاتيح مطابقة للبحث',
-        templates: 'قوالب بداية سريعة',
-        unconfiguredTitle: 'هذا الدور غير مُهيأ بعد',
-        unconfiguredBody:
-          'NULL يعني وصولاً كاملاً: كل المشاهد والأقسام والأزرار تظهر للمدراء المعيّنين — دون أي تغيير في السلوك. أول حفظ يثبّت القائمة؛ بعدها تظهر للمدير فقط المفاتيح المحددة. ملاحظة أمنية (طبقتان): هذه المفاتيح تُخفي عناصر الواجهة فقط — الحماية الحقيقية تبقى في سياسات الـ API ([Authorize] + فحوصات النطاق). مفتاح view:codes لا يمنح صلاحية codes:view الكلاسيكية.',
-        emptyTree: 'لا توجد أزرار أو أقسام تحت هذا المشهد.',
-        views: 'المشاهد',
-        saveOk: 'تم حفظ مفاتيح صلاحيات الواجهة',
-        resetOk: 'أُعيد الدور إلى غير مُهيأ (وصول كامل)',
-        saveFail: 'فشل الحفظ',
-        confirmReset: 'إعادة الدور إلى غير مُهيأ (NULL = وصول كامل لكل المدراء المعيّنين)؟',
-      }
-    : {
-        title: 'Advanced UI Permissions',
-        desc: 'Choose what assigned administrators see in the console (64 keys: views + tabs + buttons).',
-        close: 'Close',
-        loading: 'Loading...',
-        configured: 'Configured',
-        notConfigured: 'Not configured — full access',
-        systemLocked: 'System role — read only (includes super_admin)',
-        dirty: 'Unsaved changes',
-        save: 'Save keys',
-        resetToFull: 'Reset to full access',
-        selected: 'keys selected',
-        searchPlaceholder: 'Search by label or key… (e.g. btn:codes.export)',
-        noMatches: 'No keys match the search',
-        templates: 'Quick-start templates',
-        unconfiguredTitle: 'This role is not configured yet',
-        unconfiguredBody:
-          'NULL means full access: every view, tab and button shows for assigned administrators — zero behavior change. The first save pins the list; after that only the selected keys render. Security note (two layers): these keys only hide UI elements — the REAL boundary stays in the API policies ([Authorize] + scope checks). view:codes never grants the classic codes:view permission.',
-        emptyTree: 'No buttons or tabs under this view.',
-        views: 'Views',
-        saveOk: 'UI permission keys saved',
-        resetOk: 'Role reset to unconfigured (full access)',
-        saveFail: 'Save failed',
-        confirmReset: 'Reset the role to unconfigured (NULL = full access for every assigned administrator)?',
-      };
+  const copy = {
+    title: t(locale, 'admincenters.permissions.ui.title'),
+    desc: t(locale, 'admincenters.permissions.ui.desc'),
+    close: t(locale, 'common.close'),
+    loading: t(locale, 'common.loading'),
+    configured: t(locale, 'admincenters.permissions.ui.configured'),
+    notConfigured: t(locale, 'admincenters.permissions.ui.notConfigured'),
+    systemLocked: t(locale, 'admincenters.permissions.ui.systemLocked'),
+    dirty: t(locale, 'admincenters.permissions.unsavedChanges'),
+    save: t(locale, 'admincenters.permissions.ui.save'),
+    resetToFull: t(locale, 'admincenters.permissions.ui.resetToFull'),
+    selected: t(locale, 'admincenters.permissions.ui.selected'),
+    searchPlaceholder: t(locale, 'admincenters.permissions.ui.searchPlaceholder'),
+    noMatches: t(locale, 'admincenters.permissions.ui.noMatches'),
+    templates: t(locale, 'admincenters.permissions.ui.templates'),
+    unconfiguredTitle: t(locale, 'admincenters.permissions.ui.unconfiguredTitle'),
+    unconfiguredBody: t(locale, 'admincenters.permissions.ui.unconfiguredBody'),
+    emptyTree: t(locale, 'admincenters.permissions.ui.emptyTree'),
+    views: t(locale, 'admincenters.permissions.ui.views'),
+    saveOk: t(locale, 'admincenters.permissions.ui.saveOk'),
+    resetOk: t(locale, 'admincenters.permissions.ui.resetOk'),
+    saveFail: t(locale, 'admincenters.permissions.saveFailed'),
+    confirmReset: t(locale, 'admincenters.permissions.ui.confirmReset'),
+  };
 
   const normalizedSearch = search.trim().toLowerCase();
   const matches = (key: string) => {
@@ -168,9 +143,9 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
       const ordered = ALL_UI_KEYS.filter((key) => selection.has(key));
       await replaceRoleUiPermissions(token, roleId, ordered);
       setRoleState({ configured: true, allowedKeys: ordered });
-      onNotice(t.saveOk);
+      onNotice(copy.saveOk);
     } catch (error: unknown) {
-      const message = error instanceof ApiError ? error.message : t.saveFail;
+      const message = error instanceof ApiError ? error.message : copy.saveFail;
       onError(message);
     } finally {
       setSaving(false);
@@ -184,9 +159,9 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
       setRoleState({ configured: false, allowedKeys: null });
       setSelection(new Set());
       setResetConfirmOpen(false);
-      onNotice(t.resetOk);
+      onNotice(copy.resetOk);
     } catch (error: unknown) {
-      const message = error instanceof ApiError ? error.message : t.saveFail;
+      const message = error instanceof ApiError ? error.message : copy.saveFail;
       onError(message);
     } finally {
       setSaving(false);
@@ -204,7 +179,7 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
         <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
           <div className="flex items-center gap-2 flex-wrap">
             <SlidersHorizontal size={18} style={{ color: 'var(--cms-teal-700)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.title}</h3>
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{copy.title}</h3>
             <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
               {roleName}
             </span>
@@ -217,26 +192,26 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
               }
             >
               {roleState.configured ? <Check size={10} /> : null}
-              {roleState.configured ? t.configured : t.notConfigured}
+              {roleState.configured ? copy.configured : copy.notConfigured}
             </span>
             {isSystemRole && (
               <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border" style={{ borderColor: 'var(--cms-warning)', background: 'var(--cms-warning-50)', color: 'var(--cms-warning)' }}>
                 <Lock size={10} />
-                {t.systemLocked}
+                {copy.systemLocked}
               </span>
             )}
           </div>
-          <button onClick={() => !saving && onClose()} disabled={saving} className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-50" aria-label={t.close}>
+          <button onClick={() => !saving && onClose()} disabled={saving} className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-50" aria-label={copy.close}>
             <X size={18} style={{ color: 'var(--cms-text-muted)' }} />
           </button>
         </div>
 
         {/* Description + dirty indicator */}
         <div className="px-4 py-2 border-b flex items-center justify-between gap-3" style={{ borderColor: 'var(--cms-line)' }}>
-          <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t.desc}</p>
+          <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{copy.desc}</p>
           {dirty && !isSystemRole && (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0" style={{ background: 'var(--cms-warning-50)', color: 'var(--cms-warning)' }}>
-              {t.dirty}
+              {copy.dirty}
             </span>
           )}
         </div>
@@ -244,8 +219,8 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
         {/* 2.1c empty state: unconfigured = full access + the two-layers clarification */}
         {!loading && !roleState.configured && !isSystemRole && (
           <div className="mx-4 mt-3 rounded-lg border px-4 py-3" style={{ borderColor: 'var(--cms-warning)', background: 'var(--cms-warning-50)' }}>
-            <p className="text-xs font-bold" style={{ color: 'var(--cms-warning)' }}>{t.unconfiguredTitle}</p>
-            <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--cms-text-soft)' }}>{t.unconfiguredBody}</p>
+            <p className="text-xs font-bold" style={{ color: 'var(--cms-warning)' }}>{copy.unconfiguredTitle}</p>
+            <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--cms-text-soft)' }}>{copy.unconfiguredBody}</p>
           </div>
         )}
 
@@ -257,7 +232,7 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
               type="text"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder={t.searchPlaceholder}
+              placeholder={copy.searchPlaceholder}
               className="flex-1 bg-transparent text-xs outline-none"
               style={{ color: 'var(--cms-text)' }}
             />
@@ -268,7 +243,7 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
             )}
           </div>
           <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-[11px] font-semibold" style={{ color: 'var(--cms-text-muted)' }}>{t.templates}:</span>
+            <span className="text-[11px] font-semibold" style={{ color: 'var(--cms-text-muted)' }}>{copy.templates}:</span>
             {ROLE_TEMPLATES.map((template) => (
               <button
                 key={template.id}
@@ -289,7 +264,7 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <LoaderCircle size={20} className="animate-spin" style={{ color: 'var(--cms-text-muted)' }} />
-              <span className="text-xs ml-2" style={{ color: 'var(--cms-text-muted)' }}>{t.loading}</span>
+              <span className="text-xs ml-2" style={{ color: 'var(--cms-text-muted)' }}>{copy.loading}</span>
             </div>
           ) : (
             <div className="space-y-4">
@@ -325,7 +300,7 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
                     <div className="p-4">
                       {visibleChildren.length === 0 ? (
                         <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-                          {children.length === 0 ? t.emptyTree : t.noMatches}
+                          {children.length === 0 ? copy.emptyTree : copy.noMatches}
                         </p>
                       ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -373,7 +348,7 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 p-4 border-t" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
           <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-            {selection.size} / {ALL_UI_KEYS.length} {t.selected}
+            {selection.size} / {ALL_UI_KEYS.length} {copy.selected}
           </span>
           <div className="flex gap-2">
             <button
@@ -384,7 +359,7 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
               style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}
             >
               <RotateCcw size={13} />
-              {t.resetToFull}
+              {copy.resetToFull}
             </button>
             <button
               type="button"
@@ -394,7 +369,7 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
               style={{ background: 'var(--cms-teal-700)' }}
             >
               {saving ? <LoaderCircle size={13} className="animate-spin" /> : <Save size={13} />}
-              {t.save}
+              {copy.save}
             </button>
           </div>
         </div>
@@ -404,15 +379,13 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
       <ConfirmDialog
         open={resetConfirmOpen}
         onOpenChange={(next) => { if (!next) setResetConfirmOpen(false); }}
-        title={t.resetToFull}
-        description={t.confirmReset}
-        confirmLabel={t.resetToFull}
-        cancelLabel={t.close}
+        title={copy.resetToFull}
+        description={copy.confirmReset}
+        confirmLabel={copy.resetToFull}
+        cancelLabel={copy.close}
         variant="danger"
         requireAcknowledge={{
-          label: isArabic
-            ? 'أفهم أن هذا يمنح وصولًا كاملًا لكل مدراء الدور ولا يمكن التراجع إلا بحفظ قائمة جديدة'
-            : 'I understand this grants full access to every administrator of the role and can only be undone by saving a new list',
+          label: t(locale, 'admincenters.permissions.ui.resetAcknowledge'),
         }}
         dir={isArabic ? 'rtl' : 'ltr'}
         busy={saving}

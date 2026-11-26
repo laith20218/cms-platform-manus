@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Ban, CloudOff, LoaderCircle, RefreshCw, Search } from 'lucide-react';
 import { apiRequest } from '../lib/api';
+import { t, localeOf } from '../lib/dictionary';
 
 /**
  * Wave 4 (Owner decision 2026-11-23) — Arabic-first admin visibility + revocation
@@ -39,6 +40,7 @@ function statusOf(row: AdminOfflinePackage): { key: 'active' | 'revoked' | 'expi
 }
 
 export function OfflineCenter({ token, isArabic, onError, onNotice }: Props) {
+  const locale = localeOf(isArabic);
   const [rows, setRows] = useState<AdminOfflinePackage[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [studentFilter, setStudentFilter] = useState('');
@@ -58,12 +60,14 @@ export function OfflineCenter({ token, isArabic, onError, onNotice }: Props) {
       const data = await request<AdminOfflinePackage[]>(`/api/v1/admin/offline/packages?${params.toString()}`);
       setRows(Array.isArray(data) ? data : []);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر تحميل الحزم دون اتصال.');
+      onError(error instanceof Error ? error.message : t(localeOf(isArabic), 'codes.offline.loadFailed'));
       setRows(null);
     } finally {
       setLoading(false);
     }
-  }, [request, studentFilter, onError]);
+    // isArabic rides the deps so the localized fallback message can never go
+    // stale after a language toggle (PR-3 lint closure — zero warnings).
+  }, [request, studentFilter, onError, isArabic]);
 
   useEffect(() => {
     void refresh();
@@ -77,7 +81,7 @@ export function OfflineCenter({ token, isArabic, onError, onNotice }: Props) {
       onNotice('تم إلغاء الحزمة — تتوقف عند أول اتصال تالٍ للجهاز.');
       await refresh();
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'تعذر إلغاء الحزمة.');
+      onError(error instanceof Error ? error.message : t(locale, 'codes.offline.revokeFailed'));
     } finally {
       setRevoking(null);
     }
@@ -90,30 +94,28 @@ export function OfflineCenter({ token, isArabic, onError, onNotice }: Props) {
           <CloudOff className="w-5 h-5 text-white" />
         </div>
         <div className="flex-1 min-w-0">
-          <h2 className="text-base font-extrabold">{isArabic ? 'الحزم دون اتصال (حزم الأسئلة المشفّرة)' : 'Offline packages'}</h2>
+          <h2 className="text-base font-extrabold">{t(locale, 'codes.offline.title')}</h2>
           <p className="text-xs text-[var(--c-text-muted)]">
-            {isArabic
-              ? 'رؤية وإبطال فقط — الإصدار يتم من تطبيق الطالب عبر القناة المشفّرة المرتبطة بالجهاز.'
-              : 'Visibility + revocation only — issuance happens from the student app.'}
+            {t(locale, 'codes.offline.subtitle')}
           </p>
         </div>
         <button
           type="button"
           onClick={() => void refresh()}
           disabled={loading}
-          aria-label={isArabic ? 'تحديث قائمة الحزم' : 'Refresh packages'}
+          aria-label={t(locale, 'codes.offline.refreshLabel')}
           data-testid="offline-refresh"
           className="inline-flex items-center gap-2 min-h-10 px-4 rounded-xl border border-[var(--c-border)] text-sm font-bold disabled:opacity-50"
         >
           {loading ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          {isArabic ? 'تحديث' : 'Refresh'}
+          {t(locale, 'codes.offline.refresh')}
         </button>
       </header>
 
       <div className="flex flex-wrap items-center gap-2">
         <label className="inline-flex items-center gap-2 text-sm font-semibold">
           <Search className="w-4 h-4 text-[var(--c-text-muted)]" />
-          {isArabic ? 'معرّف الطالب (UUID، اختياري)' : 'Student UUID (optional)'}
+          {t(locale, 'codes.offline.studentUuid')}
         </label>
         <input
           value={studentFilter}
@@ -128,17 +130,17 @@ export function OfflineCenter({ token, isArabic, onError, onNotice }: Props) {
           className="min-h-10 px-4 rounded-xl text-sm font-bold text-white"
           style={{ background: 'var(--grad-primary)' }}
         >
-          {isArabic ? 'تصفية' : 'Filter'}
+          {t(locale, 'codes.offline.filter')}
         </button>
       </div>
 
       {rows === null ? (
         <div className="p-8 text-center text-sm text-[var(--c-text-muted)]" data-testid="offline-center-error">
-          {isArabic ? 'تعذر تحميل القائمة — حاول التحديث.' : 'Failed to load — try refreshing.'}
+          {t(locale, 'codes.offline.listFailed')}
         </div>
       ) : rows.length === 0 ? (
         <div className="p-8 text-center text-sm text-[var(--c-text-muted)]" data-testid="offline-center-empty">
-          {isArabic ? 'لا توجد حزم مسجّلة بعد.' : 'No packages recorded yet.'}
+          {t(locale, 'codes.offline.empty')}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-[var(--c-border)]" data-testid="offline-center-table">
@@ -146,12 +148,12 @@ export function OfflineCenter({ token, isArabic, onError, onNotice }: Props) {
             <thead className="bg-[var(--c-surface-2,var(--c-bg))] text-[var(--c-text-muted)]">
               <tr className="[&>th]:px-3 [&>th]:py-2.5 [&>th]:text-start [&>th]:text-xs [&>th]:font-bold">
                 <th>#</th>
-                <th>{isArabic ? 'الطالب' : 'Student'}</th>
-                <th>{isArabic ? 'التثبيت' : 'Installation'}</th>
-                <th>{isArabic ? 'الحالة' : 'Status'}</th>
-                <th>{isArabic ? 'الإصدار' : 'Issued'}</th>
-                <th>{isArabic ? 'انتهاء الصلاحية' : 'Expires'}</th>
-                <th>{isArabic ? 'إجراء' : 'Action'}</th>
+                <th>{t(locale, 'codes.offline.columns.student')}</th>
+                <th>{t(locale, 'codes.offline.columns.installation')}</th>
+                <th>{t(locale, 'codes.offline.columns.status')}</th>
+                <th>{t(locale, 'codes.offline.columns.issued')}</th>
+                <th>{t(locale, 'codes.offline.columns.expires')}</th>
+                <th>{t(locale, 'codes.offline.columns.action')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--c-border)]">
@@ -175,12 +177,12 @@ export function OfflineCenter({ token, isArabic, onError, onNotice }: Props) {
                           type="button"
                           onClick={() => setConfirmTarget(row)}
                           disabled={revoking === row.packageId}
-                          aria-label={isArabic ? `إلغاء الحزمة ${shortId(row.packageId)}` : `Revoke package`}
+                          aria-label={t(locale, 'codes.offline.revokePackageLabel', { id: shortId(row.packageId) })}
                           data-testid={`offline-revoke-${row.packageId}`}
                           className="inline-flex items-center gap-1.5 min-h-9 px-3 rounded-xl text-xs font-bold text-[var(--c-danger-500)] border border-[var(--c-danger-500)]/40 hover:bg-[rgba(255,82,82,0.08)] disabled:opacity-50"
                         >
                           {revoking === row.packageId ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
-                          {isArabic ? 'إلغاء' : 'Revoke'}
+                          {t(locale, 'codes.offline.revoke')}
                         </button>
                       ) : (
                         <span className="text-xs text-[var(--c-text-faint)]">—</span>
@@ -198,15 +200,13 @@ export function OfflineCenter({ token, isArabic, onError, onNotice }: Props) {
         <div className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-6" role="dialog" aria-modal="true" data-testid="offline-revoke-confirm">
           <button type="button" aria-label="إغلاق" className="absolute inset-0 bg-black/40 cursor-default" onClick={() => setConfirmTarget(null)} />
           <div className="relative max-w-sm w-full rounded-2xl border border-[var(--c-border)] bg-[var(--cms-surface,var(--c-bg))] p-6 space-y-3 text-center">
-            <p className="text-sm font-extrabold">{isArabic ? 'تأكيد إلغاء الحزمة' : 'Confirm revocation'}</p>
+            <p className="text-sm font-extrabold">{t(locale, 'codes.offline.confirmTitle')}</p>
             <p className="text-[13px] leading-relaxed text-[var(--c-text-muted)]">
-              {isArabic
-                ? `ستتوقف الحزمة ${shortId(confirmTarget.packageId)} للطالب ${confirmTarget.studentName} عند أول اتصال تالٍ — ولا يمكن فتحها أو تسديد إجابات منها بعد ذلك.`
-                : `Package ${shortId(confirmTarget.packageId)} stops at the device's next online contact.`}
+              {t(locale, 'codes.offline.confirmText', { packageId: shortId(confirmTarget.packageId), studentName: confirmTarget.studentName })}
             </p>
             <div className="flex gap-2 justify-center pt-1">
               <button type="button" onClick={() => setConfirmTarget(null)} className="min-h-10 px-4 rounded-xl border border-[var(--c-border)] text-sm font-bold">
-                {isArabic ? 'تراجع' : 'Cancel'}
+                {t(locale, 'codes.offline.cancel')}
               </button>
               <button
                 type="button"
@@ -214,7 +214,7 @@ export function OfflineCenter({ token, isArabic, onError, onNotice }: Props) {
                 className="min-h-10 px-4 rounded-xl text-sm font-bold text-white bg-[var(--c-danger-500)]"
                 data-testid="offline-revoke-confirm-go"
               >
-                {isArabic ? 'إلغاء الحزمة' : 'Revoke'}
+                {t(locale, 'codes.offline.revokePackage')}
               </button>
             </div>
           </div>

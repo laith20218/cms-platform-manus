@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { KeyRound, LoaderCircle, ShieldCheck, ShieldOff, Copy, Check } from 'lucide-react';
 import { Button, Dialog } from '@cms/ui';
 import { apiRequest } from '../lib/api';
+import { t, localeOf } from '../lib/dictionary';
 
 type Enable2FAResponse = {
   qrCodeUrl: string;
@@ -39,55 +40,36 @@ export function TwoFactorCard({ token, isArabic, adminName, onError, onNotice }:
 
   const dir = isArabic ? 'rtl' : 'ltr';
 
-  const copy = isArabic
-    ? {
-        title: 'أمان الحساب',
-        subtitle: 'المصادقة الثنائية (2FA)',
-        body: `طبقة حماية إضافية لحساب${adminName ? ` «${adminName}»` : 'ك'}: يُطلب رمز تحقق من تطبيق المصادقة عند كل تسجيل دخول. فعّلها من هنا، أو عطّلها بتأكيد كلمة المرور.`,
-        enable: 'تفعيل المصادقة الثنائية',
-        disable: 'تعطيل المصادقة الثنائية',
-        setupTitle: 'تفعيل المصادقة الثنائية',
-        setupBody: 'امسح رمز QR بتطبيق المصادقة (Google Authenticator / Authy…) أو أدخل المفتاح يدويًا، ثم أكّد في التطبيق.',
-        qrAlt: 'رمز QR لإعداد تطبيق المصادقة',
-        secretLabel: 'المفتاح اليدوي',
-        codesLabel: 'رموز الاسترجاع (تظهر مرة واحدة فقط — احفظها الآن)',
-        codesHint: 'تُستخدم مرة واحدة لكل رمز إذا فقدت جهازك.',
-        copied: 'تم النسخ',
-        done: 'تم التفعيل — أكّد الحساب في تطبيق المصادقة',
-        disableTitle: 'تعطيل المصادقة الثنائية',
-        disableBody: 'أدخل كلمة مرور حسابك لتأكيد التعطيل. سيعود تسجيل الدخول إلى الاعتماد على كلمة المرور فقط.',
-        passwordLabel: 'كلمة المرور الحالية',
-        passwordPlaceholder: 'كلمة مرور حسابك',
-        disableConfirm: 'تأكيد التعطيل',
-        cancel: 'إلغاء',
-        disableOk: 'تم تعطيل المصادقة الثنائية',
-        enableFail: 'فشل تفعيل المصادقة الثنائية',
-        disableFail: 'فشل تعطيل المصادقة الثنائية',
-      }
-    : {
-        title: 'Account security',
-        subtitle: 'Two-factor authentication (2FA)',
-        body: `An extra layer of protection for${adminName ? ` «${adminName}»` : ' your account'}: an authenticator code is required at every sign-in. Enable it here, or disable it with a password confirmation.`,
-        enable: 'Enable 2FA',
-        disable: 'Disable 2FA',
-        setupTitle: 'Enable two-factor authentication',
-        setupBody: 'Scan the QR code with your authenticator app (Google Authenticator / Authy…) or enter the key manually, then confirm in the app.',
-        qrAlt: 'QR code for the authenticator app',
-        secretLabel: 'Manual key',
-        codesLabel: 'Recovery codes (shown once — save them now)',
-        codesHint: 'Each code can be used once if you lose your device.',
-        copied: 'Copied',
-        done: 'Enabled — confirm the account in your authenticator app',
-        disableTitle: 'Disable two-factor authentication',
-        disableBody: 'Enter your account password to confirm. Sign-in will rely on the password only.',
-        passwordLabel: 'Current password',
-        passwordPlaceholder: 'Your password',
-        disableConfirm: 'Confirm disable',
-        cancel: 'Cancel',
-        disableOk: 'Two-factor authentication disabled',
-        enableFail: 'Failed to enable 2FA',
-        disableFail: 'Failed to disable 2FA',
-      };
+  // PR-3 — the 2FA card copy resolves from the shared dictionary. The Arabic
+  // «body» template interpolates {{name}} (with the «ك» default when no admin
+  // name is available); the English side mirrors the same shape.
+  const locale = localeOf(isArabic);
+  const bodyName = adminName ? ` «${adminName}»` : t(locale, 'twoFactorCard.bodyNameDefaultAr');
+  const copy = {
+    title: t(locale, 'twoFactorCard.title'),
+    subtitle: t(locale, 'twoFactorCard.subtitle'),
+    body: t(locale, 'twoFactorCard.body', { name: bodyName }),
+    enable: t(locale, 'twoFactorCard.enable'),
+    disable: t(locale, 'twoFactorCard.disable'),
+    setupTitle: t(locale, 'twoFactorCard.setupTitle'),
+    setupBody: t(locale, 'twoFactorCard.setupBody'),
+    qrAlt: t(locale, 'twoFactorCard.qrAlt'),
+    secretLabel: t(locale, 'twoFactorCard.secretLabel'),
+    codesLabel: t(locale, 'twoFactorCard.codesLabel'),
+    codesHint: t(locale, 'twoFactorCard.codesHint'),
+    copied: t(locale, 'twoFactorCard.copied'),
+    done: t(locale, 'twoFactorCard.done'),
+    disableTitle: t(locale, 'twoFactorCard.disableTitle'),
+    disableBody: t(locale, 'twoFactorCard.disableBody'),
+    passwordLabel: t(locale, 'twoFactorCard.passwordLabel'),
+    passwordPlaceholder: t(locale, 'twoFactorCard.passwordPlaceholder'),
+    disableConfirm: t(locale, 'twoFactorCard.disableConfirm'),
+    cancel: t(locale, 'common.cancel'),
+    disableOk: t(locale, 'twoFactorCard.disableOk'),
+    enableFail: t(locale, 'twoFactorCard.enableFail'),
+    disableFail: t(locale, 'twoFactorCard.disableFail'),
+  };
+
 
   const enable = async () => {
     setBusy('enable');
@@ -315,7 +297,7 @@ export function TwoFactorCard({ token, isArabic, adminName, onError, onNotice }:
       {busy && !disableOpen && setup === null && (
         <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>
           <LoaderCircle className="w-3.5 h-3.5 animate-spin" />
-          {isArabic ? 'جارٍ التنفيذ...' : 'Working...'}
+          {t(locale, 'twoFactorCard.working')}
         </div>
       )}
     </section>

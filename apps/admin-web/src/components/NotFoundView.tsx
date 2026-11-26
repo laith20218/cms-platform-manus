@@ -9,6 +9,7 @@
 
 import { FileQuestion } from 'lucide-react';
 import { EmptyState } from '@cms/ui';
+import { t, localeOf } from '../lib/dictionary';
 
 export interface NotFoundViewProps {
   /** The unmatched path, echoed back so the operator can correct the link. */
@@ -19,22 +20,21 @@ export interface NotFoundViewProps {
 }
 
 export function NotFoundView({ requestedPath, isArabic, onReturnHome }: NotFoundViewProps) {
+  // PR-3 — the 404 copy resolves from the shared dictionary (safe interpolation
+  // of the requested path as plain text).
+  const locale = localeOf(isArabic);
   return (
     <section
       className="rounded-xl border"
       style={{ background: 'var(--cms-surface)', borderColor: 'var(--cms-line)' }}
       dir={isArabic ? 'rtl' : 'ltr'}
-      aria-label={isArabic ? 'الصفحة غير موجودة' : 'Page not found'}
+      aria-label={t(locale, 'notFound.title')}
     >
       <EmptyState
         icon={FileQuestion}
         iconClassName="bg-[color:var(--cms-teal-50)] text-[color:var(--cms-teal-700)]"
-        title={isArabic ? 'الصفحة غير موجودة' : 'Page not found'}
-        description={
-          isArabic
-            ? `المسار المطلوب غير موجود في لوحة الإدارة: ${requestedPath}. تحقق من الرابط أو عد إلى لوحة القيادة.`
-            : `The requested path does not exist in the administration console: ${requestedPath}. Check the link or return to the command center.`
-        }
+        title={t(locale, 'notFound.title')}
+        description={t(locale, 'notFound.description', { path: requestedPath })}
         action={
           <button
             type="button"
@@ -43,7 +43,7 @@ export function NotFoundView({ requestedPath, isArabic, onReturnHome }: NotFound
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors hover:opacity-90"
             style={{ background: 'var(--cms-teal-700)' }}
           >
-            {isArabic ? 'العودة إلى لوحة القيادة' : 'Return to command center'}
+            {t(locale, 'notFound.return')}
           </button>
         }
         testId="not-found"

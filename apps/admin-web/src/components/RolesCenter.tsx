@@ -17,6 +17,7 @@ import {
   KeyRound, LoaderCircle, Plus, ShieldCheck, ShieldOff, Trash2, UsersRound, Lock, SlidersHorizontal,
 } from 'lucide-react';
 import type { RoleRecord } from '../lib/api';
+import { t, localeOf } from '../lib/dictionary';
 import { PermissionMatrixEditor } from './PermissionMatrixEditor';
 import { UiPermissionsEditor } from './UiPermissionsEditor';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
@@ -44,6 +45,7 @@ export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCre
   // the same family as the classic matrix button.
   const { can } = useUiPermissions();
   const [uiEditingRole, setUiEditingRole] = useState<RoleRecord | null>(null);
+  const locale = localeOf(isArabic);
   return (
     <section className="space-y-6" dir={isArabic ? 'rtl' : 'ltr'}>
       {/* ===== Page header ===== */}
@@ -57,7 +59,7 @@ export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCre
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-              {isArabic ? 'سياسة الوصول' : 'Access policy'}
+              {t(locale, 'admincenters.rolesCenter.eyebrow')}
             </p>
             <h2 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
               {copy.rolesTitle}
@@ -69,9 +71,7 @@ export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCre
               </span>
             </h2>
             <p className="text-sm mt-1 max-w-2xl" style={{ color: 'var(--cms-text-soft)' }}>
-              {isArabic
-                ? 'الأدوار النظامية محمية من الحذف؛ يمكن تعطيلها مؤقتاً. الأدوار المخصصة قابلة للحذف النهائي.'
-                : 'System roles are protected from deletion but can be disabled. Custom roles can be permanently deleted.'}
+              {t(locale, 'admincenters.rolesCenter.policyHint')}
             </p>
           </div>
         </div>
@@ -124,7 +124,7 @@ export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCre
           </div>
           <p className="mt-3 text-sm font-medium" style={{ color: 'var(--cms-text)' }}>{copy.noRoles}</p>
           <p className="mt-1 text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-            {isArabic ? 'أنشئ أول دور مخصص لتعيين الصلاحيات لاحقاً.' : 'Create your first custom role to assign permissions later.'}
+            {t(locale, 'admincenters.rolesCenter.emptyHint')}
           </p>
         </div>
       ) : (
@@ -175,7 +175,7 @@ export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCre
 
                 {/* Description */}
                 <p className="mt-3 text-xs leading-relaxed flex-1" style={{ color: 'var(--cms-text-soft)' }}>
-                  {role.description || (isArabic ? 'دور بلا وصف إضافي.' : 'Role without an additional description.')}
+                  {role.description || t(locale, 'admincenters.rolesCenter.noDescription')}
                 </p>
 
                 {/* Metrics */}
@@ -219,10 +219,10 @@ export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCre
                         disabled={busy}
                         className="inline-flex items-center justify-center gap-1.5 flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50"
                         style={{ borderColor: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)', background: 'var(--cms-teal-50)' }}
-                        title={isArabic ? 'تعديل مصفوفة الصلاحيات' : 'Edit permission matrix'}
+                        title={t(locale, 'admincenters.rolesCenter.matrixButtonTitle')}
                       >
                         <Lock className="w-3.5 h-3.5" />
-                        {isArabic ? 'الصلاحيات' : 'Permissions'}
+                        {t(locale, 'roles.permissions')}
                       </button>
                       <button
                         type="button"
@@ -230,10 +230,10 @@ export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCre
                         disabled={busy}
                         className="inline-flex items-center justify-center gap-1.5 flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50"
                         style={{ borderColor: 'var(--cms-teal-100)', color: 'var(--cms-teal-700)', background: 'var(--cms-surface)' }}
-                        title={isArabic ? 'صلاحيات الواجهة المتقدمة (64 مفتاحاً)' : 'Advanced UI permissions (62 keys)'}
+                        title={t(locale, 'admincenters.rolesCenter.uiKeysButtonTitle')}
                       >
                         <SlidersHorizontal className="w-3.5 h-3.5" />
-                        {isArabic ? 'الواجهة' : 'UI keys'}
+                        {t(locale, 'admincenters.rolesCenter.uiKeysButton')}
                       </button>
                     </>
                   )}
@@ -242,7 +242,7 @@ export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCre
                       type="button"
                       onClick={() => onStatus(role, !role.isActive)}
                       disabled={toggleDisabled}
-                      title={isSuperAdmin ? (isArabic ? 'لا يمكن تعطيل دور المدير العام' : 'Super-admin role cannot be disabled') : undefined}
+                      title={isSuperAdmin ? t(locale, 'admincenters.rolesCenter.superAdminLocked') : undefined}
                       className={`inline-flex items-center justify-center gap-1.5 flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                         role.isActive
                           ? 'text-amber-700 border-amber-200 hover:bg-amber-50'

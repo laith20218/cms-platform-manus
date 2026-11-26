@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useModalA11y } from '@cms/ui';
 import { ApiError, apiRequest } from '../lib/api';
+import { t, localeOf } from '../lib/dictionary';
 
 type Props = {
   token: string;
@@ -52,6 +53,7 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
   // PR-2 — a11y retrofit (see the render comment): Escape busy-guarded, Tab
   // trap, scroll lock, focus capture + restore to the invoking bell button.
   const { surfaceRef } = useModalA11y({ open: true, onClose: () => { if (!busy) onClose(); } });
+  const locale = localeOf(isArabic);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [type, setType] = useState('announcement');
@@ -146,47 +148,39 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
         '/api/v1/notifications/send', token,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
       );
-      onNotice(isArabic
-        ? `تم إرسال الإشعار إلى ${res.recipientsCount} طالب`
-        : `Notification sent to ${res.recipientsCount} recipients`);
+      onNotice(t(locale, 'notifications.sentToast', { count: res.recipientsCount }));
       onClose();
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.message : isArabic ? 'فشل الإرسال' : 'Send failed';
+      const msg = err instanceof ApiError ? err.message : t(locale, 'notifications.sendFailed');
       onError(msg);
     } finally { setBusy(false); }
   };
 
-  const t = isArabic
-    ? {
-        title: 'إنشاء إشعار', desc: 'أرسل إشعاراً مستهدفاً للطلاب',
-        notifTitle: 'العنوان', notifBody: 'النص', notifType: 'النوع',
-        audience: 'الجمهور المستهدف', target: 'الهدف',
-        schedule: 'الجدولة', immediate: 'إرسال فوري', scheduled: 'مجدول',
-        expiry: 'تاريخ الانتهاء (اختياري)',
-        preview: 'معاينة', send: 'إرسال', cancel: 'إلغاء',
-        selectTarget: 'اختر الهدف', noTarget: 'لا يحتاج هدفاً',
-        contextUniversity: 'الجامعة (للوصول إلى الهدف)',
-        contextCollege: 'الكلية (للوصول إلى الهدف)',
-        contextYear: 'السنة (للوصول إلى الهدف)',
-        contextSemester: 'الفصل (للوصول إلى المادة)',
-        needTargetHint: 'اختر الهدف من القائمة أعلاه لإتاحة زر الإرسال — الإرسال لا يعمل بدون هدف صالح.',
-        placeholder_title: 'اكتب عنوان الإشعار...', placeholder_body: 'اكتب نص الإشعار...',
-      }
-    : {
-        title: 'Compose Notification', desc: 'Send a targeted notification to students',
-        notifTitle: 'Title', notifBody: 'Body', notifType: 'Type',
-        audience: 'Target audience', target: 'Target',
-        schedule: 'Scheduling', immediate: 'Send immediately', scheduled: 'Scheduled',
-        expiry: 'Expiry date (optional)',
-        preview: 'Preview', send: 'Send', cancel: 'Cancel',
-        selectTarget: 'Select target', noTarget: 'No target needed',
-        contextUniversity: 'University (to reach the target)',
-        contextCollege: 'College (to reach the target)',
-        contextYear: 'Year (to reach the target)',
-        contextSemester: 'Semester (to reach the subject)',
-        needTargetHint: 'Pick the target above to enable Send — sending requires a valid target.',
-        placeholder_title: 'Enter notification title...', placeholder_body: 'Enter notification body...',
-      };
+  const copy = {
+    title: t(locale, 'notifications.compose.title'),
+    desc: t(locale, 'notifications.compose.desc'),
+    notifTitle: t(locale, 'notifications.compose.notifTitle'),
+    notifBody: t(locale, 'notifications.compose.notifBody'),
+    notifType: t(locale, 'notifications.compose.notifType'),
+    audience: t(locale, 'notifications.compose.audience'),
+    target: t(locale, 'notifications.compose.target'),
+    schedule: t(locale, 'notifications.compose.schedule'),
+    immediate: t(locale, 'notifications.compose.immediate'),
+    scheduled: t(locale, 'notifications.compose.scheduled'),
+    expiry: t(locale, 'notifications.compose.expiry'),
+    preview: t(locale, 'notifications.compose.preview'),
+    send: t(locale, 'notifications.compose.send'),
+    cancel: t(locale, 'common.cancel'),
+    selectTarget: t(locale, 'notifications.compose.selectTarget'),
+    noTarget: t(locale, 'notifications.compose.noTarget'),
+    contextUniversity: t(locale, 'notifications.compose.contextUniversity'),
+    contextCollege: t(locale, 'notifications.compose.contextCollege'),
+    contextYear: t(locale, 'notifications.compose.contextYear'),
+    contextSemester: t(locale, 'notifications.compose.contextSemester'),
+    needTargetHint: t(locale, 'notifications.compose.needTargetHint'),
+    placeholder_title: t(locale, 'notifications.compose.titlePlaceholder'),
+    placeholder_body: t(locale, 'notifications.compose.bodyPlaceholder'),
+  };
 
   return (
     // PR-2 — a11y retrofit: outer layer is presentation; the panel carries
@@ -199,14 +193,14 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label={t.title}
+        aria-label={copy.title}
         className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-xl border shadow-2xl flex flex-col outline-none"
         style={{ background: 'var(--cms-surface)', borderColor: 'var(--cms-line)' }}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
           <div className="flex items-center gap-2">
             <Bell size={18} style={{ color: 'var(--cms-teal-700)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t.title}</h3>
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{copy.title}</h3>
           </div>
           <button onClick={() => !busy && onClose()} disabled={busy} className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-50">
             <X size={18} style={{ color: 'var(--cms-text-muted)' }} />
@@ -217,7 +211,7 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {/* Type */}
           <div>
-            <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t.notifType}</label>
+            <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>{copy.notifType}</label>
             <select value={type} onChange={(e) => setType(e.target.value)} disabled={busy}
               className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
               style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
@@ -227,16 +221,16 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
 
           {/* Title */}
           <div>
-            <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t.notifTitle}</label>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t.placeholder_title} disabled={busy}
+            <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>{copy.notifTitle}</label>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={copy.placeholder_title} disabled={busy}
               className="w-full h-9 rounded-lg border text-sm px-3 disabled:opacity-50"
               style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }} />
           </div>
 
           {/* Body */}
           <div>
-            <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t.notifBody}</label>
-            <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder={t.placeholder_body} rows={4} disabled={busy}
+            <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>{copy.notifBody}</label>
+            <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder={copy.placeholder_body} rows={4} disabled={busy}
               className="w-full rounded-lg border text-sm p-3 disabled:opacity-50"
               style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }} />
           </div>
@@ -245,9 +239,9 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                <Users size={11} className="inline mr-1" />{t.audience}
+                <Users size={11} className="inline mr-1" />{copy.audience}
               </label>
-              <select value={targetType} aria-label={t.audience} onChange={(e) => {
+              <select value={targetType} aria-label={copy.audience} onChange={(e) => {
                 setTargetType(e.target.value);
                 setTargetId('');
                 setCascadeUniversityId(''); setCascadeCollegeId(''); setCascadeYearId(''); setCascadeSemesterId('');
@@ -263,23 +257,23 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
                 context selects above the target level (previously a raw UUID
                 input + silently-disabled Send, debt D-22). */}
             <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t.target}</label>
+              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>{copy.target}</label>
               {!audience.needsTarget ? (
                 <div className="h-9 flex items-center px-3 rounded-lg border text-xs" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)', color: 'var(--cms-text-muted)' }}>
-                  {t.noTarget}
+                  {copy.noTarget}
                 </div>
               ) : targetType === 'University' ? (
                 <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={busy || universities.length === 0}
                   className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
                   style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
-                  <option value="">{t.selectTarget}</option>
+                  <option value="">{copy.selectTarget}</option>
                   {universities.map(u => <option key={u.id} value={u.id}>{isArabic ? u.nameAr : (u.nameEn || u.nameAr)}</option>)}
                 </select>
               ) : targetType === 'Student' ? (
                 <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={busy || students.length === 0}
                   className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
                   style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
-                  <option value="">{t.selectTarget}</option>
+                  <option value="">{copy.selectTarget}</option>
                   {students.map(s => <option key={s.id} value={s.id}>{s.fullName} ({s.phone})</option>)}
                 </select>
               ) : (
@@ -287,20 +281,20 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
                   <select value={cascadeUniversityId} onChange={(e) => {
                     setCascadeUniversityId(e.target.value); setCascadeCollegeId(''); setCascadeYearId(''); setCascadeSemesterId('');
                     if (targetType !== 'College') setTargetId('');
-                  }} disabled={busy} aria-label={t.contextUniversity}
+                  }} disabled={busy} aria-label={copy.contextUniversity}
                     className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
                     style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
-                    <option value="">{t.contextUniversity}</option>
+                    <option value="">{copy.contextUniversity}</option>
                     {universities.length === 0 ? null : universities.map(u => <option key={u.id} value={u.id}>{isArabic ? u.nameAr : (u.nameEn || u.nameAr)}</option>)}
                   </select>
                   {(targetType === 'Year' || targetType === 'Semester' || targetType === 'Subject') && (
                     <select value={cascadeCollegeId} onChange={(e) => {
                       setCascadeCollegeId(e.target.value); setCascadeYearId(''); setCascadeSemesterId('');
                       if (targetType !== 'Year') setTargetId('');
-                    }} disabled={busy || !cascadeUniversityId} aria-label={t.contextCollege}
+                    }} disabled={busy || !cascadeUniversityId} aria-label={copy.contextCollege}
                       className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
                       style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
-                      <option value="">{t.contextCollege}</option>
+                      <option value="">{copy.contextCollege}</option>
                       {colleges.map(c => <option key={c.id} value={c.id}>{isArabic ? c.nameAr : (c.nameEn || c.nameAr)}</option>)}
                     </select>
                   )}
@@ -308,20 +302,20 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
                     <select value={cascadeYearId} onChange={(e) => {
                       setCascadeYearId(e.target.value); setCascadeSemesterId('');
                       if (targetType !== 'Semester') setTargetId('');
-                    }} disabled={busy || !cascadeCollegeId} aria-label={t.contextYear}
+                    }} disabled={busy || !cascadeCollegeId} aria-label={copy.contextYear}
                       className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
                       style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
-                      <option value="">{t.contextYear}</option>
+                      <option value="">{copy.contextYear}</option>
                       {years.map(y => <option key={y.id} value={y.id}>{isArabic ? y.nameAr : (y.nameEn || y.nameAr)}</option>)}
                     </select>
                   )}
                   {targetType === 'Subject' && (
                     <select value={cascadeSemesterId} onChange={(e) => {
                       setCascadeSemesterId(e.target.value); setTargetId('');
-                    }} disabled={busy || !cascadeYearId} aria-label={t.contextSemester}
+                    }} disabled={busy || !cascadeYearId} aria-label={copy.contextSemester}
                       className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
                       style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
-                      <option value="">{t.contextSemester}</option>
+                      <option value="">{copy.contextSemester}</option>
                       {semesters.map(s => <option key={s.id} value={s.id}>{isArabic ? s.nameAr : (s.nameEn || s.nameAr)}</option>)}
                     </select>
                   )}
@@ -337,7 +331,7 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
                     className="w-full h-9 rounded-lg border text-xs px-2 font-medium disabled:opacity-50"
                     style={{ borderColor: 'var(--cms-teal-700)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
                   >
-                    <option value="">{t.selectTarget}</option>
+                    <option value="">{copy.selectTarget}</option>
                     {(targetType === 'College' ? colleges
                       : targetType === 'Year' ? years
                       : targetType === 'Semester' ? semesters
@@ -350,7 +344,7 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
               {/* W5: visible Arabic validation instead of a silently-disabled Send. */}
               {audience.needsTarget && !targetId && (
                 <p className="text-[10px] mt-1" style={{ color: 'var(--cms-warning)' }} data-testid="notification-target-hint">
-                  {t.needTargetHint}
+                  {copy.needTargetHint}
                 </p>
               )}
             </div>
@@ -360,16 +354,16 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                <Calendar size={11} className="inline mr-1" />{t.schedule}
+                <Calendar size={11} className="inline mr-1" />{copy.schedule}
               </label>
               <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} disabled={busy}
                 className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
                 style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }} />
-              <p className="text-[10px] mt-0.5" style={{ color: 'var(--cms-text-muted)' }}>{scheduledAt ? t.scheduled : t.immediate}</p>
+              <p className="text-[10px] mt-0.5" style={{ color: 'var(--cms-text-muted)' }}>{scheduledAt ? copy.scheduled : copy.immediate}</p>
             </div>
             <div>
               <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                <Clock size={11} className="inline mr-1" />{t.expiry}
+                <Clock size={11} className="inline mr-1" />{copy.expiry}
               </label>
               <input type="datetime-local" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} disabled={busy}
                 className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
@@ -385,8 +379,8 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
                   <Bell size={14} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>{title || t.placeholder_title}</div>
-                  <div className="text-xs mt-0.5" style={{ color: 'var(--cms-text-soft)' }}>{body || t.placeholder_body}</div>
+                  <div className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>{title || copy.placeholder_title}</div>
+                  <div className="text-xs mt-0.5" style={{ color: 'var(--cms-text-soft)' }}>{body || copy.placeholder_body}</div>
                   <div className="flex gap-2 mt-1.5 text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
                     <span>{NOTIFICATION_TYPES.find(nt => nt.value === type)?.[isArabic ? 'ar' : 'en']}</span>
                     <span>·</span>
@@ -403,19 +397,19 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
           <button onClick={() => setPreviewMode(!previewMode)} disabled={busy}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium disabled:opacity-50"
             style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
-            <Eye size={13} /> {t.preview}
+            <Eye size={13} /> {copy.preview}
           </button>
           <div className="flex gap-2">
             <button onClick={onClose} disabled={busy}
               className="px-3 py-1.5 rounded-lg border text-xs font-medium disabled:opacity-50"
               style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
-              {t.cancel}
+              {copy.cancel}
             </button>
             <button onClick={() => void send()} disabled={!canSend || busy}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50"
               style={{ background: 'var(--cms-teal-700)' }}>
               {busy ? <LoaderCircle size={13} className="animate-spin" /> : <Send size={13} />}
-              {t.send}
+              {copy.send}
             </button>
           </div>
         </div>

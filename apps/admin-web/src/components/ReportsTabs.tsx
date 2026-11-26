@@ -24,15 +24,16 @@ import {
 } from 'lucide-react';
 import { apiRequest, ApiError } from '../lib/api';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
+import { t, localeOf } from '../lib/dictionary';
 
 type Props = { token: string; isArabic: boolean; onError: (msg: string) => void };
 
 const DATE_PRESETS = [
-  { value: '7d', ar: '7 أيام', en: '7 days', days: 7 },
-  { value: '30d', ar: '30 يوم', en: '30 days', days: 30 },
-  { value: '90d', ar: '90 يوم', en: '90 days', days: 90 },
-  { value: '6m', ar: '6 أشهر', en: '6 months', days: 180 },
-  { value: '12m', ar: 'سنة', en: '12 months', days: 365 },
+  { value: '7d', labelKey: 'reports.presets.last7', days: 7 },
+  { value: '30d', labelKey: 'reports.presets.last30', days: 30 },
+  { value: '90d', labelKey: 'reports.presets.last90', days: 90 },
+  { value: '6m', labelKey: 'reports.presets.last6m', days: 180 },
+  { value: '12m', labelKey: 'reports.presets.last12m', days: 365 },
 ];
 
 const COLORS = ['#0d746b', '#12877d', '#1a9b90', '#4cb8ae', '#35718a', '#a36c1f', '#198566', '#b6473d'];
@@ -198,6 +199,7 @@ function OverviewTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
 
   useEffect(() => { load(); }, [load]);
 
+  const locale = localeOf(isArabic);
   if (loading) return <LoadingState />;
   if (!data) return <EmptyState icon={TrendingUp} />;
 
@@ -205,16 +207,16 @@ function OverviewTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard label={isArabic ? 'إجمالي الطلاب' : 'Total Students'} value={s?.totalStudents ?? '—'} icon={Users} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
-        <StatCard label={isArabic ? 'إجمالي الأسئلة' : 'Total Questions'} value={s?.totalQuestions ?? '—'} icon={BookOpenCheck} color="var(--cms-info)" bg="var(--cms-info-50)" />
-        <StatCard label={isArabic ? 'إجمالي الإجابات' : 'Total Answers'} value={s?.totalAnswers ?? '—'} icon={TrendingUp} color="var(--cms-teal-600)" bg="var(--cms-teal-100)" />
-        <StatCard label={isArabic ? 'دقة المنصة' : 'Platform Accuracy'} value={`${(s?.platformAccuracy ?? 0).toFixed(1)}%`} icon={ShieldCheck} color="var(--cms-success)" bg="var(--cms-success-50)" />
-        <StatCard label={isArabic ? 'جلسات الاختبار' : 'Exam Sessions'} value={s?.totalExamSessions ?? '—'} icon={ClipboardCheck} color="var(--cms-warning)" bg="var(--cms-warning-50)" />
-        <StatCard label={isArabic ? 'مشاهدات المكتبة' : 'Library Views'} value={s?.totalLibraryViews ?? '—'} icon={FileText} color="var(--cms-info)" bg="var(--cms-info-50)" />
+        <StatCard label={t(locale, 'reports.stats.totalStudents')} value={s?.totalStudents ?? '—'} icon={Users} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
+        <StatCard label={t(locale, 'reports.stats.totalQuestions')} value={s?.totalQuestions ?? '—'} icon={BookOpenCheck} color="var(--cms-info)" bg="var(--cms-info-50)" />
+        <StatCard label={t(locale, 'reports.stats.totalAnswers')} value={s?.totalAnswers ?? '—'} icon={TrendingUp} color="var(--cms-teal-600)" bg="var(--cms-teal-100)" />
+        <StatCard label={t(locale, 'reports.stats.platformAccuracy')} value={`${(s?.platformAccuracy ?? 0).toFixed(1)}%`} icon={ShieldCheck} color="var(--cms-success)" bg="var(--cms-success-50)" />
+        <StatCard label={t(locale, 'reports.stats.examSessions')} value={s?.totalExamSessions ?? '—'} icon={ClipboardCheck} color="var(--cms-warning)" bg="var(--cms-warning-50)" />
+        <StatCard label={t(locale, 'reports.stats.libraryViews')} value={s?.totalLibraryViews ?? '—'} icon={FileText} color="var(--cms-info)" bg="var(--cms-info-50)" />
       </div>
       {data.growth.length > 0 && (
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <h3 className="font-semibold text-sm mb-4" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'نمو الطلاب' : 'Student Growth'}</h3>
+          <h3 className="font-semibold text-sm mb-4" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.charts.studentGrowth')}</h3>
           <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={data.growth}>
               <defs><linearGradient id="ovGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--cms-teal-500)" stopOpacity={0.3} /><stop offset="95%" stopColor="var(--cms-teal-500)" stopOpacity={0} /></linearGradient></defs>
@@ -251,21 +253,22 @@ function StudentsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
 
   useEffect(() => { load(); }, [load]);
 
+  const locale = localeOf(isArabic);
   if (loading) return <LoadingState />;
   if (!data) return <EmptyState icon={Users} />;
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label={isArabic ? 'إجمالي الطلاب' : 'Total Students'} value={data.totalStudents} icon={Users} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
-        <StatCard label={isArabic ? 'تسجيلات جديدة' : 'New Registrations'} value={data.newRegistrations} icon={TrendingUp} color="var(--cms-success)" bg="var(--cms-success-50)" />
-        <StatCard label={isArabic ? 'طلاب نشطون' : 'Active Students'} value={data.activeStudents} icon={ShieldCheck} color="var(--cms-info)" bg="var(--cms-info-50)" />
-        <StatCard label={isArabic ? 'طلاب غير نشطين' : 'Inactive Students'} value={data.inactiveStudents} icon={AlertTriangle} color="var(--cms-warning)" bg="var(--cms-warning-50)" />
+        <StatCard label={t(locale, 'reports.stats.totalStudents')} value={data.totalStudents} icon={Users} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
+        <StatCard label={t(locale, 'reports.stats.newRegistrations')} value={data.newRegistrations} icon={TrendingUp} color="var(--cms-success)" bg="var(--cms-success-50)" />
+        <StatCard label={t(locale, 'reports.stats.activeStudents')} value={data.activeStudents} icon={ShieldCheck} color="var(--cms-info)" bg="var(--cms-info-50)" />
+        <StatCard label={t(locale, 'reports.stats.inactiveStudents')} value={data.inactiveStudents} icon={AlertTriangle} color="var(--cms-warning)" bg="var(--cms-warning-50)" />
       </div>
       {data.dailyBreakdown?.length > 0 && (
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'التسجيلات اليومية' : 'Daily Registrations'}</h3>
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.charts.dailyRegistrations')}</h3>
             {can('btn:reports.export') && (
               <button onClick={() => exportCsv('student-registrations.csv', ['Date', 'Registrations'], data.dailyBreakdown.map((d) => [d.date, d.registrations]))}
                 className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-muted)' }}>
@@ -304,6 +307,7 @@ function AcademicTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
     finally { setLoading(false); }
   }, [token, dateFrom, dateTo, onError]);
   useEffect(() => { load(); }, [load]);
+  const locale = localeOf(isArabic);
   if (loading) return <LoadingState />;
   if (!data) return <EmptyState icon={GraduationCap} />;
 
@@ -311,7 +315,7 @@ function AcademicTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
     <div className="space-y-4">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'نسب النجاح حسب المادة' : 'Pass Rates by Subject'}</h3>
+          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.charts.passRatesBySubject')}</h3>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={data.subjectStats?.map((s) => ({ name: s.subjectName, passRate: Math.round(s.passRate), avgScore: s.averageScore })) ?? []} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="var(--cms-line)" />
@@ -323,7 +327,7 @@ function AcademicTab({ token, dateFrom, dateTo, isArabic, onError }: { token: st
           </ResponsiveContainer>
         </div>
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'أصعب 10 أسئلة' : 'Top 10 Hardest Questions'}</h3>
+          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.charts.hardestQuestions')}</h3>
           <div className="space-y-2 max-h-[250px] overflow-y-auto">
             {data.hardestQuestions?.map((q, i) => (
               <div key={i} className="flex items-center justify-between py-2 border-b last:border-0" style={{ borderColor: 'var(--cms-line)' }}>
@@ -354,20 +358,21 @@ function ExamsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: strin
     finally { setLoading(false); }
   }, [token, dateFrom, dateTo, onError]);
   useEffect(() => { load(); }, [load]);
+  const locale = localeOf(isArabic);
   if (loading) return <LoadingState />;
   if (!data) return <EmptyState icon={ClipboardCheck} />;
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label={isArabic ? 'منشورة' : 'Published'} value={data.publishedCount} icon={ClipboardCheck} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
-        <StatCard label={isArabic ? 'مسودات' : 'Drafts'} value={data.draftCount} icon={FileText} color="var(--cms-warning)" bg="var(--cms-warning-50)" />
-        <StatCard label={isArabic ? 'معدل الإكمال' : 'Completion Rate'} value={`${data.completionRate}%`} icon={TrendingUp} color="var(--cms-success)" bg="var(--cms-success-50)" />
-        <StatCard label={isArabic ? 'معدل النجاح' : 'Pass Rate'} value={`${data.passRate}%`} icon={ShieldCheck} color="var(--cms-info)" bg="var(--cms-info-50)" />
+        <StatCard label={t(locale, 'reports.stats.published')} value={data.publishedCount} icon={ClipboardCheck} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
+        <StatCard label={t(locale, 'reports.stats.drafts')} value={data.draftCount} icon={FileText} color="var(--cms-warning)" bg="var(--cms-warning-50)" />
+        <StatCard label={t(locale, 'reports.stats.completionRate')} value={`${data.completionRate}%`} icon={TrendingUp} color="var(--cms-success)" bg="var(--cms-success-50)" />
+        <StatCard label={t(locale, 'reports.stats.passRate')} value={`${data.passRate}%`} icon={ShieldCheck} color="var(--cms-info)" bg="var(--cms-info-50)" />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'توزيع الدرجات' : 'Score Distribution'}</h3>
+          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.charts.scoreDistribution')}</h3>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={data.scoreDistribution}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--cms-line)" />
@@ -381,12 +386,12 @@ function ExamsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: strin
           </ResponsiveContainer>
         </div>
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'معدلات' : 'Metrics'}</h3>
+          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.charts.metrics')}</h3>
           <div className="space-y-3">
-            <div className="flex justify-between"><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'إجمالي الجلسات' : 'Total Sessions'}</span><span className="text-sm font-bold tabular-nums">{data.totalSessions}</span></div>
-            <div className="flex justify-between"><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'جلسات مكتملة' : 'Completed'}</span><span className="text-sm font-bold tabular-nums">{data.completedCount}</span></div>
-            <div className="flex justify-between"><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'متوسط المدة (دقيقة)' : 'Avg Duration (min)'}</span><span className="text-sm font-bold tabular-nums">{data.avgDurationMinutes}</span></div>
-            <div className="flex justify-between"><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{isArabic ? 'مؤرشفة' : 'Archived'}</span><span className="text-sm font-bold tabular-nums">{data.archivedCount}</span></div>
+            <div className="flex justify-between"><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.charts.totalSessions')}</span><span className="text-sm font-bold tabular-nums">{data.totalSessions}</span></div>
+            <div className="flex justify-between"><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.charts.completedSessions')}</span><span className="text-sm font-bold tabular-nums">{data.completedCount}</span></div>
+            <div className="flex justify-between"><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.charts.avgDuration')}</span><span className="text-sm font-bold tabular-nums">{data.avgDurationMinutes}</span></div>
+            <div className="flex justify-between"><span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.stats.archived')}</span><span className="text-sm font-bold tabular-nums">{data.archivedCount}</span></div>
           </div>
         </div>
       </div>
@@ -410,19 +415,20 @@ function QuestionsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: s
     finally { setLoading(false); }
   }, [token, dateFrom, dateTo, onError]);
   useEffect(() => { load(); }, [load]);
+  const locale = localeOf(isArabic);
   if (loading) return <LoadingState />;
   if (!data) return <EmptyState icon={BookOpenCheck} />;
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
-        <StatCard label={isArabic ? 'منشورة' : 'Published'} value={data.publishedCount} icon={BookOpenCheck} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
-        <StatCard label={isArabic ? 'مسودات' : 'Drafts'} value={data.draftCount} icon={FileText} color="var(--cms-warning)" bg="var(--cms-warning-50)" />
-        <StatCard label={isArabic ? 'مؤرشفة' : 'Archived'} value={data.archivedCount} icon={Archive} color="var(--cms-text-muted)" bg="var(--cms-ivory-100)" />
+        <StatCard label={t(locale, 'reports.stats.published')} value={data.publishedCount} icon={BookOpenCheck} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
+        <StatCard label={t(locale, 'reports.stats.drafts')} value={data.draftCount} icon={FileText} color="var(--cms-warning)" bg="var(--cms-warning-50)" />
+        <StatCard label={t(locale, 'reports.stats.archived')} value={data.archivedCount} icon={Archive} color="var(--cms-text-muted)" bg="var(--cms-ivory-100)" />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'أكثر الأسئلة إبلاغاً' : 'Most Reported Questions'}</h3>
+          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.charts.mostReported')}</h3>
           <div className="space-y-2 max-h-[250px] overflow-y-auto">
             {data.mostReported?.map((q, i) => (
               <div key={i} className="flex items-center justify-between py-2 border-b last:border-0" style={{ borderColor: 'var(--cms-line)' }}>
@@ -436,7 +442,7 @@ function QuestionsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: s
           </div>
         </div>
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'الأكثر محاولة' : 'Top Attempted'}</h3>
+          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.charts.topAttempted')}</h3>
           <div className="space-y-2 max-h-[250px] overflow-y-auto">
             {data.topAttempted?.map((q, i) => (
               <div key={i} className="flex items-center justify-between py-2 border-b last:border-0" style={{ borderColor: 'var(--cms-line)' }}>
@@ -469,20 +475,21 @@ function ContentTab({ token, dateFrom, dateTo, isArabic, onError }: { token: str
     finally { setLoading(false); }
   }, [token, dateFrom, dateTo, onError]);
   useEffect(() => { load(); }, [load]);
+  const locale = localeOf(isArabic);
   if (loading) return <LoadingState />;
   if (!data) return <EmptyState icon={FileText} />;
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label={isArabic ? 'ملفات منشورة' : 'Published Files'} value={data.publishedFiles} icon={FileText} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
-        <StatCard label={isArabic ? 'المساحة (MB)' : 'Storage (MB)'} value={data.totalStorageMB} icon={TrendingUp} color="var(--cms-info)" bg="var(--cms-info-50)" />
-        <StatCard label={isArabic ? 'إجمالي المشاهدات' : 'Total Views'} value={data.totalViews} icon={Eye} color="var(--cms-success)" bg="var(--cms-success-50)" />
-        <StatCard label={isArabic ? 'فحوص معلقة' : 'Pending Scans'} value={data.pendingScans} icon={AlertTriangle} color="var(--cms-warning)" bg="var(--cms-warning-50)" />
+        <StatCard label={t(locale, 'reports.stats.publishedFiles')} value={data.publishedFiles} icon={FileText} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
+        <StatCard label={t(locale, 'reports.stats.storageMb')} value={data.totalStorageMB} icon={TrendingUp} color="var(--cms-info)" bg="var(--cms-info-50)" />
+        <StatCard label={t(locale, 'reports.stats.totalViews')} value={data.totalViews} icon={Eye} color="var(--cms-success)" bg="var(--cms-success-50)" />
+        <StatCard label={t(locale, 'reports.stats.pendingScans')} value={data.pendingScans} icon={AlertTriangle} color="var(--cms-warning)" bg="var(--cms-warning-50)" />
       </div>
       {data.viewsByType?.length > 0 && (
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'المشاهدات حسب النوع' : 'Views by Type'}</h3>
+          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.charts.viewsByType')}</h3>
           <ResponsiveContainer width="100%" height={200}>
             <PieChart>
               <Pie data={data.viewsByType} dataKey="views" nameKey="type" cx="50%" cy="50%" outerRadius={80} label={(entry: PieLabelRenderProps & { type?: string }) => entry.type}>
@@ -513,23 +520,24 @@ function CodesTab({ token, dateFrom, dateTo, isArabic, onError }: { token: strin
     finally { setLoading(false); }
   }, [token, dateFrom, dateTo, onError]);
   useEffect(() => { load(); }, [load]);
+  const locale = localeOf(isArabic);
   if (loading) return <LoadingState />;
   if (!data) return <EmptyState icon={KeyRound} />;
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label={isArabic ? 'أكواد صادرة' : 'Total Issued'} value={data.totalIssued} icon={KeyRound} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
-        <StatCard label={isArabic ? 'مفعّلة' : 'Activated'} value={data.activated} icon={ShieldCheck} color="var(--cms-success)" bg="var(--cms-success-50)" />
-        <StatCard label={isArabic ? 'نسبة التفعيل' : 'Activation Rate'} value={`${data.activationRate}%`} icon={TrendingUp} color="var(--cms-info)" bg="var(--cms-info-50)" />
-        <StatCard label={isArabic ? 'قيمة تقديرية' : 'Estimated Value'} value={data.estimatedValue?.toLocaleString()} icon={TrendingUp} color="var(--cms-warning)" bg="var(--cms-warning-50)" />
+        <StatCard label={t(locale, 'reports.stats.totalIssued')} value={data.totalIssued} icon={KeyRound} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
+        <StatCard label={t(locale, 'reports.stats.activated')} value={data.activated} icon={ShieldCheck} color="var(--cms-success)" bg="var(--cms-success-50)" />
+        <StatCard label={t(locale, 'reports.stats.activationRate')} value={`${data.activationRate}%`} icon={TrendingUp} color="var(--cms-info)" bg="var(--cms-info-50)" />
+        <StatCard label={t(locale, 'reports.stats.estimatedValue')} value={data.estimatedValue?.toLocaleString()} icon={TrendingUp} color="var(--cms-warning)" bg="var(--cms-warning-50)" />
       </div>
       {data.estimatedValueNote && (
         <p className="text-[11px]" style={{ color: 'var(--cms-text-muted)' }}>{data.estimatedValueNote}</p>
       )}
       {data.dailyActivation?.length > 0 && (
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'التفعيل اليومي' : 'Daily Activations'}</h3>
+          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.charts.dailyActivations')}</h3>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={data.dailyActivation}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--cms-line)" />
@@ -561,20 +569,21 @@ function OperationsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: 
     finally { setLoading(false); }
   }, [token, dateFrom, dateTo, onError]);
   useEffect(() => { load(); }, [load]);
+  const locale = localeOf(isArabic);
   if (loading) return <LoadingState />;
   if (!data) return <EmptyState icon={ShieldCheck} />;
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label={isArabic ? 'أحداث أمنية' : 'Security Events'} value={data.totalSecurityEvents} icon={ShieldCheck} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
-        <StatCard label={isArabic ? 'دخول ناجح' : 'Successful Logins'} value={data.successfulLogins} icon={ShieldCheck} color="var(--cms-success)" bg="var(--cms-success-50)" />
-        <StatCard label={isArabic ? 'دخول فاشل' : 'Failed Logins'} value={data.failedLogins} icon={AlertTriangle} color="var(--cms-danger)" bg="var(--cms-danger-50)" />
-        <StatCard label={isArabic ? 'معدل النجاح' : 'Login Success Rate'} value={`${data.loginSuccessRate}%`} icon={TrendingUp} color="var(--cms-info)" bg="var(--cms-info-50)" />
+        <StatCard label={t(locale, 'reports.stats.securityEvents')} value={data.totalSecurityEvents} icon={ShieldCheck} color="var(--cms-teal-700)" bg="var(--cms-teal-50)" />
+        <StatCard label={t(locale, 'reports.stats.successfulLogins')} value={data.successfulLogins} icon={ShieldCheck} color="var(--cms-success)" bg="var(--cms-success-50)" />
+        <StatCard label={t(locale, 'reports.stats.failedLogins')} value={data.failedLogins} icon={AlertTriangle} color="var(--cms-danger)" bg="var(--cms-danger-50)" />
+        <StatCard label={t(locale, 'reports.stats.loginSuccessRate')} value={`${data.loginSuccessRate}%`} icon={TrendingUp} color="var(--cms-info)" bg="var(--cms-info-50)" />
       </div>
       {data.securityEventsByType?.length > 0 && (
         <div className="rounded-xl border p-6" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}>
-          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{isArabic ? 'الأحداث حسب النوع' : 'Events by Type'}</h3>
+          <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.charts.eventsByType')}</h3>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={data.securityEventsByType} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="var(--cms-line)" />
@@ -595,14 +604,14 @@ function OperationsTab({ token, dateFrom, dateTo, isArabic, onError }: { token: 
 // ===== Main component with tabs =====
 
 const TABS = [
-  { key: 'overview', ar: 'نظرة عامة', en: 'Overview', icon: TrendingUp },
-  { key: 'students', ar: 'الطلاب', en: 'Students', icon: Users },
-  { key: 'academic', ar: 'الأداء الأكاديمي', en: 'Academic', icon: GraduationCap },
-  { key: 'exams', ar: 'الاختبارات', en: 'Exams', icon: ClipboardCheck },
-  { key: 'questions', ar: 'بنك الأسئلة', en: 'Questions', icon: BookOpenCheck },
-  { key: 'content', ar: 'المحتوى', en: 'Content', icon: FileText },
-  { key: 'codes', ar: 'الأكواد', en: 'Codes', icon: KeyRound },
-  { key: 'operations', ar: 'التشغيل', en: 'Operations', icon: ShieldCheck },
+  { key: 'overview', icon: TrendingUp },
+  { key: 'students', icon: Users },
+  { key: 'academic', icon: GraduationCap },
+  { key: 'exams', icon: ClipboardCheck },
+  { key: 'questions', icon: BookOpenCheck },
+  { key: 'content', icon: FileText },
+  { key: 'codes', icon: KeyRound },
+  { key: 'operations', icon: ShieldCheck },
 ];
 
 export function ReportsTabs({ token, isArabic, onError }: Props) {
@@ -613,6 +622,7 @@ export function ReportsTabs({ token, isArabic, onError }: Props) {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const locale = localeOf(isArabic);
 
   const preset = DATE_PRESETS.find(p => p.value === datePreset) ?? DATE_PRESETS[1];
 
@@ -627,17 +637,13 @@ export function ReportsTabs({ token, isArabic, onError }: Props) {
     }
   }, [datePreset, preset]);
 
-  const t = isArabic
-    ? { title: 'مركز التحليلات', desc: '8 تبويبات تحليلية شاملة', dateRange: 'الفترة', lastUpdate: 'آخر تحديث', refresh: 'تحديث' }
-    : { title: 'Analytics Center', desc: '8 comprehensive analytics tabs', dateRange: 'Date range', lastUpdate: 'Last updated', refresh: 'Refresh' };
-
   const renderTab = () => {
     const props = { token, dateFrom, dateTo, isArabic, onError };
     // Push 3: a denied tab never renders its content, even if stale state points at it.
     if (!can(`tab:reports.${activeTab}`)) {
       return (
         <div className="rounded-xl border p-8 text-center" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text-muted)' }}>
-          {isArabic ? 'لا تملك مفتاح هذا التبويب.' : 'You do not have the key for this tab.'}
+          {t(locale, 'reports.header.tabDenied')}
         </div>
       );
     }
@@ -663,15 +669,15 @@ export function ReportsTabs({ token, isArabic, onError }: Props) {
             <BarChart3 size={20} />
           </div>
           <div>
-            <h2 className="text-xl font-bold" style={{ color: 'var(--cms-text)' }}>{t.title}</h2>
-            <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>{t.desc}</p>
+            <h2 className="text-xl font-bold" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.header.title')}</h2>
+            <p className="text-sm" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'reports.header.desc')}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <Calendar size={14} style={{ color: 'var(--cms-text-muted)' }} />
           <select value={datePreset} onChange={(e) => setDatePreset(e.target.value)}
             className="h-9 rounded-lg border text-xs px-2" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
-            {DATE_PRESETS.map(p => <option key={p.value} value={p.value}>{isArabic ? p.ar : p.en}</option>)}
+            {DATE_PRESETS.map(p => <option key={p.value} value={p.value}>{t(locale, p.labelKey)}</option>)}
           </select>
         </div>
       </div>
@@ -679,7 +685,7 @@ export function ReportsTabs({ token, isArabic, onError }: Props) {
       {/* Last updated */}
       {lastUpdated && (
         <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
-          {t.lastUpdate}: {new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(lastUpdated)}
+          {t(locale, 'reports.header.lastUpdate')}: {new Intl.DateTimeFormat(isArabic ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(lastUpdated)}
         </div>
       )}
 
@@ -694,7 +700,7 @@ export function ReportsTabs({ token, isArabic, onError }: Props) {
                 ? { color: 'var(--cms-teal-700)', borderColor: 'var(--cms-teal-500)' }
                 : { color: 'var(--cms-text-muted)', borderColor: 'transparent' }}>
               <tab.icon size={14} />
-              {isArabic ? tab.ar : tab.en}
+              {t(locale, `reports.tabs.${tab.key}`)}
             </button>
           );
         })}

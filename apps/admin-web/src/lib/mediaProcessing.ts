@@ -16,7 +16,13 @@
  * as Ready — the source MP4 is playable immediately, so claiming otherwise
  * would be dishonest. The moment the field ships, the full ladder lights up
  * with zero frontend changes.
+ *
+ * PR-3 — the user-facing chip strings resolve through the shared dictionary
+ * (`lib/dictionary/library.ts`, processing section); the ladder rung data
+ * (labelAr/labelEn pairs) below stays DATA, exactly as the task book pins it.
  */
+
+import { t, localeOf } from './dictionary';
 
 /** The backend enum's raw member names (JsonStringEnumConverter, no policy). */
 export type ProcessingStatus =
@@ -122,14 +128,15 @@ export function isPdfProcessingActive(status: PdfProcessingStatus | string | nul
 
 /** Short chip label for the episode list row (bilingual). */
 export function processingChipLabel(status: ProcessingStatus | null | undefined, isArabic: boolean): string | null {
-  if (status === 'Failed') return isArabic ? 'فشلت المعالجة' : 'Processing failed';
+  const locale = localeOf(isArabic);
+  if (status === 'Failed') return t(locale, 'library.processing.failed');
   const phase = processingPhase(status);
   if (!phase) return null;
-  if (status === 'Ready') return isArabic ? 'جاهز' : 'Ready';
+  if (status === 'Ready') return t(locale, 'library.processing.ready');
   // Compact rung label for the row chip: "المعالجة: HD" (10.8 market vocabulary).
   const rung = phase.status.startsWith('Transcoding_') ? phase.status.replace('Transcoding_', '') : '...';
   const rungLabel = RUNG_LABELS[rung] ?? rung;
-  return isArabic ? `المعالجة: ${rungLabel}` : `Processing: ${rungLabel}`;
+  return t(locale, 'library.processing.chip', { rung: rungLabel });
 }
 
 /* ============ R22.5.2 — the 5-step LITERAL PDF upload timeline ============ */

@@ -8,6 +8,9 @@ import {
   type ProcessingPhaseInfo,
   type ProcessingStatus,
 } from '../lib/mediaProcessing';
+// PR-3 — the timeline's bilingual strings resolve through the shared dictionary
+// (`lib/dictionary/library.ts`, timeline section).
+import { t, localeOf } from '../lib/dictionary';
 
 /**
  * Push 10.4 (1.B) — the human-readable processing state machine.
@@ -66,6 +69,8 @@ export function ProcessingTimeline({
   isArabic: boolean;
   testId?: string;
 }) {
+  // PR-3 — dictionary locale derived from the legacy bilingual flag.
+  const locale = localeOf(isArabic);
   const failed = status === 'Failed';
 
   /* Push 10.8 — the dynamic ladder: steps that will not run are never shown.
@@ -89,7 +94,7 @@ export function ProcessingTimeline({
         <div className="grid grid-cols-3 gap-2" data-testid="upload-stats">
           <div className="rounded-lg border bg-white px-3 py-2" style={{ borderColor: 'var(--cms-line)' }}>
             <p className="text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--cms-text-muted)' }}>
-              {isArabic ? 'الحجم' : 'Size'}
+              {t(locale, 'library.fields.size')}
             </p>
             <p className="mt-0.5 text-sm font-semibold tabular-nums" style={{ color: 'var(--cms-text)' }} data-testid="upload-stat-size">
               {formatBytes(uploadStats.totalBytes)}
@@ -97,7 +102,7 @@ export function ProcessingTimeline({
           </div>
           <div className="rounded-lg border bg-white px-3 py-2" style={{ borderColor: 'var(--cms-line)' }}>
             <p className="text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--cms-text-muted)' }}>
-              {isArabic ? 'السرعة' : 'Speed'}
+              {t(locale, 'library.timeline.speed')}
             </p>
             <p className="mt-0.5 text-sm font-semibold tabular-nums" style={{ color: 'var(--cms-text)' }} data-testid="upload-stat-speed">
               {formatSpeed(uploadStats.speedBps)}
@@ -105,7 +110,7 @@ export function ProcessingTimeline({
           </div>
           <div className="rounded-lg border bg-white px-3 py-2" style={{ borderColor: 'var(--cms-line)' }}>
             <p className="text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--cms-text-muted)' }}>
-              {isArabic ? 'الوقت المتبقي' : 'ETA'}
+              {t(locale, 'library.timeline.eta')}
             </p>
             <p className="mt-0.5 text-sm font-semibold tabular-nums" style={{ color: 'var(--cms-text)' }} data-testid="upload-stat-eta">
               {formatEta(uploadStats.etaSeconds)}
@@ -113,9 +118,12 @@ export function ProcessingTimeline({
           </div>
           {(uploadStats.totalParts != null && uploadStats.totalParts > 0) && (
             <p className="col-span-3 text-xs tabular-nums" style={{ color: 'var(--cms-text-muted)' }} data-testid="upload-stat-parts">
-              {isArabic
-                ? `${formatBytes(uploadStats.uploadedBytes)} من أصل ${formatBytes(uploadStats.totalBytes)} · ${uploadStats.completedParts ?? 0}/${uploadStats.totalParts} أجزاء`
-                : `${formatBytes(uploadStats.uploadedBytes)} of ${formatBytes(uploadStats.totalBytes)} · ${uploadStats.completedParts ?? 0}/${uploadStats.totalParts} parts`}
+              {t(locale, 'library.timeline.parts', {
+                uploaded: formatBytes(uploadStats.uploadedBytes),
+                total: formatBytes(uploadStats.totalBytes),
+                completed: uploadStats.completedParts ?? 0,
+                parts: uploadStats.totalParts,
+              })}
             </p>
           )}
         </div>
@@ -159,10 +167,10 @@ export function ProcessingTimeline({
         <div className="flex items-center justify-between text-xs tabular-nums" style={{ color: 'var(--cms-text-soft)' }}>
           <span data-testid="processing-bar-label">
             {stage === 'uploading'
-              ? (isArabic ? 'جارٍ رفع الملف…' : 'Uploading the file…')
+              ? t(locale, 'library.timeline.barUploading')
               : failed
-                ? (isArabic ? 'فشلت المعالجة' : 'Processing failed')
-                : (isArabic ? 'المعالجة على الخادم' : 'Server-side processing')}
+                ? t(locale, 'library.processing.failed')
+                : t(locale, 'library.timeline.barProcessing')}
           </span>
           <span data-testid="processing-bar-percent">{Math.round(barPercent)}%</span>
         </div>
@@ -173,7 +181,7 @@ export function ProcessingTimeline({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(barPercent)}
-          aria-label={stage === 'uploading' ? (isArabic ? 'تقدم الرفع' : 'Upload progress') : (isArabic ? 'تقدم المعالجة' : 'Processing progress')}
+          aria-label={stage === 'uploading' ? t(locale, 'library.timeline.uploadProgressA11y') : t(locale, 'library.timeline.processingProgressA11y')}
         >
           <div
             data-testid="processing-bar-fill"

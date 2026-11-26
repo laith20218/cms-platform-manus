@@ -1,5 +1,7 @@
 import type { DifficultyValue, TargetQuality } from '../lib/mediaProcessing';
 import { DIFFICULTY_OPTIONS, TARGET_QUALITY_OPTIONS } from '../lib/mediaProcessing';
+// PR-3 — metadata-field labels resolve through the shared dictionary.
+import { t, localeOf } from '../lib/dictionary';
 
 /**
  * Push 10.4 (1.A) — the episode metadata form block, shared by the multipart
@@ -63,21 +65,14 @@ export function EpisodeMetadataFields({
   testIdPrefix = 'episode-metadata',
   showQuality = true,
 }: EpisodeMetadataFieldsProps) {
-  const copy = isArabic ? {
-    titleLabel: 'عنوان الحلقة',
-    titleLabelEn: 'Episode title',
-    descriptionLabel: 'الوصف (اختياري)',
-    difficultyLabel: 'مستوى الصعوبة',
-    qualityLabel: 'جودة المعالجة',
-    titleRequired: 'العنوان مطلوب',
-    counter: (n: number, max: number) => `${n}/${max}`,
-  } : {
-    titleLabel: 'Episode title',
-    titleLabelEn: 'Episode title',
-    descriptionLabel: 'Description (optional)',
-    difficultyLabel: 'Difficulty',
-    qualityLabel: 'Processing quality',
-    titleRequired: 'Title is required',
+  const locale = localeOf(isArabic);
+  const copy = {
+    titleLabel: t(locale, 'courses.metadataFields.titleLabel'),
+    titleLabelEn: t(locale, 'courses.metadataFields.titleLabelEn'),
+    descriptionLabel: t(locale, 'courses.metadataFields.descriptionLabel'),
+    difficultyLabel: t(locale, 'courses.metadataFields.difficultyLabel'),
+    qualityLabel: t(locale, 'courses.metadataFields.qualityLabel'),
+    titleRequired: t(locale, 'courses.metadataFields.titleRequired'),
     counter: (n: number, max: number) => `${n}/${max}`,
   };
 
@@ -174,9 +169,7 @@ export function EpisodeMetadataFields({
           rows={layout === 'rows' ? 3 : 4}
           maxLength={EPISODE_DESCRIPTION_MAX}
           onChange={(e) => onChange({ description: e.target.value })}
-          placeholder={isArabic
-            ? 'وصف مختصر لمحتوى الحلقة — يظهر للطالب أسفل المشغّل'
-            : 'A short description of the episode — shown to the student under the player'}
+          placeholder={t(locale, 'courses.metadataFields.descriptionPlaceholder')}
           data-testid={descriptionId}
           className="w-full resize-y rounded-lg border px-3 py-2 text-sm outline-none transition-colors focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
           style={{ borderColor: 'var(--cms-line-strong)' }}
