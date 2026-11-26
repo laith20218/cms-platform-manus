@@ -200,7 +200,13 @@ public record PagedExamResultDto<T>(List<T> Items, int Page, int PageSize, int T
 // ===== W14.2 C.2 — reorder + preview =====
 public record ReorderExamQuestionsDto(List<Guid> QuestionIds);
 
-/// <summary>Student-view rendering of an exam — correctness flags intentionally absent.</summary>
+/// <summary>
+/// Student-view rendering of an exam. W14.2 kept it correctness-free; PR-4 extends
+/// each question with the authoring surface (explanation, correct answer, وصل
+/// payload) so the exam preview rides the SAME universal preview renderer as the
+/// question bank — the caller could already read all of this from the question
+/// detail; student surfaces stay correctness-free.
+/// </summary>
 public record AdminExamPreviewDto(
     Guid Id,
     string TitleAr,
@@ -216,9 +222,19 @@ public record ExamPreviewQuestionDto(
     string Type,
     string Difficulty,
     List<ExamPreviewOptionDto> Options,
-    List<ExamPreviewImageDto> Images);
+    List<ExamPreviewImageDto> Images,
+    // PR-4 — universal-preview surfaces (admin-only read; no attempt is created).
+    string? ParagraphTag = null,
+    string? Explanation = null,
+    string? ExplanationHtml = null,
+    string? Reference = null,
+    string? CorrectOptionId = null,
+    string? CorrectOptionLetter = null,
+    string? CorrectAnswerText = null,
+    string? Status = null,
+    MatchingPayloadDto? Matching = null);
 
-public record ExamPreviewOptionDto(Guid Id, string Letter, string Text, string? ImageUrl);
+public record ExamPreviewOptionDto(Guid Id, string Letter, string Text, string? ImageUrl, bool IsCorrect = false);
 public record ExamPreviewImageDto(string ImageUrl, string? AltText, int SortOrder);
 
 // ===== W14.2 D.1/D.2/D.4 — exam analytics + heartbeat =====

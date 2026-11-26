@@ -33,24 +33,30 @@ const PREVIEW = {
   id: 'e1', titleAr: 'اختبار التشريح النهائي', durationMinutes: 90, totalQuestions: 2, status: 'Published',
   questions: [
     {
-      questionId: 'q1', order: 1, text: 'ما هي أصغر وحدة في الجسم؟', type: 'MCQ', difficulty: 'Easy',
+      // PR-4 — the wire contract: sortOrder (1-based), options with isCorrect
+      // flags + the authoring superset fields (explanation etc.).
+      questionId: 'q1', sortOrder: 1, text: 'ما هي أصغر وحدة في الجسم؟', type: 'Mcq', difficulty: 'Easy',
       options: [
-        { id: 'o1', letter: 'A', text: 'الخلية' },
-        { id: 'o2', letter: 'B', text: 'النسيج' },
-        { id: 'o3', letter: 'C', text: 'العضو' },
-        { id: 'o4', letter: 'D', text: 'الجهاز' },
+        { id: 'o1', letter: 'A', text: 'الخلية', isCorrect: true },
+        { id: 'o2', letter: 'B', text: 'النسيج', isCorrect: false },
+        { id: 'o3', letter: 'C', text: 'العضو', isCorrect: false },
+        { id: 'o4', letter: 'D', text: 'الجهاز', isCorrect: false },
       ],
       images: [],
+      paragraphTag: null, explanation: 'الخلية هي أصغر وحدة تركيبية ووظيفية.', explanationHtml: null, reference: null,
+      correctOptionId: 'o1', correctOptionLetter: 'A', correctAnswerText: null, status: 'Draft', matching: null,
     },
     {
-      questionId: 'q2', order: 2, text: 'أي مما يلي ليس من مكونات الدم؟', type: 'MCQ', difficulty: 'Medium',
+      questionId: 'q2', sortOrder: 2, text: 'أي مما يلي ليس من مكونات الدم؟', type: 'Mcq', difficulty: 'Medium',
       options: [
-        { id: 'o5', letter: 'A', text: 'البلازما' },
-        { id: 'o6', letter: 'B', text: 'الصفائح' },
-        { id: 'o7', letter: 'C', text: 'الخلايا العصبية' },
-        { id: 'o8', letter: 'D', text: 'كريات حمراء' },
+        { id: 'o5', letter: 'A', text: 'البلازما', isCorrect: false },
+        { id: 'o6', letter: 'B', text: 'الصفائح', isCorrect: false },
+        { id: 'o7', letter: 'C', text: 'الخلايا العصبية', isCorrect: true },
+        { id: 'o8', letter: 'D', text: 'كريات حمراء', isCorrect: false },
       ],
       images: [],
+      paragraphTag: null, explanation: null, explanationHtml: null, reference: null,
+      correctOptionId: 'o7', correctOptionLetter: 'C', correctAnswerText: null, status: 'Published', matching: null,
     },
   ],
 };
@@ -140,16 +146,22 @@ describe('W-coverage — exam student-view preview (row 18)', () => {
     await waitFor(() => expect(screen.getByTestId('exam-preview-dialog')).toBeInTheDocument());
 
     expect(calls.some((c) => c.path.includes('/api/v1/admin/exams/e1/preview'))).toBe(true);
-    // Student view content: both questions, options, the student-view note.
+    // Student view content: both questions + options render through the UNIVERSAL
+    // preview renderer (PR-4), with the ordered question numbers from sortOrder.
     expect(screen.getByText('ما هي أصغر وحدة في الجسم؟')).toBeInTheDocument();
     expect(screen.getByText('أي مما يلي ليس من مكونات الدم؟')).toBeInTheDocument();
     expect(screen.getByText('الخلية')).toBeInTheDocument();
     expect(screen.getByText('الخلايا العصبية')).toBeInTheDocument();
-    expect(screen.getByText(/دون أي مؤشر للإجابات الصحيحة/)).toBeInTheDocument();
-    // No correctness markers anywhere in the preview dialog.
+    // The PR-4 honest no-mutation notice.
+    expect(screen.getByText(/لا يُسجَّل أي دخول أو محاولة أو درجة/)).toBeInTheDocument();
+    // No correctness markers before the LOCAL simulation is confirmed: nothing is
+    // revealed until the admin plays the student and clicks «تأكيد الإجابة».
     const dialogText = screen.getByTestId('exam-preview-dialog').textContent ?? '';
-    expect(dialogText).not.toContain('correct');
     expect(dialogText).not.toContain('الإجابة الصحيحة');
+    expect(dialogText).not.toContain('إجابة صحيحة');
+    // PR-4 — the simulation affordance exists but stays LOCAL (no /answer call).
+    expect(screen.getAllByTestId(/^exam-preview-confirm-q\d$/).length).toBe(2);
+    expect(calls.some((c) => c.path.includes('/answer'))).toBe(false);
 
     fireEvent.click(screen.getByTestId('exam-preview-close'));
     await waitFor(() => expect(screen.queryByTestId('exam-preview-dialog')).not.toBeInTheDocument());

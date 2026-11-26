@@ -41,17 +41,20 @@
  */
 import { Fragment, FormEvent, useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle, Archive, CheckCircle2, ChevronLeft, ChevronRight, Copy, Eye,
-  FileText, ImagePlus, Link2, ListFilter, LoaderCircle, Pencil, Plus, PlusCircle, Upload,
+  AlertCircle, Archive, CheckCircle2, ChevronLeft, ChevronRight, Copy, Download, Eye,
+  FileText, ImagePlus, Link2, ListFilter, LoaderCircle, Pencil, Plus, PlusCircle, Tags, Upload,
   Search, Send, Trash2, Undo2, X,
 } from 'lucide-react';
-import { apiRequest, type PagedResult } from '../lib/api';
+import { apiRequest, apiDownload, type PagedResult } from '../lib/api';
 import { t, localeOf, statusLabel } from '../lib/dictionary';
-import { Pagination, RowActionsMenu } from '@cms/ui';
+import { Dialog, Pagination, RowActionsMenu } from '@cms/ui';
 import { HardDeleteDialog, type HardDeleteTarget } from './HardDeleteDialog';
 import { QuestionImportModal } from './QuestionImportModal';
 import { questionDifficultyLabel as difficultyLabel, questionTypeLabel as typeLabel } from '../lib/questionLabels';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
+import { useQueryParamsWriter, useQueryState } from '../lib/useQueryState';
+import { UniversalPreviewDialog } from './preview/UniversalPreviewDialog';
+import { fromQuestionPreviewDto, type PreviewQuestion } from './preview/previewTypes';
 import {
   emptyMatching, matchingFromDetail, matchingToApiPayload, matchingNumberingLabel, newMatchingRowId,
   removePrompt, removeTarget, takenTargetIds, toggleMultiTarget, validateMatching,
@@ -110,11 +113,23 @@ type ConfirmDialog =
 type EditorTab = 'content' | 'explanation' | 'classification' | 'settings';
 const EDITOR_TABS: EditorTab[] = ['content', 'explanation', 'classification', 'settings'];
 
-// W14.3 B.3 — GET /admin/questions/{id}/preview (W14.2) — the student view.
-type QuestionPreview = {
-  id: string; text: string; type: string; difficulty: string; tags: string[];
-  options: { id: string; letter: string; text: string; imageUrl: string | null }[];
-  images: { imageUrl: string; altText: string | null; sortOrder: number }[];
+// W14.3 B.3 — GET /admin/questions/{id}/preview — the PR-4 ADMIN superset
+// (student surface + authoring surface: explanation, correct answer, وصل payload)
+// consumed through the universal preview normalizer.
+type QuestionPreviewApi = {
+  id: string; text: string; type: string; difficulty: string; status?: string;
+  tags?: string[]; paragraphTag?: string | null; year?: number | null;
+  options: { id: string; letter: string; text: string; imageUrl?: string | null; isCorrect?: boolean }[];
+  images: { imageUrl: string; altText?: string | null; sortOrder: number }[];
+  explanation?: string | null; explanationHtml?: string | null; reference?: string | null;
+  correctOptionId?: string | null; correctOptionLetter?: string | null; correctAnswerText?: string | null;
+  matching?: unknown;
+};
+
+// PR-4 — filter facet payload (GET /admin/questions/facets).
+type QuestionFacets = {
+  authors: { id: string; name: string }[];
+  tags: string[];
 };
 
 // W21.1 — Arabic prompt letters for the وصل board (same alphabet as the student
@@ -261,13 +276,43 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   const [questions, setQuestions] = useState<QuestionSummary[]>([]);
   // W2 (admin-ui): server-side pager state — the list was a fixed pageSize=100
   // fetch with no controls (debt D-20).
-  const [questionsPage, setQuestionsPage] = useState(1);
   const [questionsTotal, setQuestionsTotal] = useState(0);
   // W5 (admin-ui): bulk CSV import modal (matrix row 13 — was UI=none).
   const [importOpen, setImportOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+
+  // PR-4 — the full question-bank working state lives in the URL (PR-2
+  // query-state discipline): refresh, deep links, shared links and back/forward
+  // restore the exact list view. Academic cascade ids stay under
+  // useAcademicContext; these keys own the toolbar/pager/sort state. Multi-key
+  // changes (filter change + page reset, clear-all) go through ONE atomic
+  // history replace via writeParams (react-router stale-closure quirk).
+  const writeParams = useQueryParamsWriter();
+  const searchState = useQueryState('q', '');
+  const [query, setQuery] = useState(''); // debounced input mirror of ?q=
+  const typeFilter = useQueryState('type', '', ['Mcq', 'TrueFalse', 'MultipleSelect', 'Essay', 'Matching']);
+  const statusFilter = useQueryState('status', '', ['Draft', 'Review', 'Published', 'Archived']);
+  const difficultyFilter = useQueryState('difficulty', '', ['Easy', 'Medium', 'Hard']);
+  const lectureFilter = useQueryState('lecture', '');
+  const tagsFilter = useQueryState('tags', '');
+  const authorFilter = useQueryState('author', '');
+  const createdFrom = useQueryState('createdFrom', '');
+  const createdTo = useQueryState('createdTo', '');
+  const updatedFrom = useQueryState('updatedFrom', '');
+  const updatedTo = useQueryState('updatedTo', '');
+  const sortState = useQueryState('sort', 'updatedAt', ['updatedAt', 'createdAt', 'attempts', 'text']);
+  const orderState = useQueryState('order', 'desc', ['asc', 'desc']);
+  const pageState = useQueryState('page', '1');
+  const PAGE_SIZE = 25; // PR-4 — real pages (backend default; max 100)
+
+  // PR-4 — facet directory (authors + tags in this subject) for the filter bar.
+  const [facets, setFacets] = useState<QuestionFacets | null>(null);
+  // PR-4 — bulk tag dialog + CSV export state.
+  const [tagDialogOpen, setTagDialogOpen] = useState(false);
+  const [tagAddValue, setTagAddValue] = useState('');
+  const [tagRemoveValue, setTagRemoveValue] = useState('');
+  const [tagBusy, setTagBusy] = useState(false);
+  const [tagError, setTagError] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   // === Editor state ===
   const [form, setForm] = useState<FormState>(emptyForm());
@@ -280,7 +325,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   const [editorTab, setEditorTab] = useState<EditorTab>('content');
   // Snapshot of the row being edited (status + usage) — the detail DTO carries status.
   const [editingRow, setEditingRow] = useState<{ status: string; attemptsCount: number; correctRate: number } | null>(null);
-  const [preview, setPreview] = useState<QuestionPreview | null>(null);
+  const [preview, setPreview] = useState<PreviewQuestion | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -325,30 +370,80 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // PR-4 — hydrate the search input from the URL once (?q= survives refresh).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setQuery(searchState.value); }, []);
+
+  // PR-4 — debounced write-back: typing updates the input immediately and the
+  // URL after 250 ms (the historic debounce cadence).
   useEffect(() => {
-    if (!subjectId) { setQuestions([]); return; }
+    const timer = window.setTimeout(() => {
+      const next = query.trim();
+      if (next !== searchState.value) searchState.setValue(next);
+    }, 250);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  useEffect(() => {
+    if (!subjectId) { setQuestions([]); setQuestionsTotal(0); setFacets(null); return; }
     const timer = window.setTimeout(() => { void loadQuestions(); }, 250);
     return () => window.clearTimeout(timer);
-    // Filters are intentionally server-side.
+    // Filters are intentionally server-side and URL-persisted (PR-2 discipline).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subjectId, query, typeFilter, statusFilter]);
+  }, [
+    subjectId, searchState.value, typeFilter.value, statusFilter.value, difficultyFilter.value,
+    lectureFilter.value, tagsFilter.value, authorFilter.value,
+    createdFrom.value, createdTo.value, updatedFrom.value, updatedTo.value,
+    sortState.value, orderState.value, pageState.value,
+  ]);
 
+  // PR-4 — facet directory refresh (authors + tags in the subject, best-effort).
+  useEffect(() => {
+    if (!subjectId) return;
+    setFacets(null);
+    void request<QuestionFacets>(`/api/v1/admin/questions/facets?subjectId=${subjectId}`)
+      .then(setFacets)
+      .catch(() => setFacets(null)); // non-fatal: filters fall back to manual input
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectId]);
+
+  const questionsPage = Math.max(1, parseInt(pageState.value, 10) || 1);
   const activeSubject = useMemo(() => subjects.find(subject => subject.id === subjectId), [subjects, subjectId]);
   const isEssay = form.type === 'Essay';
   const isTrueFalse = form.type === 'TrueFalse';
   const isMatching = form.type === 'Matching';
 
-  async function loadQuestions(targetPage = 1) {
-    if (!subjectId) return;
+  /** Builds the CURRENT querystring (URL state → server params), shared by list + export. */
+  function buildFilterParams(forExport = false) {
+    if (!subjectId) return null;
+    const params = new URLSearchParams({ subjectId, pageSize: forExport ? '100' : String(PAGE_SIZE) });
+    if (!forExport) params.set('page', String(questionsPage));
+    if (searchState.value.trim()) params.set('search', searchState.value.trim());
+    if (typeFilter.value) params.set('type', typeFilter.value);
+    if (statusFilter.value) params.set('status', statusFilter.value);
+    if (difficultyFilter.value) params.set('difficulty', difficultyFilter.value);
+    if (lectureFilter.value) params.set('lectureId', lectureFilter.value);
+    if (tagsFilter.value.trim()) params.set('tags', tagsFilter.value.trim());
+    if (authorFilter.value) params.set('authorId', authorFilter.value);
+    if (createdFrom.value) params.set('createdFrom', createdFrom.value);
+    if (createdTo.value) params.set('createdTo', createdTo.value);
+    if (updatedFrom.value) params.set('updatedFrom', updatedFrom.value);
+    if (updatedTo.value) params.set('updatedTo', updatedTo.value);
+    if (!forExport) {
+      params.set('sort', sortState.value);
+      params.set('order', orderState.value);
+    }
+    return params;
+  }
+
+  async function loadQuestions() {
+    const params = buildFilterParams();
+    if (!params) return;
     setLoading(true);
     try {
-      const params = new URLSearchParams({ subjectId, page: String(targetPage), pageSize: '100' });
-      if (query.trim()) params.set('search', query.trim());
-      if (typeFilter) params.set('type', typeFilter);
-      if (statusFilter) params.set('status', statusFilter);
       const result = await request<PagedResult<QuestionSummary>>(`/api/v1/admin/questions?${params.toString()}`);
       setQuestions(result.items);
-      setQuestionsPage(targetPage);
       setQuestionsTotal(result.total);
     } catch (error) {
       onError(error instanceof Error ? error.message : t(locale, 'questions.errors.loadQuestions'));
@@ -390,6 +485,11 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   async function chooseSubject(id: string) {
     academic.chooseSubject(id); setLectures([]); setForm(emptyForm()); setShowEditor(false);
     setSelectedIds(new Set()); // selection belongs to the previous subject
+    // PR-4 — subject-scoped filters cannot survive a subject switch (stale ids).
+    lectureFilter.setValue('');
+    tagsFilter.setValue('');
+    authorFilter.setValue('');
+    pageState.setValue('1');
     if (!id) return;
     try { setLectures(await request<Lecture[]>(`/api/v1/admin/content/academic/subjects/${id}/lectures`)); }
     catch (error) { onError(error instanceof Error ? error.message : t(locale, 'questions.errors.loadLectures')); }
@@ -652,7 +752,8 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   async function previewQuestion(id: string) {
     setPreviewLoading(true);
     try {
-      setPreview(await request<QuestionPreview>(`/api/v1/admin/questions/${id}/preview`));
+      const dto = await request<QuestionPreviewApi>(`/api/v1/admin/questions/${id}/preview`);
+      setPreview(fromQuestionPreviewDto(dto));
     } catch (error) {
       onError(error instanceof Error ? error.message : t(locale, 'questions.errors.openPreview'));
     } finally { setPreviewLoading(false); }
@@ -692,6 +793,102 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     } catch (error) {
       onError(error instanceof Error ? error.message : t(locale, 'questions.errors.bulkAction'));
     } finally { setBulkBusy(false); }
+  }
+
+  // ===== PR-4 — bulk tagging through the existing tag vocabulary =====
+
+  const parseTagInput = (value: string): string[] =>
+    value.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+
+  async function submitBulkTag() {
+    if (selectedIds.size === 0) { setTagDialogOpen(false); return; }
+    const addTags = parseTagInput(tagAddValue);
+    const removeTags = parseTagInput(tagRemoveValue);
+    if (addTags.length === 0 && removeTags.length === 0) {
+      setTagError(t(locale, 'questions.bulk.tagValidation'));
+      return;
+    }
+    if (addTags.some(tag => tag.length > 50) || removeTags.some(tag => tag.length > 50)) {
+      setTagError(t(locale, 'questions.bulk.tagValidation'));
+      return;
+    }
+    setTagBusy(true);
+    setTagError('');
+    try {
+      const result = await request<{ requested: number; succeeded: number; skipped: number; notFoundIds: string[] }>(
+        '/api/v1/admin/questions/bulk-tag',
+        {
+          method: 'POST', headers: requestHeaders,
+          body: JSON.stringify({ ids: Array.from(selectedIds), addTags, removeTags }),
+        },
+      );
+      onNotice(t(locale, 'questions.bulk.tagApplied', { succeeded: result.succeeded, requested: result.requested }));
+      setTagDialogOpen(false);
+      setTagAddValue('');
+      setTagRemoveValue('');
+      await loadQuestions();
+      // Refresh the facet directory — new tags may now exist in this subject.
+      void request<QuestionFacets>(`/api/v1/admin/questions/facets?subjectId=${subjectId}`)
+        .then(setFacets)
+        .catch(() => undefined);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : t(locale, 'questions.errors.bulkAction'));
+    } finally { setTagBusy(false); }
+  }
+
+  // ===== PR-4 — CSV export through the authorized backend contract =====
+
+  async function exportCsv() {
+    const params = buildFilterParams(true);
+    if (!params) return;
+    setExporting(true);
+    try {
+      const { blob, fileName } = await apiDownload(`/api/v1/admin/questions/export?${params.toString()}`, token);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      onNotice(t(locale, 'questions.bulk.exportReady'));
+    } catch (error) {
+      onError(error instanceof Error ? error.message : t(locale, 'questions.bulk.exportFailed'));
+    } finally { setExporting(false); }
+  }
+
+  /** PR-4 — one click resets every question-bank filter param (ONE atomic history replace). */
+  function clearAllFilters() {
+    setQuery('');
+    writeParams([
+      { key: 'q', value: '', defaultValue: '' },
+      { key: 'type', value: '', defaultValue: '' },
+      { key: 'status', value: '', defaultValue: '' },
+      { key: 'difficulty', value: '', defaultValue: '' },
+      { key: 'lecture', value: '', defaultValue: '' },
+      { key: 'tags', value: '', defaultValue: '' },
+      { key: 'author', value: '', defaultValue: '' },
+      { key: 'createdFrom', value: '', defaultValue: '' },
+      { key: 'createdTo', value: '', defaultValue: '' },
+      { key: 'updatedFrom', value: '', defaultValue: '' },
+      { key: 'updatedTo', value: '', defaultValue: '' },
+      { key: 'sort', value: 'updatedAt', defaultValue: 'updatedAt' },
+      { key: 'order', value: 'desc', defaultValue: 'desc' },
+      { key: 'page', value: '1', defaultValue: '1' },
+    ]);
+  }
+
+  /**
+   * PR-4 — changing a filter resets to page 1 in the SAME atomic URL write (a
+   * filtered list is a new list). Sequential setValue calls would lose the page
+   * deletion to react-router's stale-closure quirk (see useQueryParamsWriter).
+   */
+  function applyFilter(key: string, value: string, defaultValue: string) {
+    writeParams([
+      { key, value, defaultValue },
+      { key: 'page', value: '1', defaultValue: '1' },
+    ]);
   }
 
   // ===== W14.3 B.2 (R75 C2) — option image upload via the library presign flow =====
@@ -859,46 +1056,204 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
         </div>
       ) : (
         <>
-          {/* ===== Toolbar ===== */}
+          {/* ===== Toolbar (PR-4: the completed filter rail — every value URL-persisted) ===== */}
           <div
-            className="flex flex-wrap gap-3 items-center p-4 rounded-xl border bg-white"
+            className="rounded-xl border bg-white p-4 space-y-3"
             style={{ borderColor: 'var(--cms-line)' }}
+            data-testid="questions-toolbar"
           >
-            <div className="relative flex-1 min-w-[220px]">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t(locale, 'questions.toolbar.searchPlaceholder')}
-                className="w-full pr-10 pl-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={t(locale, 'questions.toolbar.searchPlaceholder')}
+                  aria-label={t(locale, 'questions.toolbar.searchPlaceholder')}
+                  className="w-full pr-10 pl-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  style={{ borderColor: 'var(--cms-line-strong)' }}
+                  data-testid="questions-search-input"
+                />
+              </div>
+              <select
+                value={typeFilter.value}
+                onChange={(event) => applyFilter('type', event.target.value, '')}
+                aria-label={t(locale, 'questions.toolbar.allTypes')}
+                className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 style={{ borderColor: 'var(--cms-line-strong)' }}
-              />
+                data-testid="questions-type-filter"
+              >
+                <option value="">{t(locale, 'questions.toolbar.allTypes')}</option>
+                <option value="Mcq">{t(locale, 'questions.typeOptions.mcq')}</option>
+                <option value="TrueFalse">{t(locale, 'questions.typeOptions.trueFalse')}</option>
+                <option value="MultipleSelect">{t(locale, 'questions.typeOptions.multipleSelect')}</option>
+                <option value="Essay">{t(locale, 'questions.typeOptions.essay')}</option>
+                <option value="Matching">{t(locale, 'questions.typeOptions.matching')}</option>
+              </select>
+              <select
+                value={statusFilter.value}
+                onChange={(event) => applyFilter('status', event.target.value, '')}
+                aria-label={t(locale, 'questions.toolbar.allStatuses')}
+                className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                style={{ borderColor: 'var(--cms-line-strong)' }}
+                data-testid="questions-status-filter"
+              >
+                <option value="">{t(locale, 'questions.toolbar.allStatuses')}</option>
+                <option value="Draft">{t(locale, 'questions.statusDraft')}</option>
+                <option value="Review">{t(locale, 'questions.statusReview')}</option>
+                <option value="Published">{t(locale, 'questions.statusPublished')}</option>
+                <option value="Archived">{t(locale, 'questions.statusArchived')}</option>
+              </select>
+              <select
+                value={difficultyFilter.value}
+                onChange={(event) => applyFilter('difficulty', event.target.value, '')}
+                aria-label={t(locale, 'questions.toolbar.difficultyLabel')}
+                className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                style={{ borderColor: 'var(--cms-line-strong)' }}
+                data-testid="questions-difficulty-filter"
+              >
+                <option value="">{t(locale, 'questions.toolbar.allDifficulties')}</option>
+                <option value="Easy">{t(locale, 'questions.difficultyOptions.easy')}</option>
+                <option value="Medium">{t(locale, 'questions.difficultyOptions.medium')}</option>
+                <option value="Hard">{t(locale, 'questions.difficultyOptions.hard')}</option>
+              </select>
+              <select
+                value={lectureFilter.value}
+                onChange={(event) => applyFilter('lecture', event.target.value, '')}
+                aria-label={t(locale, 'questions.toolbar.lectureLabel')}
+                className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 min-w-[150px]"
+                style={{ borderColor: 'var(--cms-line-strong)' }}
+                data-testid="questions-lecture-filter"
+              >
+                <option value="">{t(locale, 'questions.toolbar.allLectures')}</option>
+                {lectures.map(lecture => (
+                  <option key={lecture.id} value={lecture.id}>{label(isArabic, lecture)}</option>
+                ))}
+              </select>
+              <select
+                value={authorFilter.value}
+                onChange={(event) => applyFilter('author', event.target.value, '')}
+                aria-label={t(locale, 'questions.toolbar.authorLabel')}
+                className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 min-w-[140px]"
+                style={{ borderColor: 'var(--cms-line-strong)' }}
+                data-testid="questions-author-filter"
+              >
+                <option value="">{t(locale, 'questions.toolbar.allAuthors')}</option>
+                {(facets?.authors ?? []).map(author => (
+                  <option key={author.id} value={author.id}>{author.name}</option>
+                ))}
+              </select>
             </div>
-            <select
-              value={typeFilter}
-              onChange={(event) => setTypeFilter(event.target.value)}
-              className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-              style={{ borderColor: 'var(--cms-line-strong)' }}
-            >
-              <option value="">{t(locale, 'questions.toolbar.allTypes')}</option>
-              <option value="Mcq">{t(locale, 'questions.typeOptions.mcq')}</option>
-              <option value="TrueFalse">{t(locale, 'questions.typeOptions.trueFalse')}</option>
-              <option value="MultipleSelect">{t(locale, 'questions.typeOptions.multipleSelect')}</option>
-              <option value="Essay">{t(locale, 'questions.typeOptions.essay')}</option>
-              <option value="Matching">{t(locale, 'questions.typeOptions.matching')}</option>
-            </select>
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-              className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-              style={{ borderColor: 'var(--cms-line-strong)' }}
-            >
-              <option value="">{t(locale, 'questions.toolbar.allStatuses')}</option>
-              <option value="Draft">{t(locale, 'questions.statusDraft')}</option>
-              <option value="Review">{t(locale, 'questions.statusReview')}</option>
-              <option value="Published">{t(locale, 'questions.statusPublished')}</option>
-              <option value="Archived">{t(locale, 'questions.statusArchived')}</option>
-            </select>
+            <div className="flex flex-wrap gap-3 items-center">
+              <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                <Tags className="w-3.5 h-3.5" aria-hidden="true" />
+                <span className="sr-only">{t(locale, 'questions.toolbar.tagsLabel')}</span>
+                <input
+                  value={tagsFilter.value}
+                  onChange={(event) => applyFilter('tags', event.target.value, '')}
+                  placeholder={t(locale, 'questions.toolbar.allTags')}
+                  list="questions-tags-list"
+                  className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 min-w-[160px]"
+                  style={{ borderColor: 'var(--cms-line-strong)' }}
+                  data-testid="questions-tags-filter"
+                />
+                <datalist id="questions-tags-list">
+                  {(facets?.tags ?? []).map(tag => <option key={tag} value={tag} />)}
+                </datalist>
+              </label>
+              <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                <span>{t(locale, 'questions.toolbar.createdFromLabel')}</span>
+                <input
+                  type="date"
+                  value={createdFrom.value}
+                  onChange={(event) => applyFilter('createdFrom', event.target.value, '')}
+                  className="px-2 py-1.5 rounded-lg border text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  style={{ borderColor: 'var(--cms-line-strong)' }}
+                  data-testid="questions-created-from"
+                />
+              </label>
+              <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                <span>{t(locale, 'questions.toolbar.createdToLabel')}</span>
+                <input
+                  type="date"
+                  value={createdTo.value}
+                  onChange={(event) => applyFilter('createdTo', event.target.value, '')}
+                  className="px-2 py-1.5 rounded-lg border text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  style={{ borderColor: 'var(--cms-line-strong)' }}
+                  data-testid="questions-created-to"
+                />
+              </label>
+              <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                <span>{t(locale, 'questions.toolbar.updatedFromLabel')}</span>
+                <input
+                  type="date"
+                  value={updatedFrom.value}
+                  onChange={(event) => applyFilter('updatedFrom', event.target.value, '')}
+                  className="px-2 py-1.5 rounded-lg border text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  style={{ borderColor: 'var(--cms-line-strong)' }}
+                  data-testid="questions-updated-from"
+                />
+              </label>
+              <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                <span>{t(locale, 'questions.toolbar.updatedToLabel')}</span>
+                <input
+                  type="date"
+                  value={updatedTo.value}
+                  onChange={(event) => applyFilter('updatedTo', event.target.value, '')}
+                  className="px-2 py-1.5 rounded-lg border text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  style={{ borderColor: 'var(--cms-line-strong)' }}
+                  data-testid="questions-updated-to"
+                />
+              </label>
+              <select
+                value={sortState.value}
+                onChange={(event) => applyFilter('sort', event.target.value, 'updatedAt')}
+                aria-label={t(locale, 'questions.toolbar.sortLabel')}
+                className="px-3 py-1.5 rounded-lg border text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                style={{ borderColor: 'var(--cms-line-strong)' }}
+                data-testid="questions-sort"
+              >
+                <option value="updatedAt">{t(locale, 'questions.toolbar.sortUpdatedAt')}</option>
+                <option value="createdAt">{t(locale, 'questions.toolbar.sortCreatedAt')}</option>
+                <option value="attempts">{t(locale, 'questions.toolbar.sortAttempts')}</option>
+                <option value="text">{t(locale, 'questions.toolbar.sortText')}</option>
+              </select>
+              <select
+                value={orderState.value}
+                onChange={(event) => applyFilter('order', event.target.value, 'desc')}
+                aria-label={t(locale, 'questions.toolbar.orderAsc') + ' / ' + t(locale, 'questions.toolbar.orderDesc')}
+                className="px-3 py-1.5 rounded-lg border text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                style={{ borderColor: 'var(--cms-line-strong)' }}
+                data-testid="questions-order"
+              >
+                <option value="asc">{t(locale, 'questions.toolbar.orderAsc')}</option>
+                <option value="desc">{t(locale, 'questions.toolbar.orderDesc')}</option>
+              </select>
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
+                style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+                data-testid="questions-clear-filters"
+              >
+                {t(locale, 'questions.toolbar.clearFilters')}
+              </button>
+              {(can('btn:questions.export') || isSuperAdmin) && (
+                <button
+                  type="button"
+                  onClick={() => void exportCsv()}
+                  disabled={exporting}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors disabled:opacity-50"
+                  style={{ borderColor: 'var(--cms-teal-700)', color: 'var(--cms-teal-700)', background: 'var(--cms-surface)' }}
+                  data-testid="questions-export-csv"
+                >
+                  {exporting
+                    ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                    : <Download className="w-3.5 h-3.5" aria-hidden="true" />}
+                  {exporting ? t(locale, 'questions.bulk.exporting') : t(locale, 'questions.bulk.exportCsv')}
+                </button>
+              )}
+            </div>
           </div>
 
           {/* ===== W14.3 B.3: bulk actions bar ===== */}
@@ -934,6 +1289,19 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                 >
                   <Archive className="w-3.5 h-3.5" />
                   {t(locale, 'questions.bulk.archiveSelected')}
+                </button>
+              )}
+              {can('btn:questions.edit') && (
+                <button
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={() => { setTagError(''); setTagDialogOpen(true); }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors disabled:opacity-50"
+                  style={{ borderColor: 'var(--cms-teal-700)', color: 'var(--cms-teal-700)', background: 'var(--cms-surface)' }}
+                  data-testid="questions-bulk-tag-open"
+                >
+                  <Tags className="w-3.5 h-3.5" />
+                  {t(locale, 'questions.bulk.tagSelected')}
                 </button>
               )}
               <button
@@ -1187,9 +1555,9 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
           {!loading && questionsTotal > 0 && (
             <Pagination
               page={questionsPage}
-              pageSize={100}
+              pageSize={PAGE_SIZE}
               total={questionsTotal}
-              onPageChange={(next) => void loadQuestions(next)}
+              onPageChange={(next) => pageState.setValue(String(next))}
               dir={isArabic ? 'rtl' : 'ltr'}
               labels={isArabic ? undefined : {
                 prev: t(locale, 'questions.pager.prev'),
@@ -2095,117 +2463,93 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
         </div>
       )}
 
-      {/* ===== W14.3 B.3: question preview (the student view — no correctness flags) ===== */}
-      {preview && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-          role="presentation"
-          onMouseDown={() => setPreview(null)}
-        >
-          <div
-            className="bg-white rounded-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t(locale, 'questions.preview.title')}
-            style={{ boxShadow: 'var(--cms-shadow-xl)' }}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3 p-5 border-b sticky top-0 bg-white" style={{ borderColor: 'var(--cms-line)' }}>
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-lg" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
-                  <Eye className="w-5 h-5" />
-                </div>
-                <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
-                  {t(locale, 'questions.preview.title')}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPreview(null)}
-                className="p-1.5 rounded-md transition-colors"
-                style={{ color: 'var(--cms-text-muted)' }}
-                onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-ivory-200)'; }}
-                onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; }}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-5 space-y-4">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${typeBadgeClass(preview.type)}`}>
-                  {typeLabel(preview.type, isArabic)}
-                </span>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${difficultyBadgeClass(preview.difficulty)}`}>
-                  {difficultyLabel(preview.difficulty, isArabic)}
-                </span>
-                {preview.tags.map(tag => (
-                  <span key={tag} className="inline-block px-1.5 py-0.5 rounded text-[10px]" style={{ background: 'var(--cms-ivory-200)', color: 'var(--cms-text-muted)' }}>
-                    #{tag}
-                  </span>
-                ))}
-              </div>
-              <p className="text-base font-medium leading-relaxed" style={{ color: 'var(--cms-text)' }}>
-                {preview.text}
-              </p>
-              {preview.images.length > 0 && (
-                <div className="grid gap-3">
-                  {preview.images.map((image, index) => (
-                    <img
-                      key={`${image.sortOrder}-${index}`}
-                      src={image.imageUrl}
-                      alt={image.altText ?? t(locale, 'questions.preview.imageAlt')}
-                      className="rounded-lg max-h-72 object-contain border"
-                      style={{ borderColor: 'var(--cms-line)' }}
-                    />
-                  ))}
-                </div>
-              )}
-              <div className="space-y-2">
-                {preview.options.map(option => (
-                  <div
-                    key={option.id}
-                    className="flex items-start gap-3 rounded-lg border p-3"
-                    style={{ borderColor: 'var(--cms-line)' }}
-                  >
-                    <span
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0"
-                      style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}
-                      lang="en"
-                    >
-                      {option.letter}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <span className="text-sm" style={{ color: 'var(--cms-text)' }}>{option.text}</span>
-                      {option.imageUrl && (
-                        <img
-                          src={option.imageUrl}
-                          alt={t(locale, 'questions.options.imageAlt')}
-                          className="mt-2 rounded max-h-40 object-contain border"
-                          style={{ borderColor: 'var(--cms-line)' }}
-                        />
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {/* W21.1 — the preview DTO carries no وصل items (student-view contract);
-                 say so instead of showing a silently empty options area. */}
-              {preview.type === 'Matching' && (
-                <div
-                  className="rounded-lg border p-3 text-xs leading-relaxed"
-                  data-testid="preview-matching-note"
-                  style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)', color: 'var(--cms-text-soft)' }}
-                >
-                  {t(locale, 'questions.preview.matchingNote')}
-                </div>
-              )}
-              <p className="text-xs text-center" style={{ color: 'var(--cms-text-muted)' }}>
-                {t(locale, 'questions.preview.footerNote')}
-              </p>
-            </div>
+      {/* ===== PR-4: the UNIVERSAL preview (student-view simulation, zero mutations) ===== */}
+      <UniversalPreviewDialog
+        open={preview !== null}
+        onOpenChange={(open) => { if (!open) setPreview(null); }}
+        question={preview}
+        isArabic={isArabic}
+        testId="questions-preview"
+      />
+
+      {/* ===== PR-4: bulk-tag dialog (merge/remove through the existing tag vocabulary) ===== */}
+      <Dialog
+        open={tagDialogOpen}
+        onOpenChange={(open) => { if (!open && !tagBusy) setTagDialogOpen(false); }}
+        title={t(locale, 'questions.bulk.tagDialogTitle')}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="md"
+        dismissGuard={tagBusy}
+        testId="questions-bulk-tag-dialog"
+      >
+        <div className="space-y-4" data-testid="questions-bulk-tag-content">
+          <p className="text-sm" style={{ color: 'var(--cms-text-soft)' }}>
+            {t(locale, 'questions.bulk.tagDialogBody', { count: selectedIds.size })}
+          </p>
+          <div>
+            <label htmlFor="questions-bulk-tag-add" className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+              {t(locale, 'questions.bulk.tagAddLabel')}
+            </label>
+            <input
+              id="questions-bulk-tag-add"
+              value={tagAddValue}
+              onChange={(event) => setTagAddValue(event.target.value)}
+              placeholder={t(locale, 'questions.bulk.tagAddPlaceholder')}
+              list="questions-tags-list"
+              disabled={tagBusy}
+              data-testid="questions-bulk-tag-add"
+              className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+              style={{ borderColor: 'var(--cms-line-strong)' }}
+            />
+          </div>
+          <div>
+            <label htmlFor="questions-bulk-tag-remove" className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+              {t(locale, 'questions.bulk.tagRemoveLabel')}
+            </label>
+            <input
+              id="questions-bulk-tag-remove"
+              value={tagRemoveValue}
+              onChange={(event) => setTagRemoveValue(event.target.value)}
+              placeholder={t(locale, 'questions.bulk.tagRemovePlaceholder')}
+              list="questions-tags-list"
+              disabled={tagBusy}
+              data-testid="questions-bulk-tag-remove"
+              className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+              style={{ borderColor: 'var(--cms-line-strong)' }}
+            />
+            <p className="text-xs mt-1" style={{ color: 'var(--cms-text-muted)' }}>
+              {t(locale, 'questions.bulk.tagDialogRemoveNote')}
+            </p>
+          </div>
+          {tagError && (
+            <p className="text-xs" role="alert" data-testid="questions-bulk-tag-error" style={{ color: 'var(--cms-danger)' }}>
+              {tagError}
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-2 pt-2 border-t" style={{ borderColor: 'var(--cms-line)' }}>
+            <button
+              type="button"
+              onClick={() => setTagDialogOpen(false)}
+              disabled={tagBusy}
+              className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
+              style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+            >
+              {t(locale, 'questions.confirm.cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={() => void submitBulkTag()}
+              disabled={tagBusy}
+              data-testid="questions-bulk-tag-confirm"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-bold transition-colors disabled:opacity-50"
+              style={{ background: 'var(--cms-teal-700)' }}
+            >
+              {tagBusy && <LoaderCircle className="w-4 h-4 animate-spin" aria-hidden="true" />}
+              {t(locale, 'questions.bulk.tagConfirm', { count: selectedIds.size })}
+            </button>
           </div>
         </div>
-      )}
+      </Dialog>
 
       {/* Command Center P1 (D-4): physical delete, SuperAdmin + re-auth + loud-fail on children. */}
       <HardDeleteDialog

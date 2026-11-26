@@ -233,7 +233,10 @@ public record AdminQuestionListItemDto(
     int? Year = null,
     string? ParagraphTag = null,
     // Wave 16.2 (C3-3): the exam-course ("دورة") anchor — NULL = bank-wide question.
-    Guid? SemesterCourseId = null
+    Guid? SemesterCourseId = null,
+    // PR-4 — the author (CreatedBy admin) so the bank list can surface/filter by
+    // author without a second fetch. NULL only for legacy rows without an anchor.
+    Guid? AuthorId = null
 );
 
 public record AdminQuestionDetailDto(
@@ -292,3 +295,49 @@ public record QuestionPreviewDto(
 
 public record PreviewOptionDto(Guid Id, string Letter, string Text, string? ImageUrl);
 public record PreviewImageDto(string ImageUrl, string? AltText, int SortOrder);
+
+// ===== PR-4 — Question Bank + Universal Preview =====
+
+/// <summary>
+/// PR-4 — ADMIN preview superset: everything the universal student-view preview
+/// needs to simulate the student experience WITHOUT creating a real attempt:
+/// the student surface (text/options/images) PLUS the authoring surface
+/// (explanation, reference, correct answer, full وصل payload). Only the admin
+/// controller returns it — the student <c>/questions/random</c> endpoint keeps
+/// returning the correctness-free <see cref="QuestionPreviewDto"/>.
+/// </summary>
+public record AdminQuestionPreviewDto(
+    Guid Id,
+    string Text,
+    string Type,
+    string Difficulty,
+    string Status,
+    List<string> Tags,
+    string? ParagraphTag,
+    int? Year,
+    List<AdminPreviewOptionDto> Options,
+    List<PreviewImageDto> Images,
+    string Explanation,
+    string? ExplanationHtml,
+    string? Reference,
+    string? CorrectOptionId,
+    string? CorrectOptionLetter,
+    string? CorrectAnswerText,
+    MatchingPayloadDto? Matching = null);
+
+/// <summary>PR-4 — preview option with the authoring-side correct flag (admin-only surface).</summary>
+public record AdminPreviewOptionDto(Guid Id, string Letter, string Text, string? ImageUrl, bool IsCorrect);
+
+/// <summary>PR-4 — bulk tag mutation: merge <c>AddTags</c>, remove <c>RemoveTags</c> (at least one non-empty).</summary>
+public record BulkQuestionTagDto(
+    List<Guid> Ids,
+    List<string>? AddTags = null,
+    List<string>? RemoveTags = null);
+
+/// <summary>PR-4 — distinct filter values for the question bank facet bar (authors + tags in scope).</summary>
+public record QuestionFacetsDto(
+    List<QuestionAuthorFacetDto> Authors,
+    List<string> Tags);
+
+/// <summary>PR-4 — a distinct question author (CreatedBy admin) resolved to a display name.</summary>
+public record QuestionAuthorFacetDto(Guid Id, string Name);

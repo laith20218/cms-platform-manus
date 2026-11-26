@@ -123,6 +123,29 @@ export async function apiRequest<T>(path: string, token: string, init?: RequestI
   return payload as T;
 }
 
+/**
+ * PR-4 — authenticated FILE download (the authorized question-bank CSV export).
+ * Unlike apiRequest, this returns the raw Blob (no JSON parsing) and triggers a
+ * browser download with the server's Content-Disposition filename. Errors still
+ * surface as ApiError (the backend rejects with ProblemDetails JSON, which the
+ * catch branch parses).
+ */
+export async function apiDownload(path: string, token: string, init?: RequestInit): Promise<{ blob: Blob; fileName: string }> {
+  const headers = new Headers(init?.headers);
+  headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => null);
+    const problem = readProblem(payload);
+    throw new ApiError(problem.message, response.status, problem.humanMessage, problem.technicalDetails, problem.errorCode);
+  }
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  const fileName = match?.[1] ?? 'export.csv';
+  const blob = await response.blob();
+  return { blob, fileName };
+}
+
 // FIX-1 + FIX-3: Capture refreshToken + use per-browser installationId
 const ADMIN_INSTALLATION_KEY = 'cms-admin-installation-id';
 
