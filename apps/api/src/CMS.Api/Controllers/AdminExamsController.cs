@@ -1,8 +1,10 @@
 using System.Security.Claims;
 using CMS.Api.Authorization;
 using CMS.Application.Commands.Exams;
+using CMS.Application.Common;
 using CMS.Application.DTOs.Exams;
 using CMS.Application.Interfaces;
+using CMS.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -192,16 +194,49 @@ public sealed class AdminExamsController : ControllerBase
 
         return Ok(new AdminExamPreviewDto(
             exam.Id, exam.TitleAr, exam.DurationMinutes, exam.TotalQuestions, exam.Status.ToString(),
-            exam.ExamQuestions.OrderBy(item => item.SortOrder).Select(item => new ExamPreviewQuestionDto(
-                item.QuestionId,
-                item.SortOrder + 1,
-                item.Question.Text,
-                item.Question.Type.ToString(),
-                item.Question.Difficulty.ToString(),
-                item.Question.Options.OrderBy(option => option.SortOrder)
-                    .Select(option => new ExamPreviewOptionDto(option.Id, option.OptionLetter, option.Text, option.ImageUrl)).ToList(),
-                item.Question.Images.OrderBy(image => image.SortOrder)
-                    .Select(image => new ExamPreviewImageDto(image.ImageUrl, image.AltText, image.SortOrder)).ToList())).ToList()));
+            exam.ExamQuestions.OrderBy(item => item.SortOrder).Select(item =>
+            {
+                // PR-4 — universal-preview surfaces: same authoring data the admin
+                // could already read per question; powering one shared renderer.
+                var question = item.Question;
+                string? correctOptionId = null;
+                string? correctOptionLetter = null;
+                string? correctAnswerText = null;
+                if (question.Type is QuestionType.Mcq or QuestionType.TrueFalse or QuestionType.MultipleSelect
+                    or QuestionType.Ordering or QuestionType.Clinical or QuestionType.ImageBased or QuestionType.Interactive)
+                {
+                    var correctOption = question.Options.OrderBy(option => option.SortOrder).FirstOrDefault(option => option.IsCorrect);
+                    if (correctOption is not null)
+                    {
+                        correctOptionId = correctOption.Id.ToString();
+                        correctOptionLetter = correctOption.OptionLetter;
+                    }
+                }
+                else if (question.Type == QuestionType.Essay)
+                {
+                    correctAnswerText = question.CorrectAnswer;
+                }
+
+                return new ExamPreviewQuestionDto(
+                    item.QuestionId,
+                    item.SortOrder + 1,
+                    question.Text,
+                    question.Type.ToString(),
+                    question.Difficulty.ToString(),
+                    question.Options.OrderBy(option => option.SortOrder)
+                        .Select(option => new ExamPreviewOptionDto(option.Id, option.OptionLetter, option.Text, option.ImageUrl, option.IsCorrect)).ToList(),
+                    question.Images.OrderBy(image => image.SortOrder)
+                        .Select(image => new ExamPreviewImageDto(image.ImageUrl, image.AltText, image.SortOrder)).ToList(),
+                    question.ParagraphTag,
+                    question.Explanation,
+                    question.ExplanationHtml,
+                    question.Reference,
+                    correctOptionId,
+                    correctOptionLetter,
+                    correctAnswerText,
+                    question.Status.ToString(),
+                    question.GetMatchingPayload() is { } matching ? MatchingMapper.ToDto(matching) : null); // W20.5
+            }).ToList()));
     }
 
     /// <summary>W14.2 D.1: per-exam analytics (started/attempts/pass/fail/mean/median/distribution/duration/timeouts/inProgress).</summary>

@@ -48,6 +48,10 @@ import { questionDifficultyLabel, questionTypeLabel } from '../lib/questionLabel
 import { t, localeOf, statusLabel as registryStatusLabel, type Locale } from '../lib/dictionary';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
+// PR-4 — the exam preview rides the UNIVERSAL student-view renderer (one coherent
+// preview implementation across the admin web instead of a competing modal).
+import { QuestionPreviewBody } from './preview/QuestionPreviewBody';
+import { fromExamPreviewQuestionDto } from './preview/previewTypes';
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
 type College = { id: string; nameAr: string; nameEn?: string | null };
@@ -118,12 +122,22 @@ type ExamPreview = {
   status: string;
   questions: Array<{
     questionId: string;
-    order: number;
+    sortOrder: number;
     text: string;
     type: string;
     difficulty: string;
-    options: Array<{ id: string; letter: string; text: string; imageUrl?: string | null }>;
-    images: Array<{ imageUrl: string; alt?: string | null; order: number }>;
+    options: Array<{ id: string; letter: string; text: string; imageUrl?: string | null; isCorrect?: boolean }>;
+    images: Array<{ imageUrl: string; altText?: string | null; sortOrder: number }>;
+    // PR-4 — the universal-preview superset (explanation/correct answer/وصل).
+    paragraphTag?: string | null;
+    explanation?: string | null;
+    explanationHtml?: string | null;
+    reference?: string | null;
+    correctOptionId?: string | null;
+    correctOptionLetter?: string | null;
+    correctAnswerText?: string | null;
+    status?: string | null;
+    matching?: unknown;
   }>;
 };
 
@@ -2163,38 +2177,20 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                 </div>
                 <ol className="space-y-3 max-h-[55vh] overflow-y-auto">
                   {preview.data.questions.map((question) => (
-                    <li key={question.questionId} className="rounded-lg border p-3 space-y-2" style={{ borderColor: 'var(--cms-line)' }} data-testid="exam-preview-question">
-                      <div className="flex items-start gap-2">
-                        <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold"
-                          style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
-                          {question.order}
-                        </span>
-                        <p className="text-sm font-medium flex-1" style={{ color: 'var(--cms-text)' }}>{question.text}</p>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 text-[10px] ms-8">
-                        <span className="px-1.5 py-0.5 rounded" style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}>{question.type}</span>
-                        <span className="px-1.5 py-0.5 rounded" style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-soft)' }}>{question.difficulty}</span>
-                      </div>
-                      <ul className="space-y-1.5 ms-8">
-                        {question.options.map((option) => (
-                          <li key={option.id} className="flex items-start gap-2 text-xs rounded-lg border px-2.5 py-1.5" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text)' }}>
-                            <span className="font-bold shrink-0" style={{ color: 'var(--cms-teal-700)' }}>{option.letter}</span>
-                            <span className="flex-1">{option.text}</span>
-                          </li>
-                        ))}
-                      </ul>
-                      {question.images.length > 0 && (
-                        <div className="flex flex-wrap gap-2 ms-8">
-                          {question.images.map((image, index) => (
-                            <img key={`${image.imageUrl}-${index}`} src={image.imageUrl} alt={image.alt ?? ''} className="h-16 rounded border object-cover" style={{ borderColor: 'var(--cms-line)' }} loading="lazy" />
-                          ))}
-                        </div>
-                      )}
+                    <li key={question.questionId} className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)' }} data-testid="exam-preview-question">
+                      {/* PR-4 — the universal student-view renderer: options, essay
+                          textarea, وصل board, and the LOCAL answer simulation with the
+                          post-answer reveal. No attempt is ever created. */}
+                      <QuestionPreviewBody
+                        question={fromExamPreviewQuestionDto(question)}
+                        isArabic={isArabic}
+                        testIdPrefix="exam-preview"
+                      />
                     </li>
                   ))}
                 </ol>
-                <p className="text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
-                  {t(locale, 'exams.preview.note')}
+                <p className="text-[10px] pt-2 border-t" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-muted)' }} data-testid="exam-preview-notice">
+                  {t(locale, 'questions.preview.previewNotice')}
                 </p>
               </>
             )}

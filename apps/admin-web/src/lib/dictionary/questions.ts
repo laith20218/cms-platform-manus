@@ -131,6 +131,28 @@ export const questionsDict = {
     searchPlaceholder: { ar: 'ابحث في نص السؤال', en: 'Search question text' },
     allTypes: { ar: 'كل الأنواع', en: 'All types' },
     allStatuses: { ar: 'كل الحالات', en: 'All statuses' },
+    // PR-4 — the completed question-bank filter bar.
+    allDifficulties: { ar: 'كل الصعوبات', en: 'All difficulties' },
+    allLectures: { ar: 'كل المحاضرات', en: 'All lectures' },
+    allTags: { ar: 'كل الوسوم', en: 'All tags' },
+    allAuthors: { ar: 'كل المؤلفين', en: 'All authors' },
+    subjectLevelLecture: { ar: 'على مستوى المادة', en: 'Subject-level' },
+    tagsLabel: { ar: 'الوسوم', en: 'Tags' },
+    authorLabel: { ar: 'المؤلف', en: 'Author' },
+    lectureLabel: { ar: 'المحاضرة', en: 'Lecture' },
+    difficultyLabel: { ar: 'الصعوبة', en: 'Difficulty' },
+    createdFromLabel: { ar: 'أُنشئ من', en: 'Created from' },
+    createdToLabel: { ar: 'أُنشئ إلى', en: 'Created to' },
+    updatedFromLabel: { ar: 'حُدّث من', en: 'Updated from' },
+    updatedToLabel: { ar: 'حُدّث إلى', en: 'Updated to' },
+    sortLabel: { ar: 'الترتيب', en: 'Sort' },
+    sortUpdatedAt: { ar: 'آخر تحديث', en: 'Last updated' },
+    sortCreatedAt: { ar: 'تاريخ الإنشاء', en: 'Created' },
+    sortAttempts: { ar: 'عدد المحاولات', en: 'Attempts' },
+    sortText: { ar: 'النص أبجدياً', en: 'Text (alphabetical)' },
+    orderAsc: { ar: 'تصاعدي', en: 'Ascending' },
+    orderDesc: { ar: 'تنازلي', en: 'Descending' },
+    clearFilters: { ar: 'مسح التصفية', en: 'Clear filters' },
   },
 
   // ===== Bulk actions bar =====
@@ -140,6 +162,23 @@ export const questionsDict = {
     publishSelected: { ar: 'نشر المحدد', en: 'Publish selected' },
     archiveSelected: { ar: 'أرشفة المحدد', en: 'Archive selected' },
     clearSelection: { ar: 'إلغاء التحديد', en: 'Clear selection' },
+    // PR-4 — bulk tagging through the existing tag vocabulary.
+    tagSelected: { ar: 'وسم المحدد', en: 'Tag selected' },
+    tagDialogTitle: { ar: 'وسم الأسئلة المحددة', en: 'Tag selected questions' },
+    tagDialogBody: { ar: 'سيُطبّق الوسم على {{count}} سؤالاً محدداً. الوسوم الموجودة تبقى كما هي، والوسم الجديد يُضاف دون تكرار.', en: 'The tags will be applied to {{count}} selected questions. Existing tags stay; new tags are added without duplication.' },
+    tagDialogRemoveNote: { ar: 'إزالة وسم تحذفه من الأسئلة المحددة فقط — لا تؤثر على أسئلة أخرى تستخدمه.', en: 'Removing a tag deletes it from the selected questions only — other questions using it are untouched.' },
+    tagAddLabel: { ar: 'وسوم تُضاف (مفصولة بفواصل)', en: 'Tags to add (comma-separated)' },
+    tagAddPlaceholder: { ar: 'مثال: مراجعة، قلب', en: 'e.g. reviewed, cardiology' },
+    tagRemoveLabel: { ar: 'وسوم تُزال (اختياري)', en: 'Tags to remove (optional)' },
+    tagRemovePlaceholder: { ar: 'اتركه فارغاً للإضافة فقط', en: 'Leave empty to only add' },
+    tagConfirm: { ar: 'تطبيق الوسم على {{count}} سؤال', en: 'Apply tags to {{count}} questions' },
+    tagValidation: { ar: 'أدخل وسيماً واحداً صالحاً على الأقل (50 حرفاً كحد أقصى لكل وسم).', en: 'Enter at least one valid tag (max 50 characters each).' },
+    tagApplied: { ar: 'تم تحديث وسوم {{succeeded}} من {{requested}} سؤال.', en: 'Tags updated on {{succeeded}} of {{requested}} questions.' },
+    // PR-4 — CSV export (authorized backend contract).
+    exportCsv: { ar: 'تصدير CSV', en: 'Export CSV' },
+    exporting: { ar: 'جارٍ التصدير…', en: 'Exporting…' },
+    exportFailed: { ar: 'تعذر تصدير الأسئلة.', en: 'Failed to export questions.' },
+    exportReady: { ar: 'تم تصدير الأسئلة إلى ملف CSV.', en: 'Questions exported to a CSV file.' },
   },
 
   // ===== Question table =====
@@ -297,12 +336,42 @@ export const questionsDict = {
     cancel: { ar: 'إلغاء', en: 'Cancel' },
   },
 
-  // ===== W14.3 B.3: question preview (student view) =====
+  // ===== W14.3 B.3 + PR-4: universal question preview (student-view simulation) =====
   preview: {
     title: { ar: 'معاينة السؤال', en: 'Question preview' },
     imageAlt: { ar: 'صورة مرفقة بالسؤال', en: 'Question image' },
-    matchingNote: { ar: 'سؤال وصل — تعرض المعاينة نص السؤال فقط. العناصر والأزواج تُحرَّر وتُعاين من محرر السؤال.', en: 'Matching question — the preview shows the question text only. Items and pairs are authored and reviewed in the question editor.' },
-    footerNote: { ar: 'معاينة كما يراها الطالب — دون الإجابة الصحيحة أو الشرح.', en: 'Previewed exactly as the student sees it — no correct answer or explanation.' },
+    // PR-4 — the preview is now the UNIVERSAL student-view simulation: the same
+    // renderer family the student web rides, with badges and a local (never
+    // persisted) answer simulation.
+    previewBadge: { ar: 'وضع المعاينة', en: 'Preview mode' },
+    previewNotice: { ar: 'هذه معاينة كما يراها الطالب — لا يُسجَّل أي دخول أو محاولة أو درجة أو إشعار.', en: 'Previewed exactly as the student sees it — no attempt, grade, notification, or analytics is recorded.' },
+    simulateHint: { ar: 'جرّب الإجابة كما سيفعل الطالب — ستظهر النتيجة والتصحيح والشرح هنا فقط.', en: 'Try answering as a student would — the result, correction, and explanation appear here only.' },
+    confirmAnswer: { ar: 'تأكيد الإجابة', en: 'Confirm answer' },
+    changeAnswer: { ar: 'تغيير الإجابة', en: 'Change answer' },
+    resultCorrect: { ar: 'إجابة صحيحة', en: 'Correct answer' },
+    resultIncorrect: { ar: 'إجابة غير صحيحة', en: 'Incorrect answer' },
+    yourAnswer: { ar: 'إجابتك: {{answer}}', en: 'Your answer: {{answer}}' },
+    yourAnswerEmpty: { ar: 'إجابتك: لم تُسجل إجابة.', en: 'Your answer: no answer recorded.' },
+    modelAnswer: { ar: 'الإجابة النموذجية: {{answer}}', en: 'Model answer: {{answer}}' },
+    correctAnswerLine: { ar: 'الإجابة الصحيحة: {{answer}}', en: 'Correct answer: {{answer}}' },
+    noModelAnswer: { ar: 'لا توجد إجابة نموذجية متاحة.', en: 'No model answer available.' },
+    essayPlaceholder: { ar: 'اكتب إجابتك هنا كما سيفعل الطالب…', en: 'Type your answer here as the student would…' },
+    essaySavedNotice: { ar: 'سُجّلت إجابتك — قارنها بالإجابة النموذجية.', en: 'Your answer is recorded — compare it with the model answer.' },
+    essayGradingNote: { ar: 'يُحاكي التصحيح قاعدة الإنتاج الفعلية: مطابقة نصية تامة بعد توحيد المسافات وحالة الأحرف.', en: 'The simulation mirrors production grading: exact text match after whitespace and case normalization.' },
+    explanationTitle: { ar: 'الشرح', en: 'Explanation' },
+    referenceLine: { ar: 'المرجع: {{reference}}', en: 'Reference: {{reference}}' },
+    // Matching preview board.
+    matchingPrompts: { ar: 'القائمة الأولى — العناصر', en: 'List 1 — prompts' },
+    matchingTargets: { ar: 'القائمة الثانية — الإجابات', en: 'List 2 — targets' },
+    matchingHint: { ar: 'اختر عنصراً من القائمة الأولى ثم إجابته من القائمة الثانية — كما يفعل الطالب.', en: 'Pick a prompt, then its target — exactly as the student does.' },
+    matchingSelectedPrompt: { ar: 'العنصر المحدد: {{text}}', en: 'Selected prompt: {{text}}' },
+    matchingPair: { ar: '{{prompt}} ← {{target}}', en: '{{prompt}} ← {{target}}' },
+    matchingPairCorrect: { ar: 'صحيح', en: 'correct' },
+    matchingPairWrong: { ar: 'خطأ — الصحيح: {{target}}', en: 'wrong — correct: {{target}}' },
+    matchingReset: { ar: 'إعادة تعيين الأزواج', en: 'Reset pairs' },
+    missingImage: { ar: 'تعذر تحميل الصورة — المسار غير متاح.', en: 'Image failed to load — path unavailable.' },
+    optionsUnavailable: { ar: 'خيارات هذا السؤال غير متوفرة.', en: 'The options of this question are unavailable.' },
+    matchingUnavailable: { ar: 'عناصر سؤال الوصل غير متوفرة.', en: 'The matching items of this question are unavailable.' },
   },
 
   // ===== Hard delete dialog consequence =====

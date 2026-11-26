@@ -84,3 +84,39 @@ export function useClearQueryParams(keys: readonly string[]) {
     [keys, setParams],
   );
 }
+
+/**
+ * PR-4 — atomically write SEVERAL parameters in ONE history replace.
+ *
+ * The PR-4 question-bank filter bar resets the page whenever a filter changes:
+ * `page→1` + `filter→value` must land in a single update or the page deletion
+ * is lost to the stale-closure quirk documented above (the last setValue would
+ * re-add the old page). Each write mirrors useQueryState semantics: writing a
+ * key's `defaultValue` removes it.
+ */
+export interface QueryParamWrite {
+  key: string;
+  value: string;
+  /** The key's useQueryState default — writing it deletes the parameter. */
+  defaultValue: string;
+}
+
+export function useQueryParamsWriter() {
+  const [, setParams] = useSearchParams();
+  return useCallback(
+    (writes: readonly QueryParamWrite[]) => {
+      setParams(
+        (previous) => {
+          const next = new URLSearchParams(previous);
+          for (const write of writes) {
+            if (write.value === write.defaultValue) next.delete(write.key);
+            else next.set(write.key, write.value);
+          }
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setParams],
+  );
+}

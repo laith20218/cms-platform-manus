@@ -145,6 +145,28 @@ public class Question : AuditableEntity
     }
 
     /// <summary>
+    /// PR-4 — replaces the tag list (bulk tagging + editor path). Tags are trimmed,
+    /// de-duplicated (ordinal), capped at 20 entries of 50 chars each; empty strings
+    /// are dropped. The API remains the validator of record.
+    /// </summary>
+    public void SetTags(IEnumerable<string>? tags)
+    {
+        var normalized = (tags ?? Enumerable.Empty<string>())
+            .Select(tag => tag.Trim())
+            .Where(tag => tag.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .Take(20)
+            .ToList();
+        foreach (var tag in normalized)
+        {
+            if (tag.Length > 50)
+                throw new DomainException("وسم السؤال لا يمكن أن يتجاوز 50 حرفًا");
+        }
+        Tags = normalized;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
     /// Wave 20.5 — stores the Matching (وصل) payload after full invariant validation
     /// (equal counts, bijective pairs — see MatchingPayload.Validate). Only legal on
     /// Matching-type questions; other types keep NULL.
