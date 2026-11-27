@@ -38,6 +38,17 @@ jobs:
           fi
           echo "::notice::Frontend is healthy (HTTP $RESPONSE)"
 
+      # PR-10 (gap-matrix row 21 closure): the admin web production URL was absent
+      # from this workflow — the student web was monitored, the admin web was not.
+      - name: Check Admin Web Health (Production)
+        run: |
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" https://cms-platform-manus-admin-web.vercel.app/)
+          if [ "$RESPONSE" != "200" ]; then
+            echo "::error::Admin web health check failed with status $RESPONSE"
+            exit 1
+          fi
+          echo "::notice::Admin web is healthy (HTTP $RESPONSE)"
+
       - name: Check API Response Time
         run: |
           TIME=$(curl -s -o /dev/null -w "%{time_total}" https://cms-api-preview.onrender.com/health/live)

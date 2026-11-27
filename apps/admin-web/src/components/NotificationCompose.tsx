@@ -212,7 +212,7 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
           {/* Type */}
           <div>
             <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--cms-text-soft)' }}>{copy.notifType}</label>
-            <select value={type} onChange={(e) => setType(e.target.value)} disabled={busy}
+            <select value={type} onChange={(e) => setType(e.target.value)} disabled={busy} aria-label={copy.notifType}
               className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
               style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
               {NOTIFICATION_TYPES.map(nt => <option key={nt.value} value={nt.value}>{isArabic ? nt.ar : nt.en}</option>)}
@@ -263,14 +263,14 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
                   {copy.noTarget}
                 </div>
               ) : targetType === 'University' ? (
-                <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={busy || universities.length === 0}
+                <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={busy || universities.length === 0} aria-label={copy.target}
                   className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
                   style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
                   <option value="">{copy.selectTarget}</option>
                   {universities.map(u => <option key={u.id} value={u.id}>{isArabic ? u.nameAr : (u.nameEn || u.nameAr)}</option>)}
                 </select>
               ) : targetType === 'Student' ? (
-                <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={busy || students.length === 0}
+                <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={busy || students.length === 0} aria-label={copy.target}
                   className="w-full h-9 rounded-lg border text-xs px-2 disabled:opacity-50"
                   style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
                   <option value="">{copy.selectTarget}</option>
@@ -323,6 +323,7 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
                   <select
                     value={targetId}
                     onChange={(e) => setTargetId(e.target.value)}
+                    aria-label={copy.target}
                     disabled={busy || !cascadeUniversityId
                       || (targetType !== 'College' && !cascadeCollegeId)
                       || ((targetType === 'Semester' || targetType === 'Subject') && !cascadeYearId)

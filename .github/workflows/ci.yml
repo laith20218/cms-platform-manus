@@ -154,14 +154,31 @@ jobs:
       # (Lint → student vitest → Audit → Build → SBOM) keep their own order.
       # =====================================================================
 
-      # ===== Push 11.5 / PART D: admin-web unit tests (38-test suite, jsdom) =====
+      # ===== Push 11.5 / PART D: admin-web unit tests (jsdom) =====
       # NOTE: the script is "test": "vitest run" — invoking `test run` would pass "run" to
       # vitest as a filename filter ("No test files found"); `pnpm --filter @cms/admin-web test`
-      # is the correct invocation. admin-web lint is intentionally NOT added: the package's
-      # pre-existing warnings make `pnpm lint` red (out of 11.5 scope).
+      # is the correct invocation.
 
       - name: admin-web tests
         run: pnpm --filter @cms/admin-web test
+
+      # ===== PR-10 CI gap closure (gap-matrix row 21) =====
+      # The two pre-existing react-hooks/exhaustive-deps warnings that made admin lint red
+      # were closed by the program's PR-6; the gate is now clean and pinned here at
+      # --max-warnings=0 so it can never drift again.
+      - name: admin-web lint (zero warnings gate)
+        run: pnpm --filter @cms/admin-web lint
+
+      # PR-10: the admin-web production build IS the typecheck gate ("build": "tsc -b && vite build")
+      # — until now it only ran on Vercel. Pinning it in CI closes the typecheck gap.
+      - name: admin-web production build (tsc typecheck + vite build)
+        run: pnpm --filter @cms/admin-web build
+        env:
+          VITE_APP_ENV: ci
+
+      # PR-10: @cms/ui shared-package tests were never CI-gated (61 tests). Pin them.
+      - name: shared UI package tests
+        run: pnpm --filter @cms/ui test
 
       # ===== Push 11.5 / PART C: Playwright e2e (network-mocked specs; no backend needed) =====
 
@@ -279,6 +296,63 @@ jobs:
           node e2e/matching-question.e2e.mjs
           kill $DEV_PID 2>/dev/null || true
           pkill -f vite 2>/dev/null || true
+
+      # ===== PR-10: admin-web Playwright smoke (network-mocked; all admin views) =====
+      # Launch-closure requirement: visual smoke/regression evidence for every admin
+      # surface (Login, Dashboard, Question Bank, Preview, Exams, Courses, Library,
+      # Danger Zone/Settings, Student Center, Security Center, Servers Dashboard).
+      # Resolution steps run FIRST (their outputs are consumed by the smoke step below);
+      # the scripts honor E2E_PLAYWRIGHT_MODULE / E2E_AXE_JS / PLAYWRIGHT_CHROMIUM_EXECUTABLE.
+      # Screenshots + axe scans run at 375 / 768 / 1440 and are uploaded as CI artifacts.
+
+      - name: Resolve Playwright module path for admin e2e
+        id: admin-pw-module
+        run: |
+          # 'playwright' is a transitive dep of @playwright/test (pnpm strict node_modules:
+          # only direct deps resolve from the package.json context) — resolve in two hops.
+          # The scripts destructure { chromium } from a dynamic import, so they need the
+          # ESM entry (index.mjs) — the CJS main (index.js) does not expose named exports
+          # through import interop (verified: destructure returns undefined).
+          p="$(node -e "const path=require('path');const {createRequire}=require('module');const req1=createRequire('${GITHUB_WORKSPACE}/apps/student-web/package.json');const pwTest=req1.resolve('@playwright/test');const req2=createRequire(pwTest);const pkg=req2.resolve('playwright/package.json');process.stdout.write(path.join(path.dirname(pkg),'index.mjs'))")"
+          echo "path=$p" >> "$GITHUB_OUTPUT"
+          echo "playwright module: $p"
+
+      - name: Resolve axe-core path for admin e2e
+        id: admin-axe
+        run: |
+          # Same two-hop pattern: axe-core is a transitive dep of @axe-core/playwright.
+          a="$(node -e "const {createRequire}=require('module');const req1=createRequire('${GITHUB_WORKSPACE}/apps/student-web/package.json');const axePw=req1.resolve('@axe-core/playwright');const req2=createRequire(axePw);process.stdout.write(req2.resolve('axe-core/axe.js'))")"
+          echo "path=$a" >> "$GITHUB_OUTPUT"
+          echo "axe-core: $a"
+
+      - name: Run admin-web Playwright smoke (all views, mocked API)
+        env:
+          E2E_ADMIN_URL: http://127.0.0.1:5174
+          E2E_PLAYWRIGHT_MODULE: ${{ steps.admin-pw-module.outputs.path }}
+          E2E_AXE_JS: ${{ steps.admin-axe.outputs.path }}
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE: ${{ steps.pw-chromium.outputs.path }}
+        run: |
+          pnpm --filter @cms/admin-web dev --host 127.0.0.1 &
+          ADMIN_PID=$!
+          for i in $(seq 1 30); do
+            curl -s -o /dev/null http://127.0.0.1:5174/ && break
+            sleep 1
+          done
+          curl -s -o /dev/null -w "admin dev server up: HTTP %{http_code}\n" http://127.0.0.1:5174/
+          cd apps/admin-web
+          node e2e/w14.3-admin-ui.e2e.mjs
+          node e2e/pr10-admin-smoke.e2e.mjs
+          kill $ADMIN_PID 2>/dev/null || true
+          pkill -f vite 2>/dev/null || true
+
+      - name: Upload admin e2e screenshots (visual smoke evidence)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-e2e-screenshots
+          path: apps/admin-web/e2e/screenshots/
+          retention-days: 14
+
 
       # ===== Pre-existing quality gates (original order preserved) =====
 

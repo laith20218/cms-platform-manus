@@ -315,6 +315,7 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
         <select
           value={severityFilter}
           onChange={(event) => setSeverityFilter(event.target.value)}
+          aria-label={t(locale, 'audit.center.severityFilter')}
           className={inputClass}
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
@@ -327,6 +328,7 @@ export function AuditCenter({ token, isArabic, onError }: Props) {
         <select
           value={eventTypeFilter}
           onChange={(event) => setEventTypeFilter(event.target.value)}
+          aria-label={t(locale, 'audit.center.eventTypeFilter')}
           className={inputClass}
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >

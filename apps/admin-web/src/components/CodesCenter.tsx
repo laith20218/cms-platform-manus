@@ -374,14 +374,14 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
               <input value={filterSearch} onChange={(e) => { setFilterSearch(e.target.value); }} onKeyDown={(e) => { if (e.key === 'Enter') void loadCodes(filterStatus, filterSearch, filterScopeType, filterYearId, filterSubjectId); }} placeholder={t(locale, 'codes.ledger.searchPlaceholder')} className="w-full pr-8 pl-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
-            <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); void loadCodes(e.target.value, filterSearch, filterScopeType, filterYearId, filterSubjectId); }} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+            <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); void loadCodes(e.target.value, filterSearch, filterScopeType, filterYearId, filterSubjectId); }} aria-label={t(locale, 'codes.ledger.statusFilter')} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
               <option value="">{t(locale, 'codes.ledger.allStatuses')}</option>
               <option value="Active">{t(locale, 'codes.ledger.statusActive')}</option>
               <option value="Used">{t(locale, 'codes.ledger.statusUsed')}</option>
               <option value="Revoked">{t(locale, 'codes.ledger.statusRevoked')}</option>
               <option value="Expired">{t(locale, 'codes.ledger.statusExpired')}</option>
             </select>
-            <select value={filterScopeType} onChange={(e) => { setFilterScopeType(e.target.value); void loadCodes(filterStatus, filterSearch, e.target.value, filterYearId, filterSubjectId); }} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+            <select value={filterScopeType} onChange={(e) => { setFilterScopeType(e.target.value); void loadCodes(filterStatus, filterSearch, e.target.value, filterYearId, filterSubjectId); }} aria-label={t(locale, 'codes.ledger.scopeFilter')} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
               <option value="">{t(locale, 'codes.ledger.allScopes')}</option>
               <option value="subject">{t(locale, 'codes.ledger.scopeSubject')}</option>
               <option value="year">{t(locale, 'codes.ledger.scopeYear')}</option>
@@ -394,24 +394,24 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
             </button>
           </div>
           <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t(locale, 'codes.ledger.academicFilter')}</span>
-            <select value={filterUniversityId} onChange={(e) => void chooseFilterUniversity(e.target.value)} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{t(locale, 'codes.ledger.academicFilter')}</span>
+            <select value={filterUniversityId} onChange={(e) => void chooseFilterUniversity(e.target.value)} aria-label={t(locale, 'codes.ledger.university')} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
               <option value="">{t(locale, 'codes.ledger.university')}</option>
               {universities.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
             </select>
-            <select value={filterCollegeId} disabled={!filterUniversityId} onChange={(e) => void chooseFilterCollege(e.target.value)} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
+            <select value={filterCollegeId} disabled={!filterUniversityId} onChange={(e) => void chooseFilterCollege(e.target.value)} aria-label={t(locale, 'codes.ledger.college')} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
               <option value="">{t(locale, 'codes.ledger.college')}</option>
               {filterColleges.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
             </select>
-            <select value={filterYearId} disabled={!filterCollegeId} onChange={(e) => { void chooseFilterYear(e.target.value).then(() => loadCodes(filterStatus, filterSearch, filterScopeType, e.target.value, '')); }} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500" data-testid="filter-year">
+            <select value={filterYearId} disabled={!filterCollegeId} onChange={(e) => { void chooseFilterYear(e.target.value).then(() => loadCodes(filterStatus, filterSearch, filterScopeType, e.target.value, '')); }} aria-label={t(locale, 'codes.generateModal.academicYear')} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500" data-testid="filter-year">
               <option value="">{t(locale, 'codes.ledger.allYears')}</option>
               {filterYears.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
             </select>
-            <select value={filterSemesterSelection} disabled={filterSemesters.length === 0} onChange={(e) => { setFilterSemesterSelection(e.target.value); void chooseFilterSemester(e.target.value); }} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
+            <select value={filterSemesterSelection} disabled={filterSemesters.length === 0} onChange={(e) => { setFilterSemesterSelection(e.target.value); void chooseFilterSemester(e.target.value); }} aria-label={t(locale, 'codes.generateModal.semester')} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
               <option value="">{t(locale, 'codes.ledger.allSemesters')}</option>
               {filterSemesters.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
             </select>
-            <select value={filterSubjectId} disabled={filterSubjects.length === 0} onChange={(e) => { setFilterSubjectId(e.target.value); void loadCodes(filterStatus, filterSearch, filterScopeType, filterYearId, e.target.value); }} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500" data-testid="filter-subject">
+            <select value={filterSubjectId} disabled={filterSubjects.length === 0} onChange={(e) => { setFilterSubjectId(e.target.value); void loadCodes(filterStatus, filterSearch, filterScopeType, filterYearId, e.target.value); }} aria-label={t(locale, 'codes.generateModal.subject')} className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500" data-testid="filter-subject">
               <option value="">{t(locale, 'codes.ledger.allSubjects')}</option>
               {filterSubjects.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
             </select>
@@ -463,13 +463,13 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
                     <div className="flex-1 min-w-0 space-y-0.5">
                       <strong className="block text-sm font-medium text-slate-900">{contentScopeLabel(code.contentScope, isArabic)}</strong>
                       <span className="block text-xs text-slate-500 truncate" data-testid={`code-scope-${code.id}`}>{code.scopeName || code.scopeType}</span>
-                      <small className="block text-xs text-slate-400">{code.redemptionCount > 0
+                      <small className="block text-xs text-slate-500">{code.redemptionCount > 0
                         ? t(locale, 'codes.row.redemptionCount', { count: code.redemptionCount })
                         : t(locale, 'codes.row.noRedemptionsYet')}</small>
                     </div>
                     <div className="flex items-center gap-2 md:flex-col md:items-end">
                       <span className={`inline-block px-2 py-0.5 rounded-full text-xs border ${statusChipClass(code.status)}`}>{codeStatusLabel(code.status, isArabic)}</span>
-                      {code.expiresAt && <small className="text-xs text-slate-400">{dateFmt.format(new Date(code.expiresAt))}</small>}
+                      {code.expiresAt && <small className="text-xs text-slate-500">{dateFmt.format(new Date(code.expiresAt))}</small>}
                     </div>
                     <div className="flex items-center gap-1">
                       {code.redemptionCount > 0 && (
@@ -513,7 +513,7 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
             <form onSubmit={generate} className="p-5 space-y-4">
               <label className="block">
                 <span className="block text-xs font-medium text-slate-700 mb-1">{t(locale, 'codes.generateModal.contentScope')}</span>
-                <select value={form.contentScope} onChange={(event) => setForm({ ...form, contentScope: event.target.value as ContentScope })} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                <select value={form.contentScope} onChange={(event) => setForm({ ...form, contentScope: event.target.value as ContentScope })} aria-label={t(locale, 'codes.generateModal.contentScope')} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
                   {scopeChoices.map((scope) => <option key={scope.value} value={scope.value}>{isArabic ? scope.ar : scope.en}</option>)}
                 </select>
               </label>
@@ -529,21 +529,21 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="block">
                   <span className="block text-xs font-medium text-slate-700 mb-1">{t(locale, 'codes.ledger.university')}</span>
-                  <select value={universityId} onChange={(event) => void chooseUniversity(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                  <select value={universityId} onChange={(event) => void chooseUniversity(event.target.value)} aria-label={t(locale, 'codes.ledger.university')} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
                     <option value="">{t(locale, 'codes.generateModal.chooseUniversity')}</option>
                     {universities.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
                   </select>
                 </label>
                 <label className="block">
                   <span className="block text-xs font-medium text-slate-700 mb-1">{t(locale, 'codes.ledger.college')}</span>
-                  <select value={collegeId} disabled={!universityId} onChange={(event) => void chooseCollege(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                  <select value={collegeId} disabled={!universityId} onChange={(event) => void chooseCollege(event.target.value)} aria-label={t(locale, 'codes.ledger.college')} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
                     <option value="">{t(locale, 'codes.generateModal.chooseCollege')}</option>
                     {colleges.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
                   </select>
                 </label>
                 <label className="block">
                   <span className="block text-xs font-medium text-slate-700 mb-1">{t(locale, 'codes.generateModal.academicYear')}</span>
-                  <select value={yearId} disabled={!collegeId} onChange={(event) => void chooseYear(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                  <select value={yearId} disabled={!collegeId} onChange={(event) => void chooseYear(event.target.value)} aria-label={t(locale, 'codes.generateModal.academicYear')} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
                     <option value="">{t(locale, 'codes.generateModal.chooseYear')}</option>
                     {years.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
                   </select>
@@ -552,14 +552,14 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
                   <>
                     <label className="block">
                       <span className="block text-xs font-medium text-slate-700 mb-1">{t(locale, 'codes.generateModal.semester')}</span>
-                      <select value={semesterId} disabled={!yearId} onChange={(event) => void chooseSemester(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                      <select value={semesterId} disabled={!yearId} onChange={(event) => void chooseSemester(event.target.value)} aria-label={t(locale, 'codes.generateModal.semester')} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
                         <option value="">{t(locale, 'codes.generateModal.chooseSemester')}</option>
                         {semesters.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}</option>)}
                       </select>
                     </label>
                     <label className="block sm:col-span-2">
                       <span className="block text-xs font-medium text-slate-700 mb-1">{t(locale, 'codes.generateModal.subject')}</span>
-                      <select value={subjectId} disabled={!semesterId} onChange={(event) => setSubjectId(event.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                      <select value={subjectId} disabled={!semesterId} onChange={(event) => setSubjectId(event.target.value)} aria-label={t(locale, 'codes.generateModal.subject')} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-teal-500">
                         <option value="">{t(locale, 'codes.generateModal.chooseSubject')}</option>
                         {subjects.map((item) => <option key={item.id} value={item.id}>{displayName(isArabic, item)}{item.code ? ` — ${item.code}` : ''}</option>)}
                       </select>

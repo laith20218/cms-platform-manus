@@ -190,6 +190,7 @@ export function AdminsCenter(props: AdminsCenterProps) {
         <select
           value={roleFilter}
           onChange={(event) => setRoleFilter(event.target.value)}
+          aria-label={copy.role}
           className={inputClass}
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
@@ -201,6 +202,7 @@ export function AdminsCenter(props: AdminsCenterProps) {
         <select
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value)}
+          aria-label={copy.status}
           className={inputClass}
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
@@ -270,7 +272,7 @@ export function AdminsCenter(props: AdminsCenterProps) {
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
+        <div className="overflow-x-auto [contain:paint] rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
               <tr>
@@ -775,6 +777,7 @@ export function DialogLayer(props: DialogLayerProps) {
                   required
                   value={adminForm.roleId}
                   onChange={(event) => onAdminForm({ ...adminForm, roleId: event.target.value })}
+                  aria-label={copy.role}
                   className={fieldClass}
                   style={{ borderColor: 'var(--cms-line-strong)' }}
                 >

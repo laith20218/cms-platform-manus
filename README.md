@@ -45,10 +45,14 @@ CMS هو تطبيق ويب احترافي (Progressive Web App - PWA) مخصص �
 - **Serilog** (logging) + **FluentValidation**
 
 ### Infrastructure
-- **Cloudflare R2** (file storage) + **Cloudflare CDN**
-- **Redis 7** (cache + rate limiting)
-- **Firebase Cloud Messaging** (push notifications)
-- **Vercel** (frontend hosting) + **Railway** (backend)
+- **Backblaze B2** (file storage, S3-compatible API — verified live provider; see `docs/evidence/phase0-baseline-command-center.md` §3)
+- **Neon PostgreSQL** (managed Postgres) + **Upstash Redis** (REST cache)
+- **Vercel** (student-web + admin-web hosting) + **Render** (API hosting — `cms-api-preview`, auto-deploy from `main`)
+
+> PR-10 drift correction: the historical Railway/R2 claims above were replaced with the
+> verified live provider stack (Render + Neon + Upstash + Backblaze B2 + Vercel).
+> Legacy deployment docs under `deploy/` and `.github/workflows/launch.yml` still
+> describe the retired Railway path and are retained as historical reference only.
 
 ## 📁 هيكل المشروع
 
