@@ -14,7 +14,7 @@
  * Design tokens (--cms-*) are applied via inline style; structural styling is pure Tailwind.
  */
 import {
-  KeyRound, LoaderCircle, Plus, ShieldCheck, ShieldOff, Trash2, UsersRound, Lock, SlidersHorizontal,
+  KeyRound, LoaderCircle, Plus, ShieldCheck, ShieldOff, Trash2, UsersRound, Lock, SlidersHorizontal, CircleAlert,
 } from 'lucide-react';
 import type { RoleRecord } from '../lib/api';
 import { t, localeOf } from '../lib/dictionary';
@@ -38,6 +38,48 @@ type RolesCenterProps = {
   onError: (message: string) => void;
   onNotice: (message: string) => void;
 };
+
+/**
+ * PR-7 — inline conflict banner for the role-delete confirm dialog.
+ *
+ * Rendered by App.tsx inside the shared ConfirmDialog (as `children`) after a
+ * refused DELETE /api/v1/admin/roles/{id}:
+ *   • ROLE_HAS_ADMINS → the bilingual count message built from the live
+ *     adminCount shown on the role card ("الدور معيّن لـ N مديراً — انقلهم إلى
+ *     دور آخر قبل الحذف");
+ *   • SYSTEM_ROLE_DELETE_FORBIDDEN and every other refusal → the human message
+ *     resolved via apiErrorHumanMessage (the errors.ts code map first).
+ * The banner is rendered INLINE (not only as a toast) so the operator sees the
+ * reason without the dialog having closed.
+ */
+export function RoleDeleteConflictBanner({
+  errorCode,
+  humanMessage,
+  adminCount,
+  isArabic,
+}: {
+  errorCode?: string;
+  humanMessage: string;
+  adminCount: number;
+  isArabic: boolean;
+}) {
+  const locale = localeOf(isArabic);
+  const text = errorCode === 'ROLE_HAS_ADMINS' && adminCount > 0
+    ? t(locale, 'admincenters.rolesCenter.deleteConflictHasAdmins', { count: adminCount })
+    : humanMessage;
+  return (
+    <div
+      role="alert"
+      dir={isArabic ? 'rtl' : 'ltr'}
+      data-testid="role-delete-conflict"
+      className="flex items-start gap-2 rounded-lg border p-3 text-xs leading-relaxed"
+      style={{ borderColor: 'var(--cms-danger)', background: 'var(--cms-danger-50)', color: 'var(--cms-danger)' }}
+    >
+      <CircleAlert className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+      <p>{text}</p>
+    </div>
+  );
+}
 
 export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCreate, onStatus, onDelete, onError, onNotice }: RolesCenterProps) {
   const [editingRole, setEditingRole] = useState<RoleRecord | null>(null);
@@ -177,6 +219,18 @@ export function RolesCenter({ copy, isArabic, token, roles, busy, loading, onCre
                 <p className="mt-3 text-xs leading-relaxed flex-1" style={{ color: 'var(--cms-text-soft)' }}>
                   {role.description || t(locale, 'admincenters.rolesCenter.noDescription')}
                 </p>
+
+                {/* PR-7 — high-impact change explanation: toggling a system
+                    role affects every assigned administrator immediately. */}
+                {role.isSystem && (
+                  <p
+                    className="mt-2 rounded-lg border p-2 text-[11px] leading-relaxed flex-1"
+                    style={{ borderColor: 'var(--cms-teal-100)', background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}
+                    data-testid="role-system-impact-note"
+                  >
+                    {t(locale, 'admincenters.rolesCenter.systemRoleImpactNote')}
+                  </p>
+                )}
 
                 {/* Metrics */}
                 <div

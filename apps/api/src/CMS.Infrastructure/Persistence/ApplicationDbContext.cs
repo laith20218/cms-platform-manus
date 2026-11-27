@@ -90,6 +90,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext, IDataProte
     // System configuration
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
 
+    // PR-7 (Settings + Role Studio): append-only settings mutation history
+    public DbSet<SystemSettingHistory> SystemSettingHistories => Set<SystemSettingHistory>();
+
     // Wave 16.5: admin-managed site content pages (Terms / Privacy / Contact)
     public DbSet<ContentPage> ContentPages => Set<ContentPage>();
 
@@ -214,6 +217,20 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext, IDataProte
             entity.Property(x => x.Description).HasMaxLength(500);
             entity.Property(x => x.Category).HasMaxLength(50);
             entity.HasOne(x => x.UpdatedByAdmin).WithMany().HasForeignKey(x => x.UpdatedBy).OnDelete(DeleteBehavior.SetNull);
+        });
+        // PR-7 (Settings + Role Studio): settings mutation history. Plain index on key for
+        // the "history of one setting" lookup; deliberately NOT an FK — history rows must
+        // survive a setting row being deleted/recreated (append-only audit). The table name
+        // is pinned explicitly (singular, like the audit surface it serves) because the
+        // DbSet-derived default would pluralize it.
+        modelBuilder.Entity<SystemSettingHistory>(entity =>
+        {
+            entity.ToTable("system_setting_history");
+            entity.HasIndex(x => x.Key).HasDatabaseName("ix_system_setting_history_key");
+            entity.Property(x => x.Key).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.OldValue).HasMaxLength(2000);
+            entity.Property(x => x.NewValue).HasMaxLength(2000).IsRequired();
+            entity.Property(x => x.Reason).HasMaxLength(16).IsRequired();
         });
         // Wave 16.5 — admin-managed site content pages (Terms / Privacy / Contact).
         // Slug-addressed (URL-facing), Arabic title + markdown-lite body, audited via

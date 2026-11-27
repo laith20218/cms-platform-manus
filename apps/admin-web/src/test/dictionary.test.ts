@@ -219,6 +219,14 @@ describe('api error → localized human message', () => {
       'TWO_FACTOR_REQUIRED',
       'TWO_FACTOR_INVALID',
       'TWO_FACTOR_REPLAY',
+      // PR-7 (Settings + Role Studio) — settings studio + last-super-admin
+      // guard + role conflict codes.
+      'SETTING_VALUE_INVALID',
+      'SETTING_NO_DEFAULT',
+      'LAST_SUPER_ADMIN',
+      'ROLE_HAS_ADMINS',
+      'SYSTEM_ROLE_DELETE_FORBIDDEN',
+      'ROLE_DISABLED',
     ];
     for (const code of expected) {
       expect(apiErrorCodes[code], `missing mapping for ${code}`).toBeDefined();

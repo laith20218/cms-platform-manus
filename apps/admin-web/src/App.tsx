@@ -46,7 +46,7 @@ import { NotFoundView } from './components/NotFoundView';
 import { useQueryState, useClearQueryParams } from './lib/useQueryState';
 // PR-3 — the shell copy and every remaining inline shell ternary now resolve
 // through the shared dictionary (lib/dictionary → lib/shellCopy).
-import { t, localeOf } from './lib/dictionary';
+import { apiErrorHumanMessage, t, localeOf } from './lib/dictionary';
 import { buildShellCopy } from './lib/shellCopy';
 import { UiPermissionsProvider } from './hooks/useUiPermissions';
 import { useUiPermissions } from './hooks/uiPermissionsContext';
@@ -63,7 +63,7 @@ import { CodesCenter } from './components/CodesCenter';
 // Wave 4 (Owner decision 2026-11-23) — offline package ledger visibility + revocation.
 import { OfflineCenter } from './components/OfflineCenter';
 import { ReportsCenter } from './components/ReportsCenter';
-import { RolesCenter } from './components/RolesCenter';
+import { RolesCenter, RoleDeleteConflictBanner } from './components/RolesCenter';
 import { StudentsCenter } from './components/StudentsCenter';
 import { QuestionsCenter } from './components/QuestionsCenter';
 import { ExamsCenter } from './components/ExamsCenter';
@@ -330,6 +330,10 @@ function App() {
 
   const notify = (message: string) => toast.success(message);
   const reportError = (message: string) => toast.error(message);
+  // PR-7 — admin/role lifecycle failures resolve through the shared error-code
+  // map (LAST_SUPER_ADMIN, SETTING_VALUE_INVALID, ROLE_DISABLED, ROLE_HAS_ADMINS, …)
+  // so both locales render the bilingual mapping instead of the raw detail text.
+  const reportApiError = (error: unknown) => reportError(apiErrorHumanMessage(error, locale).human);
 
   function toggleTheme() {
     setTheme((current) => (current === 'light' ? 'dark' : 'light'));
@@ -430,6 +434,10 @@ function App() {
   const [adminStatusTarget, setAdminStatusTarget] = useState<{ admin: AdminRecord; isActive: boolean } | null>(null);
   const [roleStatusTarget, setRoleStatusTarget] = useState<{ role: RoleRecord; isActive: boolean } | null>(null);
   const [roleDeleteTarget, setRoleDeleteTarget] = useState<RoleRecord | null>(null);
+  // PR-7 — a refused role deletion keeps the confirm dialog open with an
+  // INLINE conflict banner (ROLE_HAS_ADMINS carries the live admin count;
+  // SYSTEM_ROLE_DELETE_FORBIDDEN and others resolve through the code map).
+  const [roleDeleteFailure, setRoleDeleteFailure] = useState<{ errorCode?: string; human: string } | null>(null);
 
   function signOut() {
     sessionStorage.removeItem('cms-admin-user');
@@ -487,7 +495,7 @@ function App() {
       setDialog(null);
       await fetchManagementData();
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      reportApiError(error);
     } finally {
       setBusy(false);
     }
@@ -502,7 +510,7 @@ function App() {
       setAdminStatusTarget(null);
       await fetchManagementData();
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      reportApiError(error);
     } finally {
       setBusy(false);
     }
@@ -519,7 +527,7 @@ function App() {
       notify(t(locale, 'admins.passwordResetToast'));
       setDialog(null);
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      reportApiError(error);
     } finally {
       setBusy(false);
     }
@@ -537,7 +545,7 @@ function App() {
       setDialog(null);
       await fetchManagementData();
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      reportApiError(error);
     } finally {
       setBusy(false);
     }
@@ -554,7 +562,7 @@ function App() {
       setRoleForm({ name: '', nameAr: '', description: '' });
       await fetchManagementData();
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      reportApiError(error);
     } finally {
       setBusy(false);
     }
@@ -569,7 +577,7 @@ function App() {
       setRoleStatusTarget(null);
       await fetchManagementData();
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      reportApiError(error);
     } finally {
       setBusy(false);
     }
@@ -582,9 +590,16 @@ function App() {
       await apiRequest<void>(`/api/v1/admin/roles/${role.id}`, token, { method: 'DELETE' });
       notify(t(locale, 'roles.deletedToast'));
       setRoleDeleteTarget(null);
+      setRoleDeleteFailure(null);
       await fetchManagementData();
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      // PR-7 — the confirm dialog stays open with an INLINE conflict banner
+      // (not only a toast): ROLE_HAS_ADMINS renders the live admin count;
+      // SYSTEM_ROLE_DELETE_FORBIDDEN and other codes render the mapped message.
+      const resolved = apiErrorHumanMessage(error, locale);
+      const errorCode = (error as { errorCode?: string } | null | undefined)?.errorCode;
+      setRoleDeleteFailure({ errorCode, human: resolved.human });
+      reportError(resolved.human);
     } finally {
       setBusy(false);
     }
@@ -963,6 +978,7 @@ function App() {
                   <AdminsCenter
                     copy={copy}
                     isArabic={isArabic}
+                    token={token}
                     admins={admins}
                     roles={roles}
                     total={totalAdmins}
@@ -995,7 +1011,7 @@ function App() {
                     loading={loadingData}
                     onCreate={() => setDialog({ kind: 'create-role' })}
                     onStatus={(role, isActive) => setRoleStatusTarget({ role, isActive })}
-                    onDelete={(role) => setRoleDeleteTarget(role)}
+                    onDelete={(role) => { setRoleDeleteTarget(role); setRoleDeleteFailure(null); }}
                     onError={reportError}
                     onNotice={notify}
                   />
@@ -1076,7 +1092,12 @@ function App() {
       />
       <ConfirmDialog
         open={roleDeleteTarget !== null}
-        onOpenChange={(next) => { if (!next) setRoleDeleteTarget(null); }}
+        onOpenChange={(next) => {
+          if (!next) {
+            setRoleDeleteTarget(null);
+            setRoleDeleteFailure(null);
+          }
+        }}
         title={t(locale, 'roles.deleteTitle')}
         description={roleDeleteTarget
           ? t(locale, 'roles.deleteDescription', { name: roleDeleteTarget.nameAr ?? roleDeleteTarget.name })
@@ -1089,7 +1110,19 @@ function App() {
         busy={busy}
         onConfirm={() => { if (roleDeleteTarget) void deleteRole(roleDeleteTarget); }}
         testId="role-delete-confirm"
-      />
+      >
+        {/* PR-7 — INLINE conflict banner (kept visible inside the open dialog):
+            ROLE_HAS_ADMINS renders the live admin count from the card; other
+            refusals (SYSTEM_ROLE_DELETE_FORBIDDEN, …) render the mapped message. */}
+        {roleDeleteFailure && (
+          <RoleDeleteConflictBanner
+            errorCode={roleDeleteFailure.errorCode}
+            humanMessage={roleDeleteFailure.human}
+            adminCount={roleDeleteTarget?.adminCount ?? 0}
+            isArabic={isArabic}
+          />
+        )}
+      </ConfirmDialog>
       {dialog && (
         <DialogLayer          copy={copy}
           isArabic={isArabic}

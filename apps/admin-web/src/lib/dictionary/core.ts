@@ -207,6 +207,63 @@ export const coreDict = {
     currentPasswordShell: { ar: 'كلمة مرور المدير العام الحالية', en: 'Current super-administrator password' },
     deleteConfirmShell: { ar: 'حذف المدير نهائيًا', en: 'Delete administrator permanently' },
     createdShell: { ar: 'تم إنشاء المدير. شارك كلمة المرور الأولية عبر قناة آمنة، وذكّره بتغييرها عند أول دخول.', en: 'Administrator created. Share the initial password through a secure channel and remind them to change it on first sign-in.' },
+    // PR-7 (Settings + Role Studio) — effective-access inspector copy (the
+    // per-admin drawer over GET /api/v1/admin/admins/{id}/effective-permissions).
+    effective: {
+      actionLabel: { ar: 'الوصول الفعّال', en: 'Effective access' },
+      drawerTitle: { ar: 'الوصول الفعّال', en: 'Effective access' },
+      drawerDescription: {
+        ar: 'قراءة فقط: ما يستطيع هذا المدير فعله فعلياً كما يفرضه الخادم.',
+        en: 'Read-only: what this administrator can actually do, as enforced by the server.',
+      },
+      roleState: { ar: 'حالة الدور', en: 'Role state' },
+      adminState: { ar: 'حالة الحساب', en: 'Account state' },
+      roleLabel: { ar: 'الدور', en: 'Role' },
+      // Access source card
+      accessSourceTitle: { ar: 'مصدر الوصول', en: 'Access source' },
+      bypass: { ar: 'تجاوز المدير العام', en: 'Super-admin bypass' },
+      bypassExplanation: {
+        ar: 'يتجاوز هذا الحساب فحوصات الصلاحيات لكونه مديراً عاماً — الحماية الحقيقية تبقى في الخادم.',
+        en: 'This account bypasses permission checks because it is a super administrator — the real protection stays server-side.',
+      },
+      roleGrants: { ar: 'صلاحيات الدور', en: 'Role grants' },
+      roleGrantsExplanation: {
+        ar: 'الصلاحيات تُفرض في الخادم من دور هذا الحساب.',
+        en: 'Permissions are enforced server-side from this account\u0027s role.',
+      },
+      // Grants table
+      grantsTitle: { ar: 'الصلاحيات الفعلية', en: 'Effective grants' },
+      grantsEmpty: { ar: 'لا توجد صلاحيات ممنوحة لهذا الدور — الحساب لا يملك أي وصول خارج الواجهة.', en: 'No grants are configured for this role — the account has no access beyond the UI shell.' },
+      resource: { ar: 'المورد', en: 'Resource' },
+      actions: { ar: 'الإجراءات', en: 'Actions' },
+      scope: { ar: 'النطاق', en: 'Scope' },
+      // UI-permission envelope
+      uiTitle: { ar: 'غلاف صلاحيات الواجهة', en: 'UI permissions envelope' },
+      uiModeFull: { ar: 'كامل', en: 'Full' },
+      uiModeCustom: { ar: 'مخصص', en: 'Custom' },
+      uiModeLabel: { ar: 'النمط', en: 'Mode' },
+      uiKeysCount: { ar: 'المفاتيح المسموحة: {{count}}', en: 'Allowed keys: {{count}}' },
+      uiRegistryVersion: { ar: 'إصدار سجل المفاتيح: {{version}}', en: 'Key registry version: {{version}}' },
+      uiCosmeticNote: {
+        ar: 'مفاتيح الواجهة تجميلية فقط — تحجب عناصر من الشاشة ولا تمنح أي صلاحية فعلية؛ الفرض الحقيقي في سياسات الـ API.',
+        en: 'UI keys are cosmetic only — they hide screen elements and grant no real permission; enforcement lives in the API policies.',
+      },
+      // Academic scope card
+      scopeTitle: { ar: 'النطاق الأكاديمي', en: 'Academic scope' },
+      scopeExplanation: {
+        ar: 'هذا النطاق يقيّد البيانات التي يصل إليها الحساب — ويُفرض في الخادم بغض النظر عن الواجهة.',
+        en: 'This scope filters the data the account can reach — enforced server-side regardless of the UI.',
+      },
+      scopeEmpty: { ar: 'غير محدد — المنصة بالكامل', en: 'Unassigned — entire platform' },
+      university: { ar: 'الجامعة', en: 'University' },
+      college: { ar: 'الكلية', en: 'College' },
+      year: { ar: 'السنة', en: 'Year' },
+      subject: { ar: 'المادة', en: 'Subject' },
+      // States
+      loadFailed: { ar: 'تعذّر تحميل الوصول الفعّال.', en: 'Could not load the effective access.' },
+      retry: { ar: 'إعادة المحاولة', en: 'Retry' },
+      close: { ar: 'إغلاق الوصول الفعّال', en: 'Close effective access' },
+    },
   },
 
   // ===== Roles (preserved + PR-3 shell additions) =====
