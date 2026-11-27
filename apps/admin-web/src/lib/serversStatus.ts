@@ -39,7 +39,8 @@ const TONE_CLASSES: Record<ServersTone, string> = {
   error: 'text-red-700 bg-red-50 border-red-300',
   neutral: 'text-slate-600 bg-slate-100 border-slate-300',
   config: 'text-orange-700 bg-orange-50 border-orange-300',
-  unknown: 'text-slate-500 bg-slate-100 border-slate-300',
+  // a11y: slate-500 on slate-100 measured 4.34:1 (< 4.5:1) — slate-600 reaches ~6.9:1.
+  unknown: 'text-slate-600 bg-slate-100 border-slate-300',
 };
 
 /** Tailwind badge classes for a tone (label text is rendered beside it — never color alone). */
