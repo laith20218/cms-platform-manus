@@ -60,6 +60,9 @@ public record Enable2FAResponse(
 
 /// <summary>
 /// Assigns a role to an existing administrator. The actor must hold the admin-edit permission.
+/// PR-7: a super-admin target may be demoted ONLY while another ACTIVE super admin remains —
+/// the last effective one is backend-protected (LAST_SUPER_ADMIN). Demotion of a super admin
+/// is audited as Critical.
 /// </summary>
 public record AssignAdminRoleCommand(
     Guid ActorAdminId,
@@ -136,6 +139,9 @@ public record CreateAdminCommand(
 
 /// <summary>
 /// Updates an administrator's identity, role, and academic scope. Restricted to super administrators.
+/// PR-7: a super-admin target is updatable ONLY while another ACTIVE super admin remains —
+/// the last effective one is backend-protected (LAST_SUPER_ADMIN). A role change on a
+/// super-admin target (demotion) is audited as Critical.
 /// </summary>
 public record UpdateAdminCommand(
     Guid ActorAdminId,
@@ -152,16 +158,24 @@ public record UpdateAdminCommand(
 
 /// <summary>
 /// Sets an administrator account to active or disabled. Disabling revokes all live sessions.
+/// PR-7: disabling a super-admin target requires another ACTIVE super admin to remain —
+/// the last effective one is backend-protected (LAST_SUPER_ADMIN) and the disable of a
+/// super admin is audited as Critical.
 /// </summary>
 public record SetAdminStatusCommand(Guid ActorAdminId, Guid TargetAdminId, bool IsActive) : IRequest<Unit>;
 
 /// <summary>
 /// Sets a policy-compliant administrator password and immediately invalidates all existing sessions.
+/// PR-7: a super-admin target's password is resettable ONLY while another ACTIVE super admin
+/// remains — the last effective one is backend-protected (LAST_SUPER_ADMIN).
 /// </summary>
 public record ResetAdminPasswordCommand(Guid ActorAdminId, Guid TargetAdminId, string NewPassword) : IRequest<Unit>;
 
 /// <summary>
 /// Permanently removes an administrator after the acting super administrator re-authenticates with their current password.
+/// PR-7: deleting a super-admin target requires another ACTIVE super admin to remain — the
+/// last effective one is backend-protected (LAST_SUPER_ADMIN). Deleting a super admin is
+/// audited as Critical with target_is_super_admin=true.
 /// </summary>
 public record DeleteAdminCommand(Guid ActorAdminId, Guid TargetAdminId, string ActorPassword) : IRequest<Unit>;
 
@@ -181,6 +195,51 @@ public record GetAdminsQuery(
 /// Retrieves one administrator record for the management detail view.
 /// </summary>
 public record GetAdminDetailsQuery(Guid ActorAdminId, Guid TargetAdminId) : IRequest<AdminManagementDto>;
+
+/// <summary>
+/// PR-7 (Settings + Role Studio): reads the EFFECTIVE access view of one target
+/// administrator — identity, role, classic permission grants, UI-permission envelope,
+/// and resolved academic scope — for the Role Studio "effective permissions" inspector.
+/// Super-admin gated, strictly read-only (no mutation, no cache writes).
+/// </summary>
+public record GetAdminEffectivePermissionsQuery(Guid ActorAdminId, Guid TargetAdminId) : IRequest<AdminEffectivePermissionsDto>;
+
+/// <summary>
+/// PR-7 (Settings + Role Studio): effective-access projection of one administrator.
+/// AccessSource: "super_admin_bypass" (grants list empty — a super admin's access is the
+/// role-name bypass, not grant rows) or "role_grants" (the role's AdminPermissions rows,
+/// Actions JSON parsed). UiPermissions Mode: "full" (super admin, or a role with NULL
+/// ui_permissions = unconfigured full access) or "custom" (a configured key list).
+/// </summary>
+public sealed record AdminEffectivePermissionsDto(
+    Guid AdminId,
+    string Email,
+    string FullName,
+    bool IsActive,
+    AdminEffectiveRoleDto Role,
+    bool IsSuperAdmin,
+    string AccessSource,
+    IReadOnlyList<AdminEffectivePermissionGrantDto> Grants,
+    AdminEffectiveUiPermissionsDto UiPermissions,
+    AdminEffectiveAcademicScopeDto AcademicScope
+);
+
+/// <summary>The target administrator's role snapshot.</summary>
+public sealed record AdminEffectiveRoleDto(Guid Id, string Name, string NameAr, bool IsActive);
+
+/// <summary>One classic permission grant row (resource + parsed actions + scope).</summary>
+public sealed record AdminEffectivePermissionGrantDto(string Resource, IReadOnlyList<string> Actions, string Scope);
+
+/// <summary>UI-permission envelope summary (mode, allowed key count, registry version).</summary>
+public sealed record AdminEffectiveUiPermissionsDto(string Mode, int AllowedKeysCount, string RegistryVersion);
+
+/// <summary>The target administrator's academic scope with resolved names.</summary>
+public sealed record AdminEffectiveAcademicScopeDto(
+    Guid? UniversityId, string? UniversityName,
+    Guid? CollegeId, string? CollegeName,
+    Guid? YearId, string? YearName,
+    Guid? SubjectId, string? SubjectName
+);
 
 /// <summary>
 /// Management-view representation of an administrative role, including assignment count.

@@ -180,6 +180,17 @@ public class AdminDashboardController : ControllerBase
         => Ok(await _mediator.Send(new GetAdminDetailsQuery(GetAdminId(), id), ct));
 
     /// <summary>
+    /// PR-7 (Settings + Role Studio): read-only effective-permissions view of one
+    /// administrator — role snapshot, classic grants (bypass for super admins), the
+    /// UI-permission envelope, and the resolved academic scope. Serves the Role Studio
+    /// "effective permissions" inspector; strictly read-only.
+    /// </summary>
+    [HttpGet("admins/{id:guid}/effective-permissions")]
+    [Authorize(Policy = "SuperAdmin")]
+    public async Task<ActionResult<AdminEffectivePermissionsDto>> GetAdminEffectivePermissions(Guid id, CancellationToken ct)
+        => Ok(await _mediator.Send(new GetAdminEffectivePermissionsQuery(GetAdminId(), id), ct));
+
+    /// <summary>
     /// Creates an administrator with an initial password and optional academic scope.
     /// </summary>
     [HttpPost("admins")]

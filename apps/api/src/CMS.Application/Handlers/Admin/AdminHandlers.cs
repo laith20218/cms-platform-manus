@@ -346,6 +346,9 @@ public class Disable2FACommandHandler : IRequestHandler<Disable2FACommand, Unit>
 
 /// <summary>
 /// Applies audited administrative role and permission changes through the established permission service.
+/// PR-7 (Settings + Role Studio): super-admin targets are no longer blanket-immune — they
+/// are manageable ONLY while at least one OTHER active super administrator remains; the
+/// last effective one is protected in the backend (LAST_SUPER_ADMIN), not by UI hiding.
 /// </summary>
 public sealed class RoleAdministrationHandlers :
     IRequestHandler<AssignAdminRoleCommand, Unit>,
@@ -378,17 +381,21 @@ public sealed class RoleAdministrationHandlers :
             ?? throw new NotFoundException("Admin", request.TargetAdminId);
         var role = await _db.AdminRoles.FirstOrDefaultAsync(candidate => candidate.Id == request.RoleId, ct)
             ?? throw new NotFoundException("AdminRole", request.RoleId);
-        if (target.Role.Name == Roles.SuperAdmin)
-            throw new DomainException("لا يمكن تعديل دور حساب المدير العام", "SUPER_ADMIN_PROTECTED");
+        // PR-7: demoting a super administrator is allowed only while another ACTIVE super
+        // administrator remains — the last effective one is backend-protected (LAST_SUPER_ADMIN).
+        await EnsureTargetIsNotLastEffectiveSuperAdmin(target, ct);
         if (!role.IsActive)
             throw new DomainException("لا يمكن تعيين دور معطّل", "ROLE_DISABLED");
 
+        var demotingSuperAdmin = target.Role.Name == Roles.SuperAdmin && role.Name != Roles.SuperAdmin;
         target.AssignRole(role.Id);
         await _unitOfWork.SaveChangesAsync(ct);
         await InvalidateAccessAsync(target.Id, ct);
+        var demotionDescription = $"target_admin_id={target.Id}; assigned_role_id={role.Id}; assigned_role={role.Name}";
         await _audit.LogSecurityEventAsync(
-            null, request.ActorAdminId, SecurityEventType.RoleChange, SecuritySeverity.Warning,
-            $"target_admin_id={target.Id}; assigned_role_id={role.Id}; assigned_role={role.Name}", ct: ct);
+            null, request.ActorAdminId, SecurityEventType.RoleChange,
+            demotingSuperAdmin ? SecuritySeverity.Critical : SecuritySeverity.Warning,
+            demotingSuperAdmin ? $"{demotionDescription}; target_is_super_admin=true" : demotionDescription, ct: ct);
         return Unit.Value;
     }
 
@@ -433,6 +440,14 @@ public sealed class RoleAdministrationHandlers :
             throw new ForbiddenException("لا تملك الصلاحية الإدارية المطلوبة");
     }
 
+    /// <summary>
+    /// PR-7: guards a mutation against removing the LAST effective (active) super
+    /// administrator — delegates to the shared backend guard on
+    /// <see cref="AdministratorManagementHandlers"/>.
+    /// </summary>
+    private Task EnsureTargetIsNotLastEffectiveSuperAdmin(AdminEntity target, CancellationToken ct) =>
+        AdministratorManagementHandlers.EnsureTargetIsNotLastEffectiveSuperAdmin(_db, target, ct);
+
     private async Task InvalidateAccessAsync(Guid adminId, CancellationToken ct)
     {
         if (_cache is null) return;
@@ -445,6 +460,11 @@ public sealed class RoleAdministrationHandlers :
 /// Handles the super-administrator console lifecycle for administrator accounts and roles.
 /// Every state-changing operation writes an audit event, and security-sensitive changes
 /// revoke live sessions and cached authorization decisions before returning.
+///
+/// PR-7 (Settings + Role Studio): super-admin targets are manageable ONLY while at least
+/// one OTHER ACTIVE super administrator remains — the LAST effective one is protected by
+/// backend code (LAST_SUPER_ADMIN), not by UI hiding. Delete / disable / demote of a
+/// super-admin target is audited as Critical with `; target_is_super_admin=true` appended.
 /// </summary>
 public sealed class AdministratorManagementHandlers :
     IRequestHandler<CreateAdminCommand, AdminManagementDto>,
@@ -454,6 +474,7 @@ public sealed class AdministratorManagementHandlers :
     IRequestHandler<DeleteAdminCommand, Unit>,
     IRequestHandler<GetAdminsQuery, PagedResult<AdminManagementDto>>,
     IRequestHandler<GetAdminDetailsQuery, AdminManagementDto>,
+    IRequestHandler<GetAdminEffectivePermissionsQuery, AdminEffectivePermissionsDto>,
     IRequestHandler<GetRolePermissionsQuery, List<RolePermissionGrantDto>>,
     IRequestHandler<CreateRoleCommand, AdminRoleManagementDto>,
     IRequestHandler<GetRolesQuery, List<AdminRoleManagementDto>>,
@@ -513,20 +534,25 @@ public sealed class AdministratorManagementHandlers :
         var target = await _db.Admins.Include(admin => admin.Role)
             .FirstOrDefaultAsync(admin => admin.Id == request.TargetAdminId, ct)
             ?? throw new NotFoundException("Admin", request.TargetAdminId);
-        EnsureTargetIsNotSuperAdmin(target);
+        // PR-7: a super-admin target is updatable only while another ACTIVE super admin
+        // remains — the last effective one is backend-protected (LAST_SUPER_ADMIN).
+        await EnsureTargetIsNotLastEffectiveSuperAdmin(target, ct);
 
         var email = NormalizeEmail(request.Email);
         await EnsureEmailAvailableAsync(email, target.Id, ct);
         var role = await FindRoleAsync(request.RoleId, ct);
         await ValidateScopeAsync(role, request.ScopeUniversityId, request.ScopeCollegeId, request.ScopeYearId, request.ScopeSubjectId, ct);
 
+        var demotingSuperAdmin = target.Role.Name == Roles.SuperAdmin && role.Name != Roles.SuperAdmin;
         target.UpdateDetails(email, request.FullName, request.Phone);
         target.AssignRole(role.Id);
         target.SetScope(request.ScopeUniversityId, request.ScopeCollegeId, request.ScopeYearId, request.ScopeSubjectId);
         await _unitOfWork.SaveChangesAsync(ct);
         await InvalidateAccessAsync(target.Id, ct);
-        await _audit.LogSecurityEventAsync(null, request.ActorAdminId, SecurityEventType.AdminAction, SecuritySeverity.Warning,
-            $"action=update_admin; target_admin_id={target.Id}; target_role={role.Name}", ct: ct);
+        var updateDescription = $"action=update_admin; target_admin_id={target.Id}; target_role={role.Name}";
+        await _audit.LogSecurityEventAsync(null, request.ActorAdminId, SecurityEventType.AdminAction,
+            demotingSuperAdmin ? SecuritySeverity.Critical : SecuritySeverity.Warning,
+            demotingSuperAdmin ? $"{updateDescription}; target_is_super_admin=true" : updateDescription, ct: ct);
 
         return ToAdminDto(target, role);
     }
@@ -537,15 +563,20 @@ public sealed class AdministratorManagementHandlers :
         var target = await _db.Admins.Include(admin => admin.Role)
             .FirstOrDefaultAsync(admin => admin.Id == request.TargetAdminId, ct)
             ?? throw new NotFoundException("Admin", request.TargetAdminId);
-        EnsureTargetIsNotSuperAdmin(target);
+        // PR-7: disabling a super-admin target requires another ACTIVE super admin to
+        // remain — the last effective one is backend-protected (LAST_SUPER_ADMIN).
+        await EnsureTargetIsNotLastEffectiveSuperAdmin(target, ct);
 
+        var disablingSuperAdmin = target.Role.Name == Roles.SuperAdmin && !request.IsActive;
         target.SetStatus(request.IsActive ? AdminStatus.Active : AdminStatus.Disabled);
         await _unitOfWork.SaveChangesAsync(ct);
         if (!request.IsActive)
             await _sessionService.RevokeAllForUserAsync(target.Id, "admin_disabled", ct);
         await InvalidateAccessAsync(target.Id, ct);
-        await _audit.LogSecurityEventAsync(null, request.ActorAdminId, SecurityEventType.AdminAction, SecuritySeverity.Warning,
-            $"action=set_admin_status; target_admin_id={target.Id}; active={request.IsActive.ToString().ToLowerInvariant()}", ct: ct);
+        var statusDescription = $"action=set_admin_status; target_admin_id={target.Id}; active={request.IsActive.ToString().ToLowerInvariant()}";
+        await _audit.LogSecurityEventAsync(null, request.ActorAdminId, SecurityEventType.AdminAction,
+            disablingSuperAdmin ? SecuritySeverity.Critical : SecuritySeverity.Warning,
+            disablingSuperAdmin ? $"{statusDescription}; target_is_super_admin=true" : statusDescription, ct: ct);
         return Unit.Value;
     }
 
@@ -555,7 +586,9 @@ public sealed class AdministratorManagementHandlers :
         var target = await _db.Admins.Include(admin => admin.Role)
             .FirstOrDefaultAsync(admin => admin.Id == request.TargetAdminId, ct)
             ?? throw new NotFoundException("Admin", request.TargetAdminId);
-        EnsureTargetIsNotSuperAdmin(target);
+        // PR-7: resetting the password of a super-admin target requires another ACTIVE
+        // super admin to remain — the last effective one is backend-protected.
+        await EnsureTargetIsNotLastEffectiveSuperAdmin(target, ct);
         _passwordPolicy.EnsureValid(request.NewPassword);
 
         target.ChangePasswordHash(_passwordHasher.HashPassword(request.NewPassword));
@@ -576,14 +609,18 @@ public sealed class AdministratorManagementHandlers :
         var target = await _db.Admins.Include(admin => admin.Role)
             .FirstOrDefaultAsync(admin => admin.Id == request.TargetAdminId, ct)
             ?? throw new NotFoundException("Admin", request.TargetAdminId);
-        EnsureTargetIsNotSuperAdmin(target);
+        // PR-7: deleting a super-admin target requires another ACTIVE super admin to
+        // remain — the last effective one is backend-protected (LAST_SUPER_ADMIN).
+        await EnsureTargetIsNotLastEffectiveSuperAdmin(target, ct);
 
+        var targetIsSuperAdmin = target.Role.Name == Roles.SuperAdmin;
         await _sessionService.RevokeAllForUserAsync(target.Id, "admin_deleted", ct);
         _db.Admins.Remove(target);
         await _unitOfWork.SaveChangesAsync(ct);
         await InvalidateAccessAsync(target.Id, ct);
+        var deleteDescription = $"action=delete_admin; target_admin_id={target.Id}";
         await _audit.LogSecurityEventAsync(null, request.ActorAdminId, SecurityEventType.AdminAction, SecuritySeverity.Critical,
-            $"action=delete_admin; target_admin_id={target.Id}", ct: ct);
+            targetIsSuperAdmin ? $"{deleteDescription}; target_is_super_admin=true" : deleteDescription, ct: ct);
         return Unit.Value;
     }
 
@@ -632,6 +669,72 @@ public sealed class AdministratorManagementHandlers :
             .FirstOrDefaultAsync(candidate => candidate.Id == request.TargetAdminId, ct)
             ?? throw new NotFoundException("Admin", request.TargetAdminId);
         return await ToAdminDtoAsync(admin, admin.Role, ct);
+    }
+
+    /// <summary>
+    /// PR-7 (Settings + Role Studio): effective-permissions view of ONE target
+    /// administrator — read-only. A super admin's access is the role-name BYPASS (grants
+    /// list empty); everyone else reads their role's AdminPermissions rows with the
+    /// Actions JSON parsed. The UI-permission envelope mirrors GetMyUiPermissionsQuery
+    /// (super admin / NULL ui_permissions → "full"; configured list → "custom"), and the
+    /// academic scope names are resolved via the academic tables.
+    /// </summary>
+    public async Task<AdminEffectivePermissionsDto> Handle(GetAdminEffectivePermissionsQuery request, CancellationToken ct)
+    {
+        await RequireSuperAdminAsync(request.ActorAdminId, ct);
+        var target = await _db.Admins.AsNoTracking().Include(admin => admin.Role)
+            .FirstOrDefaultAsync(admin => admin.Id == request.TargetAdminId, ct)
+            ?? throw new NotFoundException("Admin", request.TargetAdminId);
+
+        var isSuperAdmin = target.Role.Name == Roles.SuperAdmin;
+
+        var grants = new List<AdminEffectivePermissionGrantDto>();
+        if (!isSuperAdmin)
+        {
+            var permissions = await _db.AdminPermissions.AsNoTracking()
+                .Where(permission => permission.RoleId == target.RoleId)
+                .ToListAsync(ct);
+            grants = permissions.Select(permission => new AdminEffectivePermissionGrantDto(
+                permission.Resource,
+                System.Text.Json.JsonSerializer.Deserialize<List<string>>(permission.Actions) ?? new List<string>(),
+                permission.Scope
+            )).ToList();
+        }
+
+        // UI-permission envelope for the TARGET admin (same decision tree as
+        // GetMyUiPermissionsQuery): super admin → full; NULL ui_permissions → full
+        // (unconfigured); a stored list → custom with its allowed-key count.
+        string uiMode;
+        int allowedKeysCount;
+        if (isSuperAdmin)
+        {
+            uiMode = "full";
+            allowedKeysCount = UiPermissionRegistry.AllKeys.Length;
+        }
+        else if (target.Role.UiPermissions is null)
+        {
+            uiMode = "full";
+            allowedKeysCount = UiPermissionRegistry.AllKeys.Length;
+        }
+        else
+        {
+            uiMode = "custom";
+            allowedKeysCount = (UiPermissionRegistry.ParseStoredKeys(target.Role.UiPermissions) ?? []).Count;
+        }
+
+        var academicScope = await ResolveAcademicScopeAsync(target, ct);
+
+        return new AdminEffectivePermissionsDto(
+            target.Id,
+            target.Email,
+            target.FullName,
+            target.Status == AdminStatus.Active,
+            new AdminEffectiveRoleDto(target.Role.Id, target.Role.Name, target.Role.NameAr, target.Role.IsActive),
+            isSuperAdmin,
+            isSuperAdmin ? "super_admin_bypass" : "role_grants",
+            grants,
+            new AdminEffectiveUiPermissionsDto(uiMode, allowedKeysCount, UiPermissionRegistry.RegistryVersion),
+            academicScope);
     }
 
     /// <summary>
@@ -800,11 +903,31 @@ public sealed class AdministratorManagementHandlers :
         await _cache.RemoveAsync($"scope:{adminId}", ct);
     }
 
-    private static void EnsureTargetIsNotSuperAdmin(AdminEntity target)
+    /// <summary>
+    /// PR-7 (Settings + Role Studio): last-effective-super-admin guard, backend-enforced.
+    ///
+    /// A non-super target passes through. A super-admin target passes ONLY while at least
+    /// one OTHER ACTIVE super administrator exists; the last effective one throws
+    /// LAST_SUPER_ADMIN so the platform can never lose full administrative access through
+    /// update/disable/delete/password-reset/demote flows. This replaced the blanket
+    /// SUPER_ADMIN_PROTECTED rule: super admins are now manageable by their peers — just
+    /// never the last one. Only ACTIVE peers count (a suspended super admin cannot back
+    /// the mutation).
+    /// </summary>
+    internal static async Task EnsureTargetIsNotLastEffectiveSuperAdmin(IApplicationDbContext db, AdminEntity target, CancellationToken ct)
     {
-        if (target.Role.Name == Roles.SuperAdmin)
-            throw new DomainException("لا يمكن تعديل أو تعطيل أو حذف حساب المدير العام", "SUPER_ADMIN_PROTECTED");
+        if (target.Role.Name != Roles.SuperAdmin)
+            return;
+
+        var otherActiveSuperAdmins = await db.Admins.CountAsync(
+            a => a.Id != target.Id && a.Role.Name == Roles.SuperAdmin && a.Status == AdminStatus.Active, ct);
+        if (otherActiveSuperAdmins == 0)
+            throw new DomainException("لا يمكن تنفيذ هذا الإجراء على آخر مدير عام فعّال — يحمي النظام من فقدان الوصول الكامل", "LAST_SUPER_ADMIN");
     }
+
+    /// <summary>Instance wrapper over the shared guard (uses this handler's DbContext).</summary>
+    private Task EnsureTargetIsNotLastEffectiveSuperAdmin(AdminEntity target, CancellationToken ct) =>
+        EnsureTargetIsNotLastEffectiveSuperAdmin(_db, target, ct);
 
     private static string NormalizeEmail(string email)
     {
@@ -890,6 +1013,41 @@ public sealed class AdministratorManagementHandlers :
             admin.Status.ToString().ToLowerInvariant(),
             admin.LastLogin,
             admin.CreatedAt);
+    }
+
+    /// <summary>
+    /// PR-7 (Settings + Role Studio): resolves the target administrator's academic scope
+    /// anchors to their human-readable names for the effective-permissions view. Same
+    /// name resolution as <see cref="ToAdminDtoAsync"/> (Arabic display names).
+    /// </summary>
+    private async Task<AdminEffectiveAcademicScopeDto> ResolveAcademicScopeAsync(AdminEntity admin, CancellationToken ct)
+    {
+        string? uniName = null, colName = null, yearName = null, subjName = null;
+        if (admin.ScopeUniversityId.HasValue)
+        {
+            var uni = await _db.Universities.AsNoTracking().FirstOrDefaultAsync(u => u.Id == admin.ScopeUniversityId.Value, ct);
+            uniName = uni?.NameAr;
+        }
+        if (admin.ScopeCollegeId.HasValue)
+        {
+            var col = await _db.Colleges.AsNoTracking().FirstOrDefaultAsync(c => c.Id == admin.ScopeCollegeId.Value, ct);
+            colName = col?.NameAr;
+        }
+        if (admin.ScopeYearId.HasValue)
+        {
+            var year = await _db.AcademicYears.AsNoTracking().FirstOrDefaultAsync(y => y.Id == admin.ScopeYearId.Value, ct);
+            yearName = year?.NameAr;
+        }
+        if (admin.ScopeSubjectId.HasValue)
+        {
+            var subj = await _db.Subjects.AsNoTracking().FirstOrDefaultAsync(s => s.Id == admin.ScopeSubjectId.Value, ct);
+            subjName = subj?.NameAr;
+        }
+        return new AdminEffectiveAcademicScopeDto(
+            admin.ScopeUniversityId, uniName,
+            admin.ScopeCollegeId, colName,
+            admin.ScopeYearId, yearName,
+            admin.ScopeSubjectId, subjName);
     }
 
     private static AdminRoleManagementDto ToRoleDto(AdminRole role, int adminCount, int permissionCount) => new(
