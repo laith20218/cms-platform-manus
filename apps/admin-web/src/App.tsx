@@ -45,6 +45,8 @@ import { Breadcrumbs, ConfirmDialog, ErrorState } from '@cms/ui';
 import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
 import { NotFoundView } from './components/NotFoundView';
 import { useQueryState, useClearQueryParams } from './lib/useQueryState';
+// PR-10: the shared academic context keys (URL params carried across view switches).
+import { ACADEMIC_URL_PARAMS } from './lib/academicContext';
 // PR-3 — the shell copy and every remaining inline shell ternary now resolve
 // through the shared dictionary (lib/dictionary → lib/shellCopy).
 import { apiErrorHumanMessage, t, localeOf } from './lib/dictionary';
@@ -88,6 +90,9 @@ const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 type Locale = 'ar' | 'en';
 type Theme = 'light' | 'dark';
 type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'exam-courses' | 'library' | 'reports' | 'settings' | 'content' | 'offline' | 'security' | 'servers' | 'not-found';
+
+/** PR-10: the shared academic-context URL param names carried across view switches. */
+const ACADEMIC_CONTEXT_KEYS = Object.values(ACADEMIC_URL_PARAMS) as readonly string[];
 
 // D-26 (Command Center P1) — every view is a real URL: browser back/forward
 // and page refresh work, and views are directly shareable. BrowserRouter is
@@ -176,8 +181,22 @@ function App() {
   const setView = useCallback((next: View) => {
     // 'not-found' is derived state, never a navigation target.
     if (next === 'not-found') return;
-    navigate(VIEW_PATHS[next]);
-  }, [navigate]);
+    // PR-10 regression fix: the shared academic context (?univ=&college=&year=&semester=&subject=)
+    // is URL-derived (useAcademicContext) — navigating to a BARE view path silently reset it,
+    // so subject-scoped centers lost their selection on every view switch (surfaced by the
+    // PR-10 e2e smoke: the w14.3 ExamCourses flow never fetched after its nav click).
+    // Carry the academic params over so the context follows the operator across views,
+    // exactly like the pre-URL-state component-state behavior did. Source = the ROUTER
+    // location (works under MemoryRouter in tests too), never window.location.
+    const current = new URLSearchParams(location.search);
+    const carried: string[] = [];
+    for (const key of ACADEMIC_CONTEXT_KEYS) {
+      const value = current.get(key);
+      if (value) carried.push(`${key}=${encodeURIComponent(value)}`);
+    }
+    const target = VIEW_PATHS[next];
+    navigate(carried.length > 0 ? `${target}?${carried.join('&')}` : target);
+  }, [navigate, location.search]);
   // A view change is a fresh page arrival: start at the top (matches a reload).
   useEffect(() => {
     window.scrollTo(0, 0);

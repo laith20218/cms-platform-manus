@@ -195,7 +195,10 @@ try {
     await openNav(page, width);
     await page.locator('nav button', { hasText: 'الاختبارات' }).click();
     await page.locator('td', { hasText: 'اختبار الدورة الدموية النهائي' }).first().waitFor({ timeout: 15000 });
-    await page.getByRole('button', { name: 'الإحصائيات' }).first().click();
+    // PR-10: the stats action moved into the row-actions ⋮ menu (dropdown, role=menuitem)
+    // — open the trigger for this exam's row first, then pick the stats entry.
+    await page.getByRole('button', { name: 'إجراءات اختبار الدورة الدموية النهائي' }).first().click();
+    await page.getByRole('menuitem', { name: 'الإحصائيات' }).first().click();
     await page.getByText('توزيع الدرجات').waitFor({ timeout: 10000 });
     await page.waitForTimeout(350);
     await page.screenshot({ path: `${SHOT_DIR}w14.3-examstats-${width}.png`, fullPage: true });

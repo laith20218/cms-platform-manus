@@ -273,4 +273,21 @@ describe('PR-2 — browser back/forward against URL-derived views', () => {
     await awaitLocation('/questions');
     await awaitBreadcrumb('بنك الأسئلة');
   });
+
+  it('PR-10: a view switch carries the shared academic context (subject selection survives navigation)', async () => {
+    seedSession('super_admin');
+    // Arrive with a fully-selected academic chain in the URL.
+    renderAppAt('/?univ=u1&college=c1&year=y1&semester=s1&subject=su1');
+    await awaitShell();
+    await awaitBreadcrumb('لوحة القيادة');
+
+    // Switch views via the real sidebar.
+    fireEvent.click(screen.getByRole('button', { name: 'الاختبارات' }));
+    await awaitLocation('/exams?univ=u1&college=c1&year=y1&semester=s1&subject=su1');
+
+    // Switch to a non-academic view too — the shared context follows the operator
+    // (URL-derived context would otherwise silently reset on every navigation).
+    fireEvent.click(screen.getByRole('button', { name: 'الطلاب' }));
+    await awaitLocation('/students?univ=u1&college=c1&year=y1&semester=s1&subject=su1');
+  });
 });
