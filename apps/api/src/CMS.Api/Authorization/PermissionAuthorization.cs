@@ -153,6 +153,15 @@ public static class Policies
     // Logs
     public const string LogView = "LogView";
 
+    // Servers (PR-8 — read-only provider monitoring dashboard)
+    // Because super_admin bypasses HasPermissionAsync (PermissionService role bypass), only
+    // super admins pass this policy today: NO seeded role grant carries servers.view, so
+    // AdminServersController additionally requires the SuperAdmin role policy at the
+    // controller level (both attributes stack with AND semantics). Granting servers.view to
+    // a custom role later would still NOT be sufficient for this controller — the SuperAdmin
+    // role policy must be relaxed first, deliberately.
+    public const string ServersView = "ServersView";
+
     /// <summary>
     /// Register all policies in the authorization system.
     /// </summary>
@@ -220,5 +229,8 @@ public static class Policies
 
         // Logs
         options.AddPolicy(LogView, p => p.Requirements.Add(new PermissionRequirement(Resources.Logs, Actions.View)));
+
+        // Servers (PR-8) — read-only provider monitoring; see the ServersView policy comment above.
+        options.AddPolicy(ServersView, p => p.Requirements.Add(new PermissionRequirement(Resources.Servers, Actions.View)));
     }
 }

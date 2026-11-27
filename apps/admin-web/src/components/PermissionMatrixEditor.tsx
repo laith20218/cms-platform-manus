@@ -204,6 +204,12 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
             </span>
           )}
         </div>
+        {/* PR-7 — why a system role's grants are read-only (high-impact copy). */}
+        {isSystemRole && (
+          <p className="px-4 py-2 border-b text-[11px] leading-relaxed" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-teal-700)', background: 'var(--cms-teal-50)' }} data-testid="matrix-system-role-note">
+            {t(locale, 'admincenters.permissions.systemRoleNote')}
+          </p>
+        )}
 
         {/* Body — matrix */}
         <div className="flex-1 overflow-auto p-4">
@@ -259,6 +265,7 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
                           value={scope}
                           onChange={(e) => setScope(r.value, e.target.value)}
                           disabled={isSystemRole || saving || actions.length === 0}
+                          aria-label={`${isArabic ? r.ar : r.en}: ${copy.scope}`}
                           className="h-7 rounded border text-[11px] px-1 disabled:opacity-40 disabled:cursor-not-allowed"
                           style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
                         >

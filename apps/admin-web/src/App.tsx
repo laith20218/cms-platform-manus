@@ -30,6 +30,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Server,
   Settings,
   ShieldAlert,
   ShieldCheck,
@@ -44,9 +45,11 @@ import { Breadcrumbs, ConfirmDialog, ErrorState } from '@cms/ui';
 import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
 import { NotFoundView } from './components/NotFoundView';
 import { useQueryState, useClearQueryParams } from './lib/useQueryState';
+// PR-10: the shared academic context keys (URL params carried across view switches).
+import { ACADEMIC_URL_PARAMS } from './lib/academicContext';
 // PR-3 — the shell copy and every remaining inline shell ternary now resolve
 // through the shared dictionary (lib/dictionary → lib/shellCopy).
-import { t, localeOf } from './lib/dictionary';
+import { apiErrorHumanMessage, t, localeOf } from './lib/dictionary';
 import { buildShellCopy } from './lib/shellCopy';
 import { UiPermissionsProvider } from './hooks/useUiPermissions';
 import { useUiPermissions } from './hooks/uiPermissionsContext';
@@ -59,11 +62,13 @@ import { DashboardFeeds } from './components/DashboardFeeds';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { AuditCenter } from './components/AuditCenter';
 import { SecurityCenter } from './components/SecurityCenter';
+// PR-9 — read-only provider monitoring dashboard (super-only, rides view:audit).
+import { ServersCenter } from './components/ServersCenter';
 import { CodesCenter } from './components/CodesCenter';
 // Wave 4 (Owner decision 2026-11-23) — offline package ledger visibility + revocation.
 import { OfflineCenter } from './components/OfflineCenter';
 import { ReportsCenter } from './components/ReportsCenter';
-import { RolesCenter } from './components/RolesCenter';
+import { RolesCenter, RoleDeleteConflictBanner } from './components/RolesCenter';
 import { StudentsCenter } from './components/StudentsCenter';
 import { QuestionsCenter } from './components/QuestionsCenter';
 import { ExamsCenter } from './components/ExamsCenter';
@@ -84,7 +89,10 @@ const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 
 type Locale = 'ar' | 'en';
 type Theme = 'light' | 'dark';
-type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'exam-courses' | 'library' | 'reports' | 'settings' | 'content' | 'offline' | 'security' | 'not-found';
+type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'exam-courses' | 'library' | 'reports' | 'settings' | 'content' | 'offline' | 'security' | 'servers' | 'not-found';
+
+/** PR-10: the shared academic-context URL param names carried across view switches. */
+const ACADEMIC_CONTEXT_KEYS = Object.values(ACADEMIC_URL_PARAMS) as readonly string[];
 
 // D-26 (Command Center P1) — every view is a real URL: browser back/forward
 // and page refresh work, and views are directly shareable. BrowserRouter is
@@ -110,6 +118,7 @@ const VIEW_PATHS: Record<RoutableView, string> = {
   content: '/content',
   offline: '/offline',
   security: '/security',
+  servers: '/servers',
 };
 const PATH_VIEWS = new Map<string, View>(
   (Object.entries(VIEW_PATHS) as [RoutableView, string][]).map(([view, path]) => [path, view]),
@@ -172,8 +181,22 @@ function App() {
   const setView = useCallback((next: View) => {
     // 'not-found' is derived state, never a navigation target.
     if (next === 'not-found') return;
-    navigate(VIEW_PATHS[next]);
-  }, [navigate]);
+    // PR-10 regression fix: the shared academic context (?univ=&college=&year=&semester=&subject=)
+    // is URL-derived (useAcademicContext) — navigating to a BARE view path silently reset it,
+    // so subject-scoped centers lost their selection on every view switch (surfaced by the
+    // PR-10 e2e smoke: the w14.3 ExamCourses flow never fetched after its nav click).
+    // Carry the academic params over so the context follows the operator across views,
+    // exactly like the pre-URL-state component-state behavior did. Source = the ROUTER
+    // location (works under MemoryRouter in tests too), never window.location.
+    const current = new URLSearchParams(location.search);
+    const carried: string[] = [];
+    for (const key of ACADEMIC_CONTEXT_KEYS) {
+      const value = current.get(key);
+      if (value) carried.push(`${key}=${encodeURIComponent(value)}`);
+    }
+    const target = VIEW_PATHS[next];
+    navigate(carried.length > 0 ? `${target}?${carried.join('&')}` : target);
+  }, [navigate, location.search]);
   // A view change is a fresh page arrival: start at the top (matches a reload).
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -330,6 +353,10 @@ function App() {
 
   const notify = (message: string) => toast.success(message);
   const reportError = (message: string) => toast.error(message);
+  // PR-7 — admin/role lifecycle failures resolve through the shared error-code
+  // map (LAST_SUPER_ADMIN, SETTING_VALUE_INVALID, ROLE_DISABLED, ROLE_HAS_ADMINS, …)
+  // so both locales render the bilingual mapping instead of the raw detail text.
+  const reportApiError = (error: unknown) => reportError(apiErrorHumanMessage(error, locale).human);
 
   function toggleTheme() {
     setTheme((current) => (current === 'light' ? 'dark' : 'light'));
@@ -430,6 +457,10 @@ function App() {
   const [adminStatusTarget, setAdminStatusTarget] = useState<{ admin: AdminRecord; isActive: boolean } | null>(null);
   const [roleStatusTarget, setRoleStatusTarget] = useState<{ role: RoleRecord; isActive: boolean } | null>(null);
   const [roleDeleteTarget, setRoleDeleteTarget] = useState<RoleRecord | null>(null);
+  // PR-7 — a refused role deletion keeps the confirm dialog open with an
+  // INLINE conflict banner (ROLE_HAS_ADMINS carries the live admin count;
+  // SYSTEM_ROLE_DELETE_FORBIDDEN and others resolve through the code map).
+  const [roleDeleteFailure, setRoleDeleteFailure] = useState<{ errorCode?: string; human: string } | null>(null);
 
   function signOut() {
     sessionStorage.removeItem('cms-admin-user');
@@ -487,7 +518,7 @@ function App() {
       setDialog(null);
       await fetchManagementData();
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      reportApiError(error);
     } finally {
       setBusy(false);
     }
@@ -502,7 +533,7 @@ function App() {
       setAdminStatusTarget(null);
       await fetchManagementData();
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      reportApiError(error);
     } finally {
       setBusy(false);
     }
@@ -519,7 +550,7 @@ function App() {
       notify(t(locale, 'admins.passwordResetToast'));
       setDialog(null);
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      reportApiError(error);
     } finally {
       setBusy(false);
     }
@@ -537,7 +568,7 @@ function App() {
       setDialog(null);
       await fetchManagementData();
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      reportApiError(error);
     } finally {
       setBusy(false);
     }
@@ -554,7 +585,7 @@ function App() {
       setRoleForm({ name: '', nameAr: '', description: '' });
       await fetchManagementData();
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      reportApiError(error);
     } finally {
       setBusy(false);
     }
@@ -569,7 +600,7 @@ function App() {
       setRoleStatusTarget(null);
       await fetchManagementData();
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      reportApiError(error);
     } finally {
       setBusy(false);
     }
@@ -582,9 +613,16 @@ function App() {
       await apiRequest<void>(`/api/v1/admin/roles/${role.id}`, token, { method: 'DELETE' });
       notify(t(locale, 'roles.deletedToast'));
       setRoleDeleteTarget(null);
+      setRoleDeleteFailure(null);
       await fetchManagementData();
     } catch (error) {
-      reportError(error instanceof Error ? error.message : copy.dataError);
+      // PR-7 — the confirm dialog stays open with an INLINE conflict banner
+      // (not only a toast): ROLE_HAS_ADMINS renders the live admin count;
+      // SYSTEM_ROLE_DELETE_FORBIDDEN and other codes render the mapped message.
+      const resolved = apiErrorHumanMessage(error, locale);
+      const errorCode = (error as { errorCode?: string } | null | undefined)?.errorCode;
+      setRoleDeleteFailure({ errorCode, human: resolved.human });
+      reportError(resolved.human);
     } finally {
       setBusy(false);
     }
@@ -717,6 +755,9 @@ function App() {
         // PR-6 — Security Center: super-only, gated by the existing audit view
         // key (mirrors /offline; no new registry permission key).
         { key: 'security', label: t(locale, 'nav.security'), icon: ShieldAlert, superOnly: true, gateKey: 'view:audit' },
+        // PR-9 — Servers Dashboard: read-only provider monitoring, super-only,
+        // riding the same audit view key as /security and /offline.
+        { key: 'servers', label: t(locale, 'nav.servers'), icon: Server, superOnly: true, gateKey: 'view:audit' },
         // Wave 4 (Owner decision 2026-11-23): offline package ledger + revocation.
         { key: 'offline', label: t(locale, 'nav.offline'), icon: PackageX, superOnly: true },
         { key: 'settings', label: t(locale, 'nav.settings'), icon: Settings, superOnly: true },
@@ -737,6 +778,7 @@ function App() {
     : view === 'offline' ? t(locale, 'nav.offline')
     : view === 'audit' ? t(locale, 'nav.auditLog')
     : view === 'security' ? t(locale, 'nav.security')
+    : view === 'servers' ? t(locale, 'nav.servers')
     : view === 'reports' ? t(locale, 'nav.reports')
     : view === 'settings' ? t(locale, 'nav.settings')
     : view === 'content' ? t(locale, 'nav.content')
@@ -963,6 +1005,7 @@ function App() {
                   <AdminsCenter
                     copy={copy}
                     isArabic={isArabic}
+                    token={token}
                     admins={admins}
                     roles={roles}
                     total={totalAdmins}
@@ -995,7 +1038,7 @@ function App() {
                     loading={loadingData}
                     onCreate={() => setDialog({ kind: 'create-role' })}
                     onStatus={(role, isActive) => setRoleStatusTarget({ role, isActive })}
-                    onDelete={(role) => setRoleDeleteTarget(role)}
+                    onDelete={(role) => { setRoleDeleteTarget(role); setRoleDeleteFailure(null); }}
                     onError={reportError}
                     onNotice={notify}
                   />
@@ -1011,6 +1054,12 @@ function App() {
                   (same rule as /offline). Backend RBAC remains the real boundary. */}
               {view === 'security' && (isSuperAdmin && can('view:audit')
                 ? <SecurityCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {/* PR-9 — Servers Dashboard: super-only + existing view:audit gate
+                  (same rule as /security). READ-ONLY by design; backend RBAC
+                  remains the real boundary. */}
+              {view === 'servers' && (isSuperAdmin && can('view:audit')
+                ? <ServersCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
               {view === 'reports' && (isSuperAdmin && can('view:reports')
                 ? <ReportsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
@@ -1076,7 +1125,12 @@ function App() {
       />
       <ConfirmDialog
         open={roleDeleteTarget !== null}
-        onOpenChange={(next) => { if (!next) setRoleDeleteTarget(null); }}
+        onOpenChange={(next) => {
+          if (!next) {
+            setRoleDeleteTarget(null);
+            setRoleDeleteFailure(null);
+          }
+        }}
         title={t(locale, 'roles.deleteTitle')}
         description={roleDeleteTarget
           ? t(locale, 'roles.deleteDescription', { name: roleDeleteTarget.nameAr ?? roleDeleteTarget.name })
@@ -1089,7 +1143,19 @@ function App() {
         busy={busy}
         onConfirm={() => { if (roleDeleteTarget) void deleteRole(roleDeleteTarget); }}
         testId="role-delete-confirm"
-      />
+      >
+        {/* PR-7 — INLINE conflict banner (kept visible inside the open dialog):
+            ROLE_HAS_ADMINS renders the live admin count from the card; other
+            refusals (SYSTEM_ROLE_DELETE_FORBIDDEN, …) render the mapped message. */}
+        {roleDeleteFailure && (
+          <RoleDeleteConflictBanner
+            errorCode={roleDeleteFailure.errorCode}
+            humanMessage={roleDeleteFailure.human}
+            adminCount={roleDeleteTarget?.adminCount ?? 0}
+            isArabic={isArabic}
+          />
+        )}
+      </ConfirmDialog>
       {dialog && (
         <DialogLayer          copy={copy}
           isArabic={isArabic}

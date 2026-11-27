@@ -37,6 +37,12 @@ vi.mock('../components/SecurityCenter', () => ({
   SecurityCenter: () => <section data-testid="security-center-stub" />,
 }));
 
+// PR-9 — the Servers Dashboard is stubbed the same way (center covered by
+// src/test/servers-center.test.tsx).
+vi.mock('../components/ServersCenter', () => ({
+  ServersCenter: () => <section data-testid="servers-center-stub" />,
+}));
+
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import App from '../App';
 
@@ -220,6 +226,31 @@ describe('PR-6 — /security route (Security Center view)', () => {
   });
 });
 
+describe('PR-9 — /servers route (Servers Dashboard view)', () => {
+  it('renders the Servers Center for a super admin, with the sidebar nav item', async () => {
+    seedSession('super_admin');
+    renderAppAt('/servers');
+
+    await awaitShell();
+    expect(await screen.findByTestId('servers-center-stub')).toBeInTheDocument();
+    // The audit-nav group item sits right after the Security Center entry.
+    expect(screen.getByRole('button', { name: 'لوحة الخوادم' })).toBeInTheDocument();
+    // The breadcrumb resolves the same bilingual title.
+    expect(await screen.findByTestId('topbar-breadcrumbs')).toHaveTextContent('لوحة الخوادم');
+  });
+
+  it('shows LimitedNotice for a non-super admin deep link (center never mounts)', async () => {
+    seedSession('admin');
+    renderAppAt('/servers');
+
+    await awaitShell();
+    expect(await screen.findByText('الوصول مقيّد بالدور والنطاق')).toBeInTheDocument();
+    expect(screen.queryByTestId('servers-center-stub')).not.toBeInTheDocument();
+    // No super-only nav item either.
+    expect(screen.queryByRole('button', { name: 'لوحة الخوادم' })).not.toBeInTheDocument();
+  });
+});
+
 describe('PR-2 — browser back/forward against URL-derived views', () => {
   it('back returns to the previous view and forward re-enters the next one', async () => {
     seedSession('super_admin');
@@ -241,5 +272,22 @@ describe('PR-2 — browser back/forward against URL-derived views', () => {
     fireEvent.click(screen.getByTestId('harness-forward'));
     await awaitLocation('/questions');
     await awaitBreadcrumb('بنك الأسئلة');
+  });
+
+  it('PR-10: a view switch carries the shared academic context (subject selection survives navigation)', async () => {
+    seedSession('super_admin');
+    // Arrive with a fully-selected academic chain in the URL.
+    renderAppAt('/?univ=u1&college=c1&year=y1&semester=s1&subject=su1');
+    await awaitShell();
+    await awaitBreadcrumb('لوحة القيادة');
+
+    // Switch views via the real sidebar.
+    fireEvent.click(screen.getByRole('button', { name: 'الاختبارات' }));
+    await awaitLocation('/exams?univ=u1&college=c1&year=y1&semester=s1&subject=su1');
+
+    // Switch to a non-academic view too — the shared context follows the operator
+    // (URL-derived context would otherwise silently reset on every navigation).
+    fireEvent.click(screen.getByRole('button', { name: 'الطلاب' }));
+    await awaitLocation('/students?univ=u1&college=c1&year=y1&semester=s1&subject=su1');
   });
 });

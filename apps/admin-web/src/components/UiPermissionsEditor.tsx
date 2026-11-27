@@ -215,6 +215,16 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
             </span>
           )}
         </div>
+        {/* PR-7 — why a system role's UI keys are read-only (high-impact copy). */}
+        {isSystemRole && (
+          <p
+            className="px-4 py-2 border-b text-[11px] leading-relaxed"
+            style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-teal-700)', background: 'var(--cms-teal-50)' }}
+            data-testid="ui-system-role-note"
+          >
+            {t(locale, 'admincenters.permissions.systemRoleNote')}
+          </p>
+        )}
 
         {/* 2.1c empty state: unconfigured = full access + the two-layers clarification */}
         {!loading && !roleState.configured && !isSystemRole && (

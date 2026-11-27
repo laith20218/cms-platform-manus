@@ -14,15 +14,16 @@
  *
  * Design tokens (--cms-*) are applied via inline style; structural styling is pure Tailwind.
  */
-import { FormEvent } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import {
-  CircleAlert, Edit3, Eye, KeyRound, LoaderCircle, LockKeyhole,
+  CircleAlert, Edit3, Eye, Fingerprint, KeyRound, LoaderCircle, LockKeyhole,
   Plus, Search, ShieldCheck, ShieldOff, Trash2, UsersRound, X,
 } from 'lucide-react';
-import { PageHeader, useModalA11y } from '@cms/ui';
-import type { AdminRecord, RoleRecord } from '../lib/api';
-import { useUiPermissions } from '../hooks/uiPermissionsContext';
+import { Drawer, EmptyState, ErrorState, PageHeader, Skeleton, useModalA11y } from '@cms/ui';
+import type { AdminEffectivePermissionsDto, AdminRecord, RoleRecord } from '../lib/api';
+import { fetchAdminEffectivePermissions } from '../lib/api';
 import { t, localeOf } from '../lib/dictionary';
+import { useUiPermissions } from '../hooks/uiPermissionsContext';
 import { ScopePicker } from './ScopePicker';
 
 type Copy = Record<string, string>;
@@ -30,6 +31,8 @@ type Copy = Record<string, string>;
 type AdminsCenterProps = {
   copy: Copy;
   isArabic: boolean;
+  /** PR-7 — needed by the effective-access drawer (read-only fetch per admin row). */
+  token: string;
   admins: AdminRecord[];
   roles: RoleRecord[];
   total: number;
@@ -103,12 +106,43 @@ export function AdminsCenter(props: AdminsCenterProps) {
   // The Eye view button stays ungated (viewing opens the edit dialog read-first).
   const { can } = useUiPermissions();
   const {
-    copy, isArabic, admins, roles, total, query, roleFilter, statusFilter,
+    copy, isArabic, token, admins, roles, total, query, roleFilter, statusFilter,
     busy, loading, scopeText, setQuery, setRoleFilter, setStatusFilter,
     clearFilters, onCreate, onEdit, onReset, onDelete, onStatus,
   } = props;
 
   const locale = localeOf(isArabic);
+  const dir = isArabic ? 'rtl' : 'ltr';
+
+  // ===== PR-7: effective-access drawer (GET /admins/{id}/effective-permissions) =====
+  const [effectiveTarget, setEffectiveTarget] = useState<AdminRecord | null>(null);
+  const [effective, setEffective] = useState<AdminEffectivePermissionsDto | null>(null);
+  const [effectiveLoading, setEffectiveLoading] = useState(false);
+  const [effectiveError, setEffectiveError] = useState(false);
+  const [effectiveTick, setEffectiveTick] = useState(0);
+
+  // Fetch on open + retry only (no polling; strictly read-only). Failures render
+  // the drawer's own ErrorState — honest, in-place feedback.
+  useEffect(() => {
+    if (!token || !effectiveTarget) return;
+    let cancelled = false;
+    setEffectiveLoading(true);
+    setEffectiveError(false);
+    fetchAdminEffectivePermissions(token, effectiveTarget.id)
+      .then((dto) => { if (!cancelled) setEffective(dto); })
+      .catch(() => {
+        if (cancelled) return;
+        setEffectiveError(true);
+        setEffective(null);
+      })
+      .finally(() => { if (!cancelled) setEffectiveLoading(false); });
+    return () => { cancelled = true; };
+  }, [token, effectiveTarget, effectiveTick]);
+
+  const openEffective = (admin: AdminRecord) => {
+    setEffectiveTarget(admin);
+    setEffective(null);
+  };
 
   const filtersActive = Boolean(query || roleFilter || statusFilter !== 'all');
   const inputClass = 'w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors';
@@ -156,6 +190,7 @@ export function AdminsCenter(props: AdminsCenterProps) {
         <select
           value={roleFilter}
           onChange={(event) => setRoleFilter(event.target.value)}
+          aria-label={copy.role}
           className={inputClass}
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
@@ -167,6 +202,7 @@ export function AdminsCenter(props: AdminsCenterProps) {
         <select
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value)}
+          aria-label={copy.status}
           className={inputClass}
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
@@ -236,7 +272,7 @@ export function AdminsCenter(props: AdminsCenterProps) {
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
+        <div className="overflow-x-auto [contain:paint] rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
               <tr>
@@ -313,6 +349,18 @@ export function AdminsCenter(props: AdminsCenterProps) {
                     {/* Actions */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
+                        {/* PR-7 — effective-access inspector (read-only drawer). */}
+                        <button
+                          type="button"
+                          title={t(locale, 'admins.effective.actionLabel')}
+                          aria-label={`${t(locale, 'admins.effective.actionLabel')} — ${admin.fullName}`}
+                          onClick={() => openEffective(admin)}
+                          data-testid={`admin-effective-${admin.id}`}
+                          className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-md transition-colors hover:bg-teal-50"
+                          style={{ color: 'var(--cms-teal-700)' }}
+                        >
+                          <Fingerprint className="w-4 h-4" />
+                        </button>
                         <button
                           type="button"
                           title={copy.view}
@@ -374,6 +422,234 @@ export function AdminsCenter(props: AdminsCenterProps) {
           </table>
         </div>
       )}
+
+      {/* ===== PR-7: effective-access drawer (read-only, per admin row) ===== */}
+      <Drawer
+        open={effectiveTarget !== null}
+        onOpenChange={(next) => { if (!next) setEffectiveTarget(null); }}
+        title={t(locale, 'admins.effective.drawerTitle')}
+        description={effectiveTarget ? effectiveTarget.email : undefined}
+        dir={dir}
+        size="lg"
+        closeLabel={t(locale, 'admins.effective.close')}
+        testId="admin-effective-drawer"
+      >
+        <div className="space-y-4" data-testid="admin-effective-body">
+          {effectiveLoading ? (
+            <div className="space-y-3" aria-busy="true" data-testid="admin-effective-loading">
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-28 w-full" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          ) : effectiveError ? (
+            <ErrorState
+              title={t(locale, 'admins.effective.loadFailed')}
+              retryLabel={t(locale, 'admins.effective.retry')}
+              onRetry={() => setEffectiveTick(tick => tick + 1)}
+              dir={dir}
+              testId="admin-effective-error"
+            />
+          ) : effective ? (
+            <>
+              {/* Identity + states */}
+              <section
+                className="rounded-lg border p-3"
+                style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}
+                data-testid="admin-effective-identity"
+              >
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold truncate" style={{ color: 'var(--cms-text)' }}>{effective.fullName}</p>
+                    <p className="text-xs truncate" style={{ color: 'var(--cms-text-muted)' }}>{effective.email}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border ${
+                        effective.isActive
+                          ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                          : 'text-red-700 bg-red-50 border-red-200'
+                      }`}
+                      data-testid="admin-effective-account-state"
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${effective.isActive ? 'bg-emerald-500' : 'bg-red-500'} opacity-80`} />
+                      {t(locale, 'admins.effective.adminState')}: {effective.isActive ? copy.active : copy.disabled}
+                    </span>
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border ${
+                        effective.role.isActive
+                          ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                          : 'text-red-700 bg-red-50 border-red-200'
+                      }`}
+                      data-testid="admin-effective-role-state"
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${effective.role.isActive ? 'bg-emerald-500' : 'bg-red-500'} opacity-80`} />
+                      {t(locale, 'admins.effective.roleState')}: {effective.role.isActive ? copy.active : copy.disabled}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-xs mt-2" style={{ color: 'var(--cms-text-soft)' }}>
+                  {t(locale, 'admins.effective.roleLabel')}: {isArabic ? effective.role.nameAr : effective.role.name}{' '}
+                  (<code dir="ltr" className="font-mono" style={{ color: 'var(--cms-teal-700)' }}>{effective.role.name}</code>)
+                </p>
+              </section>
+
+              {/* Access source: bypass vs role grants (with explanations). */}
+              <section
+                className="rounded-lg border p-3 space-y-2"
+                style={{ borderColor: 'var(--cms-teal-100)', background: 'var(--cms-teal-50)' }}
+                data-testid="admin-effective-source"
+              >
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <p className="text-xs font-semibold" style={{ color: 'var(--cms-teal-700)' }}>
+                    {t(locale, 'admins.effective.accessSourceTitle')}
+                  </p>
+                  <span
+                    className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border"
+                    style={
+                      effective.accessSource === 'super_admin_bypass'
+                        ? { borderColor: 'var(--cms-warning)', background: 'var(--cms-warning-50)', color: 'var(--cms-warning)' }
+                        : { borderColor: 'var(--cms-teal-100)', background: 'var(--cms-surface)', color: 'var(--cms-teal-700)' }
+                    }
+                    data-testid="admin-effective-source-badge"
+                  >
+                    {effective.accessSource === 'super_admin_bypass'
+                      ? t(locale, 'admins.effective.bypass')
+                      : t(locale, 'admins.effective.roleGrants')}
+                  </span>
+                </div>
+                <p className="text-xs leading-relaxed" style={{ color: 'var(--cms-text)' }} data-testid="admin-effective-source-explanation">
+                  {effective.accessSource === 'super_admin_bypass'
+                    ? t(locale, 'admins.effective.bypassExplanation')
+                    : t(locale, 'admins.effective.roleGrantsExplanation')}
+                </p>
+              </section>
+
+              {/* Effective grants table (empty for the super-admin bypass). */}
+              <section
+                className="rounded-lg border p-3 space-y-2"
+                style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}
+                data-testid="admin-effective-grants"
+              >
+                <p className="text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
+                  {t(locale, 'admins.effective.grantsTitle')} ({effective.grants.length})
+                </p>
+                {effective.grants.length === 0 ? (
+                  <p className="text-xs leading-relaxed" style={{ color: 'var(--cms-text-muted)' }}>
+                    {t(locale, 'admins.effective.grantsEmpty')}
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
+                        <tr>
+                          <th className="text-start px-2 py-2 font-semibold">{t(locale, 'admins.effective.resource')}</th>
+                          <th className="text-start px-2 py-2 font-semibold">{t(locale, 'admins.effective.actions')}</th>
+                          <th className="text-start px-2 py-2 font-semibold">{t(locale, 'admins.effective.scope')}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y" style={{ borderColor: 'var(--cms-line)' }}>
+                        {effective.grants.map((grant) => (
+                          <tr key={`${grant.resource}-${grant.scope}`} data-testid="admin-effective-grant-row">
+                            <td className="px-2 py-2 font-mono" style={{ color: 'var(--cms-text)' }}>{grant.resource}</td>
+                            <td className="px-2 py-2">
+                              <span className="flex flex-wrap gap-1">
+                                {grant.actions.map((action) => (
+                                  <code
+                                    key={action}
+                                    dir="ltr"
+                                    className="px-1.5 py-0.5 rounded font-mono"
+                                    style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}
+                                  >
+                                    {action}
+                                  </code>
+                                ))}
+                              </span>
+                            </td>
+                            <td className="px-2 py-2 font-mono" style={{ color: 'var(--cms-text-soft)' }}>{grant.scope}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+
+              {/* UI-permission envelope (cosmetic layer explanation). */}
+              <section
+                className="rounded-lg border p-3 space-y-2"
+                style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}
+                data-testid="admin-effective-ui"
+              >
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <p className="text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
+                    {t(locale, 'admins.effective.uiTitle')}
+                  </p>
+                  <div className="flex items-center gap-1.5 flex-wrap" data-testid="admin-effective-ui-envelope">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border font-medium ${
+                        effective.uiPermissions.mode === 'full'
+                          ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                          : 'text-amber-700 bg-amber-50 border-amber-200'
+                      }`}
+                    >
+                      {t(locale, 'admins.effective.uiModeLabel')}: {effective.uiPermissions.mode === 'full' ? t(locale, 'admins.effective.uiModeFull') : t(locale, 'admins.effective.uiModeCustom')}
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'admins.effective.uiKeysCount', { count: effective.uiPermissions.allowedKeysCount })}
+                    </span>
+                    <span dir="ltr" className="text-xs font-mono" style={{ color: 'var(--cms-text-muted)' }}>
+                      {t(locale, 'admins.effective.uiRegistryVersion', { version: effective.uiPermissions.registryVersion })}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[11px] leading-relaxed" style={{ color: 'var(--cms-text-muted)' }}>
+                  {t(locale, 'admins.effective.uiCosmeticNote')}
+                </p>
+              </section>
+
+              {/* Academic scope card (backend-enforced data filter). */}
+              <section
+                className="rounded-lg border p-3 space-y-2"
+                style={{ borderColor: 'var(--cms-teal-100)', background: 'var(--cms-surface)' }}
+                data-testid="admin-effective-scope"
+              >
+                <p className="text-xs font-semibold" style={{ color: 'var(--cms-teal-700)' }}>
+                  {t(locale, 'admins.effective.scopeTitle')}
+                </p>
+                {!effective.academicScope?.universityName && !effective.academicScope?.collegeName && !effective.academicScope?.yearName && !effective.academicScope?.subjectName ? (
+                  <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                    {t(locale, 'admins.effective.scopeEmpty')}
+                  </p>
+                ) : (
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    {([
+                      ['admins.effective.university', effective.academicScope?.universityName],
+                      ['admins.effective.college', effective.academicScope?.collegeName],
+                      ['admins.effective.year', effective.academicScope?.yearName],
+                      ['admins.effective.subject', effective.academicScope?.subjectName],
+                    ] as Array<[string, string | null | undefined]>).map(([key, name]) => (
+                      <div key={key} className="flex items-center gap-2">
+                        <dt style={{ color: 'var(--cms-text-muted)' }}>{t(locale, key)}:</dt>
+                        <dd style={{ color: name ? 'var(--cms-text)' : 'var(--cms-text-muted)' }}>{name || '—'}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                <p className="text-[11px] leading-relaxed" style={{ color: 'var(--cms-text-muted)' }}>
+                  {t(locale, 'admins.effective.scopeExplanation')}
+                </p>
+              </section>
+            </>
+          ) : (
+            <EmptyState
+              title={t(locale, 'admins.effective.drawerDescription')}
+              dir={dir}
+              testId="admin-effective-idle"
+            />
+          )}
+        </div>
+      </Drawer>
     </section>
   );
 }
@@ -501,6 +777,7 @@ export function DialogLayer(props: DialogLayerProps) {
                   required
                   value={adminForm.roleId}
                   onChange={(event) => onAdminForm({ ...adminForm, roleId: event.target.value })}
+                  aria-label={copy.role}
                   className={fieldClass}
                   style={{ borderColor: 'var(--cms-line-strong)' }}
                 >

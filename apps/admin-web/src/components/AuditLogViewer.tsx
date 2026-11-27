@@ -242,6 +242,7 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
           <select
             value={severity}
             onChange={(e) => { setSeverity(e.target.value); setPage(1); }}
+            aria-label={t(locale, 'audit.viewer.severity')}
             className="h-9 rounded-lg border text-xs px-2"
             style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
           >
@@ -251,6 +252,7 @@ export function AuditLogViewer({ token, isArabic, onError }: Props) {
           <select
             value={eventType}
             onChange={(e) => { setEventType(e.target.value); setPage(1); }}
+            aria-label={t(locale, 'audit.viewer.eventType')}
             className="h-9 rounded-lg border text-xs px-2"
             style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
           >

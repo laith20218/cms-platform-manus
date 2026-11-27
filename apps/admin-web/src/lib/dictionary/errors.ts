@@ -39,6 +39,18 @@ export const apiErrorCodes: Readonly<Record<string, DictEntry>> = {
   TWO_FACTOR_REQUIRED: { ar: 'هذا الحساب محمي بالمصادقة الثنائية — أدخل رمز التحقق.', en: 'This account is protected by two-factor authentication — enter the verification code.' },
   TWO_FACTOR_INVALID: { ar: 'رمز التحقق غير صحيح. تأكد من التطبيق وأعد الإدخال.', en: 'The verification code is incorrect. Check the app and try again.' },
   TWO_FACTOR_REPLAY: { ar: 'استُخدم هذا الرمز مسبقًا. اطلب رمزًا جديدًا من تطبيق المصادقة.', en: 'This code was already used. Generate a new code in your authenticator app.' },
+  // PR-7 (Settings + Role Studio) — the backend's exact Arabic sentences ride
+  // in the DomainException detail; these mirrors let the EN locale render a
+  // localized explanation wherever apiErrorHumanMessage resolves the code.
+  SETTING_VALUE_INVALID: { ar: 'قيمة الإعداد غير صالحة', en: 'The setting value is invalid (type, bounds or allowed values).' },
+  SETTING_NO_DEFAULT: { ar: 'لا يوجد افتراضي مسجّل لهذا الإعداد', en: 'No registered default exists for this setting.' },
+  LAST_SUPER_ADMIN: {
+    ar: 'لا يمكن تنفيذ هذا الإجراء على آخر مدير عام فعّال — يحمي النظام من فقدان الوصول الكامل',
+    en: 'This action cannot be performed on the last effective super administrator — it protects the platform from losing full access.',
+  },
+  ROLE_HAS_ADMINS: { ar: 'انقل المدراء إلى دور آخر قبل حذف هذا الدور', en: 'Move the assigned administrators to another role before deleting this one.' },
+  SYSTEM_ROLE_DELETE_FORBIDDEN: { ar: 'أدوار نظامية لا تُحذف', en: 'System roles cannot be deleted.' },
+  ROLE_DISABLED: { ar: 'لا يمكن تعيين دور معطّل', en: 'A disabled role cannot be assigned.' },
 };
 
 /** Generic fallbacks (no code, no humanMessage, no message). */
