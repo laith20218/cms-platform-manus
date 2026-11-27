@@ -65,6 +65,8 @@ import { AuditCenter } from './components/AuditCenter';
 import { SecurityCenter } from './components/SecurityCenter';
 // PR-9 — read-only provider monitoring dashboard (super-only, rides view:audit).
 import { ServersCenter } from './components/ServersCenter';
+// Phase 3 — compact service-health summary on the Overview, linking to /servers.
+import { ServiceHealthSummary } from './components/ServiceHealthSummary';
 import { CodesCenter } from './components/CodesCenter';
 // Wave 4 (Owner decision 2026-11-23) — offline package ledger visibility + revocation.
 import { OfflineCenter } from './components/OfflineCenter';
@@ -759,25 +761,40 @@ function App() {
       items: [
         { key: 'students', label: t(locale, 'nav.students'), icon: UsersRound },
         { key: 'codes', label: t(locale, 'nav.codes'), icon: KeyRound },
+        // Phase 3 — administrators + roles belong with Users & Access (the old
+        // placement inside the audit mega-group crowded it to 9 items).
+        { key: 'admins', label: copy.admins, icon: UsersRound, superOnly: true },
+        { key: 'roles', label: copy.roles, icon: KeyRound, superOnly: true },
       ],
     },
     {
       label: t(locale, 'navGroups.audit'),
       items: [
         { key: 'reports', label: t(locale, 'nav.reports'), icon: BarChart3, superOnly: true },
-        { key: 'admins', label: copy.admins, icon: UsersRound, superOnly: true },
-        { key: 'roles', label: copy.roles, icon: KeyRound, superOnly: true },
         { key: 'audit', label: t(locale, 'nav.auditLog'), icon: ShieldCheck, superOnly: true },
         // PR-6 — Security Center: super-only, gated by the existing audit view
         // key (mirrors /offline; no new registry permission key).
         { key: 'security', label: t(locale, 'nav.security'), icon: ShieldAlert, superOnly: true, gateKey: 'view:audit' },
+      ],
+    },
+    {
+      // Phase 3 — Infrastructure gets its own group so /servers is discoverable
+      // instead of hiding at the tail of the audit mega-group.
+      label: t(locale, 'navGroups.infrastructure'),
+      items: [
         // PR-9 — Servers Dashboard: read-only provider monitoring, super-only,
         // riding the same audit view key as /security and /offline.
         { key: 'servers', label: t(locale, 'nav.servers'), icon: Server, superOnly: true, gateKey: 'view:audit' },
-        // Wave 4 (Owner decision 2026-11-23): offline package ledger + revocation.
-        { key: 'offline', label: t(locale, 'nav.offline'), icon: PackageX, superOnly: true },
+      ],
+    },
+    {
+      // Phase 3 — Settings group: system settings, content pages, offline packages.
+      label: t(locale, 'navGroups.settings'),
+      items: [
         { key: 'settings', label: t(locale, 'nav.settings'), icon: Settings, superOnly: true },
         { key: 'content', label: t(locale, 'nav.content'), icon: ScrollText, superOnly: true },
+        // Wave 4 (Owner decision 2026-11-23): offline package ledger + revocation.
+        { key: 'offline', label: t(locale, 'nav.offline'), icon: PackageX, superOnly: true },
       ],
     },
   ];
@@ -1481,10 +1498,16 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
         ))}
       </section>
 
-      {/* W-coverage (row 4): the three SuperAdmin dashboard feeds (recent-activity,
-          top-subjects, reports/summary) — previously no UI. */}
+      {/* W-coverage (row 4) + Phase 3: the SuperAdmin overview surfaces — the three
+          dashboard feeds (recent-activity, top-subjects, reports/summary) and the
+          service-health summary that answers "are the platforms up" in one glance
+          and deep-links to the read-only Servers Dashboard (/servers). Backend
+          gates both surfaces to SuperAdmin + ServersView. */}
       {isSuperAdmin && (
-        <DashboardFeeds token={token} isArabic={isArabic} />
+        <>
+          <DashboardFeeds token={token} isArabic={isArabic} />
+          <ServiceHealthSummary token={token} isArabic={isArabic} onOpenCenter={() => onNavigate('servers')} />
+        </>
       )}
 
       <p style={{ marginTop: 'var(--cms-space-4)', fontSize: 'var(--cms-text-2xs)', color: 'var(--cms-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>

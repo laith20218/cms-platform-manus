@@ -54,6 +54,11 @@ export const coreDict = {
     access: { ar: 'المستخدمون والوصول', en: 'Users & Access' },
     audit: { ar: 'القياس والتدقيق', en: 'Measurement & Audit' },
     system: { ar: 'النظام', en: 'System' },
+    // Phase 3 (command-center navigation) — dedicated Infrastructure + Settings
+    // groups so /servers is discoverable and the audit group stops being a
+    // 9-item mega-group.
+    infrastructure: { ar: 'البنية التحتية', en: 'Infrastructure' },
+    settings: { ar: 'الإعدادات', en: 'Settings' },
   },
 
   // ===== Environment labeling (Phase 2 — derived, never hardcoded) =====

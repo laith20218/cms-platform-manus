@@ -274,7 +274,9 @@ const SECURITY_SUMMARY = {
 const NOW = '2025-11-25T09:30:00Z';
 const freshness = { cached: false, ageSeconds: 0 };
 const SERVERS_SUMMARY = {
-  overallStatus: 'operational',
+  // Backend contract (ServersOverallStatus): healthy | degraded | down | unavailable | unknown.
+  // 'operational' is a PROVIDER status value — the summary head never emits it.
+  overallStatus: 'healthy',
   checkedAt: NOW,
   providers: [
     { provider: 'render', status: 'operational', checkedAt: NOW, responseTimeMs: 680, unavailableReason: null, freshness, note: 'render api service' },
