@@ -67,7 +67,10 @@ public sealed class StudentProfileController : ControllerBase
                 candidate.LastLogin,
                 candidate.UniversityId,
                 candidate.CollegeId,
-                candidate.AcademicYearId
+                candidate.AcademicYearId,
+                // PR-6 (Student Center): surfaced so the client can route the student through
+                // the change-password screen when an admin force-reset their password.
+                candidate.MustChangePassword
             })
             .FirstOrDefaultAsync(ct);
         if (student is null) return Unauthorized();
@@ -152,7 +155,8 @@ public sealed class StudentProfileController : ControllerBase
                 item.RevokedAt,
                 item.ScopeSubjectId,
                 item.ContentScope.ToString(),
-                item.ScopeSubjectId.HasValue && subjectNames.TryGetValue(item.ScopeSubjectId.Value, out var subjectName) ? subjectName : null)).ToList()));
+                item.ScopeSubjectId.HasValue && subjectNames.TryGetValue(item.ScopeSubjectId.Value, out var subjectName) ? subjectName : null)).ToList(),
+            student.MustChangePassword));
     }
 
     /// <summary>
@@ -512,7 +516,11 @@ public sealed record StudentProfileDto(
     Guid? UniversityId,
     Guid? CollegeId,
     Guid? AcademicYearId,
-    IReadOnlyList<StudentProfileSubscriptionDto> Subscriptions);
+    IReadOnlyList<StudentProfileSubscriptionDto> Subscriptions,
+    // PR-6 (Student Center): true when an admin force-reset the password — the client
+    // routes the student through the change-password screen. Optional so any existing
+    // construction keeps compiling.
+    bool MustChangePassword = false);
 
 public sealed record StudentProfileSubscriptionDto(
     Guid Id,

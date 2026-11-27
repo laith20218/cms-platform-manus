@@ -66,7 +66,11 @@ public record AuthResponse(
     string RefreshToken,
     string TokenType,
     int ExpiresIn,
-    UserDto User
+    UserDto User,
+    // PR-6 (Student Center): true when an admin force-reset the password and the student
+    // must change it at next login. Optional so existing constructions (admin login, OTP
+    // verify) keep compiling and default to false.
+    bool MustChangePassword = false
 );
 
 public record RegisterResponse(

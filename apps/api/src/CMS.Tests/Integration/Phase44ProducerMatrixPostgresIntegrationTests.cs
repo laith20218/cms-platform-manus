@@ -80,7 +80,8 @@ public sealed class Phase44ProducerMatrixPostgresIntegrationTests
         var permissions = new PermissionService(db, cache.Object);
         var roleHandlers = new RoleAdministrationHandlers(db, unitOfWork, permissions, audit);
         var subscriptionHandlers = new SubscriptionHandlers(db, unitOfWork, permissions, audit);
-        var adminHandlers = new AdminManagementHandlers(db, unitOfWork, permissions, audit, NoOp.ActivityWriter());
+        var adminHandlers = new AdminManagementHandlers(db, unitOfWork, permissions, audit, NoOp.ActivityWriter(),
+            new Mock<IPasswordHasher>().Object, new Mock<IPasswordPolicy>().Object, new Mock<ISessionService>().Object);
 
         await roleHandlers.Handle(new AssignAdminRoleCommand(actor.Id, targetAdmin.Id, assignedRole.Id), CancellationToken.None);
         await roleHandlers.Handle(new ReplaceRolePermissionsCommand(actor.Id, permissionRole.Id,

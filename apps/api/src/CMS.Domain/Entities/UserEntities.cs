@@ -71,6 +71,26 @@ public class Student : BaseEntity
     /// <summary>Sets the leaderboard-sharing consent flag.</summary>
     public void SetLeaderboardSharing(bool shares) => SharesLeaderboard = shares;
 
+    // PR-6 (Student Center — admin password reset): set when an admin force-resets a
+    // student password with ForceChangeOnNextLogin; cleared by the student's own
+    // ChangePassword/ResetPassword flows. Surfaced on login + profile so the client can
+    // route the student through the change-password screen.
+    public bool MustChangePassword { get; private set; } = false;
+
+    /// <summary>Marks the student as required to change their password at next login.</summary>
+    public void FlagMustChangePassword()
+    {
+        MustChangePassword = true;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Clears the must-change-password flag (self-service change/reset completed).</summary>
+    public void ClearMustChangePassword()
+    {
+        MustChangePassword = false;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public DateTime? DeletedAt { get; set; }
 
     // Navigation
@@ -222,6 +242,27 @@ public class Student : BaseEntity
         Status = StudentStatus.Banned;
         BanReason = reason;
         BanUntil = until;
+    }
+
+    // ===== PR-6 (Student Center): tombstone archive lifecycle — NEVER hard delete. =====
+
+    /// <summary>
+    /// Soft-archives the student (tombstone). Idempotent: a second call is a no-op.
+    /// Archived students are hidden from the default list/login surfaces and their
+    /// sessions are revoked; they stay fully restorable via <see cref="RestoreFromArchive"/>.
+    /// </summary>
+    public void Archive()
+    {
+        if (DeletedAt is null)
+            DeletedAt = DateTime.UtcNow;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Restores a soft-archived student. Idempotent: a second call is a no-op.</summary>
+    public void RestoreFromArchive()
+    {
+        DeletedAt = null;
+        UpdatedAt = DateTime.UtcNow;
     }
 
     public void Unban()

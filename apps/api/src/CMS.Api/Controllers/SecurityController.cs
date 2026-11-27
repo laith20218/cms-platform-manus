@@ -172,6 +172,91 @@ public class SecurityController : ControllerBase
     }
 
     /// <summary>
+    /// PR-6 (Security Center): real-data security summary for the overview panel —
+    /// failed-login counters (24h/7d), active lockouts, refresh-reuse, MFA transitions,
+    /// critical events, suspicious alerts, password resets, and the top-5 source IPs of
+    /// failed logins in the last 24 hours. Every number is computed from SecurityLogs +
+    /// Students; nothing is cached or approximated. Requires Logs.View permission.
+    /// </summary>
+    [HttpGet("summary")]
+    public async Task<IActionResult> GetSecuritySummary(CancellationToken ct = default)
+    {
+        var adminId = GetAdminId();
+        if (!await _permissions.HasPermissionAsync(adminId, Resources.Logs, Actions.View, ct))
+            return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
+
+        var now = DateTime.UtcNow;
+        var twentyFourHoursAgo = now.AddHours(-24);
+        var sevenDaysAgo = now.AddDays(-7);
+
+        var logs = _db.SecurityLogs.AsNoTracking();
+
+        var failedLogins24h = await logs.CountAsync(
+            log => log.EventType == SecurityEventType.LoginFailed && log.CreatedAt >= twentyFourHoursAgo, ct);
+        var failedLogins7d = await logs.CountAsync(
+            log => log.EventType == SecurityEventType.LoginFailed && log.CreatedAt >= sevenDaysAgo, ct);
+        var refreshReuse7d = await logs.CountAsync(
+            log => log.EventType == SecurityEventType.RefreshReuse && log.CreatedAt >= sevenDaysAgo, ct);
+        var mfaEnabled7d = await logs.CountAsync(
+            log => log.EventType == SecurityEventType.MfaEnabled && log.CreatedAt >= sevenDaysAgo, ct);
+        var mfaDisabled7d = await logs.CountAsync(
+            log => log.EventType == SecurityEventType.MfaDisabled && log.CreatedAt >= sevenDaysAgo, ct);
+        var mfaFailed7d = await logs.CountAsync(
+            log => log.EventType == SecurityEventType.MfaFailed && log.CreatedAt >= sevenDaysAgo, ct);
+        var criticalEvents7d = await logs.CountAsync(
+            log => log.Severity == SecuritySeverity.Critical && log.CreatedAt >= sevenDaysAgo, ct);
+        var suspiciousAlerts7d = await logs.CountAsync(
+            log => log.EventType == SecurityEventType.SecurityAlert && log.CreatedAt >= sevenDaysAgo, ct);
+        var passwordResets7d = await logs.CountAsync(
+            log => (log.EventType == SecurityEventType.PasswordResetRequested || log.EventType == SecurityEventType.PasswordChanged)
+                && log.CreatedAt >= sevenDaysAgo, ct);
+
+        var activeLockouts = await _db.Students.AsNoTracking()
+            .CountAsync(student => student.LockoutUntil != null && student.LockoutUntil > now, ct);
+
+        // Top failed-login source IPs (24h): IPAddress maps to PostgreSQL inet, and a
+        // server-side GroupBy on inet is translation-risky — materialize the bounded
+        // recent LoginFailed rows (last 2000) and group in memory instead. The projection
+        // must be a non-null string, so the grouping key is rendered via ToString().
+        var failedLoginIps = await _db.SecurityLogs.AsNoTracking()
+            .Where(log => log.EventType == SecurityEventType.LoginFailed
+                && log.CreatedAt >= twentyFourHoursAgo
+                && log.IpAddress != null)
+            .OrderByDescending(log => log.CreatedAt)
+            .Take(2000)
+            .Select(log => new { log.IpAddress })
+            .ToListAsync(ct);
+
+        var topFailedLoginIps24h = failedLoginIps
+            .GroupBy(log => log.IpAddress!)
+            .Select(group => new
+            {
+                ipAddress = group.Key.ToString(),
+                count = group.Count(),
+            })
+            .OrderByDescending(entry => entry.count)
+            .ThenBy(entry => entry.ipAddress, StringComparer.Ordinal)
+            .Take(5)
+            .ToList();
+
+        return Ok(new
+        {
+            generatedAt = now,
+            failedLogins24h,
+            failedLogins7d,
+            activeLockouts,
+            refreshReuse7d,
+            mfaEnabled7d,
+            mfaDisabled7d,
+            mfaFailed7d,
+            criticalEvents7d,
+            suspiciousAlerts7d,
+            passwordResets7d,
+            topFailedLoginIps24h,
+        });
+    }
+
+    /// <summary>
     /// Unbind a student's device (allow login from new device).
     /// </summary>
     [HttpPost("students/{studentId:guid}/unbind-device")]

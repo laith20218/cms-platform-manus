@@ -3023,6 +3023,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("longest_streak");
 
+                    b.Property<bool>("MustChangePassword")
+                        .HasColumnType("boolean")
+                        .HasColumnName("must_change_password");
+
                     b.Property<string>("OtpCode")
                         .HasColumnType("text")
                         .HasColumnName("otp_code");

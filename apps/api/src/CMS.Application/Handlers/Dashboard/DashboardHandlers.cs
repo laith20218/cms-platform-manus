@@ -204,6 +204,10 @@ public class AdminManagementHandlers :
     IRequestHandler<GetStudentsQuery, PagedResult<StudentManagementDto>>,
     IRequestHandler<BanStudentCommand, Unit>,
     IRequestHandler<UnbanStudentCommand, Unit>,
+    IRequestHandler<ResetStudentPasswordCommand, Unit>,
+    IRequestHandler<ArchiveStudentCommand, Unit>,
+    IRequestHandler<RestoreStudentCommand, Unit>,
+    IRequestHandler<GetStudentDetailQuery, StudentDetailDto>,
     IRequestHandler<GetCodesQuery, PagedResult<CodeManagementDto>>,
     IRequestHandler<GenerateCodesCommand, GenerateCodesResultDto>
 {
@@ -213,14 +217,30 @@ public class AdminManagementHandlers :
     private readonly ISecurityAuditWriter _audit;
     // Push 2 / Track 2: activity-monitor writer (best-effort — never fails the business op).
     private readonly IAdminActivityWriter _activity;
+    // PR-6 (Student Center): actor re-auth + new-secret hashing/policy for the student
+    // password reset, and session revocation for reset/archive.
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly IPasswordPolicy _passwordPolicy;
+    private readonly ISessionService _sessionService;
 
-    public AdminManagementHandlers(IApplicationDbContext db, IUnitOfWork unitOfWork, IPermissionService permissions, ISecurityAuditWriter audit, IAdminActivityWriter activity)
+    public AdminManagementHandlers(
+        IApplicationDbContext db,
+        IUnitOfWork unitOfWork,
+        IPermissionService permissions,
+        ISecurityAuditWriter audit,
+        IAdminActivityWriter activity,
+        IPasswordHasher passwordHasher,
+        IPasswordPolicy passwordPolicy,
+        ISessionService sessionService)
     {
         _db = db;
         _unitOfWork = unitOfWork;
         _permissions = permissions;
         _audit = audit;
         _activity = activity;
+        _passwordHasher = passwordHasher;
+        _passwordPolicy = passwordPolicy;
+        _sessionService = sessionService;
     }
 
     public async Task<PagedResult<StudentManagementDto>> Handle(GetStudentsQuery req, CancellationToken ct)
@@ -237,6 +257,16 @@ public class AdminManagementHandlers :
             .Include(s => s.College)
             .Where(s => s.DeletedAt == null);
 
+        // PR-6 (Student Center): the special status "archived" flips the tombstone filter —
+        // return ONLY soft-deleted students (and drop the normal status filter) so admins
+        // can find and restore them. Every other status keeps the non-archived default.
+        var wantsArchived = string.Equals(req.Status, "archived", StringComparison.OrdinalIgnoreCase);
+        if (wantsArchived)
+            query = _db.Students.AsNoTracking()
+                .Include(s => s.University)
+                .Include(s => s.College)
+                .Where(s => s.DeletedAt != null);
+
         if (!scope.IsSuperAdmin)
         {
             if (scope.UniversityId.HasValue) query = query.Where(student => student.UniversityId == scope.UniversityId);
@@ -252,7 +282,7 @@ public class AdminManagementHandlers :
         if (req.UniversityId.HasValue)
             query = query.Where(s => s.UniversityId == req.UniversityId);
 
-        if (!string.IsNullOrEmpty(req.Status) && Enum.TryParse<StudentStatus>(req.Status, true, out var status))
+        if (!wantsArchived && !string.IsNullOrEmpty(req.Status) && Enum.TryParse<StudentStatus>(req.Status, true, out var status))
             query = query.Where(s => s.Status == status);
 
         var total = await query.CountAsync(ct);
@@ -295,6 +325,178 @@ public class AdminManagementHandlers :
         await _audit.LogSecurityEventAsync(student.Id, req.AdminId, SecurityEventType.AdminAction, SecuritySeverity.Warning,
             "action=unban_student", ct: ct);
         return Unit.Value;
+    }
+
+    /// <summary>
+    /// PR-6 (Student Center): admin-side student password reset. Authorization + scope are
+    /// enforced by the controller (Students.Edit policy + IsInScopeAsync); this handler is
+    /// the danger-zone business core: the acting admin re-authenticates with their own
+    /// password, the new secret is policy-checked and hashed, every student session is
+    /// revoked, and the reset is audited. The plaintext password never appears in any log,
+    /// DTO, or exception. Soft-deleted (archived) students may be reset too.
+    /// </summary>
+    public async Task<Unit> Handle(ResetStudentPasswordCommand request, CancellationToken ct)
+    {
+        var actor = await _db.Admins.FirstOrDefaultAsync(a => a.Id == request.ActorAdminId, ct)
+            ?? throw new NotFoundException("Admin", request.ActorAdminId);
+
+        if (!_passwordHasher.VerifyPassword(request.ActorPassword, actor.PasswordHash))
+            throw new DomainException("كلمة مرور المسؤول غير صحيحة", "INVALID_CURRENT_PASSWORD");
+
+        var student = await _db.Students.FirstOrDefaultAsync(s => s.Id == request.StudentId, ct)
+            ?? throw new NotFoundException("Student", request.StudentId);
+
+        _passwordPolicy.EnsureValid(request.NewPassword);
+        student.ChangePasswordHash(_passwordHasher.HashPassword(request.NewPassword));
+        if (request.ForceChangeOnNextLogin)
+            student.FlagMustChangePassword();
+
+        await _unitOfWork.SaveChangesAsync(ct);
+        await _sessionService.RevokeAllForUserAsync(student.Id, "admin_password_reset", ct);
+
+        await _audit.LogSecurityEventAsync(
+            student.Id,
+            request.ActorAdminId,
+            SecurityEventType.PasswordChanged,
+            SecuritySeverity.Warning,
+            $"credential_reset=student; target_student_id={student.Id}; force_change={request.ForceChangeOnNextLogin.ToString().ToLowerInvariant()}",
+            ct: ct);
+        return Unit.Value;
+    }
+
+    /// <summary>
+    /// PR-6 (Student Center): soft-archive a student (tombstone — NEVER a hard delete).
+    /// Idempotent: an already-archived student returns without side effects. Archiving
+    /// revokes every live session so the student cannot keep using the platform.
+    /// </summary>
+    public async Task<Unit> Handle(ArchiveStudentCommand request, CancellationToken ct)
+    {
+        var student = await _db.Students.FirstOrDefaultAsync(s => s.Id == request.StudentId, ct)
+            ?? throw new NotFoundException("Student", request.StudentId);
+
+        if (student.DeletedAt is not null)
+            return Unit.Value; // already archived — idempotent
+
+        student.Archive();
+        await _sessionService.RevokeAllForUserAsync(student.Id, "student_archived", ct);
+        await _unitOfWork.SaveChangesAsync(ct);
+
+        await _audit.LogSecurityEventAsync(
+            student.Id,
+            request.ActorAdminId,
+            SecurityEventType.AdminAction,
+            SecuritySeverity.Warning,
+            $"action=student_archive; target_student_id={student.Id}",
+            ct: ct);
+        return Unit.Value;
+    }
+
+    /// <summary>
+    /// PR-6 (Student Center): restore a soft-archived student. Idempotent: a student that
+    /// is not archived returns without side effects. Student queries filter DeletedAt
+    /// manually in LINQ (there is no global soft-delete filter), so the plain
+    /// FirstOrDefaultAsync above already finds soft-deleted rows — no IgnoreQueryFilters
+    /// trickery is needed.
+    /// </summary>
+    public async Task<Unit> Handle(RestoreStudentCommand request, CancellationToken ct)
+    {
+        var student = await _db.Students.FirstOrDefaultAsync(s => s.Id == request.StudentId, ct)
+            ?? throw new NotFoundException("Student", request.StudentId);
+
+        if (student.DeletedAt is null)
+            return Unit.Value; // not archived — idempotent
+
+        student.RestoreFromArchive();
+        await _unitOfWork.SaveChangesAsync(ct);
+
+        await _audit.LogSecurityEventAsync(
+            student.Id,
+            request.ActorAdminId,
+            SecurityEventType.AdminAction,
+            SecuritySeverity.Warning,
+            $"action=student_restore; target_student_id={student.Id}",
+            ct: ct);
+        return Unit.Value;
+    }
+
+    /// <summary>
+    /// PR-6 (Student Center): full per-student profile for the admin drawer — identity,
+    /// ban/lockout state, must-change-password + archive flags, stats, academic path,
+    /// subscription summary, and the active device binding. Authorization + scope are
+    /// enforced by the controller (Students.View policy + IsInScopeAsync).
+    /// </summary>
+    public async Task<StudentDetailDto> Handle(GetStudentDetailQuery request, CancellationToken ct)
+    {
+        var student = await _db.Students.AsNoTracking()
+            .Include(s => s.University)
+            .Include(s => s.College)
+            .Include(s => s.AcademicYear)
+            .Include(s => s.Subscriptions)
+            .Include(s => s.DeviceBindings)
+            .FirstOrDefaultAsync(s => s.Id == request.StudentId, ct)
+            ?? throw new NotFoundException("Student", request.StudentId);
+
+        var now = DateTime.UtcNow;
+        var activeSubscriptions = student.Subscriptions
+            .Where(subscription => subscription.Status == SubscriptionStatus.Active && subscription.ExpiresAt > now)
+            .ToList();
+        var latestSubscription = student.Subscriptions
+            .OrderByDescending(subscription => subscription.StartsAt)
+            .FirstOrDefault();
+        var activeDevice = student.DeviceBindings
+            .Where(binding => binding.IsActive)
+            .OrderByDescending(binding => binding.LastUsed)
+            .FirstOrDefault();
+
+        return new StudentDetailDto(
+            student.Id,
+            student.FullName,
+            student.Phone,
+            student.Email,
+            student.Gender,
+            student.AvatarUrl,
+            student.Status.ToString(),
+            student.BanReason,
+            student.BanUntil,
+            student.LockoutUntil.HasValue && student.LockoutUntil > now,
+            student.LockoutUntil,
+            student.FailedLoginCount,
+            student.PhoneVerifiedAt is not null,
+            student.MustChangePassword,
+            student.DeletedAt is not null,
+            student.DeletedAt,
+            student.CreatedAt,
+            student.UpdatedAt,
+            student.LastLogin,
+            student.LoginCount,
+            student.LastActivityDate,
+            student.QuestionsAnswered,
+            student.CorrectAnswers,
+            student.GetAccuracy(),
+            student.CurrentStreak,
+            student.LongestStreak,
+            new StudentAcademicInfoDto(
+                student.UniversityId,
+                student.University?.NameAr,
+                student.CollegeId,
+                student.College?.NameAr,
+                student.AcademicYearId,
+                student.AcademicYear?.NameAr),
+            new StudentSubscriptionSummaryDto(
+                activeSubscriptions.Count,
+                latestSubscription is null ? null : new StudentSubscriptionBriefDto(
+                    latestSubscription.Id,
+                    latestSubscription.Status.ToString(),
+                    latestSubscription.ScopeType.ToString(),
+                    latestSubscription.StartsAt,
+                    latestSubscription.ExpiresAt)),
+            activeDevice is null ? null : new StudentActiveDeviceDto(
+                activeDevice.DeviceName,
+                activeDevice.DeviceType,
+                activeDevice.Os,
+                activeDevice.Browser,
+                activeDevice.BoundAt,
+                activeDevice.LastUsed));
     }
 
     public async Task<PagedResult<CodeManagementDto>> Handle(GetCodesQuery req, CancellationToken ct)

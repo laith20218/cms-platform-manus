@@ -148,7 +148,8 @@ public class ActivityMonitorHandlerTests
         var audit = new Mock<ISecurityAuditWriter>();
         var sessionId = Guid.NewGuid();
         var handler = new AdminManagementHandlers(db, uow, permissions.Object, audit.Object,
-            new AdminActivityWriter(db, NullLogger<AdminActivityWriter>.Instance));
+            new AdminActivityWriter(db, NullLogger<AdminActivityWriter>.Instance),
+            new Mock<IPasswordHasher>().Object, new Mock<IPasswordPolicy>().Object, new Mock<ISessionService>().Object);
 
         var result = await handler.Handle(new GenerateCodesCommand(
             "subject", subject.Id, 30, 5, "P2", null, "full_subject", false, admin.Id, sessionId),
