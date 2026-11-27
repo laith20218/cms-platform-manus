@@ -265,6 +265,7 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
                           value={scope}
                           onChange={(e) => setScope(r.value, e.target.value)}
                           disabled={isSystemRole || saving || actions.length === 0}
+                          aria-label={`${isArabic ? r.ar : r.en}: ${copy.scope}`}
                           className="h-7 rounded border text-[11px] px-1 disabled:opacity-40 disabled:cursor-not-allowed"
                           style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
                         >

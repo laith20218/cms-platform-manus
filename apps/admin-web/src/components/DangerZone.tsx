@@ -233,7 +233,7 @@ export function DangerZone({ token, isArabic, onError, onNotice }: DangerZonePro
                 {module.key === 'academic' && '☢ '}
                 {isArabic ? module.labelAr : module.labelEn}
               </h3>
-              <span className="text-[10px] font-mono text-red-400/80 uppercase">{module.key}</span>
+              <span className="text-[10px] font-mono text-red-700 uppercase">{module.key}</span>
             </div>
             <p className="text-xs leading-relaxed text-red-800/90 flex-1">
               {isArabic ? module.consequenceAr : module.consequenceEn}

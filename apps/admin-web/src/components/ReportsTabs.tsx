@@ -675,7 +675,7 @@ export function ReportsTabs({ token, isArabic, onError }: Props) {
         </div>
         <div className="flex items-center gap-2">
           <Calendar size={14} style={{ color: 'var(--cms-text-muted)' }} />
-          <select value={datePreset} onChange={(e) => setDatePreset(e.target.value)}
+          <select value={datePreset} onChange={(e) => setDatePreset(e.target.value)} aria-label={t(locale, 'reports.header.dateRange')}
             className="h-9 rounded-lg border text-xs px-2" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
             {DATE_PRESETS.map(p => <option key={p.value} value={p.value}>{t(locale, p.labelKey)}</option>)}
           </select>

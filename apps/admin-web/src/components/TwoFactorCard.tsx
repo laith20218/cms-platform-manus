@@ -132,7 +132,10 @@ export function TwoFactorCard({ token, isArabic, adminName, onError, onNotice }:
         <h3 className="text-sm font-bold" style={{ color: 'var(--cms-text)' }}>{copy.subtitle}</h3>
         <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--cms-text-soft)' }}>{copy.body}</p>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      {/* PR-10 a11y/responsive: flex-wrap — at 375px the two action buttons no
+          longer overflow the card (the disable button was pushing the page 5px
+          into a horizontal document scroll in RTL). */}
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
         <Button
           variant="primary"
           size="sm"

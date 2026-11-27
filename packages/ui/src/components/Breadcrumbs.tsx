@@ -52,7 +52,7 @@ export function Breadcrumbs({
               {item.href && !isLast ? (
                 <a
                   href={item.href}
-                  className="text-[13px] text-[color:var(--c-text-muted)] hover:text-[color:var(--c-text)] truncate"
+                  className="text-[13px] text-[color:var(--c-text-soft)] hover:text-[color:var(--c-text)] truncate"
                 >
                   {item.label}
                 </a>
@@ -63,7 +63,7 @@ export function Breadcrumbs({
                     'text-[13px] truncate',
                     isLast
                       ? 'font-semibold text-[color:var(--c-text)]'
-                      : 'text-[color:var(--c-text-muted)]',
+                      : 'text-[color:var(--c-text-soft)]',
                   )}
                 >
                   {item.label}
@@ -72,7 +72,7 @@ export function Breadcrumbs({
               {!isLast && (
                 <Separator
                   aria-hidden="true"
-                  className="w-3.5 h-3.5 shrink-0 text-[color:var(--c-text-muted)] opacity-60"
+                  className="w-3.5 h-3.5 shrink-0 text-[color:var(--c-text-soft)] opacity-60"
                 />
               )}
             </li>

@@ -232,7 +232,7 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
               style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)', paddingInlineStart: '30px' }}
             />
           </div>
-          <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}
+          <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} aria-label={t(locale, 'reports.moderation.status')}
             className="h-9 rounded-lg border text-xs px-2"
             style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}>
             {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{t(locale, o.labelKey)}</option>)}

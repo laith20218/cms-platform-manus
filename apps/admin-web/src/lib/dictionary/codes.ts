@@ -51,6 +51,9 @@ export const codesDict = {
     statusRevoked: { ar: 'ملغي', en: 'Revoked' },
     statusExpired: { ar: 'منتهي', en: 'Expired' },
     allScopes: { ar: 'كل النطاقات', en: 'All scopes' },
+    // PR-10 a11y — accessible names for the two native filter selects.
+    statusFilter: { ar: 'تصفية الحالة', en: 'Status filter' },
+    scopeFilter: { ar: 'تصفية النطاق', en: 'Scope filter' },
     scopeSubject: { ar: 'مادة', en: 'Subject' },
     scopeYear: { ar: 'سنة', en: 'Year' },
     scopeSemester: { ar: 'فصل', en: 'Semester' },

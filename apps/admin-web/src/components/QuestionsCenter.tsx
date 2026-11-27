@@ -1352,7 +1352,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
+            <div className="overflow-x-auto [contain:paint] rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
               <table className="w-full text-sm">
                 <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
                   <tr>

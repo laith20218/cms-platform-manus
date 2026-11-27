@@ -78,6 +78,9 @@ export const auditDict = {
     searchPlaceholder: { ar: 'ابحث في الأحداث', en: 'Search events' },
     severityAll: { ar: 'الخطورة: الكل', en: 'Severity: All' },
     eventTypeAll: { ar: 'النوع: الكل', en: 'Event type: All' },
+    // PR-10 a11y — accessible names for the two native filter selects.
+    severityFilter: { ar: 'تصفية الخطورة', en: 'Severity filter' },
+    eventTypeFilter: { ar: 'تصفية نوع الحدث', en: 'Event type filter' },
     dateFrom: { ar: 'من تاريخ', en: 'From date' },
     dateTo: { ar: 'إلى تاريخ', en: 'To date' },
     clearFilters: { ar: 'إزالة التصفية', en: 'Clear filters' },

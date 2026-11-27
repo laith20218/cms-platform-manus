@@ -925,6 +925,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
         <select
           value={universityId}
           onChange={(event) => setUniversityId(event.target.value)}
+          aria-label={t(locale, 'students.common.university')}
           className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
@@ -936,6 +937,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
         <select
           value={status}
           onChange={(event) => setStatus(event.target.value)}
+          aria-label={t(locale, 'students.common.status')}
           className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
           style={{ borderColor: 'var(--cms-line-strong)' }}
         >
@@ -994,7 +996,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
+        <div className="overflow-x-auto [contain:paint] rounded-xl border bg-white" style={{ borderColor: 'var(--cms-line)' }}>
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--cms-ivory-100)', color: 'var(--cms-text-muted)' }}>
               <tr>
@@ -2230,6 +2232,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 <select
                   value={editForm.gender}
                   onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}
+                  aria-label={t(locale, 'students.editModal.gender')}
                   className="w-full px-3 py-2 rounded-lg border text-sm"
                   style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
                 >
@@ -2464,6 +2467,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     required
                     value={createUniversityId}
                     onChange={(e) => void chooseCreateUniversity(e.target.value)}
+                    aria-label={t(locale, 'students.common.university')}
                     className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
                   >
@@ -2482,6 +2486,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     value={createCollegeId}
                     onChange={(e) => void chooseCreateCollege(e.target.value)}
                     disabled={!createUniversityId}
+                    aria-label={t(locale, 'students.common.college')}
                     className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 disabled:opacity-50"
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
                   >
@@ -2500,6 +2505,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     value={createYearId}
                     onChange={(e) => setCreateYearId(e.target.value)}
                     disabled={!createCollegeId}
+                    aria-label={t(locale, 'students.createModal.year')}
                     className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 disabled:opacity-50"
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
                   >
@@ -2519,6 +2525,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   <select
                     value={createForm.gender}
                     onChange={(e) => setCreateForm({ ...createForm, gender: e.target.value })}
+                    aria-label={t(locale, 'students.createModal.genderOptional')}
                     className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
                   >

@@ -51,7 +51,12 @@
   --cms-line-strong: #c4d0c9;
   --cms-text: #18384c;
   --cms-text-soft: #4a6172;
-  --cms-text-muted: #7a8c97;
+  /* PR-10 (a11y closure): darkened from #7a8c97 (3.49:1 on white — below the
+     WCAG AA 4.5:1 the axe e2e gate enforces for the 9–13px muted text this
+     tier is used for). #5a6b75 holds >= 4.93:1 on white, elevated, success-50
+     and warning-50 — the light-theme surfaces muted text renders on. The
+     three-tier hierarchy (text > soft > muted) is preserved. */
+  --cms-text-muted: #5a6b75;
   --cms-text-inverse: #f0ece0;
 
   /* Surfaces */
@@ -204,7 +209,9 @@
   --cms-line-strong: #2a3f4e;
   --cms-text: #dde4ea;
   --cms-text-soft: #a8b8c4;
-  --cms-text-muted: #6a7a88;
+  /* PR-10 (a11y closure): lightened from #6a7a88 (3.79–4.21:1 on the dark
+     surfaces — below AA). #98a6b2 holds 6.72–7.46:1 on ivory/surface tones. */
+  --cms-text-muted: #98a6b2;
   --cms-surface: #121f2a;
   --cms-surface-elevated: #0e1a24;
   --cms-surface-glass: rgba(14, 26, 36, 0.85);
