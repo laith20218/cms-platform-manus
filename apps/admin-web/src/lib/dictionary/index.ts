@@ -7,7 +7,8 @@
  *   • `./statuses`— the central status-label registry (statusLabel());
  *   • `./errors`  — API errorCode → localized human message mapping;
  *   • one section module per center (students, questions, exams, courses,
- *     library, codes, academic, reports, audit, admincenters, notifications).
+ *     library, codes, academic, reports, audit, admincenters, notifications,
+ *     security, servers).
  *
  * Public API:
  *   t(locale, path, params?)   — dotted-path lookup with {{token}} interpolation;
@@ -31,6 +32,7 @@ import { academicDict } from './academic';
 import { reportsDict } from './reports';
 import { auditDict } from './audit';
 import { securityDict } from './security';
+import { serversDict } from './servers';
 import { admincentersDict } from './admincenters';
 import { notificationsDict } from './notifications';
 import { dangerDict } from './danger';
@@ -63,6 +65,7 @@ export const dictionary = {
   reports: reportsDict,
   audit: auditDict,
   security: securityDict,
+  servers: serversDict,
   admincenters: admincentersDict,
   notifications: notificationsDict,
   danger: dangerDict,

@@ -71,6 +71,8 @@ export const coreDict = {
     auditLog: { ar: 'السجل الأمني', en: 'Security Audit' },
     // PR-6 — Security Center (super-only; rides the audit permission key).
     security: { ar: 'مركز الأمان', en: 'Security Center' },
+    // PR-9 — Servers Dashboard (super-only; rides the audit permission key).
+    servers: { ar: 'لوحة الخوادم', en: 'Servers Dashboard' },
     offline: { ar: 'الحزم دون اتصال', en: 'Offline Packages' },
     settings: { ar: 'إعدادات النظام', en: 'System Settings' },
     content: { ar: 'صفحات المحتوى', en: 'Content Pages' },
