@@ -39,6 +39,11 @@ export const coreDict = {
     backToCredentials: { ar: 'العودة إلى بيانات الدخول', en: 'Back to sign-in details' },
     // PR-3 — sign-in failure fallback (previously an inline Arabic literal).
     errorGeneric: { ar: 'تعذر التحقق من بيانات الدخول.', en: 'Could not verify the sign-in details.' },
+    // Phase 6 (login resilience) — bounded-request states: a clear Arabic progress
+    // label while the request is pending, and a connection-level failure message
+    // that never reveals whether the account exists or leaks infrastructure detail.
+    signingIn: { ar: 'جارٍ التحقق من بيانات الدخول…', en: 'Verifying sign-in details…' },
+    errorConnection: { ar: 'تعذر الاتصال بالخادم. تحقق من الشبكة ثم أعد المحاولة.', en: 'Could not reach the server. Check the connection and try again.' },
   },
 
   // ===== Navigation Groups (preserved) =====
