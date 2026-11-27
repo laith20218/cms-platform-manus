@@ -1498,16 +1498,16 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
         ))}
       </section>
 
-      {/* W-coverage (row 4): the three SuperAdmin dashboard feeds (recent-activity,
-          top-subjects, reports/summary) — previously no UI. */}
+      {/* W-coverage (row 4) + Phase 3: the SuperAdmin overview surfaces — the three
+          dashboard feeds (recent-activity, top-subjects, reports/summary) and the
+          service-health summary that answers "are the platforms up" in one glance
+          and deep-links to the read-only Servers Dashboard (/servers). Backend
+          gates both surfaces to SuperAdmin + ServersView. */}
       {isSuperAdmin && (
-        <DashboardFeeds token={token} isArabic={isArabic} />
-      )}
-      {/* Phase 3 — service-health summary: the Overview answers "are the
-          platforms up" in one glance and deep-links to the read-only
-          Servers Dashboard (/servers). SuperAdmin-only surface (backend gate). */}
-      {isSuperAdmin && (
-        <ServiceHealthSummary token={token} isArabic={isArabic} onOpenCenter={() => onNavigate('servers')} />
+        <>
+          <DashboardFeeds token={token} isArabic={isArabic} />
+          <ServiceHealthSummary token={token} isArabic={isArabic} onOpenCenter={() => onNavigate('servers')} />
+        </>
       )}
 
       <p style={{ marginTop: 'var(--cms-space-4)', fontSize: 'var(--cms-text-2xs)', color: 'var(--cms-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
