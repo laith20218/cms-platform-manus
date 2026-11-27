@@ -64,7 +64,11 @@ describe('environment labeling (App)', () => {
 
     // The environment line: derived label + public host (visible line + sr-only copy).
     expect(screen.getByText(/بيئة المعاينة/)).toBeInTheDocument();
-    expect(screen.getAllByText(/cms-api-preview\.onrender\.com/).length).toBeGreaterThan(0);
+    // Function matcher (no URL regex — keeps the CodeQL url-regexp gate clean).
+    const hostMatches = screen.getAllByText(
+      (_, element) => element?.textContent?.includes('cms-api-preview.onrender.com') ?? false,
+    );
+    expect(hostMatches.length).toBeGreaterThan(0);
     // The dishonest hardcoded claim is gone.
     expect(screen.queryByText(/بيئة الإنتاج/)).toBeNull();
   });
