@@ -16,6 +16,10 @@ import { useFontSizeSync } from '@/features/settings/useFontSize';
 // connection, one calm strip under the Navbar tells the student where the
 // offline content lives (the CloudOff control beside the bell).
 import { useOfflineStatus } from '@/features/offline/useOfflineStatus';
+// PR-6 — must-change-password banner (login/profile payload flag): a
+// persistent, dismissible-per-session amber strip linking to the existing
+// change-password screen in /settings.
+import { MustChangePasswordBanner } from '@/components/common/MustChangePasswordBanner';
 import { CloudOff } from 'lucide-react';
 
 function OfflineBanner() {
@@ -41,6 +45,7 @@ export function AppShell() {
     <div data-testid="app-shell" className="min-h-screen bg-[var(--cms-ivory-100)]">
       <Navbar />
       <OfflineBanner />
+      <MustChangePasswordBanner />
       <div className="flex">
         <Sidebar />
         <main

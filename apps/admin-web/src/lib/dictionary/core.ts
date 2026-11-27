@@ -69,6 +69,8 @@ export const coreDict = {
     examCourses: { ar: 'الدورات الامتحانية', en: 'Exam Courses' },
     reports: { ar: 'التقارير والتحليلات', en: 'Reports & Analytics' },
     auditLog: { ar: 'السجل الأمني', en: 'Security Audit' },
+    // PR-6 — Security Center (super-only; rides the audit permission key).
+    security: { ar: 'مركز الأمان', en: 'Security Center' },
     offline: { ar: 'الحزم دون اتصال', en: 'Offline Packages' },
     settings: { ar: 'إعدادات النظام', en: 'System Settings' },
     content: { ar: 'صفحات المحتوى', en: 'Content Pages' },

@@ -30,6 +30,7 @@ import { codesDict } from './codes';
 import { academicDict } from './academic';
 import { reportsDict } from './reports';
 import { auditDict } from './audit';
+import { securityDict } from './security';
 import { admincentersDict } from './admincenters';
 import { notificationsDict } from './notifications';
 import { dangerDict } from './danger';
@@ -61,6 +62,7 @@ export const dictionary = {
   academic: academicDict,
   reports: reportsDict,
   audit: auditDict,
+  security: securityDict,
   admincenters: admincentersDict,
   notifications: notificationsDict,
   danger: dangerDict,

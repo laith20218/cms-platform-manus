@@ -31,6 +31,9 @@ export interface StudentProfile {
   universityId?: string | null;
   collegeId?: string | null;
   academicYearId?: string | null;
+  /** PR-6 — set by the backend after an admin password reset; additive
+   *  (absent on older builds = no forced change). */
+  mustChangePassword?: boolean;
   subscriptions: StudentProfileSubscription[];
 }
 

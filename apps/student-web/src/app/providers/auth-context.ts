@@ -8,6 +8,10 @@ export interface User {
   avatarUrl?: string | null;
   university?: { id: string; nameAr: string };
   college?: { id: string; nameAr: string };
+  /** PR-6 — the login/profile payloads now carry the flag the backend sets
+   *  after an administrator password reset. Additive: absent on older API
+   *  builds (undefined = no forced change). */
+  mustChangePassword?: boolean;
 }
 
 export interface AuthContextValue {
