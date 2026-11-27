@@ -5,6 +5,7 @@ using CMS.Application.Interfaces;
 using CMS.Infrastructure.Persistence;
 using CMS.Infrastructure.Repositories;
 using CMS.Infrastructure.Services;
+using CMS.Infrastructure.Services.Monitoring;
 using CMS.Infrastructure.Security;
 
 namespace CMS.Infrastructure.DependencyInjection;
@@ -37,6 +38,70 @@ public static class DependencyInjection
             client.Timeout = TimeSpan.FromSeconds(10);
         });
         services.AddSingleton<UpstashRedisRestCacheService>();
+
+        // === PR-8 (Servers Dashboard) — read-only provider monitoring ===
+        // SSRF discipline: the four named clients below pin BaseAddress to the FIXED provider
+        // hosts with auto-redirects and proxies disabled; the monitors only ever request fixed
+        // relative paths built from OPERATOR-CONFIGURED env identifiers — no caller-supplied
+        // URL or query ever reaches an upstream request. Bearer credentials are read from the
+        // documented MONITORING_* env names and are never logged or exposed.
+        services.AddHttpClient(MonitoringHttpClients.Render, client =>
+        {
+            client.BaseAddress = new Uri("https://api.render.com/");
+            client.Timeout = TimeSpan.FromSeconds(8);
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            // HttpClientHandler is the SocketsHttpHandler-based handler that exposes the
+            // redirect switch: redirects are disabled (SSRF: a provider response can never
+            // move the request off the fixed host) and environment proxies are ignored.
+            AllowAutoRedirect = false,
+            UseProxy = false
+        });
+        services.AddHttpClient(MonitoringHttpClients.Vercel, client =>
+        {
+            client.BaseAddress = new Uri("https://api.vercel.com/");
+            client.Timeout = TimeSpan.FromSeconds(8);
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            // HttpClientHandler is the SocketsHttpHandler-based handler that exposes the
+            // redirect switch: redirects are disabled (SSRF: a provider response can never
+            // move the request off the fixed host) and environment proxies are ignored.
+            AllowAutoRedirect = false,
+            UseProxy = false
+        });
+        services.AddHttpClient(MonitoringHttpClients.Neon, client =>
+        {
+            client.BaseAddress = new Uri("https://api.neon.tech/");
+            client.Timeout = TimeSpan.FromSeconds(8);
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            // HttpClientHandler is the SocketsHttpHandler-based handler that exposes the
+            // redirect switch: redirects are disabled (SSRF: a provider response can never
+            // move the request off the fixed host) and environment proxies are ignored.
+            AllowAutoRedirect = false,
+            UseProxy = false
+        });
+        services.AddHttpClient(MonitoringHttpClients.Github, client =>
+        {
+            client.BaseAddress = new Uri("https://api.github.com/");
+            client.Timeout = TimeSpan.FromSeconds(8);
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            // HttpClientHandler is the SocketsHttpHandler-based handler that exposes the
+            // redirect switch: redirects are disabled (SSRF: a provider response can never
+            // move the request off the fixed host) and environment proxies are ignored.
+            AllowAutoRedirect = false,
+            UseProxy = false
+        });
+
+        // Monitors are singletons by design: the per-provider circuit breaker and the bounded
+        // in-memory history ring must be shared across requests. Read-only surface — no
+        // provider mutation exists anywhere in this layer.
+        services.AddSingleton<IRenderMonitor, RenderMonitor>();
+        services.AddSingleton<IVercelMonitor, VercelMonitor>();
+        services.AddSingleton<INeonMonitor, NeonMonitor>();
+        services.AddSingleton<IGithubMonitor, GithubMonitor>();
+        services.AddSingleton<IServersMonitorService, ServersMonitorService>();
 
         // Repositories (Scoped - one per request)
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
