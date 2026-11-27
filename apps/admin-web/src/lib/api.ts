@@ -748,3 +748,200 @@ export function fetchAdminEffectivePermissions(token: string, adminId: string): 
     token,
   );
 }
+
+// ===== PR-9 — Servers Dashboard (read-only provider monitoring, PR-8 backend) =====
+
+/**
+ * Wire contract: apps/api/src/CMS.Application/DTOs/Monitoring/MonitoringDtos.cs
+ * (camelCase on the wire). The DTO surface is STABLE; raw provider JSON never
+ * passes through, and no tokens/headers/connection material ever appear in any
+ * envelope — the client mirrors exactly the mapped fields below.
+ */
+
+/** The four monitored provider names (also the URL segment). */
+export type ServersProviderName = 'render' | 'vercel' | 'neon' | 'github';
+
+/** Whether an envelope came from the 60s provider cache + age of the original check. */
+export type ProviderFreshness = {
+  cached: boolean;
+  ageSeconds: number;
+};
+
+/**
+ * Stable provider envelope. `responseTimeMs` is -1 when NO upstream call was
+ * attempted at all (missing_credentials / circuit-open) — the UI renders
+ * «غير متاح» for that value and never invents a number.
+ */
+export type ProviderEnvelope<TData> = {
+  provider: string;
+  status: string;
+  checkedAt: string;
+  responseTimeMs: number;
+  unavailableReason?: string | null;
+  freshness: ProviderFreshness;
+  data?: TData | null;
+};
+
+// ===== Render payload =====
+
+export type RenderServiceInfo = {
+  id: string;
+  name: string;
+  suspended: boolean;
+  autoDeploy: boolean;
+  plan: string;
+  region?: string | null;
+};
+
+export type RenderDeployInfo = {
+  id: string;
+  status: string;
+  commitSha: string;
+  commitMessage?: string | null;
+  createdAt?: string | null;
+  finishedAt?: string | null;
+};
+
+/** Render provider payload (metrics are not exposed on the free plan). */
+export type RenderServersData = {
+  service: RenderServiceInfo | null;
+  lastDeploy: RenderDeployInfo | null;
+  metricsAvailable: boolean;
+  metricsUnavailableReason: string;
+};
+
+// ===== Vercel payload =====
+
+export type VercelDeploymentInfo = {
+  id: string;
+  state: string;
+  target?: string | null;
+  commitSha?: string | null;
+  commitRef?: string | null;
+  createdAt?: string | null;
+  readyAt?: string | null;
+};
+
+export type VercelProjectInfo = {
+  id: string;
+  name: string;
+  latestDeployment?: VercelDeploymentInfo | null;
+  url?: string | null;
+};
+
+/** Vercel provider payload: BOTH the admin and the student projects. */
+export type VercelServersData = {
+  projects: VercelProjectInfo[];
+};
+
+// ===== Neon payload =====
+
+export type NeonProjectInfo = {
+  id: string;
+  name: string;
+  regionId?: string | null;
+};
+
+export type NeonBranchInfo = {
+  id: string;
+  name: string;
+  isDefault?: boolean | null;
+  protected?: boolean | null;
+  state?: string | null;
+};
+
+/**
+ * Neon provider payload. Deliberately contains NO connection material of any
+ * kind — the client never requests or renders it.
+ */
+export type NeonServersData = {
+  project: NeonProjectInfo | null;
+  branch: NeonBranchInfo | null;
+  usage: unknown;
+  usageUnavailableReason: string;
+};
+
+// ===== GitHub payload =====
+
+export type GithubRepositoryInfo = {
+  name: string;
+  fullName: string;
+  visibility: string;
+  defaultBranch: string;
+  pushedAt?: string | null;
+  openIssuesCount?: number | null;
+};
+
+export type GithubWorkflowRunInfo = {
+  id: number;
+  name: string;
+  headSha: string;
+  status?: string | null;
+  conclusion?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type GithubServersData = {
+  repository: GithubRepositoryInfo | null;
+  recentWorkflows: GithubWorkflowRunInfo[];
+};
+
+// ===== Summary + history =====
+
+/** Lightweight per-provider head row of the summary strip. */
+export type ServersProviderHead = {
+  provider: string;
+  status: string;
+  checkedAt: string;
+  responseTimeMs: number;
+  unavailableReason?: string | null;
+  freshness: ProviderFreshness;
+  note: string;
+};
+
+export type ServersSummary = {
+  overallStatus: string;
+  checkedAt: string;
+  providers: ServersProviderHead[];
+};
+
+/** One recorded check outcome in the bounded in-memory history ring. */
+export type ProviderHistoryItem = {
+  checkedAt: string;
+  status: string;
+  responseTimeMs: number;
+  reason?: string | null;
+};
+
+export type ProviderHistory = {
+  provider: string;
+  capacity: number;
+  windowNote: string;
+  items: ProviderHistoryItem[];
+};
+
+/** GET /api/v1/admin/servers/summary (+ ?fresh=true to bypass the 60s cache read). */
+export function fetchServersSummary(token: string, fresh?: boolean): Promise<ServersSummary> {
+  const query = fresh ? '?fresh=true' : '';
+  return apiRequest<ServersSummary>(`/api/v1/admin/servers/summary${query}`, token);
+}
+
+/**
+ * GET /api/v1/admin/servers/{render|vercel|neon|github} (+ ?fresh=true).
+ * Literal-typed overloads below; the generic tail covers loop-driven callers.
+ */
+export function fetchServersProvider(token: string, provider: 'render', fresh?: boolean): Promise<ProviderEnvelope<RenderServersData>>;
+export function fetchServersProvider(token: string, provider: 'vercel', fresh?: boolean): Promise<ProviderEnvelope<VercelServersData>>;
+export function fetchServersProvider(token: string, provider: 'neon', fresh?: boolean): Promise<ProviderEnvelope<NeonServersData>>;
+export function fetchServersProvider(token: string, provider: 'github', fresh?: boolean): Promise<ProviderEnvelope<GithubServersData>>;
+export function fetchServersProvider<TData>(token: string, provider: ServersProviderName, fresh?: boolean): Promise<ProviderEnvelope<TData>>;
+export function fetchServersProvider<TData>(token: string, provider: ServersProviderName, fresh?: boolean): Promise<ProviderEnvelope<TData>> {
+  const query = fresh ? '?fresh=true' : '';
+  return apiRequest<ProviderEnvelope<TData>>(`/api/v1/admin/servers/${provider}${query}`, token);
+}
+
+/** GET /api/v1/admin/servers/{provider}/history — bounded in-memory check history. */
+export function fetchServersHistory(token: string, provider: ServersProviderName): Promise<ProviderHistory> {
+  return apiRequest<ProviderHistory>(`/api/v1/admin/servers/${provider}/history`, token);
+}

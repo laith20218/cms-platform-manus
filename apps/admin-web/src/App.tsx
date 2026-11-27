@@ -30,6 +30,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Server,
   Settings,
   ShieldAlert,
   ShieldCheck,
@@ -59,6 +60,8 @@ import { DashboardFeeds } from './components/DashboardFeeds';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { AuditCenter } from './components/AuditCenter';
 import { SecurityCenter } from './components/SecurityCenter';
+// PR-9 — read-only provider monitoring dashboard (super-only, rides view:audit).
+import { ServersCenter } from './components/ServersCenter';
 import { CodesCenter } from './components/CodesCenter';
 // Wave 4 (Owner decision 2026-11-23) — offline package ledger visibility + revocation.
 import { OfflineCenter } from './components/OfflineCenter';
@@ -84,7 +87,7 @@ const OPERATIONS_IMAGE = '/brand/cms-admin-login-hero.jpg';
 
 type Locale = 'ar' | 'en';
 type Theme = 'light' | 'dark';
-type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'exam-courses' | 'library' | 'reports' | 'settings' | 'content' | 'offline' | 'security' | 'not-found';
+type View = 'admins' | 'roles' | 'audit' | 'overview' | 'academic' | 'codes' | 'students' | 'questions' | 'exams' | 'exam-courses' | 'library' | 'reports' | 'settings' | 'content' | 'offline' | 'security' | 'servers' | 'not-found';
 
 // D-26 (Command Center P1) — every view is a real URL: browser back/forward
 // and page refresh work, and views are directly shareable. BrowserRouter is
@@ -110,6 +113,7 @@ const VIEW_PATHS: Record<RoutableView, string> = {
   content: '/content',
   offline: '/offline',
   security: '/security',
+  servers: '/servers',
 };
 const PATH_VIEWS = new Map<string, View>(
   (Object.entries(VIEW_PATHS) as [RoutableView, string][]).map(([view, path]) => [path, view]),
@@ -732,6 +736,9 @@ function App() {
         // PR-6 — Security Center: super-only, gated by the existing audit view
         // key (mirrors /offline; no new registry permission key).
         { key: 'security', label: t(locale, 'nav.security'), icon: ShieldAlert, superOnly: true, gateKey: 'view:audit' },
+        // PR-9 — Servers Dashboard: read-only provider monitoring, super-only,
+        // riding the same audit view key as /security and /offline.
+        { key: 'servers', label: t(locale, 'nav.servers'), icon: Server, superOnly: true, gateKey: 'view:audit' },
         // Wave 4 (Owner decision 2026-11-23): offline package ledger + revocation.
         { key: 'offline', label: t(locale, 'nav.offline'), icon: PackageX, superOnly: true },
         { key: 'settings', label: t(locale, 'nav.settings'), icon: Settings, superOnly: true },
@@ -752,6 +759,7 @@ function App() {
     : view === 'offline' ? t(locale, 'nav.offline')
     : view === 'audit' ? t(locale, 'nav.auditLog')
     : view === 'security' ? t(locale, 'nav.security')
+    : view === 'servers' ? t(locale, 'nav.servers')
     : view === 'reports' ? t(locale, 'nav.reports')
     : view === 'settings' ? t(locale, 'nav.settings')
     : view === 'content' ? t(locale, 'nav.content')
@@ -1027,6 +1035,12 @@ function App() {
                   (same rule as /offline). Backend RBAC remains the real boundary. */}
               {view === 'security' && (isSuperAdmin && can('view:audit')
                 ? <SecurityCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
+                : <LimitedNotice copy={copy} isArabic={isArabic} />)}
+              {/* PR-9 — Servers Dashboard: super-only + existing view:audit gate
+                  (same rule as /security). READ-ONLY by design; backend RBAC
+                  remains the real boundary. */}
+              {view === 'servers' && (isSuperAdmin && can('view:audit')
+                ? <ServersCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
                 : <LimitedNotice copy={copy} isArabic={isArabic} />)}
               {view === 'reports' && (isSuperAdmin && can('view:reports')
                 ? <ReportsCenter token={token} isArabic={isArabic} onError={reportError} onNotice={notify} />
