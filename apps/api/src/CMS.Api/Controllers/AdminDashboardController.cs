@@ -63,40 +63,45 @@ public class AdminDashboardController : ControllerBase
 
     /// <summary>
     /// Get recent activity feed.
+    /// Contract (admin-web DashboardFeeds.tsx): GET /api/v1/admin/dashboard/recent-activity.
     /// </summary>
-    [HttpGet("recent-activity")]
+    [HttpGet("dashboard/recent-activity")]
     [Authorize(Policy = "SuperAdmin")]
     public async Task<ActionResult<List<RecentActivityDto>>> GetRecentActivity([FromQuery] int count = 10, CancellationToken ct = default)
         => Ok(await _mediator.Send(new GetRecentActivityQuery(count), ct));
 
     /// <summary>
     /// Get revenue data for charts.
+    /// Contract: GET /api/v1/admin/dashboard/revenue.
     /// </summary>
-    [HttpGet("revenue")]
+    [HttpGet("dashboard/revenue")]
     [Authorize(Policy = "SuperAdmin")]
     public async Task<ActionResult<List<RevenueDataDto>>> GetRevenue([FromQuery] int months = 6, CancellationToken ct = default)
         => Ok(await _mediator.Send(new GetRevenueDataQuery(months), ct));
 
     /// <summary>
     /// Get student growth data for charts.
+    /// Contract: GET /api/v1/admin/dashboard/student-growth.
     /// </summary>
-    [HttpGet("student-growth")]
+    [HttpGet("dashboard/student-growth")]
     [Authorize(Policy = "SuperAdmin")]
     public async Task<ActionResult<List<StudentGrowthDto>>> GetStudentGrowth([FromQuery] int days = 30, CancellationToken ct = default)
         => Ok(await _mediator.Send(new GetStudentGrowthQuery(days), ct));
 
     /// <summary>
     /// Get top subjects by activity.
+    /// Contract (admin-web DashboardFeeds.tsx): GET /api/v1/admin/dashboard/top-subjects.
     /// </summary>
-    [HttpGet("top-subjects")]
+    [HttpGet("dashboard/top-subjects")]
     [Authorize(Policy = "SuperAdmin")]
     public async Task<ActionResult<List<TopSubjectDto>>> GetTopSubjects([FromQuery] int count = 5, CancellationToken ct = default)
         => Ok(await _mediator.Send(new GetTopSubjectsQuery(count), ct));
 
     /// <summary>
     /// Get error reports summary.
+    /// Contract (admin-web DashboardFeeds.tsx): GET /api/v1/admin/dashboard/reports/summary.
     /// </summary>
-    [HttpGet("reports/summary")]
+    [HttpGet("dashboard/reports/summary")]
     [Authorize(Policy = "SuperAdmin")]
     public async Task<ActionResult<ReportsSummaryDto>> GetReportsSummary(CancellationToken ct)
         => Ok(await _mediator.Send(new GetReportsSummaryQuery(), ct));
