@@ -1,5 +1,10 @@
 # PR-5 Handoff — push blocked (no credentials in this environment)
 
+> **UPDATE (delivery session): the push block was resolved by the owner — the
+> branch was pushed and the Pull Request opened. The sections below are the
+> preserved handoff record from the sandbox session that produced the work;
+> only the "push blocked" framing is historical.**
+
 > **Status: PR-5 is fully implemented, tested, and committed locally. The push
 > failed because this machine has NO GitHub credentials (no token, no gh CLI, no
 > credential helper). A Pull Request does NOT exist yet. Do not merge anything
