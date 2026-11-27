@@ -84,10 +84,18 @@ public static class Resources
     public const string Settings = "settings";
     public const string Logs = "logs";
 
+    /// <summary>
+    /// PR-8 (Servers Dashboard): read-only provider monitoring surface. Super admins hold
+    /// servers.view through the role bypass in PermissionService.HasPermissionAsync; no seeded
+    /// role grant carries it, so initially ONLY super admins can reach it.
+    /// </summary>
+    public const string Servers = "servers";
+
     public static readonly string[] All = {
         Universities, Colleges, Years, Semesters, Subjects, Lectures,
         Questions, Exams, Library, Videos, Codes, Students,
-        Admins, Roles, Notifications, Announcements, Reports, Settings, Logs
+        Admins, Roles, Notifications, Announcements, Reports, Settings, Logs,
+        Servers
     };
 }
 
