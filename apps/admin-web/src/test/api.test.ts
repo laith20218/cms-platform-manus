@@ -113,7 +113,10 @@ describe('bounded network calls (Phase 6 — login resilience)', () => {
       status: 0,
       errorCode: NETWORK_ERROR_CODES.timeout,
     });
+    // Still pending at the old 20s deadline (cold-start budget)…
     await vi.advanceTimersByTimeAsync(20_500);
+    // …but the login bound is finite: 75s.
+    await vi.advanceTimersByTimeAsync(55_000);
     await assertion;
   });
 
@@ -137,7 +140,7 @@ describe('bounded network calls (Phase 6 — login resilience)', () => {
       const apiError = error as ApiError;
       return apiError.message.includes('انتهت مهلة الاتصال') && !apiError.message.includes('http');
     });
-    await vi.advanceTimersByTimeAsync(20_500);
+    await vi.advanceTimersByTimeAsync(75_500);
     await assertion;
   });
 

@@ -115,8 +115,13 @@ export const NETWORK_ERROR_CODES = {
 } as const;
 
 const NETWORK_TIMEOUTS_MS = {
-  login: 20_000,
-  refresh: 15_000,
+  // Login gets the longest budget: the API's hosting tier cold-starts (observed
+  // 26–71s), and a login attempt that outlasts a cold start is far better UX
+  // than a false "connection failed" on the first attempt of the day. The
+  // bound stays finite — the button can never hang forever — and the visible
+  // progress label keeps the operator informed while it waits.
+  login: 75_000,
+  refresh: 30_000,
   request: 45_000,
   download: 300_000,
 } as const;
