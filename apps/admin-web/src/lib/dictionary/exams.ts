@@ -156,6 +156,8 @@ export const examsDict = {
     menuLabel: { ar: 'إجراءات {{title}}', en: 'Actions for {{title}}' },
     stats: { ar: 'الإحصائيات', en: 'Stats' },
     unpublish: { ar: 'إلغاء النشر (إعادة إلى مسودة)', en: 'Unpublish (revert to draft)' },
+    duplicate: { ar: 'نسخ كمسودة جديدة', en: 'Duplicate as new draft' },
+    restore: { ar: 'استعادة من الأرشفة', en: 'Restore from archive' },
     hardDelete: { ar: 'حذف نهائي (تجاوز الأرشفة)', en: 'Hard delete (bypass archive)' },
   },
 
@@ -243,17 +245,36 @@ export const examsDict = {
     note: { ar: 'هذه المعاينة كما يراها الطالب: مرتبة الأسئلة وخياراتها دون أي مؤشر للإجابات الصحيحة.', en: 'This is the student view: ordered questions and options, with no correctness indicators.' },
   },
 
-  // Lifecycle confirm dialog (publish / unpublish / archive / delete).
+  // Lifecycle confirm dialog (publish / unpublish / archive / delete / duplicate / restore).
   confirm: {
     publishTitle: { ar: 'نشر الاختبار', en: 'Publish exam' },
     archiveTitle: { ar: 'أرشفة الاختبار', en: 'Archive exam' },
     unpublishTitle: { ar: 'إلغاء نشر الاختبار', en: 'Unpublish exam' },
     deleteTitle: { ar: 'حذف الاختبار', en: 'Delete exam' },
+    duplicateTitle: { ar: 'نسخ الاختبار', en: 'Duplicate exam' },
+    restoreTitle: { ar: 'استعادة الاختبار', en: 'Restore exam' },
     publishText: { ar: 'لا يقبل النشر إلا الأسئلة المنشورة والمؤهلة.', en: 'Only published, eligible questions can be used.' },
     archiveText: { ar: 'سيُخفى الاختبار من قائمة الطلاب.', en: 'The exam will be removed from student discovery.' },
     unpublishText: { ar: 'سيُعاد الاختبار إلى مسودة ويُخفى من الطلاب الجدد. الجلسات القائمة تحتفظ بلقطتها الحالية ولا تتأثر.', en: 'The exam reverts to draft and disappears for new students. Existing sessions keep their snapshot and are unaffected.' },
     deleteText: { ar: 'هذا الإجراء دائم. سيُحذف الاختبار نهائياً.', en: 'This action is permanent. The exam will be removed permanently.' },
+    duplicateText: { ar: 'ستُنشأ نسخة جديدة كمسودة تحمل نفس التكوين وترتيب الأسئلة — دون الجلسات والنتائج القائمة.', en: 'A new draft is created with the same configuration and question order — existing sessions and results are never copied.' },
+    restoreText: { ar: 'سيُعاد الاختبار المؤرشف إلى مسودة. إعادة النشر خطوة منفصلة تعيد التحقق من صلاحية الأسئلة.', en: 'The archived exam returns to draft. Republish is a separate step that re-validates the questions.' },
     unpublishAction: { ar: 'إلغاء النشر', en: 'Unpublish' },
+    duplicateAction: { ar: 'إنشاء النسخة', en: 'Create copy' },
+    restoreAction: { ar: 'استعادة', en: 'Restore' },
+  },
+
+  // PR-5 — pre-flight composition validation (editor warnings before publish).
+  validation: {
+    badge: { ar: 'تحقق التكوين', en: 'Composition check' },
+    checkButton: { ar: 'فحص الأسئلة قبل النشر', en: 'Check questions before publishing' },
+    summaryOk: { ar: 'التكوين سليم: {{valid}} من {{total}} سؤالاً صالحاً للنشر.', en: 'Composition is valid: {{valid}} of {{total}} questions are publishable.' },
+    summaryIssues: { ar: 'يوجد {{invalid}} من {{total}} أسئلة غير صالحة للنشر.', en: '{{invalid}} of {{total}} questions are not publishable.' },
+    emptyComposition: { ar: 'لا توجد أسئلة في هذا الاختبار بعد — أضف أسئلةً قبل النشر.', en: 'No questions composed yet — add questions before publishing.' },
+    loadFailed: { ar: 'تعذر تحميل تقرير صلاحية الأسئلة.', en: 'Could not load the question validity report.' },
+    issueOrder: { ar: 'الترتيب', en: 'Order' },
+    issuesTitle: { ar: 'الأسئلة غير الصالحة', en: 'Invalid questions' },
+    checkAgain: { ar: 'إعادة الفحص', en: 'Check again' },
   },
 
   // onNotice messages.
@@ -263,6 +284,8 @@ export const examsDict = {
     unpublished: { ar: 'تم إلغاء نشر الاختبار وإعادته إلى مسودة.', en: 'Exam unpublished and reverted to draft.' },
     archived: { ar: 'تمت أرشفة الاختبار.', en: 'Exam archived.' },
     deleted: { ar: 'تم حذف الاختبار.', en: 'Exam deleted.' },
+    duplicated: { ar: 'أنشئت نسخة المسودة الجديدة.', en: 'The new draft copy was created.' },
+    restored: { ar: 'أعيد الاختبار من الأرشيف إلى مسودة.', en: 'Exam restored from archive to draft.' },
   },
 
   // onError fallbacks. The Arabic-only catch/throw fallbacks gained a concise English translation in PR-3; the Arabic text is byte-identical.

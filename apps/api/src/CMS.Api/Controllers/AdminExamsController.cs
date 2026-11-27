@@ -166,6 +166,44 @@ public sealed class AdminExamsController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>PR-5 — duplicates the exam (configuration + composition) as a fresh Draft
+    /// (question-duplicate convention; permission verb reuses ExamCreate so deployed role
+    /// rows stay valid). Existing sessions/results are never copied.</summary>
+    [HttpPost("{id:guid}/duplicate")]
+    [Authorize(Policy = Policies.ExamCreate)]
+    public async Task<ActionResult<AdminExamDetailsDto>> Duplicate(Guid id, CancellationToken ct)
+    {
+        var adminId = GetAdminId();
+        if (!adminId.HasValue) return Unauthorized();
+        if (!await CanManageAsync(adminId.Value, Actions.Create, "exam", id, ct)) return Forbidden403();
+        return Ok(await _mediator.Send(new DuplicateExamCommand(id, adminId.Value), ct));
+    }
+
+    /// <summary>PR-5 — restores an archived exam back to Draft (republish stays a separate,
+    /// validated step; permission verb reuses ExamEdit so deployed role rows stay valid).</summary>
+    [HttpPost("{id:guid}/restore")]
+    [Authorize(Policy = Policies.ExamEdit)]
+    public async Task<IActionResult> Restore(Guid id, CancellationToken ct)
+    {
+        var adminId = GetAdminId();
+        if (!adminId.HasValue) return Unauthorized();
+        if (!await CanManageAsync(adminId.Value, Actions.Edit, "exam", id, ct)) return Forbidden403();
+        await _mediator.Send(new RestoreExamCommand(id, adminId.Value), ct);
+        return NoContent();
+    }
+
+    /// <summary>PR-5 — pre-flight composition report: per-question validity issues
+    /// collected (not thrown) so the editor can warn BEFORE the publish attempt fails.</summary>
+    [HttpGet("{id:guid}/composition-validation")]
+    [Authorize(Policy = Policies.ExamView)]
+    public async Task<ActionResult<ExamCompositionValidationDto>> CompositionValidation(Guid id, CancellationToken ct)
+    {
+        var adminId = GetAdminId();
+        if (!adminId.HasValue) return Unauthorized();
+        if (!await CanManageAsync(adminId.Value, Actions.View, "exam", id, ct)) return Forbidden403();
+        return Ok(await _mediator.Send(new GetExamCompositionValidationQuery(id, adminId.Value), ct));
+    }
+
     /// <summary>W14.2 C.2: full-order replace of the exam's question composition order.</summary>
     [HttpPut("{id:guid}/reorder")]
     [Authorize(Policy = Policies.ExamManageQuestions)]

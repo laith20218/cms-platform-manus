@@ -247,6 +247,16 @@ export type AdminLibraryFileListItem = {
   contentProcessingStatus?: 'Pending' | 'Sanitized' | 'CSPApplied' | 'Ready' | 'Failed' | null;
   /** Trusted interactive-lesson flag (text/html only) — drives the student sandbox. */
   enableScripts?: boolean;
+  /** PR-5 — provider-neutral object-retention lifecycle (additive server keys;
+   *  absent on legacy/active rows → undefined = Active). */
+  viewsCount?: number;
+  favoritesCount?: number;
+  retentionState?: 'RetentionPending' | 'Quarantined' | null;
+  quarantinedAt?: string | null;
+  quarantinedBy?: string | null;
+  quarantineReason?: string | null;
+  tombstonedAt?: string | null;
+  tombstonedBy?: string | null;
 };
 
 export type UploadUrlResponse = {

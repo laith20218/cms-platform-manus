@@ -41,6 +41,10 @@ public sealed class HtmlSanitizerServiceTests
             return Task.CompletedTask;
         }
 
+        // PR-5 — final-deletion primitive (purge flow only); unused by these tests.
+        public Task<int> DeletePrefixAsync(string keyPrefix, CancellationToken ct = default)
+            => throw new NotSupportedException("not used by these tests");
+
         public Task<bool> ExistsAsync(string key, CancellationToken ct = default)
             => Task.FromResult(Objects.ContainsKey(key));
 

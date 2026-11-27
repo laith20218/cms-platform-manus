@@ -221,6 +221,10 @@ public sealed class ExamSessionHandlers :
     // W14.2 C.2 — editor completion endpoints
     IRequestHandler<UnpublishExamCommand, Unit>,
     IRequestHandler<ReorderExamQuestionsCommand, AdminExamDetailsDto>,
+    // PR-5 — content-centers lifecycle completion
+    IRequestHandler<DuplicateExamCommand, AdminExamDetailsDto>,
+    IRequestHandler<RestoreExamCommand, Unit>,
+    IRequestHandler<GetExamCompositionValidationQuery, ExamCompositionValidationDto>,
     // W14.2 D.4 — server-driven timer heartbeat (D7)
     IRequestHandler<HeartbeatExamSessionCommand, ExamHeartbeatDto>
 {
@@ -546,6 +550,19 @@ public sealed class ExamSessionHandlers :
     {
         var exam = await _db.Exams.FirstOrDefaultAsync(item => item.Id == req.Id && item.DeletedAt == null, ct)
             ?? throw new NotFoundException("Exam", req.Id);
+
+        // PR-5 — dependency-aware archive refusal: an exam that ships inside a PUBLISHED
+        // exam-course bundle is sellable content; archiving it undercuts the bundle from
+        // the storefront without any trace on the bundle side. Refuse and tell the editor
+        // to detach it from the bundle first (the bundle surface owns that decision).
+        // Draft bundles do not block archive — nothing ships from a draft.
+        var inPublishedBundle = await _db.ExamCourseItems.AsNoTracking()
+            .AnyAsync(item => item.ExamId == req.Id && item.ExamCourse.Status == ContentStatus.Published, ct);
+        if (inPublishedBundle)
+            throw new DomainException(
+                "لا يمكن أرشفة اختبار مضمن في دورة امتحانية منشورة — أزله من الدورة أولاً ثم أعد المحاولة",
+                "EXAM_IN_PUBLISHED_BUNDLE");
+
         exam.Archive();
         await _unitOfWork.SaveChangesAsync(ct);
         await AuditAsync(null, req.ArchivedBy, $"Exam archived: {exam.Id}", ct);
@@ -572,6 +589,79 @@ public sealed class ExamSessionHandlers :
         await _unitOfWork.SaveChangesAsync(ct);
         await AuditAsync(null, req.UpdatedBy, $"Exam unpublished: {exam.Id}", ct);
         return Unit.Value;
+    }
+
+    /// <summary>PR-5 — duplicates an exam (configuration + question composition) as a
+    /// fresh Draft. Mirrors the question-duplicate convention: the copy starts Draft,
+    /// keeps every configuration field and the ordered composition, and does NOT copy
+    /// sessions/results (student data belongs to the source row's history only).</summary>
+    public async Task<AdminExamDetailsDto> Handle(DuplicateExamCommand req, CancellationToken ct)
+    {
+        var source = await _db.Exams
+            .Include(item => item.ExamQuestions)
+            .FirstOrDefaultAsync(item => item.Id == req.Id && item.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Exam", req.Id);
+
+        // Distinct slug so the copy remains addressable on its own (no unique index
+        // exists, but two identical slugs would collide in any future slug-addressed
+        // surface — the 8-char id suffix keeps duplicates deterministic and unique).
+        var copyIdSuffix = Guid.NewGuid().ToString("N")[..8];
+        var slugBase = source.Slug.Length > 180 ? source.Slug[..180] : source.Slug;
+        var copy = Exam.Create(
+            source.SubjectId, source.TitleAr, $"{slugBase}-copy-{copyIdSuffix}",
+            source.Year, req.DuplicatedBy, source.ExamType);
+        copy.Configure(
+            source.TitleAr, source.TitleEn, source.Description, source.ExamType, source.Year,
+            source.LectureId, source.DurationMinutes, source.PassingScore, source.SortOrder,
+            source.AvailableFrom, source.AvailableUntil, source.MaxAttempts,
+            source.ShuffleQuestions, source.ShuffleOptions, source.ShowResultsImmediately,
+            source.AllowReview, source.ShowCorrectAnswers, source.ShowExplanations);
+        // W14.2 D7 ModelLetter is private-set with no Configure surface (legacy
+        // column); the question-duplicate convention (reflection copy) applies.
+        typeof(Exam).GetProperty(nameof(Exam.ModelLetter))?.SetValue(copy, source.ModelLetter);
+
+        var ordered = source.ExamQuestions.OrderBy(item => item.SortOrder).ToList();
+        await _db.Exams.AddAsync(copy, ct);
+        foreach (var link in ordered)
+            await _db.ExamQuestions.AddAsync(ExamQuestion.Create(copy.Id, link.QuestionId, link.SortOrder), ct);
+        copy.SetQuestionCount(ordered.Count);
+        await _unitOfWork.SaveChangesAsync(ct);
+        await AuditAsync(null, req.DuplicatedBy, $"Exam duplicated: {source.Id} -> {copy.Id}", ct);
+        return await BuildAdminDetailAsync(copy.Id, ct);
+    }
+
+    /// <summary>PR-5 — restores an archived exam back to Draft (republish is a separate,
+    /// deliberate step that re-runs full composition validation).</summary>
+    public async Task<Unit> Handle(RestoreExamCommand req, CancellationToken ct)
+    {
+        var exam = await _db.Exams.FirstOrDefaultAsync(item => item.Id == req.Id && item.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Exam", req.Id);
+        exam.RestoreFromArchive();
+        await _unitOfWork.SaveChangesAsync(ct);
+        await AuditAsync(null, req.RestoredBy, $"Exam restored from archive: {exam.Id}", ct);
+        return Unit.Value;
+    }
+
+    /// <summary>PR-5 — pre-flight composition report: the same server checks publish
+    /// runs, collected per question instead of thrown, so the editor can surface
+    /// missing/invalid-question warnings BEFORE the publish attempt fails.</summary>
+    public async Task<ExamCompositionValidationDto> Handle(GetExamCompositionValidationQuery req, CancellationToken ct)
+    {
+        var exam = await _db.Exams.AsNoTracking()
+            .Include(item => item.ExamQuestions).ThenInclude(item => item.Question).ThenInclude(question => question.Options)
+            .FirstOrDefaultAsync(item => item.Id == req.ExamId && item.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Exam", req.ExamId);
+
+        var ordered = exam.ExamQuestions.OrderBy(item => item.SortOrder).Select(item => item.Question).ToList();
+        var issues = CollectCompositionIssues(exam, ordered).ToList();
+        var invalidIds = issues.Select(issue => issue.QuestionId).ToHashSet();
+        return new ExamCompositionValidationDto(
+            exam.Id,
+            issues.Count == 0,
+            ordered.Count,
+            ordered.Count - invalidIds.Count,
+            invalidIds.Count,
+            issues);
     }
 
     /// <summary>W14.2 C.2: replaces the exam's question order. The submitted list must cover
@@ -890,28 +980,54 @@ public sealed class ExamSessionHandlers :
 
     private static void EnsureQuestionsAreValidForExam(Exam exam, IReadOnlyCollection<Question> questions)
     {
-        foreach (var question in questions)
+        // PR-5 — the thrown message stays byte-identical with the pre-refactor
+        // single-issue throws (first issue of the first invalid question, in
+        // composition order), so existing contracts/tests keep passing.
+        var issues = CollectCompositionIssues(exam, questions);
+        if (issues.Count > 0)
+            throw new BusinessRuleViolationException(issues[0].IssueMessageAr);
+    }
+
+    /// <summary>PR-5 — the same per-question rules as EnsureQuestionsAreValidForExam,
+    /// collected per question instead of thrown, for the pre-flight editor warning
+    /// surface (GetExamCompositionValidationQuery). A question may yield multiple
+    /// issues; the enumeration order matches the exam's composition order.</summary>
+    private static IReadOnlyList<ExamCompositionIssueDto> CollectCompositionIssues(Exam exam, IEnumerable<Question> questions)
+    {
+        var issues = new List<ExamCompositionIssueDto>();
+        foreach (var (question, sortOrder) in questions.Select((q, index) => (q, index)))
         {
+            void Add(string code, string message) => issues.Add(new ExamCompositionIssueDto(
+                question.Id, question.Text, sortOrder, code, message));
+
             if (question.SubjectId != exam.SubjectId)
-                throw new BusinessRuleViolationException("كل سؤال في الاختبار يجب أن ينتمي إلى مادة الاختبار");
+                Add("SUBJECT_MISMATCH", "كل سؤال في الاختبار يجب أن ينتمي إلى مادة الاختبار");
             if (exam.LectureId.HasValue && question.LectureId != exam.LectureId)
-                throw new BusinessRuleViolationException("كل سؤال في اختبار المحاضرة يجب أن ينتمي إلى المحاضرة المحددة");
+                Add("LECTURE_MISMATCH", "كل سؤال في اختبار المحاضرة يجب أن ينتمي إلى المحاضرة المحددة");
             if (question.Status != ContentStatus.Published || question.DeletedAt.HasValue)
-                throw new BusinessRuleViolationException("يمكن استخدام الأسئلة المنشورة وغير المحذوفة فقط");
+                Add("QUESTION_NOT_AVAILABLE", "يمكن استخدام الأسئلة المنشورة وغير المحذوفة فقط");
             if (question.Type == QuestionType.Matching)
             {
                 // W20.5 — matching questions validate through their payload instead of
                 // options (Publish already gated it; re-check here for composed legacy rows).
                 if (question.GetMatchingPayload() is not { } matching)
-                    throw new BusinessRuleViolationException("سؤال الوصل المحدد لا يملك حمولة مطابقة صالحة");
-                matching.Validate();
+                    Add("MATCHING_PAYLOAD_INVALID", "سؤال الوصل المحدد لا يملك حمولة مطابقة صالحة");
+                else
+                {
+                    try { matching.Validate(); }
+                    catch (DomainException) { Add("MATCHING_PAYLOAD_INVALID", "سؤال الوصل المحدد لا يملك حمولة مطابقة صالحة"); }
+                }
                 continue;
             }
             if (question.Type is not (QuestionType.Mcq or QuestionType.TrueFalse or QuestionType.MultipleSelect))
-                throw new BusinessRuleViolationException("الأسئلة التحريرية والأنواع غير الآلية لا تدخل الاختبارات المصححة آلياً حالياً");
+            {
+                Add("TYPE_NOT_AUTOGRADABLE", "الأسئلة التحريرية والأنواع غير الآلية لا تدخل الاختبارات المصححة آلياً حالياً");
+                continue;
+            }
             if (!question.Options.Any(option => option.IsCorrect) || question.Options.Count < 2)
-                throw new BusinessRuleViolationException("السؤال المحدد لا يملك خيارات صالحة للتصحيح");
+                Add("OPTIONS_INVALID", "السؤال المحدد لا يملك خيارات صالحة للتصحيح");
         }
+        return issues;
     }
 
     private async Task ValidateConfigurationReferencesAsync(ExamConfigurationInput configuration, CancellationToken ct)

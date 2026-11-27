@@ -153,6 +153,104 @@ public class LibraryFile : AuditableEntity
     /// <see cref="PdfProcessingStatus"/> is Failed. NULL otherwise.</summary>
     public string? ProcessingError { get; set; }
 
+    // ===== PR-5 — provider-neutral object-retention lifecycle =====
+    // Active → Archived/Tombstoned → Quarantine | Retention Pending → Restorable or
+    // Final Deletion. NULL on the column means Active (legacy rows predate the
+    // lifecycle). A normal archive/delete never physically removes the stored object;
+    // the separate final-deletion operation (purge) is the only path that does.
+
+    /// <summary>Retention lifecycle state. NULL = Active (legacy rows).</summary>
+    public LibraryRetentionState? RetentionState { get; private set; }
+
+    /// <summary>When the row entered quarantine (actor in QuarantinedBy, reason in QuarantineReason).</summary>
+    public DateTime? QuarantinedAt { get; private set; }
+
+    public Guid? QuarantinedBy { get; private set; }
+
+    /// <summary>Required, admin-supplied reason (≤ 500 chars). Never exposed to students.</summary>
+    public string? QuarantineReason { get; private set; }
+
+    /// <summary>PR-5 — pulls the asset from circulation on suspicion (malware, legal
+    /// hold, content review). The row is NOT tombstoned and the stored object is NOT
+    /// touched; students stop seeing the file (status → Archived) and an admin can
+    /// restore it without data loss. Only Active (non-tombstoned) rows qualify.</summary>
+    public void Quarantine(Guid quarantinedBy, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new DomainException("سبب العزل مطلوب لعزل ملف المكتبة");
+        if (DeletedAt.HasValue)
+            throw new DomainException("لا يمكن عزل ملف محذوف — الملف قيد الاحتجاز بالفعل");
+        if (RetentionState == LibraryRetentionState.Quarantined)
+            throw new DomainException("الملف معزول بالفعل");
+        if (RetentionState == LibraryRetentionState.RetentionPending)
+            throw new DomainException("لا يمكن عزل ملف قيد الاحتجاز — استعلم حالته أولاً");
+
+        RetentionState = LibraryRetentionState.Quarantined;
+        Status = ContentStatus.Archived; // hidden from students while quarantined
+        QuarantinedAt = DateTime.UtcNow;
+        QuarantinedBy = quarantinedBy;
+        QuarantineReason = reason.Trim().Length > 500 ? reason.Trim()[..500] : reason.Trim();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>PR-5 — lifts quarantine back to circulation. The file returns as Draft
+    /// (a deliberate republish gate: the quarantine reason is reviewed first).</summary>
+    public void RestoreFromQuarantine()
+    {
+        if (RetentionState != LibraryRetentionState.Quarantined)
+            throw new DomainException("الملف ليس معزولاً — لا يوجد عزل لإلغائه");
+        if (DeletedAt.HasValue)
+            throw new DomainException("الملف محذوف ومعزول معاً — استعده من قائمة الاحتجاز لإزالة الحالتين معاً");
+
+        RetentionState = null; // Active
+        QuarantinedAt = null;
+        QuarantinedBy = null;
+        QuarantineReason = null;
+        Status = ContentStatus.Draft;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>PR-5 — restores a soft-deleted (tombstoned) row. The tombstone clears
+    /// and the file returns as Draft (republish is a deliberate, separate step). Also
+    /// lifts quarantine when both states stacked on the row.</summary>
+    public void RestoreFromTombstone()
+    {
+        if (DeletedAt.HasValue)
+        {
+            DeletedAt = null;
+            DeletedBy = null;
+            QuarantinedAt = null;
+            QuarantinedBy = null;
+            QuarantineReason = null;
+            RetentionState = null; // Active
+            Status = ContentStatus.Draft;
+            UpdatedAt = DateTime.UtcNow;
+            return;
+        }
+        if (RetentionState == LibraryRetentionState.Quarantined)
+        {
+            RestoreFromQuarantine();
+            return;
+        }
+        throw new DomainException("الملف ليس محذوفاً — لا يوجد ما يُستعاد");
+    }
+
+    /// <summary>PR-5 — marks the row tombstoned with the retention-pending state. Used
+    /// by the normal (soft) delete path; the stored object is never touched here. A
+    /// quarantined row keeps its quarantine fields (still purge-eligible, restorable).</summary>
+    public void Tombstone(Guid deletedBy)
+    {
+        if (DeletedAt.HasValue)
+            throw new DomainException("الملف محذوف بالفعل");
+
+        DeletedAt = DateTime.UtcNow;
+        DeletedBy = deletedBy;
+        Status = ContentStatus.Deleted;
+        if (RetentionState != LibraryRetentionState.Quarantined)
+            RetentionState = LibraryRetentionState.RetentionPending;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public Subject Subject { get; set; } = null!;
     public Lecture? Lecture { get; set; }
     public ICollection<LibraryView> Views { get; set; } = new List<LibraryView>();

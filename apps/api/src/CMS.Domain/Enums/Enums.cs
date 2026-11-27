@@ -169,6 +169,31 @@ public enum VirusScanStatus
 }
 
 /// <summary>
+/// PR-5 — provider-neutral object-retention lifecycle for library assets
+/// (Backblaze B2 is the verified provider; the states carry no provider semantics).
+///
+/// Lifecycle: Active → (archive | tombstone | quarantine) → RetentionPending |
+/// Quarantined → Restorable (restore) or Final Deletion (a separate, authorized,
+/// re-authenticated, retention-aware operation that physically removes the object).
+///
+/// NULL on the column means Active (legacy rows predate the lifecycle).
+/// A normal archive/delete NEVER physically removes the stored object.
+/// </summary>
+public enum LibraryRetentionState
+{
+    /// <summary>The row's normal operating state (NULL on the column).</summary>
+    Active = 0,
+
+    /// <summary>Soft-deleted (tombstoned): the DB row is the tombstone; the stored
+    /// object stays under retention until a separate final-deletion approval runs.</summary>
+    RetentionPending = 1,
+
+    /// <summary>Pulled from circulation on suspicion (malware, legal hold, content
+    /// review). Hidden from students; restorable without data loss.</summary>
+    Quarantined = 2
+}
+
+/// <summary>
 /// Notification types.
 /// </summary>
 public enum NotificationType

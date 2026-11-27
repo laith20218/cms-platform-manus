@@ -98,6 +98,11 @@ public interface IFileStorageService
     /// <summary>Issues a short-lived pre-signed URL for read access (GET verb). Never use this for uploads.</summary>
     Task<string> GetSignedUrlAsync(string key, TimeSpan expiry, CancellationToken ct = default);
     Task DeleteAsync(string key, CancellationToken ct = default);
+    /// <summary>PR-5 — final-deletion primitive: lists and physically deletes EVERY stored
+    /// object under the key prefix (batched). Used ONLY by the authorized, re-authenticated,
+    /// retention-aware purge flow — a normal archive/delete never calls it. Idempotent: a
+    /// prefix with no remaining objects is a success (deleted count 0).</summary>
+    Task<int> DeletePrefixAsync(string keyPrefix, CancellationToken ct = default);
     Task<bool> ExistsAsync(string key, CancellationToken ct = default);
     /// <summary>Downloads an object's content. The caller owns the returned stream and must dispose it.</summary>
     Task<Stream> DownloadAsync(string key, CancellationToken ct = default);

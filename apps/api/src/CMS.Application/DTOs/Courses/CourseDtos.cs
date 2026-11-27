@@ -119,3 +119,13 @@ public record CompletedPartDto(
     int PartNumber,
     string ETag
 );
+
+// ===== PR-5 — course usage/dependency summary (archive/delete warnings) =====
+/// <summary>Real usage numbers from real rows: powers the "who depends on this?"
+/// warning before archive/delete. No storage URLs, no student identities.</summary>
+public record CourseUsageDto(
+    Guid CourseId,
+    int EpisodesCount,
+    long TotalEpisodeViews,
+    int EpisodeFavorites,
+    bool HasInFlightUploads);

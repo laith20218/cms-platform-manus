@@ -512,4 +512,55 @@ public class LibraryController : ControllerBase
         await _mediator.Send(new DeleteLibraryFileCommand(id, GetAdminId()), ct);
         return NoContent();
     }
+
+    // ===== PR-5 — provider-neutral object-retention lifecycle =====
+
+    /// <summary>
+    /// Quarantine a library file (admin only): pulls the asset from circulation on
+    /// suspicion (malware, legal hold, content review). Students stop seeing the file;
+    /// the stored object is never touched; a reason is required and recorded with the
+    /// actor + timestamp.
+    /// </summary>
+    [HttpPost("{id:guid}/quarantine")]
+    [Authorize(Roles = "admin,super_admin")]
+    public async Task<ActionResult<LibraryFileDto>> QuarantineFile(Guid id, [FromBody] QuarantineLibraryFileRequestDto dto, CancellationToken ct)
+    {
+        if (!await CanManageAsync(Actions.Edit, "library_file", id, ct)) return Forbid();
+        if (string.IsNullOrWhiteSpace(dto?.Reason))
+            return Problem(statusCode: StatusCodes.Status400BadRequest, detail: "سبب العزل مطلوب");
+        return Ok(await _mediator.Send(new QuarantineLibraryFileCommand(id, GetAdminId(), dto.Reason), ct));
+    }
+
+    /// <summary>
+    /// Restore a library file (admin only): lifts quarantine or clears the soft-delete
+    /// tombstone. The file returns as Draft — republish is a separate, deliberate step.
+    /// </summary>
+    [HttpPost("{id:guid}/restore")]
+    [Authorize(Roles = "admin,super_admin")]
+    public async Task<ActionResult<LibraryFileDto>> RestoreFile(Guid id, CancellationToken ct)
+    {
+        if (!await CanManageAsync(Actions.Edit, "library_file", id, ct)) return Forbid();
+        return Ok(await _mediator.Send(new RestoreLibraryFileCommand(id, GetAdminId()), ct));
+    }
+
+    /// <summary>
+    /// FINAL object deletion (purge) — SuperAdmin, re-authenticated by password,
+    /// retention-aware, audited, and gated behind the same fail-closed
+    /// Features:HardDeleteEnabled kill switch as the system hard-delete. Physically
+    /// removes every stored object under the upload prefix, then the row. Never reached
+    /// from a normal CRUD path: a normal delete leaves the object under retention.
+    /// </summary>
+    [HttpPost("{id:guid}/purge")]
+    [Authorize(Roles = "super_admin")]
+    public async Task<ActionResult<PurgeLibraryFileResultDto>> PurgeFile(Guid id, [FromBody] PurgeLibraryFileRequestDto dto, CancellationToken ct)
+    {
+        if (!await CanManageAsync(Actions.Delete, "library_file", id, ct)) return Forbid();
+        return Ok(await _mediator.Send(new PurgeLibraryFileCommand(id, GetAdminId(), dto?.ActorPassword ?? string.Empty), ct));
+    }
 }
+
+/// <summary>PR-5 — quarantine reason (required, recorded with actor + timestamp).</summary>
+public record QuarantineLibraryFileRequestDto(string Reason);
+
+/// <summary>PR-5 — purge re-authentication: the acting SuperAdmin's password.</summary>
+public record PurgeLibraryFileRequestDto(string? ActorPassword);

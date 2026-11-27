@@ -38,8 +38,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   AlertCircle, AlertTriangle, Archive, ArrowDown, ArrowUp, BarChart3, CheckCircle2,
-  ClipboardCheck, Clock, Eye, FileText, Flag, GraduationCap, ListChecks, LoaderCircle,
-  Pencil, Plus, Search, Send, Timer, Trash2, TrendingUp, Users, X, XCircle, CloudOff,
+  ClipboardCheck, Clock, Copy, Eye, FileText, Flag, GraduationCap, ListChecks, LoaderCircle,
+  Pencil, Plus, RotateCcw, Search, Send, Timer, Trash2, TrendingUp, Users, X, XCircle, CloudOff,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
 import { Dialog, Pagination, RowActionsMenu } from '@cms/ui';
@@ -111,7 +111,19 @@ type ErrorReport = {
 type ReportPage = { items: ErrorReport[]; total: number; page: number; pageSize: number; totalPages: number };
 type Page<T> = { items: T[]; page: number; pageSize: number; totalCount: number };
 type Props = { token: string; isArabic: boolean; onError: (message: string) => void; onNotice: (message: string) => void; /** W14.3 D10: jump to the Question Bank — the D4 URL context already carries the subject. */ onNavigateToQuestions?: () => void };
-type ConfirmDialog = { exam: ExamSummary; action: 'publish' | 'archive' | 'delete' | 'unpublish' } | null;
+type ConfirmDialog = { exam: ExamSummary; action: 'publish' | 'archive' | 'delete' | 'unpublish' | 'duplicate' | 'restore' } | null;
+
+// PR-5 — pre-flight composition validation report (GET /{id}/composition-validation):
+// per-question issues collected (not thrown) so the editor can warn BEFORE publish.
+type CompositionValidation = {
+  examId: string;
+  isValid: boolean;
+  totalQuestions: number;
+  validQuestions: number;
+  invalidQuestions: number;
+  issues: Array<{ questionId: string; questionText: string; sortOrder: number; issueCode: string; issueMessageAr: string }>;
+};
+type CompositionCheck = { loading: boolean; report: CompositionValidation | null; error: string | null };
 
 // W-coverage (row 18): student-view preview payload (AdminExams GET {id}/preview — no correctness flags).
 type ExamPreview = {
@@ -296,6 +308,9 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
+
+  // PR-5 — pre-flight composition validation state (the editor warning surface).
+  const [compositionCheck, setCompositionCheck] = useState<CompositionCheck>({ loading: false, report: null, error: null });
   const [form, setForm] = useState<ExamConfiguration>(blankForm());
   const [selectedQuestions, setSelectedQuestions] = useState<ExamQuestion[]>([]);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -459,13 +474,19 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
   function openCreate() {
     if (!subjectId) return;
     setForm(blankForm(subjectId)); setSelectedQuestions([]); setCandidateQuery(''); setShowEditor(true); setResultExam(null);
+    // PR-5 — a fresh editor has no persisted exam to validate yet.
+    setCompositionCheck({ loading: false, report: null, error: null });
   }
   function closeEditor() {
     setShowEditor(false); setForm(blankForm(subjectId)); setSelectedQuestions([]); setCandidateQuery('');
+    // PR-5 — the report belongs to the edited exam; never leak it across editors.
+    setCompositionCheck({ loading: false, report: null, error: null });
   }
 
   async function openEdit(exam: ExamSummary) {
     setBusy(true); setResultExam(null);
+    // PR-5 — switching exams invalidates any cached report.
+    setCompositionCheck({ loading: false, report: null, error: null });
     try {
       const data = await request<ExamDetails>(`/api/v1/admin/exams/${exam.id}`);
       setForm({
@@ -487,9 +508,13 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
       type: candidate.type, difficulty: candidate.difficulty,
       lectureName: candidate.lectureName, tags: candidate.tags,
     }]);
+    // PR-5 — the local composition changed; the cached validity report is stale.
+    setCompositionCheck({ loading: false, report: null, error: null });
   }
   function removeQuestion(id: string) {
     setSelectedQuestions(current => current.filter(question => question.questionId !== id).map((question, index) => ({ ...question, sortOrder: index })));
+    // PR-5 — the local composition changed; the cached validity report is stale.
+    setCompositionCheck({ loading: false, report: null, error: null });
   }
   function moveQuestion(index: number, direction: -1 | 1) {
     setSelectedQuestions(current => {
@@ -537,7 +562,21 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
     } finally { setBusy(false); }
   }
 
-  async function lifecycle(exam: ExamSummary, action: 'publish' | 'archive' | 'unpublish') {
+  /** PR-5 — pre-flight composition check against the persisted exam (mirrors the
+   * server-side publish rules exactly; the editor warns BEFORE the publish attempt
+   * fails). Only meaningful for a saved exam (form.id set). */
+  async function runCompositionCheck(examId: string) {
+    setCompositionCheck({ loading: true, report: null, error: null });
+    try {
+      const report = await request<CompositionValidation>(`/api/v1/admin/exams/${examId}/composition-validation`);
+      setCompositionCheck({ loading: false, report, error: null });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t(locale, 'exams.validation.loadFailed');
+      setCompositionCheck({ loading: false, report: null, error: message });
+    }
+  }
+
+  async function lifecycle(exam: ExamSummary, action: 'publish' | 'archive' | 'unpublish' | 'duplicate' | 'restore') {
     setBusy(true);
     try {
       await request(`/api/v1/admin/exams/${exam.id}/${action}`, { method: 'POST' });
@@ -545,6 +584,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
         ? (t(locale, 'exams.toasts.published'))
         : action === 'unpublish'
         ? (t(locale, 'exams.toasts.unpublished'))
+        : action === 'duplicate'
+        ? (t(locale, 'exams.toasts.duplicated'))
+        : action === 'restore'
+        ? (t(locale, 'exams.toasts.restored'))
         : (t(locale, 'exams.toasts.archived')));
       await loadExams();
     } catch (error) {
@@ -1176,6 +1219,28 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                                   onSelect: () => setConfirm({ exam, action: 'archive' }),
                                 }]
                               : []),
+                            // PR-5 — duplicate copies configuration + composition as a fresh
+                            // Draft (permission verb mirrors the backend ExamCreate policy).
+                            ...(can('btn:exams.create')
+                              ? [{
+                                  key: 'duplicate',
+                                  label: t(locale, 'exams.rowActions.duplicate'),
+                                  icon: <Copy className="w-4 h-4" />,
+                                  disabled: busy,
+                                  onSelect: () => setConfirm({ exam, action: 'duplicate' }),
+                                }]
+                              : []),
+                            // PR-5 — restore returns an archived exam to Draft (verb mirrors
+                            // the backend ExamEdit policy; only Archived rows qualify).
+                            ...(exam.status === 'Archived' && can('btn:exams.archive')
+                              ? [{
+                                  key: 'restore',
+                                  label: t(locale, 'exams.rowActions.restore'),
+                                  icon: <RotateCcw className="w-4 h-4" />,
+                                  disabled: busy,
+                                  onSelect: () => setConfirm({ exam, action: 'restore' }),
+                                }]
+                              : []),
                             ...(can('btn:exams.delete')
                               ? [{
                                   key: 'delete',
@@ -1721,12 +1786,99 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
 
                     {/* === Question builder section === */}
                     <section className="space-y-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <ListChecks className="w-4 h-4" style={{ color: 'var(--cms-teal-700)' }} />
                         <h4 className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>
                           {t(locale, 'exams.compose.title')}
                         </h4>
+                        {/* PR-5 — pre-flight composition check: the same server rules
+                            publish runs, collected per question, so the editor warns
+                            BEFORE the publish attempt fails. Only for a saved exam. */}
+                        {form.id && (
+                          <button
+                            type="button"
+                            onClick={() => void runCompositionCheck(form.id!)}
+                            disabled={compositionCheck.loading}
+                            className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium disabled:opacity-50 transition-colors"
+                            style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                          >
+                            {compositionCheck.loading
+                              ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" />
+                              : <ClipboardCheck className="w-3.5 h-3.5" />}
+                            {compositionCheck.report
+                              ? t(locale, 'exams.validation.checkAgain')
+                              : t(locale, 'exams.validation.checkButton')}
+                          </button>
+                        )}
                       </div>
+
+                      {/* PR-5 — the composition validity report (warnings, not blocks). */}
+                      {form.id && (compositionCheck.loading || compositionCheck.report || compositionCheck.error) && (
+                        <div
+                          className="rounded-lg border p-3 text-sm space-y-2"
+                          style={{
+                            borderColor: compositionCheck.error || compositionCheck.report?.isValid === false
+                              ? 'var(--cms-danger)'
+                              : 'var(--cms-line)',
+                            background: compositionCheck.report?.isValid === false ? 'var(--cms-danger-50)' : 'transparent',
+                          }}
+                          data-testid="exam-composition-validation"
+                        >
+                          {compositionCheck.loading && (
+                            <p style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'exams.validation.checkButton')}…</p>
+                          )}
+                          {compositionCheck.error && (
+                            <p style={{ color: 'var(--cms-danger)' }}>{compositionCheck.error}</p>
+                          )}
+                          {compositionCheck.report && !compositionCheck.loading && (
+                            <>
+                              {compositionCheck.report.totalQuestions === 0 ? (
+                                <p className="flex items-center gap-1.5" style={{ color: 'var(--cms-warning)' }}>
+                                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                                  {t(locale, 'exams.validation.emptyComposition')}
+                                </p>
+                              ) : compositionCheck.report.isValid ? (
+                                <p className="flex items-center gap-1.5" style={{ color: 'var(--cms-teal-700)' }}>
+                                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                                  {t(locale, 'exams.validation.summaryOk', { valid: String(compositionCheck.report.validQuestions), total: String(compositionCheck.report.totalQuestions) })}
+                                </p>
+                              ) : (
+                                <div className="space-y-2">
+                                  <p className="flex items-center gap-1.5 font-medium" style={{ color: 'var(--cms-danger)' }}>
+                                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                                    {t(locale, 'exams.validation.summaryIssues', { invalid: String(compositionCheck.report.invalidQuestions), total: String(compositionCheck.report.totalQuestions) })}
+                                  </p>
+                                  <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                                    {compositionCheck.report.issues.map((issue) => (
+                                      <div
+                                        key={`${issue.questionId}-${issue.issueCode}-${issue.sortOrder}`}
+                                        className="flex items-start gap-2 rounded-md border px-2.5 py-1.5"
+                                        style={{ borderColor: 'var(--cms-line)', background: 'white' }}
+                                        data-testid="exam-composition-issue"
+                                      >
+                                        <span
+                                          className="shrink-0 inline-flex items-center justify-center min-w-6 h-6 px-1 rounded-md text-xs font-bold"
+                                          style={{ background: 'var(--cms-danger-50)', color: 'var(--cms-danger)' }}
+                                        >
+                                          {issue.sortOrder + 1}
+                                        </span>
+                                        <div className="min-w-0">
+                                          <p className="text-xs font-medium truncate" style={{ color: 'var(--cms-text)' }} title={issue.questionText}>
+                                            {issue.questionText}
+                                          </p>
+                                          <p className="text-xs" style={{ color: 'var(--cms-danger)' }}>
+                                            {issue.issueMessageAr}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         {/* Selected questions column */}
@@ -2051,15 +2203,21 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
               <div
                 className="p-2 rounded-lg"
                 style={{
-                  background: confirm.action === 'archive' || confirm.action === 'unpublish' ? 'var(--cms-warning-50)'
+                  background: confirm.action === 'archive' || confirm.action === 'unpublish' || confirm.action === 'restore' ? 'var(--cms-warning-50)'
                     : confirm.action === 'delete' ? 'var(--cms-danger-50)'
+                    : confirm.action === 'duplicate' ? 'var(--cms-teal-50)'
                     : 'var(--cms-teal-50)',
-                  color: confirm.action === 'archive' || confirm.action === 'unpublish' ? 'var(--cms-warning)'
+                  color: confirm.action === 'archive' || confirm.action === 'unpublish' || confirm.action === 'restore' ? 'var(--cms-warning)'
                     : confirm.action === 'delete' ? 'var(--cms-danger)'
+                    : confirm.action === 'duplicate' ? 'var(--cms-teal-700)'
                     : 'var(--cms-teal-700)',
                 }}
               >
-                <AlertCircle className="w-6 h-6" />
+                {confirm.action === 'duplicate'
+                  ? <Copy className="w-6 h-6" />
+                  : confirm.action === 'restore'
+                  ? <RotateCcw className="w-6 h-6" />
+                  : <AlertCircle className="w-6 h-6" />}
               </div>
               <div className="min-w-0">
                 <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
@@ -2069,6 +2227,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     ? (t(locale, 'exams.confirm.archiveTitle'))
                     : confirm.action === 'unpublish'
                     ? (t(locale, 'exams.confirm.unpublishTitle'))
+                    : confirm.action === 'duplicate'
+                    ? (t(locale, 'exams.confirm.duplicateTitle'))
+                    : confirm.action === 'restore'
+                    ? (t(locale, 'exams.confirm.restoreTitle'))
                     : (t(locale, 'exams.confirm.deleteTitle'))}
                 </h3>
                 <p className="text-sm mt-1" style={{ color: 'var(--cms-text-soft)' }}>
@@ -2078,6 +2240,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     ? (t(locale, 'exams.confirm.archiveText'))
                     : confirm.action === 'unpublish'
                     ? (t(locale, 'exams.confirm.unpublishText'))
+                    : confirm.action === 'duplicate'
+                    ? (t(locale, 'exams.confirm.duplicateText'))
+                    : confirm.action === 'restore'
+                    ? (t(locale, 'exams.confirm.restoreText'))
                     : (t(locale, 'exams.confirm.deleteText'))}
                 </p>
                 <p className="text-sm font-medium mt-2 truncate" style={{ color: 'var(--cms-text)' }}>
@@ -2105,17 +2271,17 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                 disabled={busy}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors"
                 style={{
-                  background: confirm.action === 'archive' || confirm.action === 'unpublish' ? 'var(--cms-warning)'
+                  background: confirm.action === 'archive' || confirm.action === 'unpublish' || confirm.action === 'restore' ? 'var(--cms-warning)'
                     : confirm.action === 'delete' ? 'var(--cms-danger)'
                     : 'var(--cms-teal-700)',
                 }}
                 onMouseEnter={(event) => {
-                  if (confirm.action === 'archive' || confirm.action === 'unpublish') event.currentTarget.style.background = '#8a5a18';
+                  if (confirm.action === 'archive' || confirm.action === 'unpublish' || confirm.action === 'restore') event.currentTarget.style.background = '#8a5a18';
                   else if (confirm.action === 'delete') event.currentTarget.style.background = '#9c3a31';
                   else event.currentTarget.style.background = 'var(--cms-teal-600)';
                 }}
                 onMouseLeave={(event) => {
-                  if (confirm.action === 'archive' || confirm.action === 'unpublish') event.currentTarget.style.background = 'var(--cms-warning)';
+                  if (confirm.action === 'archive' || confirm.action === 'unpublish' || confirm.action === 'restore') event.currentTarget.style.background = 'var(--cms-warning)';
                   else if (confirm.action === 'delete') event.currentTarget.style.background = 'var(--cms-danger)';
                   else event.currentTarget.style.background = 'var(--cms-teal-700)';
                 }}
@@ -2124,6 +2290,8 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   confirm.action === 'archive' ? <Archive className="w-4 h-4" />
                   : confirm.action === 'delete' ? <Trash2 className="w-4 h-4" />
                   : confirm.action === 'unpublish' ? <CloudOff className="w-4 h-4" />
+                  : confirm.action === 'duplicate' ? <Copy className="w-4 h-4" />
+                  : confirm.action === 'restore' ? <RotateCcw className="w-4 h-4" />
                   : <Send className="w-4 h-4" />
                 )}
                 {confirm.action === 'publish'
@@ -2132,6 +2300,10 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   ? (t(locale, 'common.archive'))
                   : confirm.action === 'unpublish'
                   ? (t(locale, 'exams.confirm.unpublishAction'))
+                  : confirm.action === 'duplicate'
+                  ? (t(locale, 'exams.confirm.duplicateAction'))
+                  : confirm.action === 'restore'
+                  ? (t(locale, 'exams.confirm.restoreAction'))
                   : (t(locale, 'common.delete'))}
               </button>
             </div>

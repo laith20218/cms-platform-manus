@@ -37,6 +37,11 @@ public class CourseHandlers :
     IRequestHandler<PublishCourseCommand, CourseDto>,
     IRequestHandler<ArchiveCourseCommand, CourseDto>,
     IRequestHandler<DeleteCourseCommand, Unit>,
+    // PR-5 — content-centers lifecycle completion
+    IRequestHandler<UnpublishCourseCommand, CourseDto>,
+    IRequestHandler<DuplicateCourseCommand, CourseDto>,
+    IRequestHandler<RestoreCourseCommand, CourseDto>,
+    IRequestHandler<GetCourseUsageQuery, CourseUsageDto>,
     IRequestHandler<AddYouTubeEpisodeCommand, CourseEpisodeDto>,
     IRequestHandler<UpdateEpisodeCommand, CourseEpisodeDto>,
     IRequestHandler<DeleteEpisodeCommand, Unit>,
@@ -319,6 +324,97 @@ public class CourseHandlers :
         return MapToCourseDto(course);
     }
 
+    // ===== PR-5 — content-centers lifecycle completion =====
+
+    /// <summary>PR-5 — reverts a published course to Draft (exam-unpublish mirror).
+    /// Students stop seeing the course immediately; episodes, blobs, favorites and
+    /// playback progress are untouched. Only Published rows qualify.</summary>
+    public async Task<CourseDto> Handle(UnpublishCourseCommand req, CancellationToken ct)
+    {
+        var course = await _db.Courses.FirstOrDefaultAsync(course => course.Id == req.Id && course.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Course", req.Id);
+
+        if (course.Status != ContentStatus.Published)
+            throw new DomainException("يمكن إلغاء نشر الكورسات المنشورة فقط", "COURSE_NOT_PUBLISHED");
+
+        course.Status = ContentStatus.Draft;
+        await _unitOfWork.SaveChangesAsync(ct);
+        await _activity.LogAsync(req.UpdatedBy, AdminActivityActionType.UpdateCourse, course.Id.ToString(),
+            new { courseId = course.Id, action = "unpublish" }, ct: ct);
+        return MapToCourseDto(course);
+    }
+
+    /// <summary>PR-5 — duplicates the course metadata as a fresh Draft. Episodes are
+    /// deliberately NOT copied (an upload episode OWNS its stored blob — two rows would
+    /// co-own one physical object and the first delete would orphan the other). The
+    /// copy gets its own unique public code, same as any new course.</summary>
+    public async Task<CourseDto> Handle(DuplicateCourseCommand req, CancellationToken ct)
+    {
+        var source = await _db.Courses.AsNoTracking()
+            .FirstOrDefaultAsync(course => course.Id == req.Id && course.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Course", req.Id);
+
+        var copy = new Course
+        {
+            SubjectId = source.SubjectId,
+            Title = source.Title,
+            Description = source.Description,
+            CoverImageUrl = source.CoverImageUrl,
+            Status = ContentStatus.Draft
+        };
+        copy.AssignPublicCode(await PublicCodes.GenerateUniqueAsync(
+            code => _db.Courses.AsNoTracking().AnyAsync(c => c.PublicCode == code, ct), ct));
+        typeof(Course).GetProperty("CreatedBy")?.SetValue(copy, req.DuplicatedBy);
+
+        await _db.Courses.AddAsync(copy, ct);
+        await _unitOfWork.SaveChangesAsync(ct);
+
+        await _activity.LogAsync(req.DuplicatedBy, AdminActivityActionType.CreateCourse, copy.Id.ToString(),
+            new { courseId = copy.Id, duplicatedFrom = source.Id, subjectId = copy.SubjectId, title = copy.Title }, ct: ct);
+        return MapToCourseDto(copy);
+    }
+
+    /// <summary>PR-5 — restores an archived course back to Draft (republish re-runs the
+    /// COURSE_EMPTY validation; soft-deleted rows are not restorable through this path).</summary>
+    public async Task<CourseDto> Handle(RestoreCourseCommand req, CancellationToken ct)
+    {
+        var course = await _db.Courses.FirstOrDefaultAsync(course => course.Id == req.Id && course.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Course", req.Id);
+
+        if (course.Status != ContentStatus.Archived)
+            throw new DomainException("يمكن استعادة الكورسات المؤرشفة فقط", "COURSE_NOT_ARCHIVED");
+
+        course.Status = ContentStatus.Draft;
+        await _unitOfWork.SaveChangesAsync(ct);
+        await _activity.LogAsync(req.RestoredBy, AdminActivityActionType.UpdateCourse, course.Id.ToString(),
+            new { courseId = course.Id, action = "restore" }, ct: ct);
+        return MapToCourseDto(course);
+    }
+
+    /// <summary>PR-5 — real usage/dependency numbers for the archive/delete warning
+    /// dialogs: episode count, total views, episode favorites, in-flight uploads.</summary>
+    public async Task<CourseUsageDto> Handle(GetCourseUsageQuery req, CancellationToken ct)
+    {
+        var course = await _db.Courses.AsNoTracking()
+            .Include(course => course.Episodes)
+            .FirstOrDefaultAsync(course => course.Id == req.Id && course.DeletedAt == null, ct)
+            ?? throw new NotFoundException("Course", req.Id);
+
+        var liveEpisodes = course.Episodes.Where(episode => episode.DeletedAt == null).ToList();
+        var episodeIds = liveEpisodes.Select(episode => episode.Id).ToList();
+        var favorites = episodeIds.Count == 0
+            ? 0
+            : await _db.Favorites.AsNoTracking().CountAsync(favorite => favorite.CourseEpisodeId != null
+                && episodeIds.Contains(favorite.CourseEpisodeId.Value), ct);
+
+        return new CourseUsageDto(
+            course.Id,
+            liveEpisodes.Count,
+            liveEpisodes.Sum(episode => (long)episode.ViewsCount),
+            favorites,
+            liveEpisodes.Any(episode => !string.IsNullOrEmpty(episode.UploadId)));
+    }
+
     public async Task<Unit> Handle(DeleteCourseCommand req, CancellationToken ct)
     {
         var course = await _db.Courses
@@ -326,7 +422,9 @@ public class CourseHandlers :
             .FirstOrDefaultAsync(course => course.Id == req.Id, ct)
             ?? throw new NotFoundException("Course", req.Id);
 
-        // Abort any in-flight multipart upload before deleting its rows.
+        // Abort any in-flight multipart upload before deleting its rows. An in-flight
+        // upload never produced a completed stored object, so aborting it discards
+        // partial parts only — this is NOT a stored-object deletion.
         foreach (var episode in course.Episodes.Where(episode => !string.IsNullOrEmpty(episode.UploadId)))
         {
             try { await _storage.AbortMultipartUploadAsync(episode.FileKey!, episode.UploadId!, ct); }
@@ -338,12 +436,16 @@ public class CourseHandlers :
         typeof(Course).GetProperty("Status")?.SetValue(course, ContentStatus.Deleted);
         await _unitOfWork.SaveChangesAsync(ct);
 
-        // Best-effort blob cleanup — a storage failure must NOT fail the committed delete.
-        foreach (var episode in course.Episodes.Where(episode => episode.SourceType == CourseEpisodeSource.Upload && !string.IsNullOrEmpty(episode.FileKey)))
-        {
-            try { await _storage.DeleteAsync(episode.FileKey!, ct); }
-            catch (Exception ex) { _logger.LogWarning(ex, "Blob cleanup failed after course delete. EpisodeId={EpisodeId} FileKey={FileKey}", episode.Id, episode.FileKey); }
-        }
+        // PR-5 — object-retention contract (mirrors the library soft delete): a NORMAL
+        // course delete must NOT physically destroy the episode blobs. The stored
+        // objects stay under retention until a separate, explicitly approved
+        // final-removal operation runs; the soft-deleted rows are the tombstones and
+        // the audit event records the pending-retention state. The pre-PR-5
+        // best-effort blob cleanup loop was removed on purpose — physical deletion
+        // must never hide inside a normal CRUD handler.
+        _logger.LogInformation(
+            "Course soft-deleted; episode objects retained pending final-removal approval. CourseId={CourseId} Episodes={Episodes}",
+            course.Id, course.Episodes.Count(episode => episode.DeletedAt == null));
 
         return Unit.Value;
     }
@@ -409,11 +511,11 @@ public class CourseHandlers :
         string? fileKey = episode.FileKey;
         string? uploadId = episode.UploadId;
 
-        // Push 11.3.1 — DeletedAt/DeletedBy is a SOFT delete: the row survives (only the
-        // stored blob below is hard-removed), so this save is guarded defensively — with
-        // favorites.course_episode_id ON DELETE RESTRICT, any future switch of this flow
-        // to a hard row removal must surface the Arabic 409 (ExceptionHandlingMiddleware
-        // maps ConflictException → HttpStatusCode.Conflict), never the raw 500.
+        // Push 11.3.1 — DeletedAt/DeletedBy is a SOFT delete, so this save is guarded
+        // defensively — with favorites.course_episode_id ON DELETE RESTRICT, any future
+        // switch of this flow to a hard row removal must surface the Arabic 409
+        // (ExceptionHandlingMiddleware maps ConflictException →
+        // HttpStatusCode.Conflict), never the raw 500.
         typeof(CourseEpisode).GetProperty("DeletedAt")?.SetValue(episode, DateTime.UtcNow);
         typeof(CourseEpisode).GetProperty("DeletedBy")?.SetValue(episode, req.DeletedBy);
         try
@@ -428,17 +530,25 @@ public class CourseHandlers :
                 "لا يمكن حذف الحلقة — بعض الطلاب أضافوها إلى المفضلة. استخدم زر الأرشفة بدلًا من الحذف.");
         }
 
+        // PR-5 — object-retention contract (mirrors the library soft delete and the
+        // course soft delete above): a NORMAL episode delete must NOT physically
+        // destroy the stored blob. The pre-PR-5 DeleteAsync call was removed on
+        // purpose — physical deletion never hides inside a normal CRUD handler; the
+        // blob stays under retention with the soft-deleted row as its tombstone.
+        // Aborting an in-flight multipart upload stays: it discards incomplete parts
+        // of an upload that never produced a completed stored object.
         try
         {
             if (!string.IsNullOrEmpty(uploadId) && !string.IsNullOrEmpty(fileKey))
                 await _storage.AbortMultipartUploadAsync(fileKey, uploadId, ct);
-            if (episode.SourceType == CourseEpisodeSource.Upload && !string.IsNullOrEmpty(fileKey))
-                await _storage.DeleteAsync(fileKey, ct);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Blob cleanup failed after episode delete. EpisodeId={EpisodeId}", episode.Id);
+            _logger.LogWarning(ex, "Multipart abort failed after episode delete. EpisodeId={EpisodeId}", episode.Id);
         }
+        _logger.LogInformation(
+            "Episode soft-deleted; object retained pending final-removal approval. EpisodeId={EpisodeId} FileKeyPresent={FileKeyPresent}",
+            episode.Id, !string.IsNullOrEmpty(fileKey));
 
         return Unit.Value;
     }

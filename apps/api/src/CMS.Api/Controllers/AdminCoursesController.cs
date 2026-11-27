@@ -168,6 +168,54 @@ public sealed class AdminCoursesController : ControllerBase
         return Ok(await _mediator.Send(new ArchiveCourseCommand(id), ct));
     }
 
+    // ===== PR-5 — content-centers lifecycle completion =====
+
+    /// <summary>PR-5 — reverts a published course to Draft (students stop seeing it;
+    /// episodes, blobs, favorites and progress are untouched; republish re-runs
+    /// COURSE_EMPTY validation).</summary>
+    [HttpPost("{id:guid}/unpublish")]
+    public async Task<ActionResult<CourseDto>> Unpublish(Guid id, CancellationToken ct)
+    {
+        var subjectId = await SubjectIdForCourseAsync(id, ct);
+        if (subjectId is null) return NotFound();
+        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء");
+        return Ok(await _mediator.Send(new UnpublishCourseCommand(id, GetAdminId()), ct));
+    }
+
+    /// <summary>PR-5 — duplicates the course metadata as a fresh Draft. Episodes are
+    /// NOT copied (an upload episode owns its stored blob; two rows would co-own one
+    /// physical object and the first delete would orphan the other).</summary>
+    [HttpPost("{id:guid}/duplicate")]
+    public async Task<ActionResult<CourseDto>> Duplicate(Guid id, CancellationToken ct)
+    {
+        var subjectId = await SubjectIdForCourseAsync(id, ct);
+        if (subjectId is null) return NotFound();
+        if (!await CanManageAsync(Actions.Create, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء");
+        return Ok(await _mediator.Send(new DuplicateCourseCommand(id, GetAdminId()), ct));
+    }
+
+    /// <summary>PR-5 — restores an archived course back to Draft (republish re-runs
+    /// COURSE_EMPTY validation; soft-deleted rows are not restorable through this path).</summary>
+    [HttpPost("{id:guid}/restore")]
+    public async Task<ActionResult<CourseDto>> Restore(Guid id, CancellationToken ct)
+    {
+        var subjectId = await SubjectIdForCourseAsync(id, ct);
+        if (subjectId is null) return NotFound();
+        if (!await CanManageAsync(Actions.Edit, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء");
+        return Ok(await _mediator.Send(new RestoreCourseCommand(id, GetAdminId()), ct));
+    }
+
+    /// <summary>PR-5 — usage/dependency summary (episode count, total views, episode
+    /// favorites, in-flight uploads) powering the archive/delete warning dialogs.</summary>
+    [HttpGet("{id:guid}/usage")]
+    public async Task<ActionResult<CourseUsageDto>> Usage(Guid id, CancellationToken ct)
+    {
+        var subjectId = await SubjectIdForCourseAsync(id, ct);
+        if (subjectId is null) return NotFound();
+        if (!await CanManageAsync(Actions.View, subjectId.Value, ct)) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء");
+        return Ok(await _mediator.Send(new GetCourseUsageQuery(id), ct));
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {

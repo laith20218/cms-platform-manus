@@ -22,10 +22,10 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AlertCircle, Archive, Ban, CheckCircle2, ChevronDown, ChevronUp, Film, GraduationCap,
-  AlertTriangle, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, Upload, X, Youtube,
+  AlertCircle, Archive, Ban, CheckCircle2, ChevronDown, ChevronUp, Copy, Film, GraduationCap,
+  AlertTriangle, LoaderCircle, Pencil, Plus, RefreshCw, RotateCcw, Search, Trash2, Upload, X, Youtube,
 } from 'lucide-react';
-import { ConfirmDialog, Drawer, RowActionsMenu } from '@cms/ui';
+import { ConfirmDialog, Drawer, Pagination, RowActionsMenu } from '@cms/ui';
 import { HardDeleteDialog, type HardDeleteTarget } from './HardDeleteDialog';
 import {
   apiRequest, type ApiError, type PagedResult, type AdminCourseListItem, type CourseDetail,
@@ -45,6 +45,20 @@ import { EpisodeEditModal } from './EpisodeEditModal';
 import { EpisodeMetadataFields, type EpisodeMetadataValues } from './EpisodeMetadataFields';
 import { ProcessingErrorModal } from './ProcessingErrorModal';
 import { ProcessingTimeline, type UploadStats } from './ProcessingTimeline';
+
+// PR-5 — course usage/dependency summary (GET /api/v1/admin/courses/{id}/usage):
+// real numbers powering the archive/delete warning dialogs.
+type CourseUsage = {
+  courseId: string;
+  episodesCount: number;
+  totalEpisodeViews: number;
+  episodeFavorites: number;
+  hasInFlightUploads: boolean;
+};
+
+// PR-5 — the server-side list contract now carries page/status/search beyond the
+// fixed first-50 slice the pre-PR-5 UI fetched.
+const COURSES_PAGE_SIZE = 20;
 
 type Props = {
   token: string;
@@ -95,24 +109,67 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
   // W2 (admin-ui): destructive/lifecycle course actions were single-click or
   // native window.confirm (debt D-03 + publish/archive no-confirm) — now gated
   // by the shared ConfirmDialog with consequence text.
+  // PR-5 — the lifecycle verb set grows to unpublish / duplicate / restore.
   const [deleteTarget, setDeleteTarget] = useState<AdminCourseListItem | null>(null);
-  const [lifecycleTarget, setLifecycleTarget] = useState<{ course: AdminCourseListItem; action: 'publish' | 'archive' } | null>(null);
+  const [lifecycleTarget, setLifecycleTarget] = useState<{ course: AdminCourseListItem; action: 'publish' | 'archive' | 'unpublish' | 'duplicate' | 'restore' } | null>(null);
+  // PR-5 — real usage/dependency numbers for the archive/delete warning dialogs.
+  const [usage, setUsage] = useState<{ courseId: string; data: CourseUsage | null } | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  // PR-5 — server-side pagination + status/search filters (the backend always supported them).
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchDebounceRef = useRef<number | null>(null);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
+
+  /** PR-5 — debounced search input (mirrors the Question Bank's 250ms convention). */
+  const handleSearchInput = (value: string) => {
+    setSearchTerm(value);
+    if (searchDebounceRef.current !== null) window.clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = window.setTimeout(() => {
+      setDebouncedSearch(value.trim());
+      setPage(1);
+    }, 250);
+  };
+
+  /** PR-5 — real usage numbers for the archive/delete warnings (best-effort: a
+   * failed fetch never blocks the dialog, it just hides the chips). */
+  const loadUsage = async (courseId: string) => {
+    setUsage({ courseId, data: null });
+    setUsageLoading(true);
+    try {
+      const data = await request<CourseUsage>(`/api/v1/admin/courses/${courseId}/usage`);
+      setUsage({ courseId, data });
+    } catch {
+      setUsage(null); // the confirm dialog works without the chips; never block on this
+    } finally {
+      setUsageLoading(false);
+    }
+  };
 
   /**
    * Loads the course list. `silent` refreshes keep the table (and any open
    * episode drawer / upload panel) mounted — a completed upload must never
    * wipe the drawer state the admin is looking at (Push 6 fix).
+   * PR-5 — now a real paged query (page + status + search), not a fixed first-50 slice.
    */
-  const loadCourses = async (opts?: { silent?: boolean }) => {
+  const loadCourses = async (opts?: { silent?: boolean; page?: number; status?: string; search?: string }) => {
     const silent = opts?.silent === true;
     if (!silent) setLoading(true);
+    const targetPage = opts?.page ?? page;
+    const targetStatus = opts?.status ?? statusFilter;
+    const targetSearch = opts?.search ?? debouncedSearch;
     try {
-      const params = new URLSearchParams({ page: '1', pageSize: '50' });
+      const params = new URLSearchParams({ page: String(targetPage), pageSize: String(COURSES_PAGE_SIZE) });
       if (subjectId) params.set('subjectId', subjectId);
+      if (targetStatus) params.set('status', targetStatus);
+      if (targetSearch) params.set('search', targetSearch);
       const data = await request<PagedResult<AdminCourseListItem>>(`/api/v1/admin/courses?${params.toString()}`);
       setCourses(data.items);
+      setTotal(data.total);
     } catch (error) {
       onError(error instanceof Error ? error.message : t(locale, 'courses.feedback.loadFailed'));
     } finally {
@@ -120,10 +177,11 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
     }
   };
 
+  // PR-5 — reload when the server-side page / status / debounced search changes.
   useEffect(() => {
     void loadCourses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subjectId, refreshSignal]);
+  }, [subjectId, refreshSignal, page, statusFilter, debouncedSearch]);
 
   const handleCreate = async () => {
     if (!subjectId || !createForm.title.trim()) {
@@ -172,13 +230,19 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
     } finally { setBusy(false); }
   };
 
-  const lifecycle = async (course: AdminCourseListItem, action: 'publish' | 'archive') => {
+  const lifecycle = async (course: AdminCourseListItem, action: 'publish' | 'archive' | 'unpublish' | 'duplicate' | 'restore') => {
     setBusy(true);
     try {
       await request(`/api/v1/admin/courses/${course.id}/${action}`, { method: 'POST' });
       onNotice(action === 'publish'
         ? t(locale, 'courses.feedback.publishToast', { title: course.title })
-        : t(locale, 'courses.feedback.archiveToast', { title: course.title }));
+        : action === 'archive'
+        ? t(locale, 'courses.feedback.archiveToast', { title: course.title })
+        : action === 'unpublish'
+        ? t(locale, 'courses.feedback.unpublishToast', { title: course.title })
+        : action === 'duplicate'
+        ? t(locale, 'courses.feedback.duplicateToast', { title: course.title })
+        : t(locale, 'courses.feedback.restoreToast', { title: course.title }));
       setLifecycleTarget(null);
       await loadCourses();
     } catch (error) {
@@ -261,6 +325,37 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
         </div>
       </div>
 
+      {/* PR-5 — server-side search + status filters (the backend contract always
+          carried them; the pre-PR-5 UI never surfaced them) + the shared pager. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-56 max-w-md">
+          <Search aria-hidden="true" className="absolute top-1/2 -translate-y-1/2 w-4 h-4 ltr:left-3 rtl:right-3" style={{ color: 'var(--cms-text-muted)' }} />
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => handleSearchInput(event.target.value)}
+            placeholder={t(locale, 'courses.filterSearch')}
+            aria-label={t(locale, 'courses.filterSearch')}
+            className="w-full px-3 py-2 rounded-lg border text-sm ltr:pl-9 rtl:pr-9"
+            style={{ borderColor: 'var(--cms-line-strong)' }}
+            data-testid="courses-search-input"
+          />
+        </div>
+        <select
+          value={statusFilter}
+          onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}
+          aria-label={t(locale, 'courses.status')}
+          className="px-3 py-2 rounded-lg border text-sm"
+          style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+          data-testid="courses-status-filter"
+        >
+          <option value="">{t(locale, 'courses.filterAll')}</option>
+          <option value="Draft">{t(locale, 'courses.courseStatus.draft')}</option>
+          <option value="Published">{t(locale, 'courses.courseStatus.published')}</option>
+          <option value="Archived">{t(locale, 'courses.courseStatus.archived')}</option>
+        </select>
+      </div>
+
       {/* ===== W2 (admin-ui): create/edit course in the shared accessible Drawer
           (portal, focus trap, Esc close, logical side anchoring) — were inline
           page-heavy panels. ===== */}
@@ -328,25 +423,65 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
         </div>
       </Drawer>
 
-      {/* ===== W2 (admin-ui): explicit confirm gates for course lifecycle + delete ===== */}
+      {/* ===== W2 (admin-ui): explicit confirm gates for course lifecycle + delete =====
+          PR-5 — the lifecycle verb set grows to unpublish / duplicate / restore, and
+          the archive dialog now carries the real usage/dependency numbers. */}
       <ConfirmDialog
         open={lifecycleTarget !== null}
         onOpenChange={(next) => { if (!next) setLifecycleTarget(null); }}
         title={lifecycleTarget?.action === 'publish'
           ? t(locale, 'courses.confirm.publishTitle')
-          : t(locale, 'courses.confirm.archiveTitle')}
+          : lifecycleTarget?.action === 'archive'
+          ? t(locale, 'courses.confirm.archiveTitle')
+          : lifecycleTarget?.action === 'unpublish'
+          ? t(locale, 'courses.confirm.unpublishTitle')
+          : lifecycleTarget?.action === 'duplicate'
+          ? t(locale, 'courses.confirm.duplicateTitle')
+          : t(locale, 'courses.confirm.restoreTitle')}
         description={lifecycleTarget
           ? (lifecycleTarget.action === 'publish'
             ? t(locale, 'courses.confirm.publishDescription', { title: lifecycleTarget.course.title })
-            : t(locale, 'courses.confirm.archiveDescription', { title: lifecycleTarget.course.title }))
+            : lifecycleTarget.action === 'archive'
+            ? t(locale, 'courses.confirm.archiveDescription', { title: lifecycleTarget.course.title })
+            : lifecycleTarget.action === 'unpublish'
+            ? t(locale, 'courses.confirm.unpublishDescription', { title: lifecycleTarget.course.title })
+            : lifecycleTarget.action === 'duplicate'
+            ? t(locale, 'courses.confirm.duplicateDescription', { title: lifecycleTarget.course.title })
+            : t(locale, 'courses.confirm.restoreDescription', { title: lifecycleTarget.course.title }))
           : undefined}
-        confirmLabel={lifecycleTarget?.action === 'publish' ? copy.publish : copy.archive}
+        confirmLabel={lifecycleTarget?.action === 'publish'
+          ? copy.publish
+          : lifecycleTarget?.action === 'archive'
+          ? copy.archive
+          : lifecycleTarget?.action === 'unpublish'
+          ? t(locale, 'courses.confirm.rowUnpublish')
+          : lifecycleTarget?.action === 'duplicate'
+          ? t(locale, 'courses.confirm.rowDuplicate')
+          : t(locale, 'courses.confirm.rowRestore')}
         cancelLabel={copy.cancel}
         dir={dir}
         busy={busy}
         onConfirm={() => { if (lifecycleTarget) void lifecycle(lifecycleTarget.course, lifecycleTarget.action); }}
         testId="course-lifecycle-confirm"
-      />
+      >
+        {/* PR-5 — real usage/dependency numbers inside the archive confirm (best-effort). */}
+        {usageLoading && lifecycleTarget?.action === 'archive' && (
+          <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'courses.usage.loading')}</p>
+        )}
+        {!usageLoading && usage?.data && lifecycleTarget?.action === 'archive' && usage.courseId === lifecycleTarget.course.id && (
+          <div className="rounded-lg border p-3 space-y-1.5" style={{ borderColor: 'var(--cms-line)' }} data-testid="course-usage-warning">
+            <p className="text-xs font-semibold" style={{ color: 'var(--cms-warning)' }}>{t(locale, 'courses.usage.warning')}</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+              <span>{t(locale, 'courses.usage.episodes', { count: String(usage.data.episodesCount) })}</span>
+              <span>{t(locale, 'courses.usage.views', { count: String(usage.data.totalEpisodeViews) })}</span>
+              <span>{t(locale, 'courses.usage.favorites', { count: String(usage.data.episodeFavorites) })}</span>
+              {usage.data.hasInFlightUploads && (
+                <span className="font-medium" style={{ color: 'var(--cms-warning)' }}>{t(locale, 'courses.usage.inFlight')}</span>
+              )}
+            </div>
+          </div>
+        )}
+      </ConfirmDialog>
       <ConfirmDialog
         open={deleteTarget !== null}
         onOpenChange={(next) => { if (!next) setDeleteTarget(null); }}
@@ -445,7 +580,40 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
                             label: copy.archive,
                             icon: <Archive className="w-4 h-4" />,
                             disabled: busy,
-                            onSelect: () => setLifecycleTarget({ course, action: 'archive' }),
+                            onSelect: () => { setLifecycleTarget({ course, action: 'archive' }); void loadUsage(course.id); },
+                          }]
+                        : []),
+                      // PR-5 — unpublish reverts a published course to Draft (episodes,
+                      // blobs, favorites and progress untouched).
+                      ...(course.status === 'Published' && can('btn:library.course.publish')
+                        ? [{
+                            key: 'unpublish',
+                            label: t(locale, 'courses.confirm.rowUnpublish'),
+                            icon: <Ban className="w-4 h-4" />,
+                            disabled: busy,
+                            onSelect: () => setLifecycleTarget({ course, action: 'unpublish' }),
+                          }]
+                        : []),
+                      // PR-5 — duplicate copies the metadata as a fresh Draft (episodes
+                      // deliberately NOT copied — an upload episode owns its stored blob).
+                      ...(can('btn:library.course.create')
+                        ? [{
+                            key: 'duplicate',
+                            label: t(locale, 'courses.confirm.rowDuplicate'),
+                            icon: <Copy className="w-4 h-4" />,
+                            disabled: busy,
+                            onSelect: () => setLifecycleTarget({ course, action: 'duplicate' }),
+                          }]
+                        : []),
+                      // PR-5 — restore returns an archived course to Draft (republish
+                      // re-runs the COURSE_EMPTY validation).
+                      ...(course.status === 'Archived' && can('btn:library.course.archive')
+                        ? [{
+                            key: 'restore',
+                            label: t(locale, 'courses.confirm.rowRestore'),
+                            icon: <RotateCcw className="w-4 h-4" />,
+                            disabled: busy,
+                            onSelect: () => setLifecycleTarget({ course, action: 'restore' }),
                           }]
                         : []),
                       ...(can('btn:library.course.delete')
@@ -456,7 +624,7 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
                             icon: <Trash2 className="w-4 h-4" />,
                             disabled: busy,
                             dividerBefore: true,
-                            onSelect: () => setDeleteTarget(course),
+                            onSelect: () => { setDeleteTarget(course); void loadUsage(course.id); },
                           }]
                         : []),
                       ...(isSuperAdmin
@@ -484,6 +652,24 @@ export function CoursesCenter({ token, isArabic, onError, onNotice, subjectId, r
             </div>
           ))}
         </div>
+      )}
+
+      {/* PR-5 — the shared pager (the backend list contract was always paged). */}
+      {!loading && total > COURSES_PAGE_SIZE && (
+        <Pagination
+          page={page}
+          pageSize={COURSES_PAGE_SIZE}
+          total={total}
+          onPageChange={(next) => setPage(next)}
+          dir={isArabic ? 'rtl' : 'ltr'}
+          labels={isArabic ? undefined : {
+            prev: t(locale, 'courses.pagerPrev'),
+            next: t(locale, 'courses.pagerNext'),
+            navLabel: t(locale, 'courses.pagerNavLabel'),
+            pageOf: (p, tp) => t(locale, 'courses.pagerPageOf', { page: String(p), total: String(tp) }),
+          }}
+          testId="courses-list-pagination"
+        />
       )}
     </section>
   );

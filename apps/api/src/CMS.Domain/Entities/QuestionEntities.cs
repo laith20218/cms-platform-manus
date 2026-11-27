@@ -496,6 +496,17 @@ public class Exam : AuditableEntity
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>PR-5 — restores an archived exam back to Draft. Only Archived rows
+    /// qualify (mirror of the academic restore); republish is a separate deliberate
+    /// step. Soft-deleted rows are not restorable through this path.</summary>
+    public void RestoreFromArchive()
+    {
+        if (Status != ContentStatus.Archived)
+            throw new BusinessRuleViolationException("يمكن استعادة الاختبارات المؤرشفة فقط");
+        Status = ContentStatus.Draft;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     /// <summary>W14.2 C.2: reverts a published exam to Draft (editor's "إلغاء النشر").
     /// Existing sessions keep their snapshots (D2) — only new starts are blocked.</summary>
     public void Unpublish()

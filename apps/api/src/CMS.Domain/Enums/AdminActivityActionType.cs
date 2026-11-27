@@ -20,5 +20,9 @@ public enum AdminActivityActionType
     CreateCourse = 4,
 
     /// <summary>رفع حلقة فيديو — a course episode upload was completed and verified (Push 4).</summary>
-    UploadEpisode = 5
+    UploadEpisode = 5,
+
+    /// <summary>تحديث كورس — a course lifecycle/config change (PR-5: unpublish /
+    /// restore / duplicate state transitions are auditable like every other mutation).</summary>
+    UpdateCourse = 6
 }

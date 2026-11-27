@@ -267,3 +267,21 @@ public record ExamQuestionStatsDto(
     bool Problematic);
 
 public record ExamHeartbeatDto(Guid SessionId, string Status, int RemainingSeconds, DateTime? ExpiresAt);
+
+// ===== PR-5 — pre-flight composition validation (editor warnings) =====
+/// <summary>Per-question issue collected (never thrown) so the editor can warn BEFORE
+/// the publish attempt fails. Mirrors the server-side publish checks exactly.</summary>
+public record ExamCompositionIssueDto(
+    Guid QuestionId,
+    string QuestionText,
+    int SortOrder,
+    string IssueCode,
+    string IssueMessageAr);
+
+public record ExamCompositionValidationDto(
+    Guid ExamId,
+    bool IsValid,
+    int TotalQuestions,
+    int ValidQuestions,
+    int InvalidQuestions,
+    List<ExamCompositionIssueDto> Issues);
