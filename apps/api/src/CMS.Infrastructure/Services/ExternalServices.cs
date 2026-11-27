@@ -333,6 +333,51 @@ public class S3StorageService : IFileStorageService
         await _client.DeleteObjectAsync(_bucketName, key, cancellationToken: ct);
     }
 
+    /// <summary>PR-5 — final-deletion primitive (purge flow ONLY): lists every object
+    /// under the prefix (paged ListObjectsV2) and physically deletes them in batches of
+    /// 1000 (the S3 DeleteObjects API maximum). Idempotent: an exhausted listing deletes
+    /// nothing and returns 0. Provider-neutral across S3-compatible stores (B2 today).</summary>
+    public async Task<int> DeletePrefixAsync(string keyPrefix, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(keyPrefix))
+            throw new InvalidOperationException("Object key prefix must be supplied");
+
+        var trimmed = keyPrefix.Trim().TrimEnd('/');
+        if (trimmed.Length == 0)
+            throw new InvalidOperationException("Object key prefix must not be the bucket root");
+
+        var total = 0;
+        string? continuation = null;
+        do
+        {
+            var listRequest = new Amazon.S3.Model.ListObjectsV2Request
+            {
+                BucketName = _bucketName,
+                Prefix = $"{trimmed}/",
+                ContinuationToken = continuation,
+            };
+            var listResponse = await _client.ListObjectsV2Async(listRequest, ct);
+            var keys = listResponse.S3Objects
+                .Where(obj => !string.IsNullOrWhiteSpace(obj.Key))
+                .Select(obj => obj.Key)
+                .ToList();
+            for (var offset = 0; offset < keys.Count; offset += 1000)
+            {
+                var batch = keys.Skip(offset).Take(1000);
+                var deleteRequest = new Amazon.S3.Model.DeleteObjectsRequest
+                {
+                    BucketName = _bucketName,
+                    Objects = batch.Select(key => new Amazon.S3.Model.KeyVersion { Key = key }).ToList(),
+                };
+                var deleteResponse = await _client.DeleteObjectsAsync(deleteRequest, ct);
+                total += deleteResponse.DeletedObjects.Count;
+            }
+            continuation = listResponse.IsTruncated == true ? listResponse.NextContinuationToken : null;
+        } while (continuation is not null);
+
+        return total;
+    }
+
     public async Task<bool> ExistsAsync(string key, CancellationToken ct = default)
     {
         try
@@ -661,6 +706,59 @@ public class UpstashBlobStorageService : IFileStorageService
     /// presigned URLs is fragile across S3-compatible providers and adds latency.
     /// </summary>
     public Task<bool> ExistsAsync(string key, CancellationToken ct = default) => Task.FromResult(true);
+
+    /// <summary>PR-5 — final-deletion primitive (purge flow ONLY), the retired-provider
+    /// implementation. Listed + batched physical deletion over the same short-lived
+    /// credential lease the multipart suite uses. Idempotent: an empty listing returns 0.
+    /// The provider is retired (read-only account) and this path is never registered in
+    /// DI — it exists so the interface contract stays satisfied.</summary>
+    public async Task<int> DeletePrefixAsync(string keyPrefix, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(keyPrefix))
+            throw new ArgumentException("Object key prefix must be provided by the server.", nameof(keyPrefix));
+        var trimmed = keyPrefix.Trim().TrimEnd('/');
+        if (trimmed.Length == 0)
+            throw new ArgumentException("Object key prefix must not be the bucket root.", nameof(keyPrefix));
+
+        var lease = await _s3ClientFactory.CreateAsync(ct);
+        try
+        {
+            var total = 0;
+            string? continuation = null;
+            do
+            {
+                var listing = await lease.Client.ListObjectsV2Async(new ListObjectsV2Request
+                {
+                    BucketName = lease.Bucket,
+                    Prefix = $"{trimmed}/",
+                    ContinuationToken = continuation,
+                }, ct);
+                var keys = listing.S3Objects
+                    .Where(obj => !string.IsNullOrWhiteSpace(obj.Key))
+                    .Select(obj => obj.Key)
+                    .ToList();
+                for (var offset = 0; offset < keys.Count; offset += 1000)
+                {
+                    var response = await lease.Client.DeleteObjectsAsync(new DeleteObjectsRequest
+                    {
+                        BucketName = lease.Bucket,
+                        Objects = keys.Skip(offset).Take(1000)
+                            .Select(key => new KeyVersion { Key = key }).ToList(),
+                    }, ct);
+                    total += response.DeletedObjects.Count;
+                }
+                continuation = listing.IsTruncated == true ? listing.NextContinuationToken : null;
+            } while (continuation is not null);
+            return total;
+        }
+        catch (AmazonS3Exception ex)
+        {
+            _logger.LogError(ex,
+                "S3 prefix delete rejected: HTTP {StatusCode} from {ServiceURL} for bucket {Bucket}, prefix {Prefix}",
+                (int)ex.StatusCode, lease.ServiceURL, lease.Bucket, trimmed);
+            throw;
+        }
+    }
 
     // ===== Push 4 / Track 4: S3 multipart via the short-lived credential lease =====
     // Verified live against Cloudflare R2 (Phase 2 gate): InitiateMultipartUpload,

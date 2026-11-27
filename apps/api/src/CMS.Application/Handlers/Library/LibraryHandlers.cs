@@ -608,9 +608,11 @@ public class LibraryHandlers :
         var file = await _db.LibraryFiles.FirstOrDefaultAsync(f => f.Id == req.Id, ct)
             ?? throw new NotFoundException("LibraryFile", req.Id);
 
-        // Soft delete
-        typeof(LibraryFile).GetProperty("DeletedAt")?.SetValue(file, DateTime.UtcNow);
-        typeof(LibraryFile).GetProperty("Status")?.SetValue(file, ContentStatus.Deleted);
+        // PR-5 — the tombstone transition moved into the entity (Tombstone()): the
+        // row now carries the retention-pending state AND the deleting actor
+        // (DeletedBy was previously only recorded on the audit event, never on the
+        // row). The stored object is never touched here — retention contract below.
+        file.Tombstone(req.DeletedBy);
 
         await _unitOfWork.SaveChangesAsync(ct);
 
@@ -640,7 +642,8 @@ public class LibraryHandlers :
         ? SubscriptionContentScope.VideoAudio
         : SubscriptionContentScope.LecturesText;
 
-    private static LibraryFileDto MapToDto(LibraryFile f) => new(
+    // PR-5 — shared with LibraryRetentionHandlers (quarantine/restore DTO mapping).
+    internal static LibraryFileDto MapToDto(LibraryFile f) => new(
         f.Id, f.SubjectId, f.LectureId, f.Type.ToString(), f.Category?.ToString(),
         f.Title, f.Description, f.FileSize, f.FileFormat,
         f.DurationSeconds, f.PagesCount, f.ThumbnailUrl,
@@ -672,6 +675,13 @@ public class LibraryHandlers :
         // Wave 13 (F3) — HTML player pipeline exposure (additive DTO keys).
         f.ContentProcessingStatus,
         f.EnableScripts,
-        f.PublicCode
+        f.PublicCode,
+        // PR-5 — provider-neutral object-retention lifecycle exposure (additive keys).
+        f.RetentionState?.ToString(),
+        f.QuarantinedAt,
+        f.QuarantinedBy,
+        f.QuarantineReason,
+        f.DeletedAt,
+        f.DeletedBy
     );
 }

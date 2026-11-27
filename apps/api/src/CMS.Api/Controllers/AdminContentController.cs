@@ -79,12 +79,27 @@ public sealed class AdminContentController : ControllerBase
     [HttpGet("files")]
     public async Task<ActionResult<AdminPagedResult<AdminLibraryFileListItem>>> GetFiles(
         [FromQuery] Guid? subjectId, [FromQuery] string? status, [FromQuery] string? search, [FromQuery] string? category,
+        [FromQuery] string? lifecycle,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
     {
         var scope = await GetAuthorizedScopeAsync(Resources.Library, ct);
         if (scope is null) return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
 
-        var query = ApplyFileScope(_db.LibraryFiles.AsNoTracking().Where(file => file.DeletedAt == null), scope);
+        // PR-5 — retention lifecycle view of the admin list. Default (no param): the
+        // pre-PR-5 contract is preserved byte-for-byte (active rows only — tombstoned
+        // rows stay invisible, quarantined rows keep appearing as Archived).
+        //   lifecycle=tombstoned → soft-deleted (retention-pending) rows only;
+        //   lifecycle=quarantined → quarantined rows only;
+        //   lifecycle=all         → every row (tombstone management surface).
+        var filtered = (lifecycle ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "tombstoned" => _db.LibraryFiles.AsNoTracking().Where(file => file.DeletedAt != null),
+            "quarantined" => _db.LibraryFiles.AsNoTracking().Where(
+                file => file.RetentionState == CMS.Domain.Enums.LibraryRetentionState.Quarantined),
+            "all" => _db.LibraryFiles.AsNoTracking(),
+            _ => _db.LibraryFiles.AsNoTracking().Where(file => file.DeletedAt == null),
+        };
+        var query = ApplyFileScope(filtered, scope);
         if (subjectId.HasValue) query = query.Where(file => file.SubjectId == subjectId.Value);
         if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<CMS.Domain.Enums.ContentStatus>(status, true, out var parsedStatus))
             query = query.Where(file => file.Status == parsedStatus);
@@ -113,7 +128,18 @@ public sealed class AdminContentController : ControllerBase
                 file.PdfProcessingStatus == null ? null : file.ProcessingError),
             // Wave 13 (F3) — HTML player pipeline keys (same additive contract).
             file.ContentProcessingStatus == null ? null : file.ContentProcessingStatus.ToString(),
-            file.EnableScripts), ct));
+            file.EnableScripts,
+            // PR-5 — provider-neutral retention lifecycle exposure (additive keys; null
+            // RetentionState = Active). Usage counters + quarantine/tombstone actor +
+            // timestamps power the retention management surface.
+            file.ViewsCount,
+            file.FavoritesCount,
+            file.RetentionState == null ? null : file.RetentionState.ToString(),
+            file.QuarantinedAt,
+            file.QuarantinedBy,
+            file.QuarantineReason,
+            file.DeletedAt,
+            file.DeletedBy), ct));
     }
 
     [HttpGet("academic/subjects/{subjectId:guid}/lectures")]
@@ -189,5 +215,15 @@ public record AdminLibraryFileListItem(Guid Id, Guid SubjectId, Guid? LectureId,
     // R22.5.1 — the derived health badge classification ("Healthy" | "BrokenArabic" | null).
     string? HealthStatus = null,
     // Wave 13 (F3) — HTML player pipeline surface (additive, nullable → legacy rows unaffected).
-    string? ContentProcessingStatus = null, bool EnableScripts = false);
+    string? ContentProcessingStatus = null, bool EnableScripts = false,
+    // PR-5 — provider-neutral retention lifecycle + usage surface (additive keys).
+    // Null RetentionState = Active; quarantined/tombstoned rows carry actor + timestamps.
+    int ViewsCount = 0,
+    int FavoritesCount = 0,
+    string? RetentionState = null,
+    DateTime? QuarantinedAt = null,
+    Guid? QuarantinedBy = null,
+    string? QuarantineReason = null,
+    DateTime? TombstonedAt = null,
+    Guid? TombstonedBy = null);
 public record AdminLectureListItem(Guid Id, Guid SubjectId, string TitleAr, string? TitleEn, string Slug, int LectureNumber, int? DurationMinutes, string? Description, string? InstructorName, string? SourceReference, string Status, bool IsArchived);

@@ -159,16 +159,70 @@ export const libraryDict = {
     retry: { ar: 'إعادة المحاولة', en: 'Retry' },
   },
 
-  // ===== Lifecycle confirm dialogs (publish/archive/hard delete) =====
+  // ===== Lifecycle confirm dialogs (publish/archive/delete/quarantine/restore/purge) =====
   confirm: {
     publishTitle: { ar: 'نشر الملف', en: 'Publish file' },
     publishDescription: { ar: 'سيصبح الملف "{{title}}" مرئيًا لجميع الطلاب ضمن المادة وسيظهر في نتائج البحث.', en: '"{{title}}" will become visible to all students of the subject and appear in search results.' },
     archiveTitle: { ar: 'أرشفة الملف', en: 'Archive file' },
     archiveDescription: { ar: 'سيُخفى الملف "{{title}}" من اكتشاف الطلاب. يمكن استعادته بالنشر لاحقًا ولا يُحذف نهائيًا.', en: '"{{title}}" will be hidden from student discovery. It can be re-published later and is not permanently deleted.' },
     deleteTitle: { ar: 'تأكيد الحذف', en: 'Confirm delete' },
-    deleteText: { ar: 'هذا الإجراء دائم. سيُحذف الملف من التخزين والقاعدة.', en: 'This is permanent. The file will be removed from storage and database.' },
-    deleteButton: { ar: 'حذف نهائي', en: 'Delete permanently' },
+    // PR-5 — corrected text: a normal delete is a tombstone under object retention,
+    // NOT an immediate storage removal. The pre-PR-5 text claimed removal from
+    // storage + database, which the backend never did after PR-1.
+    deleteText: { ar: 'سيُنقل الملف إلى قائمة الاحتجاز (حذف برمي من قاعدة البيانات مع بقاء الملف المخزّن محتجزاً لمدة العزل قبل أي حذف نهائي منفصل ومُصادَق عليه).', en: 'The file moves to the retention list (soft-deleted from the database; the stored object stays under retention for the retention window before any separate, approved final deletion).' },
+    deleteButton: { ar: 'نقل إلى الاحتجاز', en: 'Move to retention' },
     hardDeleteConsequence: { ar: 'سيُحذف الملف نهائيًا من قاعدة البيانات مع علاماته وتعليقاته ومشاهداته (تجاوز الأرشفة).', en: 'The file is physically deleted with its bookmarks, annotations and views (bypassing archive).' },
+  },
+
+  // ===== PR-5 — provider-neutral object-retention lifecycle =====
+  retention: {
+    // Lifecycle filter chips (the admin list retention view).
+    filterLabel: { ar: 'دورة حياة الملفات', en: 'File lifecycle' },
+    filterActive: { ar: 'الملفات النشطة', en: 'Active files' },
+    filterTombstoned: { ar: 'قيد الاحتجاز (محذوفة برمياً)', en: 'Retention pending (soft-deleted)' },
+    filterQuarantined: { ar: 'الملفات المعزولة', en: 'Quarantined files' },
+    // Row actions.
+    quarantineAction: { ar: 'عزل الملف', en: 'Quarantine file' },
+    restoreAction: { ar: 'استعادة الملف', en: 'Restore file' },
+    purgeAction: { ar: 'حذف نهائي من التخزين', en: 'Final delete from storage' },
+    // Quarantine dialog.
+    quarantineTitle: { ar: 'عزل الملف', en: 'Quarantine file' },
+    quarantineText: { ar: 'سيُسحب الملف "{{title}}" من تداول الطلاب فوراً (شبهة برمج خبيث أو مراجعة محتوى). الملف المخزّن لا يُمَس ويبقى قابلاً للاستعادة دون فقد بيانات.', en: '"{{title}}" is pulled from student circulation immediately (suspected malware or content review). The stored object is untouched and stays restorable without data loss.' },
+    quarantineReasonLabel: { ar: 'سبب العزل (مطلوب)', en: 'Quarantine reason (required)' },
+    quarantineReasonPlaceholder: { ar: 'مثال: اشتباه إعلان خبيث داخل الدرس التفاعلي', en: 'e.g. suspected malicious ad inside the interactive lesson' },
+    quarantineButton: { ar: 'عزل الملف', en: 'Quarantine file' },
+    quarantineReasonRequired: { ar: 'سبب العزل مطلوب.', en: 'A quarantine reason is required.' },
+    // Restore dialog.
+    restoreTitle: { ar: 'استعادة الملف', en: 'Restore file' },
+    restoreFromTombstoneText: { ar: 'سيُلغى حذف الملف "{{title}}" البرمي ويعود كمسودة — إعادة النشر خطوة منفصلة.', en: 'The soft delete of "{{title}}" is undone and the file returns as a draft — republishing is a separate step.' },
+    restoreFromQuarantineText: { ar: 'سيُرفع العزل عن الملف "{{title}}" ويعود كمسودة — راجع سبب العزل ثم أعد النشر.', en: 'Quarantine is lifted from "{{title}}" and the file returns as a draft — review the quarantine reason, then republish.' },
+    restoreButton: { ar: 'استعادة', en: 'Restore' },
+    // Purge (final deletion) dialog — password re-auth + retention window.
+    purgeTitle: { ar: 'الحذف النهائي من التخزين', en: 'Final deletion from storage' },
+    purgeText: { ar: 'سيُحذف الملف "{{title}}" وكل نسخه المشتقة نهائياً من التخزين ومن قاعدة البيانات مع مشاهداته وتعليقاته وعلاماته. هذا الإجراء لا يمكن التراجع عنه، ويتطلب إعادة إدخال كلمة مرورك.', en: '"{{title}}" and every derived copy are permanently deleted from storage and the database with its views, annotations and bookmarks. This cannot be undone and requires re-entering your password.' },
+    purgePasswordLabel: { ar: 'كلمة مرورك للمدير العام (إعادة المصادقة)', en: 'Your admin password (re-authentication)' },
+    purgePasswordPlaceholder: { ar: 'كلمة المرور', en: 'Password' },
+    purgeButton: { ar: 'حذف نهائي من التخزين', en: 'Final delete from storage' },
+    purgePasswordRequired: { ar: 'أعد إدخال كلمة المرور للمتابعة.', en: 'Re-enter your password to continue.' },
+    purgeBlockedActive: { ar: 'لا يمكن الحذف النهائي لملف نشط — احذفه أولاً (يبقى محتجزاً) ثم نفّذ الحذف النهائي.', en: 'An active file cannot be final-deleted — delete it first (it stays under retention), then run the final deletion.' },
+    // Table surfaces: retention badge + metadata columns.
+    retentionBadge: { ar: 'الاحتجاز', en: 'Retention' },
+    quarantineBadge: { ar: 'معزول', en: 'Quarantined' },
+    quarantineReasonCell: { ar: 'سبب العزل', en: 'Quarantine reason' },
+    quarantinedAtCell: { ar: 'معزول منذ', en: 'Quarantined at' },
+    tombstonedAtCell: { ar: 'محذوف منذ', en: 'Tombstoned at' },
+    viewsCell: { ar: 'المشاهدات', en: 'Views' },
+    favoritesCell: { ar: 'المفضلة', en: 'Favorites' },
+    emptyTombstoned: { ar: 'لا توجد ملفات قيد الاحتجاز ضمن نطاقك.', en: 'No files under retention within your scope.' },
+    emptyQuarantined: { ar: 'لا توجد ملفات معزولة ضمن نطاقك.', en: 'No quarantined files within your scope.' },
+    // Toasts.
+    quarantinedToast: { ar: 'تم عزل الملف وإخفاؤه عن الطلاب.', en: 'File quarantined and hidden from students.' },
+    restoredToast: { ar: 'تمت استعادة الملف كمسودة.', en: 'File restored as a draft.' },
+    purgedToast: { ar: 'تم الحذف النهائي للملف من التخزين والقاعدة.', en: 'File final-deleted from storage and the database.' },
+    quarantineFailed: { ar: 'فشل عزل الملف.', en: 'Failed to quarantine the file.' },
+    restoreFailed: { ar: 'فشلت استعادة الملف.', en: 'Failed to restore the file.' },
+    purgeFailed: { ar: 'فشل الحذف النهائي.', en: 'Final deletion failed.' },
+    purgeDisabledHint: { ar: 'الحذف النهائي معطّل في هذه البيئة (Features:HardDeleteEnabled).', en: 'Final deletion is disabled in this environment (Features:HardDeleteEnabled).' },
   },
 
   // ===== Metadata edit modal (PUT /library/{id}) =====

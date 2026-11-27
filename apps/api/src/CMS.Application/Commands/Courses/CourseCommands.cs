@@ -46,6 +46,27 @@ public record ArchiveCourseCommand(Guid Id) : IRequest<CourseDto>;
 
 public record DeleteCourseCommand(Guid Id, Guid DeletedBy) : IRequest<Unit>;
 
+// ===== PR-5 — content-centers lifecycle completion =====
+
+/// <summary>Reverts a published course to Draft (mirror of the exam unpublish):
+/// students stop seeing the course; episodes keep their rows and blobs; existing
+/// favorites/progress are untouched. Republish stays a separate validated step.</summary>
+public record UnpublishCourseCommand(Guid Id, Guid UpdatedBy) : IRequest<CourseDto>;
+
+/// <summary>Duplicates the course metadata as a fresh Draft. Episodes are deliberately
+/// NOT copied: an upload episode OWNS its stored blob (delete purges it), so copying
+/// rows would make two courses co-own one physical object and the first deletion would
+/// orphan the other. The copy is an empty draft shell the editor repopulates.</summary>
+public record DuplicateCourseCommand(Guid Id, Guid DuplicatedBy) : IRequest<CourseDto>;
+
+/// <summary>Restores an archived course back to Draft (republish stays a separate,
+/// validated step — COURSE_EMPTY re-runs on publish).</summary>
+public record RestoreCourseCommand(Guid Id, Guid RestoredBy) : IRequest<CourseDto>;
+
+/// <summary>Usage/dependency summary powering the archive/delete warning dialogs:
+/// episode count, total views, episode favorites — real numbers from real rows.</summary>
+public record GetCourseUsageQuery(Guid Id) : IRequest<CourseUsageDto>;
+
 // ===== Admin: episode CRUD =====
 public record AddYouTubeEpisodeCommand(
     Guid CourseId,

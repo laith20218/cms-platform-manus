@@ -55,6 +55,18 @@ public record UnpublishExamCommand(Guid Id, Guid UpdatedBy) : IRequest<Unit>;
 /// <summary>Full ordered list of the exam's bank questions; index becomes ExamQuestion.SortOrder.</summary>
 public record ReorderExamQuestionsCommand(Guid ExamId, List<Guid> QuestionIds, Guid UpdatedBy) : IRequest<AdminExamDetailsDto>;
 
+// ===== PR-5 — content-centers lifecycle completion =====
+/// <summary>Duplicates an exam (configuration + question composition) as a fresh Draft
+/// (mirrors the question duplicate convention). Existing sessions/results are NOT copied.</summary>
+public record DuplicateExamCommand(Guid Id, Guid DuplicatedBy) : IRequest<AdminExamDetailsDto>;
+
+/// <summary>Restores an archived exam back to Draft (republish stays a separate step).</summary>
+public record RestoreExamCommand(Guid Id, Guid RestoredBy) : IRequest<Unit>;
+
+/// <summary>Pre-flight composition report: per-question validity issues collected (not
+/// thrown) so the editor can warn BEFORE the publish attempt fails.</summary>
+public record GetExamCompositionValidationQuery(Guid ExamId, Guid AdminId) : IRequest<ExamCompositionValidationDto>;
+
 // ===== W14.2 D.1/D.2/D.4 — stats + heartbeat =====
 public record GetExamStatsQuery(Guid ExamId, Guid AdminId) : IRequest<ExamStatsDto>;
 public record GetExamQuestionStatsQuery(Guid ExamId, Guid AdminId) : IRequest<List<ExamQuestionStatsDto>>;

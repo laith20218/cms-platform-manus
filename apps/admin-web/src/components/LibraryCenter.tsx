@@ -50,8 +50,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, Archive, CheckCircle2, FileText, FileImage, FileVideo,
-  FileAudio, FileCode, HelpCircle, Images, Library, LoaderCircle, MonitorPlay, Plus,
-  Pencil, RefreshCw, Search, ShieldCheck, Trash2, Upload, X, Film,
+  FileAudio, FileCode, Flame, HelpCircle, Images, Library, LoaderCircle, MonitorPlay, Plus,
+  Pencil, RefreshCw, RotateCcw, Search, ShieldAlert, ShieldCheck, Trash2, Upload, X, Film,
 } from 'lucide-react';
 import { ConfirmDialog, Dialog, Pagination, RowActionsMenu } from '@cms/ui';
 import { HardDeleteDialog, type HardDeleteTarget } from './HardDeleteDialog';
@@ -240,10 +240,15 @@ const typeLabel = (type: string, isArabic: boolean) =>
 // PR-3 — legacy contract kept byte-identical: ANY value other than
 // published/archived (draft included) renders the Draft label, so the
 // publication registry's «Unspecified» never leaks onto this surface.
+// PR-5 — the retention views surface tombstoned rows (wire Status = Deleted):
+// those render the retention-pending label instead of the misleading Draft one.
 const statusLabel = (status: string, isArabic: boolean) => {
   const value = status.toLowerCase();
   if (value === 'published' || value === 'archived') {
     return registryLabel(localeOf(isArabic), 'publication', value);
+  }
+  if (value === 'deleted') {
+    return registryLabel(localeOf(isArabic), 'retention', 'retentionpending');
   }
   return registryLabel(localeOf(isArabic), 'publication', 'draft');
 };
@@ -314,8 +319,21 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // PR-5 — retention lifecycle view of the admin list: 'active' (default, the
+  // pre-PR-5 contract), 'tombstoned' (retention pending) or 'quarantined'.
+  const [lifecycleFilter, setLifecycleFilter] = useState<'active' | 'tombstoned' | 'quarantined'>('active');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // PR-5 — quarantine dialog state (reason is required by the backend).
+  const [quarantineTarget, setQuarantineTarget] = useState<AdminLibraryFileListItem | null>(null);
+  const [quarantineReason, setQuarantineReason] = useState('');
+  // PR-5 — restore confirm state.
+  const [restoreTarget, setRestoreTarget] = useState<AdminLibraryFileListItem | null>(null);
+  // PR-5 — purge (final deletion) state: password re-auth inside the dialog.
+  const [purgeTarget, setPurgeTarget] = useState<AdminLibraryFileListItem | null>(null);
+  const [purgePassword, setPurgePassword] = useState('');
+  const [purgePasswordError, setPurgePasswordError] = useState('');
 
   const [showUpload, setShowUpload] = useState(false);
   const [form, setForm] = useState<UploadForm>(emptyForm());
@@ -426,6 +444,11 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     if (statusFilter) params.set('status', statusFilter);
     if (categoryFilter) params.set('category', categoryFilter);
     if (query.trim()) params.set('search', query.trim());
+    // PR-5 — the retention lifecycle view: 'active' stays the default (the
+    // pre-PR-5 list contract — tombstoned rows invisible); 'tombstoned' and
+    // 'quarantined' surface the retention-managed rows.
+    if (lifecycleFilter === 'tombstoned') params.set('lifecycle', 'tombstoned');
+    else if (lifecycleFilter === 'quarantined') params.set('lifecycle', 'quarantined');
     try {
       const data = await request<PagedResult<AdminLibraryFileListItem>>(`/api/v1/admin/content/files?${params.toString()}`);
       setFiles(data.items);
@@ -439,10 +462,12 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
   };
 
   useEffect(() => {
-    if (subjectId || statusFilter || query || categoryFilter) void loadFiles(1);
+    // PR-5 — a retention view (tombstoned/quarantined) loads independently of
+    // the academic cascade: tombstones live across every subject in scope.
+    if (subjectId || statusFilter || query || categoryFilter || lifecycleFilter !== 'active') void loadFiles(1);
     else { setFiles([]); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subjectId, statusFilter, categoryFilter]);
+  }, [subjectId, statusFilter, categoryFilter, lifecycleFilter]);
 
   // ===== Wave 11.9 — Ghostscript processing tracker =====
   // complete-upload no longer closes the panel: the uploaded row is tracked
@@ -754,6 +779,88 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     }
   };
 
+  // ===== PR-5 — provider-neutral object-retention lifecycle =====
+
+  /** Quarantine: pulls the asset from circulation on suspicion; the stored object
+   *  is never touched and the row records the actor + reason + timestamp. */
+  const handleQuarantine = async () => {
+    if (!quarantineTarget) return;
+    const reason = quarantineReason.trim();
+    if (!reason) {
+      setPurgePasswordError(''); // keep unrelated dialogs clean
+      onError(t(locale, 'library.retention.quarantineReasonRequired'));
+      return;
+    }
+    setBusy(true);
+    try {
+      await request<unknown>(`/api/v1/library/${quarantineTarget.id}/quarantine`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      onNotice(t(locale, 'library.retention.quarantinedToast'));
+      setQuarantineTarget(null);
+      setQuarantineReason('');
+      await loadFiles(page);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : t(locale, 'library.retention.quarantineFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Restore: lifts quarantine or clears the tombstone; the file returns as Draft. */
+  const handleRestore = async () => {
+    if (!restoreTarget) return;
+    setBusy(true);
+    try {
+      await request<unknown>(`/api/v1/library/${restoreTarget.id}/restore`, { method: 'POST' });
+      onNotice(t(locale, 'library.retention.restoredToast'));
+      setRestoreTarget(null);
+      await loadFiles(page);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : t(locale, 'library.retention.restoreFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Final deletion (purge): SuperAdmin + password re-auth + the retention window
+   *  are enforced server-side; every stored object under the upload prefix is
+   *  physically deleted, then the row. This is the ONLY path that destroys blobs. */
+  const handlePurge = async () => {
+    if (!purgeTarget) return;
+    if (!purgePassword) {
+      setPurgePasswordError(t(locale, 'library.retention.purgePasswordRequired'));
+      return;
+    }
+    setBusy(true);
+    try {
+      await request<unknown>(`/api/v1/library/${purgeTarget.id}/purge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorPassword: purgePassword }),
+      });
+      onNotice(t(locale, 'library.retention.purgedToast'));
+      setPurgeTarget(null);
+      setPurgePassword('');
+      setPurgePasswordError('');
+      await loadFiles(page);
+    } catch (error) {
+      // The password field error is a re-auth failure; everything else surfaces
+      // through the shared error surface (retention window, flag, scope…).
+      const apiError = error as { errorCode?: string };
+      if (apiError?.errorCode === 'INVALID_CURRENT_PASSWORD') {
+        setPurgePasswordError(t(locale, 'library.retention.purgePasswordRequired'));
+      } else {
+        setPurgePasswordError('');
+        onError(error instanceof Error ? error.message : t(locale, 'library.retention.purgeFailed'));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   function closeUpload() {
     setShowUpload(false);
     setForm(emptyForm());
@@ -968,6 +1075,23 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
           <option value="Published">{statusLabel('Published', isArabic)}</option>
           <option value="Archived">{statusLabel('Archived', isArabic)}</option>
         </select>
+        {/* PR-5 — retention lifecycle view: active (default) | retention pending
+            (tombstoned) | quarantined. Switching loads the corresponding rows. */}
+        <select
+          value={lifecycleFilter}
+          onChange={(event) => {
+            const value = event.target.value;
+            setLifecycleFilter(value === 'tombstoned' || value === 'quarantined' ? value : 'active');
+          }}
+          aria-label={t(locale, 'library.retention.filterLabel')}
+          className="px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+          style={{ borderColor: 'var(--cms-line-strong)', color: lifecycleFilter === 'active' ? undefined : 'var(--cms-warning)' }}
+          data-testid="library-lifecycle-filter"
+        >
+          <option value="active">{t(locale, 'library.retention.filterActive')}</option>
+          <option value="tombstoned">{t(locale, 'library.retention.filterTombstoned')}</option>
+          <option value="quarantined">{t(locale, 'library.retention.filterQuarantined')}</option>
+        </select>
         {/* Push 4: institutional category filter (منهاج/محاضرة/تلخيص/أفكار ذهبية). */}
         <select
           value={categoryFilter}
@@ -1086,6 +1210,24 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
                         {statusLabel(file.status, isArabic)}
                       </span>
+                      {/* PR-5 — retention lifecycle badge: quarantined rows carry the
+                          quarantine state + reason + timestamp; tombstoned rows show
+                          the retention-pending state + tombstone timestamp. */}
+                      {file.retentionState === 'Quarantined' && (
+                        <span
+                          className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border bg-amber-50 border-amber-300 text-amber-700"
+                          title={file.quarantineReason ?? undefined}
+                          data-testid="library-retention-badge"
+                        >
+                          {t(locale, 'library.retention.quarantineBadge')}
+                        </span>
+                      )}
+                      {lifecycleFilter === 'tombstoned' && file.tombstonedAt && (
+                        <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border bg-amber-50 border-amber-300 text-amber-700" data-testid="library-retention-badge">
+                          {t(locale, 'library.retention.filterTombstoned')}
+                          <span className="opacity-70">{new Date(file.tombstonedAt).toLocaleDateString(isArabic ? 'ar' : 'en')}</span>
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs border ${scanBadgeClass(file.virusScanStatus)}`}>
@@ -1150,7 +1292,41 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                                 onSelect: () => setArchiveTarget(file),
                               }]
                             : []),
-                          ...(can('btn:library.delete')
+                          // PR-5 — quarantine pulls the asset from circulation on
+                          // suspicion (reason required in the dialog; object untouched).
+                          ...(file.retentionState !== 'Quarantined' && !file.tombstonedAt && can('btn:library.publish')
+                            ? [{
+                                key: 'quarantine',
+                                label: t(locale, 'library.retention.quarantineAction'),
+                                icon: <ShieldAlert className="w-4 h-4" />,
+                                disabled: busy,
+                                onSelect: () => { setQuarantineTarget(file); setQuarantineReason(''); },
+                              }]
+                            : []),
+                          // PR-5 — restore lifts quarantine or clears the tombstone.
+                          ...((file.retentionState === 'Quarantined' || file.tombstonedAt) && can('btn:library.publish')
+                            ? [{
+                                key: 'restore',
+                                label: t(locale, 'library.retention.restoreAction'),
+                                icon: <RotateCcw className="w-4 h-4" />,
+                                disabled: busy,
+                                onSelect: () => setRestoreTarget(file),
+                              }]
+                            : []),
+                          // PR-5 — final deletion (purge): SuperAdmin + password re-auth
+                          // + retention window enforced server-side; the ONLY path that
+                          // physically destroys stored objects.
+                          ...((file.retentionState === 'Quarantined' || file.tombstonedAt) && isSuperAdmin
+                            ? [{
+                                key: 'purge',
+                                label: t(locale, 'library.retention.purgeAction'),
+                                danger: true,
+                                dividerBefore: true,
+                                icon: <Flame className="w-4 h-4" />,
+                                onSelect: () => { setPurgeTarget(file); setPurgePassword(''); setPurgePasswordError(''); },
+                              }]
+                            : []),
+                          ...(can('btn:library.delete') && !file.tombstonedAt
                             ? [{
                                 key: 'delete',
                                 label: copy.delete,
@@ -1758,6 +1934,153 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         onConfirm={() => { if (confirmDelete) void handleDelete(confirmDelete); }}
         testId="library-delete-confirm"
       />
+
+      {/* ===== PR-5 — provider-neutral object-retention lifecycle dialogs ===== */}
+
+      {/* Quarantine: reason REQUIRED (recorded on the row + audit log); the stored
+          object is never touched and the file returns to Draft on restore. */}
+      <ConfirmDialog
+        open={quarantineTarget !== null}
+        onOpenChange={(next) => { if (!next && !busy) { setQuarantineTarget(null); setQuarantineReason(''); } }}
+        title={t(locale, 'library.retention.quarantineTitle')}
+        description={quarantineTarget
+          ? t(locale, 'library.retention.quarantineText', { title: quarantineTarget.title })
+          : undefined}
+        confirmLabel={t(locale, 'library.retention.quarantineButton')}
+        cancelLabel={copy.cancel}
+        busy={busy}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        onConfirm={() => { void handleQuarantine(); }}
+        testId="library-quarantine-confirm"
+      >
+        <div className="space-y-1.5">
+          <label htmlFor="library-quarantine-reason" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
+            {t(locale, 'library.retention.quarantineReasonLabel')} <span aria-hidden="true" style={{ color: 'var(--cms-danger)' }}>*</span>
+          </label>
+          <textarea
+            id="library-quarantine-reason"
+            value={quarantineReason}
+            onChange={(event) => setQuarantineReason(event.target.value)}
+            disabled={busy}
+            placeholder={t(locale, 'library.retention.quarantineReasonPlaceholder')}
+            rows={3}
+            maxLength={500}
+            className="w-full rounded-[10px] border px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-50"
+            style={{ borderColor: 'var(--cms-line-strong)' }}
+            data-testid="library-quarantine-reason"
+          />
+        </div>
+      </ConfirmDialog>
+
+      {/* Restore: lifts quarantine or clears the tombstone; the file returns as
+          Draft (republish is a separate deliberate step). */}
+      <ConfirmDialog
+        open={restoreTarget !== null}
+        onOpenChange={(next) => { if (!next) setRestoreTarget(null); }}
+        title={t(locale, 'library.retention.restoreTitle')}
+        description={restoreTarget
+          ? (restoreTarget.retentionState === 'Quarantined' && !restoreTarget.tombstonedAt
+            ? t(locale, 'library.retention.restoreFromQuarantineText', { title: restoreTarget.title })
+            : t(locale, 'library.retention.restoreFromTombstoneText', { title: restoreTarget.title }))
+          : undefined}
+        confirmLabel={t(locale, 'library.retention.restoreButton')}
+        cancelLabel={copy.cancel}
+        busy={busy}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        onConfirm={() => { if (restoreTarget) void handleRestore(); }}
+        testId="library-restore-confirm"
+      >
+        {restoreTarget?.quarantineReason && (
+          <div className="rounded-[10px] border p-3" style={{ borderColor: 'var(--cms-line)' }} data-testid="library-restore-quarantine-reason">
+            <p className="text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'library.retention.quarantineReasonCell')}</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--cms-text)' }}>{restoreTarget.quarantineReason}</p>
+          </div>
+        )}
+      </ConfirmDialog>
+
+      {/* Final deletion (purge): password re-auth inside the dialog; the server
+          enforces SuperAdmin + the Features:HardDeleteEnabled flag + the retention
+          window. This is the ONLY path that physically destroys stored objects. */}
+      {purgeTarget && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          role="presentation"
+          onMouseDown={() => !busy && setPurgeTarget(null)}
+        >
+          <div
+            className="bg-white rounded-xl max-w-md w-full"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t(locale, 'library.retention.purgeTitle')}
+            style={{ boxShadow: 'var(--cms-shadow-xl)' }}
+            onMouseDown={(event) => event.stopPropagation()}
+            data-testid="library-purge-dialog"
+          >
+            <div className="flex items-start gap-3 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
+              <div className="p-2 rounded-lg" style={{ background: 'var(--cms-danger-50)', color: 'var(--cms-danger)' }}>
+                <Flame className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
+                  {t(locale, 'library.retention.purgeTitle')}
+                </h3>
+                <p className="text-sm mt-1" style={{ color: 'var(--cms-text-soft)' }}>
+                  {t(locale, 'library.retention.purgeText', { title: purgeTarget.title })}
+                </p>
+                <p className="text-sm font-medium mt-2 truncate" style={{ color: 'var(--cms-text)' }}>
+                  "{purgeTarget.title}"
+                </p>
+              </div>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="space-y-1.5">
+                <label htmlFor="library-purge-password" className="block text-xs font-semibold" style={{ color: 'var(--cms-text-soft)' }}>
+                  {t(locale, 'library.retention.purgePasswordLabel')} <span aria-hidden="true" style={{ color: 'var(--cms-danger)' }}>*</span>
+                </label>
+                <input
+                  id="library-purge-password"
+                  type="password"
+                  value={purgePassword}
+                  onChange={(event) => { setPurgePassword(event.target.value); setPurgePasswordError(''); }}
+                  disabled={busy}
+                  placeholder={t(locale, 'library.retention.purgePasswordPlaceholder')}
+                  autoComplete="current-password"
+                  className="w-full rounded-[10px] border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300 disabled:opacity-50"
+                  style={{ borderColor: purgePasswordError ? 'var(--cms-danger)' : 'var(--cms-line-strong)' }}
+                  data-testid="library-purge-password"
+                />
+                {purgePasswordError && (
+                  <p className="text-xs" style={{ color: 'var(--cms-danger)' }} data-testid="library-purge-password-error">
+                    {purgePasswordError}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setPurgeTarget(null); setPurgePassword(''); setPurgePasswordError(''); }}
+                  disabled={busy}
+                  className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-50"
+                  style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+                >
+                  {copy.cancel}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handlePurge()}
+                  disabled={busy || !purgePassword}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50"
+                  style={{ background: 'var(--cms-danger)' }}
+                  data-testid="library-purge-confirm"
+                >
+                  {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Flame className="w-4 h-4" />}
+                  {t(locale, 'library.retention.purgeButton')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== W-coverage (row 21): metadata edit modal (PUT /library/{id}) ===== */}
       {editTarget && (

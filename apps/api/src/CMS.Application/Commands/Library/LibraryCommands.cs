@@ -79,6 +79,25 @@ public record PublishLibraryFileCommand(Guid Id, Guid PublishedBy) : IRequest<Li
 public record ArchiveLibraryFileCommand(Guid Id, Guid ArchivedBy) : IRequest<LibraryFileDto>;
 public record DeleteLibraryFileCommand(Guid Id, Guid DeletedBy) : IRequest<Unit>;
 
+// ===== PR-5 — provider-neutral object-retention lifecycle =====
+
+/// <summary>Pulls the asset from circulation on suspicion (malware, legal hold, content
+/// review). Students stop seeing the file; the stored object is never touched. A reason
+/// is REQUIRED and is recorded with the actor + timestamp on the row and in the audit log.</summary>
+public record QuarantineLibraryFileCommand(Guid Id, Guid QuarantinedBy, string Reason) : IRequest<LibraryFileDto>;
+
+/// <summary>Restores the asset: lifts quarantine or clears the tombstone (normal soft
+/// delete). The file returns as Draft — republish is a deliberate, separate step.</summary>
+public record RestoreLibraryFileCommand(Guid Id, Guid RestoredBy) : IRequest<LibraryFileDto>;
+
+/// <summary>FINAL object deletion — separate, authorized (SuperAdmin), re-authenticated
+/// (actor password), retention-aware (refuses inside the retention window) and audited.
+/// Physically removes every stored object under the upload prefix, then the row (cascades
+/// views/annotations/bookmarks, nulls favorites) inside one transaction. NOT reached from
+/// any normal CRUD path; gated behind the same fail-closed Features:HardDeleteEnabled
+/// kill switch as the system hard-delete.</summary>
+public record PurgeLibraryFileCommand(Guid Id, Guid ActorAdminId, string ActorPassword) : IRequest<PurgeLibraryFileResultDto>;
+
 // ===== Wave 11.8 / F2: PDF annotations =====
 public record GetFileAnnotationsQuery(Guid FileId, Guid StudentId) : IRequest<List<FileAnnotationDto>>;
 

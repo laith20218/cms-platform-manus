@@ -160,7 +160,7 @@ public sealed class CourseHandlersTests
     }
 
     [Fact]
-    public async Task DeleteCourse_SoftDeletes_AbortsInFlightUploads_AndCleansBlobs()
+    public async Task DeleteCourse_SoftDeletes_AbortsInFlightUploads_AndRetainsBlobs()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var course = await SeedCourseAsync(db);
@@ -171,17 +171,18 @@ public sealed class CourseHandlersTests
         await db.SaveChangesAsync();
         var (handler, storage, _, _, _) = Create(db);
         storage.Setup(s => s.AbortMultipartUploadAsync("courses/a/inflight", "mpu-1", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        storage.Setup(s => s.DeleteAsync("courses/a/inflight", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        storage.Setup(s => s.DeleteAsync("courses/b/ready", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         await handler.Handle(new DeleteCourseCommand(course.Id, Guid.NewGuid()), CancellationToken.None);
 
         db.Courses.AsNoTracking().Single(stored => stored.Id == course.Id).DeletedAt.Should().NotBeNull();
-        storage.Verify(s => s.AbortMultipartUploadAsync("courses/a/inflight", "mpu-1", It.IsAny<CancellationToken>()), Times.Once);
-        storage.Verify(s => s.DeleteAsync("courses/b/ready", It.IsAny<CancellationToken>()), Times.Once,
-            "completed blobs are removed best-effort");
-        storage.Verify(s => s.DeleteAsync("courses/a/inflight", It.IsAny<CancellationToken>()), Times.Once,
-            "the in-flight key's object is also cleaned");
+        storage.Verify(s => s.AbortMultipartUploadAsync("courses/a/inflight", "mpu-1", It.IsAny<CancellationToken>()), Times.Once,
+            "in-flight multipart parts are aborted (an incomplete upload is not a stored object)");
+        // PR-5 — object-retention contract: a NORMAL course delete must NOT physically
+        // destroy the completed episode blobs. The soft-deleted rows are the tombstones;
+        // final removal is a separate, explicitly approved operation. The pre-PR-5
+        // DeleteAsync expectations were removed on purpose.
+        storage.Verify(s => s.DeleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never,
+            "completed blobs stay under retention after a normal delete");
         storage.VerifyNoOtherCalls();
         _ = inFlight; _ = ready;
     }
@@ -1072,21 +1073,22 @@ public sealed class CourseHandlersTests
     }
 
     [Fact]
-    public async Task DeleteEpisode_WithoutFavorites_SoftDeletesEpisodeAndCleansBlob()
+    public async Task DeleteEpisode_WithoutFavorites_SoftDeletesRow_AndRetainsBlob()
     {
         using var db = TestDbHelper.CreateInMemoryContext();
         var course = await SeedCourseAsync(db);
         var episode = await SeedUploadEpisodeAsync(db, course, "courses/x/y", uploadId: null);
         var (handler, storage, _, _, _) = Create(db);
-        storage.Setup(s => s.DeleteAsync("courses/x/y", It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
 
         await handler.Handle(new DeleteEpisodeCommand(episode.Id, Guid.NewGuid()), CancellationToken.None);
 
-        // Soft delete: the row survives with DeletedAt set (Archive semantics), blob removed.
+        // Soft delete: the row survives with DeletedAt set (the tombstone). PR-5 — the
+        // stored blob is RETAINED under the object-retention contract (final deletion is
+        // a separate, explicitly approved operation); the pre-PR-5 DeleteAsync expectation
+        // was removed on purpose.
         db.CourseEpisodes.AsNoTracking().Single(stored => stored.Id == episode.Id).DeletedAt.Should().NotBeNull();
-        storage.Verify(s => s.DeleteAsync("courses/x/y", It.IsAny<CancellationToken>()), Times.Once,
-            "the stored blob is hard-removed even though the row is soft-deleted");
+        storage.Verify(s => s.DeleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never,
+            "a normal episode delete must not physically destroy the stored blob");
         storage.VerifyNoOtherCalls();
     }
 

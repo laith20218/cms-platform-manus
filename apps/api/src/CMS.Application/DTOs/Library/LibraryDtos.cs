@@ -59,7 +59,15 @@ public record LibraryFileDto(
     bool EnableScripts = false,
     // W20.3 — the student-facing six-digit public code (additive key; null only
     // on rows that predate the backfill). Always rendered next to the title.
-    string? PublicCode = null
+    string? PublicCode = null,
+    // ===== PR-5 — provider-neutral object-retention lifecycle exposure (additive keys) =====
+    // Null RetentionState = Active (legacy rows predate the lifecycle).
+    string? RetentionState = null,
+    DateTime? QuarantinedAt = null,
+    Guid? QuarantinedBy = null,
+    string? QuarantineReason = null,
+    DateTime? TombstonedAt = null,
+    Guid? TombstonedBy = null
 );
 
 /// <summary>
@@ -228,3 +236,18 @@ public record UpdateLibraryFileDto(
     // Push 10.8 — PATCH-optional transcoding target (same 10.7 binding gap).
     TargetQuality? TargetQuality = null
 );
+
+// ===== PR-5 — provider-neutral object-retention lifecycle =====
+
+/// <summary>Per-step row counts of the purge (final-deletion) operation, mirroring the
+/// hard-delete result convention (label + rows). Storage objects are not counted here —
+/// the provider deletes them as one prefix; the audit event carries the file key.</summary>
+public record PurgeCountDto(string Label, int Rows);
+
+/// <summary>Result of the library final-deletion (purge): which DB reference groups were
+/// removed and the file row itself. The stored objects were physically deleted BEFORE the
+/// row (idempotent retry contract); nothing in this result exposes storage URLs.</summary>
+public record PurgeLibraryFileResultDto(
+    Guid FileId,
+    string FileKey,
+    List<PurgeCountDto> Deleted);

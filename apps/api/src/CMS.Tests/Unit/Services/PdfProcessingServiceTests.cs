@@ -69,6 +69,10 @@ public sealed class PdfProcessingServiceTests
 
         public Task DeleteAsync(string key, CancellationToken ct = default) { _objects.TryRemove(key, out _); return Task.CompletedTask; }
 
+        // PR-5 — final-deletion primitive (purge flow only); unused by the PDF pipeline.
+        public Task<int> DeletePrefixAsync(string keyPrefix, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
         public Task<bool> ExistsAsync(string key, CancellationToken ct = default) => Task.FromResult(_objects.ContainsKey(key));
 
         public Task<Stream> DownloadAsync(string key, CancellationToken ct = default)

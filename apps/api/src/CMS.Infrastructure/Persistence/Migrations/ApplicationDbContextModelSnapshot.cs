@@ -1935,6 +1935,22 @@ namespace CMS.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(6)")
                         .HasColumnName("public_code");
 
+                    b.Property<string>("QuarantineReason")
+                        .HasColumnType("text")
+                        .HasColumnName("quarantine_reason");
+
+                    b.Property<DateTime?>("QuarantinedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("quarantined_at");
+
+                    b.Property<Guid?>("QuarantinedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("quarantined_by");
+
+                    b.Property<int?>("RetentionState")
+                        .HasColumnType("integer")
+                        .HasColumnName("retention_state");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer")
                         .HasColumnName("status");
@@ -1998,6 +2014,10 @@ namespace CMS.Infrastructure.Persistence.Migrations
                     b.HasIndex("PublicCode")
                         .IsUnique()
                         .HasDatabaseName("ix_library_files_public_code");
+
+                    b.HasIndex("RetentionState")
+                        .HasDatabaseName("ix_library_files_retention_state")
+                        .HasFilter("retention_state IS NOT NULL");
 
                     b.HasIndex("SubjectId")
                         .HasDatabaseName("ix_library_files_subject_id");

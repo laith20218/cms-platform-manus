@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from './Button';
 import { Dialog } from './Dialog';
@@ -38,6 +38,9 @@ export interface ConfirmDialogProps {
   requireAcknowledge?: { label: string };
   /** Mandatory reason gate: confirm stays disabled until minLength is met. */
   requireReason?: { label?: string; placeholder?: string; minLength?: number };
+  /** PR-5 — optional extra content between the consequence text and the gates
+   * (usage/dependency chips, retention warnings, …). Rendered as-is. */
+  children?: ReactNode;
   dir?: 'rtl' | 'ltr';
   testId?: string;
 }
@@ -54,6 +57,7 @@ export function ConfirmDialog({
   busy = false,
   requireAcknowledge,
   requireReason,
+  children,
   dir = 'rtl',
   testId,
 }: ConfirmDialogProps) {
@@ -95,6 +99,8 @@ export function ConfirmDialog({
             <p className="text-xs leading-relaxed text-[color:var(--c-danger-500)]">{description}</p>
           </div>
         )}
+
+        {children}
 
         {requireAcknowledge && (
           <label className="flex cursor-pointer select-none items-start gap-2.5">

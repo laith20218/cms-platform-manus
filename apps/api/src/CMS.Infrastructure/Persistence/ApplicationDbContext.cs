@@ -530,6 +530,11 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext, IDataProte
             entity.HasIndex(x => x.PdfProcessingStatus)
                 .HasDatabaseName("ix_library_files_pdf_processing_status")
                 .HasFilter("pdf_processing_status IS NOT NULL");
+
+            // PR-5 — retention lifecycle sweep (tombstoned/quarantined management view).
+            entity.HasIndex(x => x.RetentionState)
+                .HasDatabaseName("ix_library_files_retention_state")
+                .HasFilter("retention_state IS NOT NULL");
         });
 
         base.OnModelCreating(modelBuilder);

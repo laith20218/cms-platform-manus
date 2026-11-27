@@ -601,6 +601,8 @@ public sealed class HtmlViewStorageFake : IFileStorageService
     public Task<string> GetSignedUploadUrlAsync(string key, string contentType, TimeSpan expiry, long? contentLength = null, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<string> GetSignedUrlAsync(string key, TimeSpan expiry, CancellationToken ct = default) => throw new NotSupportedException();
     public Task DeleteAsync(string key, CancellationToken ct = default) => throw new NotSupportedException();
+    // PR-5 — final-deletion primitive (purge flow only); unused by these tests.
+    public Task<int> DeletePrefixAsync(string keyPrefix, CancellationToken ct = default) => throw new NotSupportedException();
     public Task PutAsync(string key, Stream content, string contentType, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<string> InitiateMultipartUploadAsync(string key, string contentType, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<string> PresignUploadPartAsync(string key, string uploadId, int partNumber, TimeSpan expiry, CancellationToken ct = default) => throw new NotSupportedException();
