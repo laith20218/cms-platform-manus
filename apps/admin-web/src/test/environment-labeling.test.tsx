@@ -18,6 +18,7 @@ const { apiRequestMock, loginMock } = vi.hoisted(() => ({
 // The module mock pins the API origin to the real preview deployment so the
 // derived label is asserted end-to-end through App.tsx.
 vi.mock('../lib/api', () => ({
+  fetchSecuritySummary: vi.fn(() => Promise.reject(new Error('security summary not stubbed for this test'))),
   API_BASE_URL: 'https://cms-api-preview.onrender.com',
   apiRequest: (...args: unknown[]) => apiRequestMock(...args),
   login: (...args: unknown[]) => loginMock(...args),

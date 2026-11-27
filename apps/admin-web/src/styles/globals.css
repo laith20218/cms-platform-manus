@@ -520,11 +520,31 @@ button:disabled { opacity: var(--cms-disabled-opacity); cursor: var(--cms-disabl
 .overview-hero .hero-content { position: relative; z-index: 1; }
 .overview-hero h2 { font-size: var(--cms-text-xl); font-weight: 700; margin: 0 0 var(--cms-space-2); }
 .overview-hero p { color: rgba(255,255,255,0.55); font-size: var(--cms-text-sm); margin: 0; line-height: var(--cms-leading-normal); }
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--cms-space-4); margin-bottom: var(--cms-space-6); }
+
+/* ===== Command Center final pass — dashboard command header ===== */
+.command-header {
+  background: var(--cms-grad-navy); border-radius: var(--cms-radius-lg);
+  padding: var(--cms-space-8); color: #fff;
+  position: relative; overflow: hidden; margin-bottom: var(--cms-space-6);
+}
+.command-header::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 80% 20%, rgba(18, 135, 125, 0.12), transparent 50%);
+}
+.command-header .command-header-main { position: relative; z-index: 1; }
+.command-header h2 { font-size: var(--cms-text-xl); font-weight: 700; margin: 0 0 var(--cms-space-2); }
+.command-header p { color: rgba(255,255,255,0.55); font-size: var(--cms-text-sm); margin: 0; line-height: var(--cms-leading-normal); }
+.command-header .command-header-strip { position: relative; z-index: 1; }
+.command-header .command-env-chip,
+.command-header .command-api-chip,
+.command-header .command-updated { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.25); color: rgba(255,255,255,0.85); backdrop-filter: blur(4px); }
+.command-header .command-updated { border: 0; background: transparent; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--cms-space-4); margin-bottom: var(--cms-space-4); }
 .stat-card {
   background: var(--cms-surface); border: 1px solid var(--cms-line);
   border-radius: var(--cms-radius-md); padding: var(--cms-space-5);
   transition: all var(--cms-duration-normal) var(--cms-ease);
+  min-height: 148px;
 }
 .stat-card:hover { border-color: var(--cms-teal-400); box-shadow: var(--cms-shadow-sm); transform: translateY(-1px); }
 .stat-card .stat-label { font-size: var(--cms-text-2xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--cms-text-muted); font-weight: 600; margin-bottom: var(--cms-space-2); }

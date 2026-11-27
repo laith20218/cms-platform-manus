@@ -17,6 +17,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const { apiRequestMock } = vi.hoisted(() => ({ apiRequestMock: vi.fn() }));
 vi.mock('../lib/api', () => ({
+  fetchSecuritySummary: vi.fn(() => Promise.reject(new Error('security summary not stubbed for this test'))),
   apiRequest: (...args: unknown[]) => apiRequestMock(...args),
   ApiError: class ApiError extends Error { status = 500; },
 }));

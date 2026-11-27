@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // Mock the API layer — the cascade + course list are served from static fixtures.
 const { apiRequestMock } = vi.hoisted(() => ({ apiRequestMock: vi.fn() }));
 vi.mock('../lib/api', () => ({
+  fetchSecuritySummary: vi.fn(() => Promise.reject(new Error('security summary not stubbed for this test'))),
   apiRequest: (...args: unknown[]) => apiRequestMock(...args),
   ApiError: class ApiError extends Error { status = 500; },
 }));
