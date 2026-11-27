@@ -308,14 +308,20 @@ jobs:
       - name: Resolve Playwright module path for admin e2e
         id: admin-pw-module
         run: |
-          p="$(node -e "const {createRequire}=require('module');const req=createRequire('${GITHUB_WORKSPACE}/apps/student-web/package.json');process.stdout.write(req.resolve('playwright'))")"
+          # 'playwright' is a transitive dep of @playwright/test (pnpm strict node_modules:
+          # only direct deps resolve from the package.json context) — resolve in two hops.
+          # The scripts destructure { chromium } from a dynamic import, so they need the
+          # ESM entry (index.mjs) — the CJS main (index.js) does not expose named exports
+          # through import interop (verified: destructure returns undefined).
+          p="$(node -e "const path=require('path');const {createRequire}=require('module');const req1=createRequire('${GITHUB_WORKSPACE}/apps/student-web/package.json');const pwTest=req1.resolve('@playwright/test');const req2=createRequire(pwTest);const pkg=req2.resolve('playwright/package.json');process.stdout.write(path.join(path.dirname(pkg),'index.mjs'))")"
           echo "path=$p" >> "$GITHUB_OUTPUT"
           echo "playwright module: $p"
 
       - name: Resolve axe-core path for admin e2e
         id: admin-axe
         run: |
-          a="$(node -e "const {createRequire}=require('module');const req=createRequire('${GITHUB_WORKSPACE}/apps/student-web/package.json');process.stdout.write(req.resolve('axe-core/axe.js'))")"
+          # Same two-hop pattern: axe-core is a transitive dep of @axe-core/playwright.
+          a="$(node -e "const {createRequire}=require('module');const req1=createRequire('${GITHUB_WORKSPACE}/apps/student-web/package.json');const axePw=req1.resolve('@axe-core/playwright');const req2=createRequire(axePw);process.stdout.write(req2.resolve('axe-core/axe.js'))")"
           echo "path=$a" >> "$GITHUB_OUTPUT"
           echo "axe-core: $a"
 
