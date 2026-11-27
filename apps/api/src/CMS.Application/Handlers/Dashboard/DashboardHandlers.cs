@@ -153,23 +153,30 @@ public class DashboardQueryHandlers :
 
     public async Task<List<TopSubjectDto>> Handle(GetTopSubjectsQuery req, CancellationToken ct)
     {
-        var topSubjects = await _db.AttemptLogs
+        // Regression fix (route-contract wave): the previous shape projected the TopSubjectDto
+        // constructor directly inside the GroupBy Select, which EF Core 9 + Npgsql cannot
+        // translate (InvalidOperationException "could not be translated" — surfaced live as a
+        // 500 on GET /api/v1/admin/top-subjects). The Includes were also meaningless on an
+        // aggregate query. Project an anonymous row first (fully translatable), then map to
+        // the DTO in memory.
+        var rows = await _db.AttemptLogs
             .AsNoTracking()
-            .Include(a => a.Question)
-            .ThenInclude(q => q.Subject)
             .GroupBy(a => new { a.Question.SubjectId, a.Question.Subject.NameAr })
-            .Select(g => new TopSubjectDto(
+            .Select(g => new
+            {
                 g.Key.SubjectId,
-                g.Key.NameAr,
-                g.Count(),
-                g.Average(a => a.IsCorrect ? 100.0 : 0),
-                g.Select(a => a.StudentId).Distinct().Count()
-            ))
+                SubjectName = g.Key.NameAr,
+                QuestionsAnswered = g.Count(),
+                AverageAccuracy = g.Average(a => a.IsCorrect ? 100.0 : 0.0),
+                ActiveStudents = g.Select(a => a.StudentId).Distinct().Count()
+            })
             .OrderByDescending(s => s.QuestionsAnswered)
             .Take(req.Count)
             .ToListAsync(ct);
 
-        return topSubjects;
+        return rows
+            .Select(r => new TopSubjectDto(r.SubjectId, r.SubjectName, r.QuestionsAnswered, r.AverageAccuracy, r.ActiveStudents))
+            .ToList();
     }
 
     public async Task<ReportsSummaryDto> Handle(GetReportsSummaryQuery req, CancellationToken ct)
