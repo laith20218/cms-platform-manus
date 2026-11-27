@@ -204,6 +204,12 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
             </span>
           )}
         </div>
+        {/* PR-7 — why a system role's grants are read-only (high-impact copy). */}
+        {isSystemRole && (
+          <p className="px-4 py-2 border-b text-[11px] leading-relaxed" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-teal-700)', background: 'var(--cms-teal-50)' }} data-testid="matrix-system-role-note">
+            {t(locale, 'admincenters.permissions.systemRoleNote')}
+          </p>
+        )}
 
         {/* Body — matrix */}
         <div className="flex-1 overflow-auto p-4">

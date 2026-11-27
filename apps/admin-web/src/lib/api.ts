@@ -645,3 +645,106 @@ export function fetchSecurityEvents(token: string, params: SecurityEventParams =
   if (params.search) search.set('search', params.search);
   return apiRequest<PagedResult<SecurityEventItem>>(`/api/v1/security/audit-logs?${search.toString()}`, token);
 }
+
+// ===== PR-7 — Settings Studio + Role Studio =====
+
+/** Value-type discriminators carried by the settings list/get DTO (server registry). */
+export type SettingValueType = 'bool' | 'int' | 'enum' | 'string';
+
+/**
+ * System settings list/get DTO. PR-7: the server registry now sends `valueType`
+ * ("bool"|"int"|"enum"|"string") and, for enum keys, the `allowedValues` list —
+ * the UI renders typed controls from these instead of guessing. Unregistered
+ * keys arrive as "string" (server fills SystemSettingSchema.StringType).
+ */
+export type SystemSettingDto = {
+  id: string;
+  key: string;
+  value: string;
+  valueType: SettingValueType;
+  allowedValues?: string[] | null;
+  description?: string | null;
+  category?: string | null;
+  updatedBy?: string | null;
+  updatedAt: string;
+  createdAt: string;
+};
+
+/** One row of GET /api/v1/admin/settings/{key}/history (append-only audit trail). */
+export type SystemSettingHistoryItem = {
+  id: string;
+  key: string;
+  oldValue?: string | null;
+  newValue?: string | null;
+  changedBy?: string | null;
+  changedByName?: string | null;
+  changedAt: string;
+  /** "update" | "reset" (server writes exactly these two). */
+  reason: string;
+};
+
+/** Paged setting change history (Settings.View permission; page size 10 in the drawer). */
+export function fetchSettingHistory(
+  key: string,
+  token: string,
+  page = 1,
+  pageSize = 10,
+): Promise<PagedResult<SystemSettingHistoryItem>> {
+  const search = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  return apiRequest<PagedResult<SystemSettingHistoryItem>>(
+    `/api/v1/admin/settings/${encodeURIComponent(key)}/history?${search.toString()}`,
+    token,
+  );
+}
+
+/** GET /api/v1/admin/settings/feature-flags row — read-only by contract (editable is always false). */
+export type FeatureFlagItem = {
+  key: string;
+  rawEnvName: string;
+  value: string;
+  valueType: 'bool' | 'int';
+  source: 'environment' | 'default';
+  editable: false;
+};
+
+/** Read-only environment feature-flag inventory (super-admin only; non-super → 403). */
+export function fetchFeatureFlags(token: string): Promise<FeatureFlagItem[]> {
+  return apiRequest<FeatureFlagItem[]>('/api/v1/admin/settings/feature-flags', token);
+}
+
+/**
+ * GET /api/v1/admin/admins/{id}/effective-permissions — the Role Studio
+ * effective-access inspector DTO. AccessSource: "super_admin_bypass" (grants
+ * list empty — the role-name bypass, not grant rows) or "role_grants" (the
+ * role's classic permission rows). UiPermissions Mode: "full" (super admin or
+ * NULL/unconfigured role) or "custom" (a configured key list).
+ */
+export type AdminEffectivePermissionsDto = {
+  adminId: string;
+  email: string;
+  fullName: string;
+  isActive: boolean;
+  role: { id: string; name: string; nameAr: string; isActive: boolean };
+  isSuperAdmin: boolean;
+  accessSource: 'super_admin_bypass' | 'role_grants';
+  grants: Array<{ resource: string; actions: string[]; scope: string }>;
+  uiPermissions: { mode: 'full' | 'custom'; allowedKeysCount: number; registryVersion: string };
+  academicScope: {
+    universityId?: string | null;
+    universityName?: string | null;
+    collegeId?: string | null;
+    collegeName?: string | null;
+    yearId?: string | null;
+    yearName?: string | null;
+    subjectId?: string | null;
+    subjectName?: string | null;
+  };
+};
+
+/** Reads one administrator's effective access (SuperAdmin-gated endpoint). */
+export function fetchAdminEffectivePermissions(token: string, adminId: string): Promise<AdminEffectivePermissionsDto> {
+  return apiRequest<AdminEffectivePermissionsDto>(
+    `/api/v1/admin/admins/${encodeURIComponent(adminId)}/effective-permissions`,
+    token,
+  );
+}

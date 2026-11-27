@@ -1,10 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-// Mock the API layer — the settings list and the reset endpoint.
-const { apiRequestMock } = vi.hoisted(() => ({ apiRequestMock: vi.fn() }));
+// Mock the API layer — the settings list, the reset endpoint and the PR-7
+// helpers (feature-flags inventory + setting history) the center now fetches.
+const { apiRequestMock, fetchFeatureFlagsMock, fetchSettingHistoryMock } = vi.hoisted(() => ({
+  apiRequestMock: vi.fn(),
+  fetchFeatureFlagsMock: vi.fn(),
+  fetchSettingHistoryMock: vi.fn(),
+}));
 vi.mock('../lib/api', () => ({
   apiRequest: (...args: unknown[]) => apiRequestMock(...args),
+  fetchFeatureFlags: (...args: unknown[]) => fetchFeatureFlagsMock(...args),
+  fetchSettingHistory: (...args: unknown[]) => fetchSettingHistoryMock(...args),
   ApiError: class ApiError extends Error { status = 500; },
 }));
 
@@ -31,6 +38,9 @@ function stubApi() {
     }
     return [SETTING];
   });
+  // PR-7 fetches — feature flags render for the super admin, history on open.
+  fetchFeatureFlagsMock.mockResolvedValue([]);
+  fetchSettingHistoryMock.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 10, totalPages: 0 });
 }
 
 function renderCenter(isArabic = true) {
@@ -68,6 +78,35 @@ describe('SettingsCenter reset — W1 ConfirmDialog adoption', () => {
         expect.objectContaining({ method: 'POST' }),
       );
     });
+  });
+
+  it('PR-7: the reset body NEVER carries a client-supplied DefaultValue', async () => {
+    renderCenter();
+    fireEvent.click(await screen.findByText('إعادة تعيين'));
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+
+    await waitFor(() => {
+      expect(apiRequestMock).toHaveBeenCalledWith(
+        '/api/v1/admin/settings/max_upload_size_mb/reset',
+        'test-token',
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+    const resetCall = apiRequestMock.mock.calls.find(
+      ([path]) => typeof path === 'string' && path.endsWith('/reset'),
+    );
+    const body = JSON.parse(String(resetCall?.[2]?.body ?? '{}'));
+    expect(body).not.toHaveProperty('defaultValue');
+    expect(body).not.toHaveProperty('DefaultValue');
+  });
+
+  it('PR-7: the confirm copy explains the restored value is the REGISTERED server-side default', async () => {
+    renderCenter();
+    fireEvent.click(await screen.findByText('إعادة تعيين'));
+
+    const dialog = screen.getByTestId('settings-reset-confirm');
+    expect(dialog).toHaveTextContent('القيمة الافتراضية المسجّلة في سجلّ الخادم');
+    expect(dialog).not.toHaveTextContent('الافتراضي: 10');
   });
 
   it('cancel closes the dialog and never sends the reset request', async () => {
