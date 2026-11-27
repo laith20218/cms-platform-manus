@@ -284,7 +284,9 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
         var tokens = await _sessionService.CreateAsync(
             student.Id, student.Phone, "student", request.DeviceFingerprint, request.DeviceName, ct);
 
-        return new AuthResponse(tokens.AccessToken, tokens.RefreshToken, "Bearer", 600, MapToUserDto(student));
+        // PR-6 (Student Center): surface the must-change-password flag so the client can
+        // route the student through the change-password screen when an admin force-reset it.
+        return new AuthResponse(tokens.AccessToken, tokens.RefreshToken, "Bearer", 600, MapToUserDto(student), student.MustChangePassword);
     }
 
     private int MaximumLoginAttempts => int.TryParse(_configuration["Security:Login:MaxFailedAttempts"], out var value)
@@ -429,6 +431,9 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
         _passwordPolicy.EnsureValid(request.NewPassword);
         var newHash = _passwordHasher.HashPassword(request.NewPassword);
         student.ChangePasswordHash(newHash);
+        // PR-6 (Student Center): completing an OTP-based reset also clears the admin-set
+        // must-change-password flag.
+        student.ClearMustChangePassword();
 
         await _studentRepo.UpdateAsync(student, ct);
         await _sessionService.RevokeAllForUserAsync(student.Id, "password_reset", ct);
@@ -473,6 +478,9 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
         _passwordPolicy.EnsureValid(request.NewPassword);
         var newHash = _passwordHasher.HashPassword(request.NewPassword);
         student.ChangePasswordHash(newHash);
+        // PR-6 (Student Center): a student who completes a self-service password change has
+        // satisfied the forced-change requirement — clear the admin-set flag.
+        student.ClearMustChangePassword();
 
         await _studentRepo.UpdateAsync(student, ct);
         await _sessionService.RevokeAllForUserAsync(student.Id, "password_change", ct);

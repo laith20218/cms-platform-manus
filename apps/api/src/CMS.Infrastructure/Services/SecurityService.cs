@@ -10,6 +10,11 @@ namespace CMS.Infrastructure.Services;
 
 /// <summary>
 /// Security service - handles device binding, security logging, and suspicious activity detection.
+/// PR-6 (Security Center): every audit text (description, user agent, device fingerprint) is
+/// sanitized in a fixed three-step pipeline — control-character flattening BEFORE secret
+/// redaction BEFORE length truncation. Flattening first means the stored text can never
+/// contain CR/LF/tab/NUL/ESC (log-forging), and the redactor + length cap evaluate the
+/// exact text shape that will be persisted.
 /// </summary>
 public class SecurityService : ISecurityAuditWriter
 {
@@ -21,6 +26,11 @@ public class SecurityService : ISecurityAuditWriter
     private const int AuditTextMaximumLength = 512;
     private static readonly Regex SensitiveAuditValuePattern = new(
         @"(?ix)\b(?<key>authorization|bearer|access[_-]?token|refresh[_-]?token|password|secret|api[_-]?key|key)\b\s*(?:[:=]\s*|\s+)(?<value>[^\s,;]+)",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    // PR-6: C0 control characters + DEL — flattened to a single space before redaction so
+    // CRLF/tab/NUL/ESC can neither break the log line structure nor split a secret keyword.
+    private static readonly Regex ControlCharacterPattern = new(
+        @"[\u0000-\u001F\u007F]",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public SecurityService(ApplicationDbContext db, ICacheService cache, ISecurityEventBatch auditBatch, ICorrelationContext correlation, IConfiguration configuration)
@@ -159,12 +169,21 @@ public class SecurityService : ISecurityAuditWriter
         await _auditBatch.EnqueueAsync(securityEvent, ct);
     }
 
+    /// <summary>
+    /// PR-6 hardened audit-text pipeline: (1) replace every control character
+    /// (CR/LF/tab/NUL/ESC/DEL — everything in U+0000-U+001F plus U+007F) with a single
+    /// space, (2) redact sensitive keyword values, (3) truncate to the audit cap. Step 1
+    /// runs BEFORE redaction and truncation so the stored text can never contain a raw
+    /// control character (log forging), and the redactor + length cap evaluate the exact
+    /// flattened text that will be persisted.
+    /// </summary>
     private static string? SanitizeAuditText(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
             return value;
 
-        var sanitized = SensitiveAuditValuePattern.Replace(value, match =>
+        var flattened = ControlCharacterPattern.Replace(value, " ");
+        var sanitized = SensitiveAuditValuePattern.Replace(flattened, match =>
             $"{match.Groups["key"].Value}=[REDACTED]");
         return sanitized.Length <= AuditTextMaximumLength
             ? sanitized

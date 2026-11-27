@@ -14,18 +14,34 @@
  *
  * Design tokens (--cms-*) are applied via inline style; structural styling is pure Tailwind.
  */
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  Ban, CalendarClock, ChevronLeft, ChevronRight, CircleAlert,
-  Eye, LaptopMinimal, LoaderCircle, MonitorSmartphone, RotateCcw,
+  Archive, ArchiveRestore, Ban, CalendarClock, ChevronLeft, ChevronRight, CircleAlert,
+  Eye, History, LaptopMinimal, LoaderCircle, MonitorSmartphone, RotateCcw,
   Search, ShieldAlert, ShieldCheck, UserRound, Users, X,
   Pencil, Camera, Check, BookOpenCheck, ClipboardCheck, KeyRound, FileWarning,
-  UserPlus,
+  UserPlus, KeySquare, Timer, Info,
 } from 'lucide-react';
-import { ApiError, apiRequest, type PagedResult } from '../lib/api';
-import { t, localeOf, statusLabel, type Locale } from '../lib/dictionary';
-import { ConfirmDialog, RowActionsMenu } from '@cms/ui';
+import {
+  ApiError,
+  apiRequest,
+  archiveStudent,
+  fetchStudentActivity,
+  fetchStudentDetail,
+  resetStudentPassword,
+  restoreStudent,
+  type PagedResult,
+  type StudentActivityItem,
+  type StudentDetailDto,
+} from '../lib/api';
+import { t, localeOf, statusLabel, apiErrorHumanMessage, type Locale } from '../lib/dictionary';
+// PR-6 — the shared event-type glossary (extracted so SecurityCenter renders
+// the same wire enum identically; the local eventTypeLabel is retired).
+import { securityEventLabel, SECURITY_EVENT_TYPES } from '../lib/securityEventLabels';
+import { ConfirmDialog, Dialog, Pagination, RowActionsMenu } from '@cms/ui';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
+import { useQueryState } from '../lib/useQueryState';
 
 // ===== W3 (admin-ui): Arabic glossaries — raw enum wire values must never
 // render on the Arabic surface (debt D-23). Unknown values fall back to an
@@ -63,6 +79,11 @@ const subscriptionScopeLabel = (scope: string, locale: Locale) => {
   }
 };
 
+// PR-6 — detail subscription summary status (mirrors the subscriptions-tab
+// vocabulary: Active → «نشط», anything else reads as not active).
+const subscriptionStatusLabel = (status: string, locale: Locale) =>
+  status === 'Active' ? t(locale, 'students.subscriptions.active') : t(locale, 'students.subscriptions.expired');
+
 const reportReasonLabel = (reason: string, locale: Locale) => {
   switch (reason) {
     case 'Scientific': return statusLabel(locale, 'reportReason', 'Scientific');
@@ -83,47 +104,6 @@ const reportStatusLabel = (status: string, locale: Locale) => {
   }
 };
 
-const eventTypeLabel = (eventType: string, locale: Locale) => {
-  switch (eventType) {
-    case 'LoginSuccess': return t(locale, 'students.security.events.loginSuccess');
-    case 'LoginFailed': return t(locale, 'students.security.events.loginFailed');
-    case 'Logout': return t(locale, 'students.security.events.logout');
-    case 'SessionCreated': return t(locale, 'students.security.events.sessionCreated');
-    case 'SessionRevoked': return t(locale, 'students.security.events.sessionRevoked');
-    case 'Refresh': return t(locale, 'students.security.events.refresh');
-    case 'RefreshReuse': return t(locale, 'students.security.events.refreshReuse');
-    case 'DeviceRegistered': return t(locale, 'students.security.events.deviceRegistered');
-    case 'DeviceChange': return t(locale, 'students.security.events.deviceChange');
-    case 'DeviceBindingFailed': return t(locale, 'students.security.events.deviceBindingFailed');
-    case 'DevtoolsDetected': return t(locale, 'students.security.events.devtoolsDetected');
-    case 'ScreenshotAttempt': return t(locale, 'students.security.events.screenshotAttempt');
-    case 'CopyAttempt': return t(locale, 'students.security.events.copyAttempt');
-    case 'DownloadAttempt': return t(locale, 'students.security.events.downloadAttempt');
-    case 'PrintAttempt': return t(locale, 'students.security.events.printAttempt');
-    case 'MultipleAccountsSuspected': return t(locale, 'students.security.events.multipleAccountsSuspected');
-    case 'BanIssued': return t(locale, 'students.security.events.banIssued');
-    case 'BanLifted': return t(locale, 'students.security.events.banLifted');
-    case 'PasswordChanged': return t(locale, 'students.security.events.passwordChanged');
-    case 'PasswordResetRequested': return t(locale, 'students.security.events.passwordResetRequested');
-    case 'MfaEnabled': return t(locale, 'students.security.events.mfaEnabled');
-    case 'MfaFailed': return t(locale, 'students.security.events.mfaFailed');
-    case 'MfaDisabled': return t(locale, 'students.security.events.mfaDisabled');
-    case 'SubscriptionActivated': return t(locale, 'students.security.events.subscriptionActivated');
-    case 'SubscriptionRevoked': return t(locale, 'students.security.events.subscriptionRevoked');
-    case 'FileAccess': return t(locale, 'students.security.events.fileAccess');
-    case 'EntitlementDenied': return t(locale, 'students.security.events.entitlementDenied');
-    case 'OtpSent': return t(locale, 'students.security.events.otpSent');
-    case 'OtpVerified': return t(locale, 'students.security.events.otpVerified');
-    case 'OtpFailed': return t(locale, 'students.security.events.otpFailed');
-    default:
-      // Unknown wire values keep the legacy behavior: the authored Arabic
-      // fallback label; the split-camelCase English label in English.
-      return locale === 'ar'
-        ? t(locale, 'students.security.events.fallback')
-        : eventType.replace(/([A-Z])/g, ' $1').trim();
-  }
-};
-
 type StudentRecord = {
   id: string;
   fullName: string;
@@ -138,6 +118,8 @@ type StudentRecord = {
   // P1-01: avatar + gender for profile editing
   avatarUrl?: string | null;
   gender?: string | null;
+  // PR-6 — soft-delete flag (list rows under ?status=archived, contract E).
+  archived?: boolean;
 };
 
 type University = { id: string; nameAr: string; nameEn?: string | null };
@@ -170,7 +152,10 @@ type Dialog =
   | { kind: 'unbind-device'; student: StudentRecord }
   | null;
 
-type DrawerTab = 'overview' | 'academic' | 'exams' | 'subscriptions' | 'sessions' | 'security' | 'reports';
+type DrawerTab = 'overview' | 'activity' | 'academic' | 'exams' | 'subscriptions' | 'sessions' | 'security' | 'reports';
+
+// PR-6 — archive (soft delete) / restore confirm target; mode picks the copy.
+type LifecycleTarget = { student: StudentRecord; mode: 'archive' | 'restore' };
 
 type Props = {
   token: string;
@@ -180,6 +165,8 @@ type Props = {
 };
 
 const PAGE_SIZE = 20;
+// PR-6 — activity tab page size (contract C paged result).
+const ACTIVITY_PAGE_SIZE = 10;
 
 // PR-3-A: thin wrapper over the registry's `student` domain. The registry
 // covers the known statuses; unknown wire values keep the legacy pass-through
@@ -237,6 +224,8 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
   // Push 3: cosmetic gating — the API policies remain the real boundary.
   // unbind-device and the drawer tabs stay ungated (deferred / out-of-census).
   const { can } = useUiPermissions();
+  // PR-6 — cross-center deep link into the Security Center (?student=<id>).
+  const navigate = useNavigate();
   // PR-3-A: locale for the shared dictionary (derived once from the legacy flag).
   const locale = localeOf(isArabic);
   const [students, setStudents] = useState<StudentRecord[]>([]);
@@ -312,6 +301,32 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
   const [createColleges, setCreateColleges] = useState<College[]>([]);
   const [createYears, setCreateYears] = useState<AcademicYear[]>([]);
   const [createBusy, setCreateBusy] = useState(false);
+  // ===== PR-6 — Student Center completion =====
+  // Deep link: the open drawer lives in the URL (?student=<id>) so refresh,
+  // shared links, and back/forward restore the exact working state.
+  const studentParamState = useQueryState('student', '');
+  const deepLinkStudentId = studentParamState.value;
+  // Contract B — detail panel (overview tab account-state + scope + identity).
+  const [detail, setDetail] = useState<StudentDetailDto | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailFailed, setDetailFailed] = useState(false);
+  // Contract C — activity tab (paged timeline + server-side filters).
+  const [activityPage, setActivityPage] = useState(1);
+  const [activityType, setActivityType] = useState('');
+  const [activitySeverity, setActivitySeverity] = useState('');
+  const [activityItems, setActivityItems] = useState<StudentActivityItem[]>([]);
+  const [activityTotal, setActivityTotal] = useState(0);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityFailed, setActivityFailed] = useState(false);
+  // Contract A — password reset dialog (typed-confirm + actor re-auth).
+  const [resetTarget, setResetTarget] = useState<StudentRecord | null>(null);
+  const [resetForm, setResetForm] = useState({ actorPassword: '', newPassword: '', confirmPassword: '', typedConfirm: '' });
+  const [resetForce, setResetForce] = useState(true);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState('');
+  // Contract D — archive / restore confirm targets.
+  const [lifecycleTarget, setLifecycleTarget] = useState<LifecycleTarget | null>(null);
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
 
   const request = <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
   const filtersActive = Boolean(query.trim() || status || universityId);
@@ -373,6 +388,20 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     setStudentReports([]);
     setStudentProgress([]);
     setLogsLoading(true);
+    // PR-6 — deep link: keep the open drawer in the URL (?student=<id>).
+    studentParamState.setValue(student.id);
+    // PR-6 — detail fetch (contract B) + activity tab first page (contract C).
+    setDetail(null);
+    setDetailFailed(false);
+    setDetailLoading(true);
+    fetchStudentDetail(student.id, token)
+      .then((dto) => setDetail(dto))
+      .catch(() => { setDetailFailed(true); /* the drawer stays usable; retry offered in the panel */ })
+      .finally(() => setDetailLoading(false));
+    setActivityItems([]);
+    setActivityTotal(0);
+    setActivityPage(1);
+    setActivityFailed(false);
     // P1-11: fetch sessions in parallel with security logs + detail tabs data
     setSessionsLoading(true);
     setExamSessionsLoading(true);
@@ -435,6 +464,172 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
     setSelected(null);
     setDrawerTab('overview');
     setSecurityLogs([]);
+    // PR-6 — remove the deep-link parameter (the drawer is closed).
+    studentParamState.setValue('');
+  };
+
+  // ===== PR-6 =====
+
+  /** Contract C — paged activity for the drawer's Activity tab. */
+  const loadActivity = async (targetPage = activityPage, type = activityType, severity = activitySeverity) => {
+    if (!selected || !token) return;
+    setActivityLoading(true);
+    setActivityFailed(false);
+    try {
+      const data = await fetchStudentActivity(selected.id, token, {
+        page: targetPage,
+        pageSize: ACTIVITY_PAGE_SIZE,
+        type: type || undefined,
+        // The chips are lower-case; the wire value is the enum member name.
+        severity: severity ? severity.charAt(0).toUpperCase() + severity.slice(1) : undefined,
+      });
+      setActivityItems(data.items ?? []);
+      setActivityTotal(data.total ?? 0);
+      setActivityPage(data.page || targetPage);
+    } catch {
+      // Best-effort tab: show the honest error surface + retry, never a crash.
+      setActivityFailed(true);
+      setActivityItems([]);
+      setActivityTotal(0);
+    } finally {
+      setActivityLoading(false);
+    }
+  };
+
+  // Refetch the activity list when the drawer's Activity tab activates or its
+  // filters change (page changes go through loadActivity directly).
+  useEffect(() => {
+    if (!selected || drawerTab !== 'activity' || !token) return;
+    void loadActivity(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, drawerTab, activityType, activitySeverity, token]);
+
+  /** Contract A — password reset submit (typed confirm + actor re-auth). */
+  const submitPasswordReset = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!resetTarget || !token) return;
+    if (!resetForm.actorPassword) {
+      setResetError(t(locale, 'students.passwordReset.actorPasswordRequired'));
+      return;
+    }
+    if (resetForm.newPassword !== resetForm.confirmPassword) {
+      setResetError(t(locale, 'students.passwordReset.mismatch'));
+      return;
+    }
+    if (resetForm.newPassword.length < 8) {
+      setResetError(t(locale, 'students.validation.passwordTooShort'));
+      return;
+    }
+    setResetBusy(true);
+    setResetError('');
+    try {
+      await resetStudentPassword(resetTarget.id, token, {
+        actorPassword: resetForm.actorPassword,
+        newPassword: resetForm.newPassword,
+        forceChangeOnNextLogin: resetForce,
+      });
+      onNotice(t(locale, 'students.passwordReset.successToast'));
+      setResetTarget(null);
+      // The new password is NEVER echoed anywhere — cleared immediately.
+      setResetForm({ actorPassword: '', newPassword: '', confirmPassword: '', typedConfirm: '' });
+      setResetForce(true);
+      // Refresh the detail panel (mustChangePassword / session state changed).
+      await loadDetailFor(resetTarget);
+    } catch (error) {
+      // INVALID_CURRENT_PASSWORD and policy failures resolve through
+      // apiErrorHumanMessage (backend Arabic detail first, then the code map).
+      const human = apiErrorHumanMessage(error, locale).human;
+      setResetError(human);
+      onError(human);
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
+  /** Contract B refetch for one student (used after protected actions). */
+  const loadDetailFor = async (student: StudentRecord) => {
+    if (!token) return;
+    setDetailLoading(true);
+    try {
+      setDetail(await fetchStudentDetail(student.id, token));
+      setDetailFailed(false);
+    } catch {
+      setDetailFailed(true);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  /** Contract D — archive (soft delete) / restore, idempotent. */
+  const executeLifecycle = async (target: LifecycleTarget) => {
+    if (!token) return;
+    setLifecycleBusy(true);
+    try {
+      if (target.mode === 'archive') {
+        await archiveStudent(target.student.id, token);
+        onNotice(t(locale, 'students.archive.archivedToast'));
+      } else {
+        await restoreStudent(target.student.id, token);
+        onNotice(t(locale, 'students.archive.restoredToast'));
+      }
+      setLifecycleTarget(null);
+      await loadStudents(target.mode === 'archive' && status !== 'archived' ? 1 : page);
+      if (selected?.id === target.student.id) await openStudent(target.student);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : t(locale, 'students.archive.failedToast'));
+    } finally {
+      setLifecycleBusy(false);
+    }
+  };
+
+  // Deep link (?student=<id>): on mount (or when the param appears) open that
+  // student's drawer — from the loaded page, or from the detail endpoint when
+  // the row is not on the current page. Writes use history replace like the
+  // other query-state surfaces, so refresh/back stay stable. When the row
+  // click itself wrote the param, the drawer is already open — skip.
+  const deepLinkHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!token || !deepLinkStudentId) return;
+    if (selected?.id === deepLinkStudentId) return;
+    if (deepLinkHandledRef.current === deepLinkStudentId) return;
+    deepLinkHandledRef.current = deepLinkStudentId;
+    const openFromRecord = (record: StudentRecord) => { void openStudent(record); };
+    const row = students.find((s) => s.id === deepLinkStudentId);
+    if (row) { openFromRecord(row); return; }
+    fetchStudentDetail(deepLinkStudentId, token)
+      .then((dto) => {
+        openFromRecord({
+          id: dto.id,
+          fullName: dto.fullName,
+          phone: dto.phone,
+          status: dto.status,
+          lastLogin: dto.lastLogin,
+          questionsAnswered: dto.questionsAnswered,
+          accuracy: dto.accuracy,
+          createdAt: dto.createdAt,
+          universityName: dto.academic?.universityName ?? null,
+          collegeName: dto.academic?.collegeName ?? null,
+          avatarUrl: dto.avatarUrl,
+          gender: dto.gender,
+        });
+      })
+      .catch(() => { /* best-effort once — the list surface stays honest */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, deepLinkStudentId, students]);
+
+  // PR-6 — is this row soft-deleted (list flag, archived status, or the open
+  // detail's archived bit — the source of truth is the server either way).
+  const isArchivedRow = (student: StudentRecord) =>
+    student.archived === true
+    || (student.status || '').toLowerCase() === 'archived'
+    || (selected?.id === student.id && detail?.archived === true);
+
+  // PR-6 — open the password-reset dialog with a fresh form (no secrets kept).
+  const openPasswordReset = (student: StudentRecord) => {
+    setResetForm({ actorPassword: '', newPassword: '', confirmPassword: '', typedConfirm: '' });
+    setResetForce(true);
+    setResetError('');
+    setResetTarget(student);
   };
 
   // W3 (admin-ui): revoke a subscription with a recorded reason
@@ -749,6 +944,8 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
           <option value="Banned">{statusLabel(locale, 'student', 'Banned')}</option>
           <option value="Suspended">{statusLabel(locale, 'student', 'Suspended')}</option>
           <option value="Pending">{statusLabel(locale, 'student', 'Pending')}</option>
+          {/* PR-6 — soft-deleted students stay reachable (contract E). */}
+          <option value="archived">{statusLabel(locale, 'publication', 'archived')}</option>
         </select>
         {filtersActive && (
           <button
@@ -850,6 +1047,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                         <button
                           title={t(locale, 'students.table.viewProfileTitle')}
                           onClick={() => void openStudent(student)}
+                          data-testid={`student-open-${student.id}`}
                           className="p-1.5 rounded-md transition-colors"
                           style={{ color: 'var(--cms-text-muted)' }}
                           onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-teal-50)'; event.currentTarget.style.color = 'var(--cms-teal-700)'; }}
@@ -891,6 +1089,31 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                                   onSelect: () => setConfirmUnban(student),
                                 }]
                               : []),
+                            // PR-6 — password reset (typed-confirm dialog; contract A).
+                            {
+                              key: 'reset-password',
+                              label: t(locale, 'students.passwordReset.title'),
+                              icon: <KeySquare className="w-4 h-4" />,
+                              disabled: busy,
+                              onSelect: () => openPasswordReset(student),
+                            },
+                            // PR-6 — archive / restore soft-delete lifecycle (contract D).
+                            (isArchivedRow(student)
+                              ? {
+                                  key: 'restore',
+                                  label: t(locale, 'students.archive.restoreAction'),
+                                  icon: <ArchiveRestore className="w-4 h-4" />,
+                                  disabled: busy,
+                                  onSelect: () => setLifecycleTarget({ student, mode: 'restore' }),
+                                }
+                              : {
+                                  key: 'archive',
+                                  label: t(locale, 'students.archive.archiveTitle'),
+                                  danger: true,
+                                  icon: <Archive className="w-4 h-4" />,
+                                  disabled: busy,
+                                  onSelect: () => setLifecycleTarget({ student, mode: 'archive' }),
+                                }),
                           ]}
                         />
                       </div>
@@ -976,14 +1199,46 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   </p>
                 </div>
               </div>
-              <button
-                onClick={closeDrawer}
-                aria-label={t(locale, 'students.drawer.closeDetails')}
-                className="p-1.5 rounded-md transition-colors"
-                style={{ color: 'var(--cms-text-muted)' }}
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                {/* PR-6 — drawer header actions: password reset + archive/restore. */}
+                <RowActionsMenu
+                  label={t(locale, 'students.table.rowActionsLabel', { name: selected.fullName })}
+                  dir={isArabic ? 'rtl' : 'ltr'}
+                  items={[
+                    {
+                      key: 'reset-password',
+                      label: t(locale, 'students.passwordReset.title'),
+                      icon: <KeySquare className="w-4 h-4" />,
+                      disabled: busy || resetBusy,
+                      onSelect: () => openPasswordReset(selected),
+                    },
+                    (isArchivedRow(selected)
+                      ? {
+                          key: 'restore',
+                          label: t(locale, 'students.archive.restoreAction'),
+                          icon: <ArchiveRestore className="w-4 h-4" />,
+                          disabled: busy || lifecycleBusy,
+                          onSelect: () => setLifecycleTarget({ student: selected, mode: 'restore' }),
+                        }
+                      : {
+                          key: 'archive',
+                          label: t(locale, 'students.archive.archiveTitle'),
+                          danger: true,
+                          icon: <Archive className="w-4 h-4" />,
+                          disabled: busy || lifecycleBusy,
+                          onSelect: () => setLifecycleTarget({ student: selected, mode: 'archive' }),
+                        }),
+                  ]}
+                />
+                <button
+                  onClick={closeDrawer}
+                  aria-label={t(locale, 'students.drawer.closeDetails')}
+                  className="p-1.5 rounded-md transition-colors"
+                  style={{ color: 'var(--cms-text-muted)' }}
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </header>
 
             {/* Drawer tabs */}
@@ -994,6 +1249,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
             >
               {([
                 { key: 'overview', label: t(locale, 'students.drawer.tabs.overview') },
+                { key: 'activity', label: t(locale, 'students.activity.title') },
                 { key: 'academic', label: t(locale, 'students.common.academicProgress') },
                 { key: 'exams', label: t(locale, 'students.drawer.tabs.exams') },
                 { key: 'subscriptions', label: t(locale, 'students.drawer.tabs.subscriptions') },
@@ -1059,6 +1315,167 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       </div>
                     </div>
                   </div>
+
+                  {/* ===== PR-6 — account-state detail panel (contract B) ===== */}
+                  {detailLoading && !detail ? (
+                    <div className="rounded-lg border p-4 space-y-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }} data-testid="student-detail-skeleton" aria-busy="true">
+                      {[0, 1, 2].map((row) => <div key={row} className="h-4 rounded bg-slate-100 animate-pulse" />)}
+                    </div>
+                  ) : detailFailed && !detail ? (
+                    <div
+                      className="rounded-lg border p-4 flex items-center justify-between gap-3 flex-wrap"
+                      style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}
+                      role="alert"
+                      data-testid="student-detail-error"
+                    >
+                      <p className="text-xs" style={{ color: 'var(--cms-danger)' }}>{t(locale, 'students.detail.loadError')}</p>
+                      <button
+                        type="button"
+                        onClick={() => void loadDetailFor(selected)}
+                        data-testid="student-detail-retry"
+                        className="px-3 py-1.5 rounded-lg border text-xs font-medium"
+                        style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}
+                      >
+                        {t(locale, 'students.detail.retry')}
+                      </button>
+                    </div>
+                  ) : detail && (
+                    <article
+                      className="rounded-lg border p-4 space-y-3"
+                      style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}
+                      data-testid="student-detail-panel"
+                    >
+                      <div className="flex items-center gap-2">
+                        <ShieldAlert className="w-4 h-4" style={{ color: 'var(--cms-teal-700)' }} />
+                        <strong className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.detail.accountStateTitle')}</strong>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        {/* Lockout state + failed attempts */}
+                        <p data-testid="student-detail-lockout" className="flex items-center gap-1.5" style={{ color: detail.lockedOut ? 'var(--cms-danger)' : 'var(--cms-text-soft)' }}>
+                          {detail.lockedOut
+                            ? <Timer className="w-3.5 h-3.5 shrink-0" />
+                            : <ShieldCheck className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-success)' }} />}
+                          <span>
+                            {detail.lockedOut
+                              ? `${t(locale, 'students.detail.lockoutTitle')}${detail.lockoutUntil ? ` — ${t(locale, 'students.detail.lockoutUntil')}: ${dateLabel(detail.lockoutUntil, isArabic)}` : ''}`
+                              : t(locale, 'students.detail.lockoutTitle')}
+                          </span>
+                        </p>
+                        <p data-testid="student-detail-failed-logins" style={{ color: 'var(--cms-text-soft)' }}>
+                          {t(locale, 'students.detail.failedAttempts')}: <strong style={{ color: 'var(--cms-text)' }}>{detail.failedLoginCount ?? 0}</strong>
+                        </p>
+                        {/* Ban reason / until */}
+                        {detail.banReason && (
+                          <p className="sm:col-span-2" style={{ color: 'var(--cms-danger)' }} data-testid="student-detail-ban-reason">
+                            {t(locale, 'students.detail.banReason')}: {detail.banReason}
+                          </p>
+                        )}
+                        {detail.banUntil && (
+                          <p style={{ color: 'var(--cms-danger)' }}>
+                            {t(locale, 'students.detail.banUntil')}: {dateLabel(detail.banUntil, isArabic)}
+                          </p>
+                        )}
+                        {/* Phone verification */}
+                        <p data-testid="student-detail-phone-verified" className="flex items-center gap-1.5" style={{ color: detail.phoneVerified ? 'var(--cms-success)' : 'var(--cms-warning)' }}>
+                          {detail.phoneVerified
+                            ? <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                            : <CircleAlert className="w-3.5 h-3.5 shrink-0" />}
+                          <span>{detail.phoneVerified ? t(locale, 'students.detail.phoneVerified') : t(locale, 'students.detail.phoneUnverified')}</span>
+                        </p>
+                        {/* Must-change-password flag */}
+                        {detail.mustChangePassword && (
+                          <p data-testid="student-detail-must-change" className="flex items-center gap-1.5" style={{ color: 'var(--cms-warning)' }}>
+                            <KeySquare className="w-3.5 h-3.5 shrink-0" />
+                            <span>{t(locale, 'students.detail.mustChangePassword')}</span>
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Archived state — prominent amber banner + restore */}
+                      {detail.archived && (
+                        <div
+                          className="rounded-lg border p-3 space-y-2"
+                          style={{ borderColor: 'var(--cms-warning)', background: 'var(--cms-warning-50)' }}
+                          data-testid="student-detail-archived"
+                        >
+                          <p className="flex items-center gap-2 text-sm font-bold" style={{ color: 'var(--cms-warning)' }}>
+                            <Archive className="w-4 h-4 shrink-0" />
+                            {t(locale, 'students.detail.archivedTitle')}
+                          </p>
+                          <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.detail.archivedExplanation')}</p>
+                          {detail.archivedAt && (
+                            <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
+                              {t(locale, 'students.detail.archivedAt')}: {dateLabel(detail.archivedAt, isArabic)}
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setLifecycleTarget({ student: selected, mode: 'restore' })}
+                            disabled={lifecycleBusy}
+                            data-testid="student-detail-restore"
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-white text-xs font-medium disabled:opacity-50"
+                            style={{ background: 'var(--cms-warning)' }}
+                          >
+                            <ArchiveRestore className="w-4 h-4" />
+                            {t(locale, 'students.archive.restoreAction')}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Academic scope card */}
+                      {detail.academic && (
+                        <div className="rounded-lg border p-3 space-y-1.5" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }} data-testid="student-detail-academic">
+                          <p className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--cms-text)' }}>
+                            <BookOpenCheck className="w-4 h-4 shrink-0" style={{ color: 'var(--cms-teal-700)' }} />
+                            {t(locale, 'students.detail.academicScopeTitle')}
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                            <p><span style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.university')}:</span> {detail.academic.universityName || '—'}</p>
+                            <p><span style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.college')}:</span> {detail.academic.collegeName || '—'}</p>
+                            <p><span style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.detail.academicYear')}:</span> {detail.academic.academicYearName || '—'}</p>
+                          </div>
+                          <p className="text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.detail.academicScopeExplanation')}</p>
+                        </div>
+                      )}
+
+                      {/* Subscription summary */}
+                      <div className="rounded-lg border p-3 space-y-1.5" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }} data-testid="student-detail-subscriptions">
+                        <p className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--cms-text)' }}>
+                          <ClipboardCheck className="w-4 h-4 shrink-0" style={{ color: 'var(--cms-teal-700)' }} />
+                          {t(locale, 'students.detail.subscriptionsTitle')}
+                        </p>
+                        {detail.subscriptionSummary ? (
+                          <>
+                            <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                              {t(locale, 'students.detail.activeSubscriptions')}: <strong style={{ color: 'var(--cms-text)' }}>{detail.subscriptionSummary.activeCount}</strong>
+                            </p>
+                            {detail.subscriptionSummary.latest ? (
+                              <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
+                                {t(locale, 'students.detail.latestSubscription')}: {subscriptionScopeLabel(detail.subscriptionSummary.latest.scopeType, locale)} · {subscriptionStatusLabel(detail.subscriptionSummary.latest.status, locale)} · {t(locale, 'students.subscriptions.from')} {dateLabel(detail.subscriptionSummary.latest.startsAt, isArabic)} · {t(locale, 'students.subscriptions.until')} {dateLabel(detail.subscriptionSummary.latest.expiresAt, isArabic)}
+                              </p>
+                            ) : (
+                              <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.detail.noSubscriptions')}</p>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.detail.noSubscriptions')}</p>
+                        )}
+                      </div>
+
+                      {/* Identity card — last login / login count / created */}
+                      <div className="rounded-lg border p-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }} data-testid="student-detail-identity">
+                        <p style={{ color: 'var(--cms-text-soft)' }}>
+                          <span style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.lastSignIn')}:</span> {dateLabel(detail.lastLogin, isArabic)}
+                        </p>
+                        <p style={{ color: 'var(--cms-text-soft)' }}>
+                          <span style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.detail.loginCount')}:</span> {detail.loginCount ?? 0}
+                        </p>
+                        <p style={{ color: 'var(--cms-text-soft)' }}>
+                          <span style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.detail.registeredAt')}:</span> {dateLabel(detail.createdAt, isArabic)}
+                        </p>
+                      </div>
+                    </article>
+                  )}
 
                   <div className="grid grid-cols-1 gap-3">
                     <article className="flex flex-col gap-3 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
@@ -1135,8 +1552,166 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                         ) : null
                       )}
                     </article>
+
+                    {/* PR-6 — password reset entry point (contract A). */}
+                    <article className="flex flex-col gap-3 p-4 rounded-lg border" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
+                      <div className="flex items-center gap-2" style={{ color: 'var(--cms-text)' }}>
+                        <KeySquare className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
+                        <strong className="text-sm font-semibold">{t(locale, 'students.passwordReset.title')}</strong>
+                      </div>
+                      <p className="text-xs flex-1" style={{ color: 'var(--cms-text-soft)' }}>
+                        {t(locale, 'students.passwordReset.subtitle')}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => openPasswordReset(selected)}
+                        disabled={busy || resetBusy}
+                        data-testid="student-password-reset-open"
+                        className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50"
+                        style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)', background: 'var(--cms-surface)' }}
+                      >
+                        <KeySquare className="w-4 h-4" />
+                        {t(locale, 'students.passwordReset.title')}
+                      </button>
+                    </article>
                   </div>
                 </>
+              )}
+
+              {/* ===== PR-6 — Activity tab (contract C: paged, filtered timeline) ===== */}
+              {drawerTab === 'activity' && (
+                <div className="space-y-4" data-testid="student-activity-tab">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <History className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
+                      <h3 className="text-base font-bold" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.activity.title')}</h3>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>{activityTotal}</span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Severity filter chips */}
+                      <div className="flex items-center gap-1" role="group" aria-label={t(locale, 'audit.severity.heading')}>
+                        {(['', 'info', 'warning', 'critical'] as const).map((value) => {
+                          const active = activitySeverity === value;
+                          const label = value === '' ? t(locale, 'students.activity.severityAll') : securitySeverityLabel(value, locale);
+                          return (
+                            <button
+                              key={value || 'all'}
+                              type="button"
+                              aria-pressed={active}
+                              data-testid={`activity-severity-${value || 'all'}`}
+                              onClick={() => { setActivitySeverity(value); }}
+                              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${eventToneClass(value || 'info')}`}
+                              style={{
+                                borderColor: active ? 'var(--cms-teal-600)' : 'var(--cms-line-strong)',
+                                color: active ? 'var(--cms-teal-700)' : 'var(--cms-text-soft)',
+                              }}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {/* Event-type dropdown (full enum with bilingual labels) */}
+                      <select
+                        value={activityType}
+                        onChange={(event) => setActivityType(event.target.value)}
+                        aria-label={t(locale, 'audit.headings.type')}
+                        data-testid="activity-type-filter"
+                        className="px-3 py-1.5 rounded-lg border text-xs bg-white"
+                        style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                      >
+                        <option value="">{t(locale, 'students.activity.typeAll')}</option>
+                        {SECURITY_EVENT_TYPES.map((type) => (
+                          <option key={type} value={type}>{securityEventLabel(type, locale)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {activityLoading ? (
+                    <div className="space-y-2" aria-busy="true" data-testid="student-activity-loading">
+                      {[0, 1, 2].map((row) => (
+                        <div key={row} className="rounded-lg border p-3 space-y-2" style={{ borderColor: 'var(--cms-line)' }}>
+                          <div className="h-3.5 rounded bg-slate-100 animate-pulse w-1/3" />
+                          <div className="h-3 rounded bg-slate-100 animate-pulse w-2/3" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : activityFailed ? (
+                    <div className="rounded-lg border p-4 flex items-center justify-between gap-3 flex-wrap" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }} role="alert">
+                      <p className="text-xs" style={{ color: 'var(--cms-danger)' }}>{t(locale, 'students.activity.loadError')}</p>
+                      <button
+                        type="button"
+                        onClick={() => void loadActivity(1)}
+                        data-testid="student-activity-retry"
+                        className="px-3 py-1.5 rounded-lg border text-xs font-medium"
+                        style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
+                      >
+                        {t(locale, 'students.activity.retry')}
+                      </button>
+                    </div>
+                  ) : activityItems.length === 0 ? (
+                    <div className="rounded-lg border flex flex-col items-center justify-center text-center py-10" style={{ borderColor: 'var(--cms-line)' }} role="status" data-testid="student-activity-empty">
+                      <History className="w-6 h-6 mb-2" style={{ color: 'var(--cms-text-muted)', opacity: 0.5 }} />
+                      <p className="text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.activity.empty')}</p>
+                      <p className="text-xs mt-1" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.activity.emptyHint')}</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                        {activityItems.map((item) => {
+                          const icon = (item.severity || '').toLowerCase() === 'critical'
+                            ? <ShieldAlert className="w-4 h-4" style={{ color: 'var(--cms-danger)' }} />
+                            : (item.severity || '').toLowerCase() === 'warning'
+                              ? <CircleAlert className="w-4 h-4" style={{ color: 'var(--cms-warning)' }} />
+                              : <Info className="w-4 h-4" style={{ color: 'var(--cms-info)' }} />;
+                          // Actor: adminName when the row says an admin did it; otherwise the student.
+                          const actor = item.actorType === 'admin'
+                            ? (item.adminName ?? t(locale, 'students.activity.actorUnknown'))
+                            : t(locale, 'students.activity.studentActor');
+                          return (
+                            <article key={item.id} className={`rounded-lg border p-3 ${eventToneClass(item.severity)}`} data-testid="student-activity-row">
+                              <div className="flex items-start gap-2">
+                                <span className="shrink-0 mt-0.5">{icon}</span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                                    <strong className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }} title={item.eventType}>{securityEventLabel(item.eventType, locale)}</strong>
+                                    <small className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{dateLabel(item.createdAt, isArabic)}</small>
+                                  </div>
+                                  {/* Plain text — React escapes; the server stores sanitized descriptions. */}
+                                  <p className="text-xs mt-1" style={{ color: 'var(--cms-text-soft)' }}>{item.description}</p>
+                                  <p className="text-[10px] mt-1" style={{ color: 'var(--cms-text-muted)' }}>{actor}</p>
+                                  {item.ipAddress && (
+                                    <p className="mt-1 text-[10px] font-mono" style={{ color: 'var(--cms-text-muted)' }}>IP · {item.ipAddress}</p>
+                                  )}
+                                  {item.deviceFingerprint && (
+                                    <p className="mt-1 text-[10px] font-mono" style={{ color: 'var(--cms-text-muted)' }} title={item.deviceFingerprint}>
+                                      {t(locale, 'students.security.fingerprint')} · {item.deviceFingerprint.slice(0, 8) + '…'}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                      <Pagination
+                        page={activityPage}
+                        pageSize={ACTIVITY_PAGE_SIZE}
+                        total={activityTotal}
+                        onPageChange={(next) => void loadActivity(next)}
+                        dir={isArabic ? 'rtl' : 'ltr'}
+                        testId="student-activity-pagination"
+                        labels={{
+                          navLabel: t(locale, 'students.activity.paginationNav'),
+                          prev: t(locale, 'students.activity.pagerPrev'),
+                          next: t(locale, 'students.activity.pagerNext'),
+                          pageOf: (page, pages) => t(locale, 'students.table.pageOf', { page, total: pages }),
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
               )}
 
               {drawerTab === 'security' && (
@@ -1150,7 +1725,20 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                         {t(locale, 'students.security.recentEvents')}
                       </h3>
                     </div>
-                    <ShieldCheck className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
+                    <div className="flex items-center gap-2">
+                      {/* PR-6 — jump to the Security Center pre-filtered to this student. */}
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/security?student=${selected.id}`)}
+                        data-testid="student-security-center-link"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium"
+                        style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5" />
+                        {t(locale, 'security.events.studentFilterLink')}
+                      </button>
+                      <ShieldCheck className="w-5 h-5" style={{ color: 'var(--cms-teal-600)' }} />
+                    </div>
                   </div>
                   {logsLoading ? (
                     <div className="flex items-center justify-center py-8" style={{ color: 'var(--cms-text-muted)' }}>
@@ -1172,7 +1760,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       {(securityLogs || []).map((log) => (
                         <article key={log.id} className={`rounded-lg border p-3 ${eventToneClass(log.severity)}`}>
                           <div className="flex items-start justify-between gap-2">
-                            <strong className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }} title={log.eventType}>{eventTypeLabel(log.eventType, locale)}</strong>
+                            <strong className="text-sm font-semibold" style={{ color: 'var(--cms-text)' }} title={log.eventType}>{securityEventLabel(log.eventType, locale)}</strong>
                             <small className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{dateLabel(log.createdAt, isArabic)}</small>
                           </div>
                           <p className="text-xs mt-1" style={{ color: 'var(--cms-text-soft)' }}>{log.description}</p>
@@ -2022,6 +2610,166 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
           </section>
         </div>
       )}
+
+      {/* ===== PR-6 — password reset dialog (contract A) =====
+          Typed confirmation (the student's phone number) mirrors the
+          HardDeleteDialog pattern; the actor password re-auths the admin.
+          The new password is never logged or re-rendered after submit. */}
+      <Dialog
+        open={resetTarget !== null}
+        onOpenChange={(next) => {
+          if (!next && !resetBusy) {
+            setResetTarget(null);
+            setResetForm({ actorPassword: '', newPassword: '', confirmPassword: '', typedConfirm: '' });
+            setResetError('');
+          }
+        }}
+        title={t(locale, 'students.passwordReset.title')}
+        description={t(locale, 'students.passwordReset.subtitle')}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="md"
+        dismissGuard={resetBusy}
+        testId="student-password-reset-dialog"
+      >
+        {resetTarget && (
+          <form className="px-5 py-4 space-y-4" onSubmit={submitPasswordReset} data-testid="student-password-reset-form">
+            <div className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
+              <p className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{resetTarget.fullName}</p>
+              <p className="text-xs font-mono" dir="ltr" style={{ color: 'var(--cms-text-muted)' }} data-testid="reset-target-phone">{resetTarget.phone || '—'}</p>
+            </div>
+            <p className="flex items-start gap-2 rounded-lg border p-3 text-xs leading-relaxed" style={{ background: 'var(--cms-warning-50)', borderColor: 'var(--cms-warning)', color: 'var(--cms-warning)' }} role="alert">
+              <CircleAlert className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{t(locale, 'students.passwordReset.consequence')}</span>
+            </p>
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.passwordReset.actorPassword')}</span>
+              <input
+                type="password"
+                value={resetForm.actorPassword}
+                onChange={(event) => setResetForm({ ...resetForm, actorPassword: event.target.value })}
+                autoComplete="current-password"
+                required
+                data-testid="reset-actor-password"
+                className="w-full px-3 py-2 rounded-lg border text-sm"
+                style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+              />
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.passwordReset.newPassword')}</span>
+                <input
+                  type="password"
+                  value={resetForm.newPassword}
+                  onChange={(event) => setResetForm({ ...resetForm, newPassword: event.target.value })}
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                  data-testid="reset-new-password"
+                  className="w-full px-3 py-2 rounded-lg border text-sm"
+                  style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+                />
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.passwordReset.confirmPassword')}</span>
+                <input
+                  type="password"
+                  value={resetForm.confirmPassword}
+                  onChange={(event) => setResetForm({ ...resetForm, confirmPassword: event.target.value })}
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                  data-testid="reset-confirm-password"
+                  className="w-full px-3 py-2 rounded-lg border text-sm"
+                  style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+                />
+              </label>
+            </div>
+            <label className="flex items-start gap-2.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={resetForce}
+                onChange={(event) => setResetForce(event.target.checked)}
+                disabled={resetBusy}
+                data-testid="reset-force-change"
+                className="mt-0.5 h-4 w-4"
+              />
+              <span className="text-xs leading-relaxed" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.passwordReset.forceLabel')}</span>
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium" style={{ color: 'var(--cms-text-soft)' }}>
+                {t(locale, 'students.passwordReset.typedConfirmLabel')}
+              </span>
+              <input
+                type="text"
+                inputMode="tel"
+                dir="ltr"
+                value={resetForm.typedConfirm}
+                onChange={(event) => setResetForm({ ...resetForm, typedConfirm: event.target.value })}
+                placeholder={t(locale, 'students.passwordReset.typedConfirmPlaceholder')}
+                data-testid="reset-typed-confirm"
+                className="w-full px-3 py-2 rounded-lg border text-sm text-left"
+                style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+              />
+              <span className="block text-[10px]" style={{ color: 'var(--cms-text-muted)' }}>
+                {t(locale, 'students.passwordReset.typedConfirmHint')}
+              </span>
+            </label>
+            {resetError && (
+              <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3" role="alert" data-testid="reset-error">{resetError}</p>
+            )}
+            <div className="flex justify-end gap-2 pt-1 border-t" style={{ borderColor: 'var(--cms-line)' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setResetTarget(null);
+                  setResetForm({ actorPassword: '', newPassword: '', confirmPassword: '', typedConfirm: '' });
+                  setResetError('');
+                }}
+                disabled={resetBusy}
+                className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-50"
+                style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}
+              >
+                {t(locale, 'students.common.cancel')}
+              </button>
+              <button
+                type="submit"
+                disabled={resetBusy
+                  || resetForm.typedConfirm.trim() !== (resetTarget.phone || '')
+                  || !resetForm.actorPassword
+                  || !resetForm.newPassword
+                  || resetForm.newPassword !== resetForm.confirmPassword}
+                data-testid="reset-submit"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: 'var(--cms-danger)' }}
+              >
+                {resetBusy && <LoaderCircle className="w-4 h-4 animate-spin" />}
+                {t(locale, 'students.passwordReset.submit')}
+              </button>
+            </div>
+          </form>
+        )}
+      </Dialog>
+
+      {/* ===== PR-6 — archive / restore confirm (contract D) ===== */}
+      <ConfirmDialog
+        open={lifecycleTarget !== null}
+        onOpenChange={(next) => { if (!next && !lifecycleBusy) setLifecycleTarget(null); }}
+        title={lifecycleTarget?.mode === 'archive'
+          ? t(locale, 'students.archive.archiveTitle')
+          : t(locale, 'students.archive.restoreTitle')}
+        description={lifecycleTarget?.mode === 'archive'
+          ? t(locale, 'students.archive.archiveBody')
+          : t(locale, 'students.archive.restoreBody')}
+        confirmLabel={lifecycleTarget?.mode === 'archive'
+          ? t(locale, 'students.archive.archiveConfirm')
+          : t(locale, 'students.archive.restoreConfirm')}
+        cancelLabel={t(locale, 'students.common.cancel')}
+        variant={lifecycleTarget?.mode === 'archive' ? 'danger' : 'primary'}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={lifecycleBusy}
+        onConfirm={() => { if (lifecycleTarget) void executeLifecycle(lifecycleTarget); }}
+        testId="student-lifecycle-confirm"
+      />
     </section>
   );
 }

@@ -30,6 +30,13 @@ vi.mock('../lib/api', () => ({
   },
 }));
 
+// PR-6 — the Security Center is stubbed: these routing tests only assert the
+// view wiring (route → component, nav item, gating), not the center itself
+// (covered by src/test/security-center.test.tsx).
+vi.mock('../components/SecurityCenter', () => ({
+  SecurityCenter: () => <section data-testid="security-center-stub" />,
+}));
+
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import App from '../App';
 
@@ -187,6 +194,29 @@ describe('PR-2 — post-login deep-link restoration', () => {
 
     await awaitLocation('/admins');
     await awaitBreadcrumb('قائمة المدراء');
+  });
+});
+
+describe('PR-6 — /security route (Security Center view)', () => {
+  it('renders the Security Center for a super admin, with the sidebar nav item', async () => {
+    seedSession('super_admin');
+    renderAppAt('/security');
+
+    await awaitShell();
+    expect(await screen.findByTestId('security-center-stub')).toBeInTheDocument();
+    // The audit-nav group item is present for super admins.
+    expect(screen.getByRole('button', { name: 'مركز الأمان' })).toBeInTheDocument();
+  });
+
+  it('shows LimitedNotice for a non-super admin deep link (center never mounts)', async () => {
+    seedSession('admin');
+    renderAppAt('/security');
+
+    await awaitShell();
+    expect(await screen.findByText('الوصول مقيّد بالدور والنطاق')).toBeInTheDocument();
+    expect(screen.queryByTestId('security-center-stub')).not.toBeInTheDocument();
+    // No super-only nav item either.
+    expect(screen.queryByRole('button', { name: 'مركز الأمان' })).not.toBeInTheDocument();
   });
 });
 

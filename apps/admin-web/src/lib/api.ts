@@ -469,3 +469,179 @@ export type HardDeleteStatus = { enabled: boolean };
 export function adminHardDeleteStatus(token: string): Promise<HardDeleteStatus> {
   return apiRequest<HardDeleteStatus>('/api/v1/admin/system/hard-delete/status', token);
 }
+
+// ===== PR-6 — Student Center completion + Security Center =====
+
+/** Contract B — GET /api/v1/admin/students/{id} (student detail). */
+export type StudentDetailDto = {
+  id: string;
+  fullName: string;
+  phone: string;
+  email?: string | null;
+  gender?: string | null;
+  avatarUrl?: string | null;
+  status: string;
+  banReason?: string | null;
+  banUntil?: string | null;
+  lockedOut?: boolean;
+  lockoutUntil?: string | null;
+  failedLoginCount?: number;
+  phoneVerified?: boolean;
+  mustChangePassword?: boolean;
+  archived?: boolean;
+  archivedAt?: string | null;
+  createdAt: string;
+  updatedAt?: string | null;
+  lastLogin?: string | null;
+  loginCount?: number;
+  lastActivityDate?: string | null;
+  questionsAnswered: number;
+  correctAnswers?: number;
+  accuracy: number;
+  currentStreak?: number;
+  longestStreak?: number;
+  academic?: {
+    universityId: string;
+    universityName: string;
+    collegeId: string;
+    collegeName: string;
+    academicYearId: string;
+    academicYearName: string;
+  } | null;
+  subscriptionSummary?: {
+    activeCount: number;
+    latest?: { id: string; status: string; scopeType: string; startsAt: string; expiresAt: string } | null;
+  } | null;
+  activeDevice?: { deviceName: string; deviceType: string; os: string; browser: string; boundAt: string; lastUsed?: string | null } | null;
+};
+
+/** Contract C — one row of GET /api/v1/admin/students/{id}/activity. */
+export type StudentActivityItem = {
+  id: string;
+  eventType: string;
+  severity: string;
+  description: string;
+  ipAddress?: string | null;
+  deviceFingerprint?: string | null;
+  correlationId?: string | null;
+  createdAt: string;
+  adminName?: string | null;
+  actorType?: string | null;
+};
+
+export type StudentActivityParams = {
+  page?: number;
+  pageSize?: number;
+  type?: string;
+  severity?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+/** Contract A — POST /api/v1/admin/students/{id}/password-reset body. */
+export type StudentPasswordResetRequest = {
+  actorPassword: string;
+  newPassword: string;
+  forceChangeOnNextLogin: boolean;
+};
+
+/** Contract F — GET /api/v1/security/summary. */
+export type SecuritySummaryDto = {
+  generatedAt: string;
+  failedLogins24h: number;
+  failedLogins7d: number;
+  activeLockouts: number;
+  refreshReuse7d: number;
+  mfaEnabled7d: number;
+  mfaDisabled7d: number;
+  mfaFailed7d: number;
+  criticalEvents7d: number;
+  suspiciousAlerts7d: number;
+  passwordResets7d: number;
+  topFailedLoginIps24h: Array<{ ipAddress: string; count: number }>;
+};
+
+/** Contract G — one row of GET /api/v1/security/audit-logs. */
+export type SecurityEventItem = {
+  id: string;
+  eventType: string;
+  severity: string;
+  description: string;
+  ipAddress?: string | null;
+  deviceFingerprint?: string | null;
+  correlationId?: string | null;
+  createdAt: string;
+  studentId?: string | null;
+  studentName?: string | null;
+  adminId?: string | null;
+  adminName?: string | null;
+};
+
+export type SecurityEventParams = {
+  page?: number;
+  pageSize?: number;
+  studentId?: string;
+  adminId?: string;
+  eventType?: string;
+  severity?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  search?: string;
+};
+
+/** Reads one student's detail (contract B). */
+export function fetchStudentDetail(id: string, token: string): Promise<StudentDetailDto> {
+  return apiRequest<StudentDetailDto>(`/api/v1/admin/students/${id}`, token);
+}
+
+/** Password reset with actor re-auth (contract A). 204 on success. */
+export function resetStudentPassword(id: string, token: string, body: StudentPasswordResetRequest): Promise<void> {
+  return apiRequest<void>(`/api/v1/admin/students/${id}/password-reset`, token, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** Soft delete (contract D). 204, idempotent. */
+export function archiveStudent(id: string, token: string): Promise<void> {
+  return apiRequest<void>(`/api/v1/admin/students/${id}/archive`, token, { method: 'POST' });
+}
+
+/** Undo soft delete (contract D). 204, idempotent. */
+export function restoreStudent(id: string, token: string): Promise<void> {
+  return apiRequest<void>(`/api/v1/admin/students/${id}/restore`, token, { method: 'POST' });
+}
+
+/** Paged student activity (contract C). */
+export function fetchStudentActivity(id: string, token: string, params: StudentActivityParams = {}): Promise<PagedResult<StudentActivityItem>> {
+  const search = new URLSearchParams({
+    page: String(params.page ?? 1),
+    pageSize: String(params.pageSize ?? 20),
+  });
+  if (params.type) search.set('type', params.type);
+  if (params.severity) search.set('severity', params.severity);
+  if (params.dateFrom) search.set('dateFrom', params.dateFrom);
+  if (params.dateTo) search.set('dateTo', params.dateTo);
+  return apiRequest<PagedResult<StudentActivityItem>>(`/api/v1/admin/students/${id}/activity?${search.toString()}`, token);
+}
+
+/** Security-center metrics (contract F). */
+export function fetchSecuritySummary(token: string): Promise<SecuritySummaryDto> {
+  return apiRequest<SecuritySummaryDto>('/api/v1/security/summary', token);
+}
+
+/** Full audit-log events (contract G — existing endpoint, reused here). */
+export function fetchSecurityEvents(token: string, params: SecurityEventParams = {}): Promise<PagedResult<SecurityEventItem>> {
+  const search = new URLSearchParams({
+    page: String(params.page ?? 1),
+    pageSize: String(params.pageSize ?? 25),
+  });
+  if (params.studentId) search.set('studentId', params.studentId);
+  if (params.adminId) search.set('adminId', params.adminId);
+  if (params.eventType) search.set('eventType', params.eventType);
+  if (params.severity) search.set('severity', params.severity);
+  if (params.dateFrom) search.set('dateFrom', params.dateFrom);
+  if (params.dateTo) search.set('dateTo', params.dateTo);
+  if (params.search) search.set('search', params.search);
+  return apiRequest<PagedResult<SecurityEventItem>>(`/api/v1/security/audit-logs?${search.toString()}`, token);
+}

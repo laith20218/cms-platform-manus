@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using CMS.Api.Authorization;
+using CMS.Application.Commands.Dashboard;
 using CMS.Infrastructure.Persistence;
 using CMS.Application.Interfaces;
 using CMS.Domain.Entities;
@@ -10,8 +13,10 @@ using System.Security.Claims;
 namespace CMS.Api.Controllers;
 
 /// <summary>
-/// Admin student management controller — profile updates + avatar upload.
-/// All endpoints require admin role + Students.Edit permission + scope check.
+/// Admin student management controller — profile updates + avatar upload + the PR-6
+/// Student Center per-student drawer endpoints (detail, password reset, archive/restore,
+/// unified activity feed). All endpoints require admin role; per-endpoint policies add
+/// the resource/action grant and every per-student route re-checks scope.
 /// </summary>
 [ApiController]
 [Route("api/v1/admin/students")]
@@ -22,6 +27,7 @@ public class AdminStudentsController : ControllerBase
     private readonly IPermissionService _permissions;
     private readonly IFileStorageService _storage;
     private readonly ISecurityAuditWriter _audit;
+    private readonly MediatR.ISender _mediator;
 
     // Avatar constraints
     private const long MaxAvatarBytes = 3 * 1024 * 1024; // 3MB
@@ -35,13 +41,15 @@ public class AdminStudentsController : ControllerBase
         IPermissionService permissions,
         IFileStorageService storage,
         ISecurityAuditWriter audit,
-        IPasswordHasher passwordHasher)
+        IPasswordHasher passwordHasher,
+        MediatR.ISender mediator)
     {
         _db = db;
         _permissions = permissions;
         _storage = storage;
         _audit = audit;
         _passwordHasher = passwordHasher;
+        _mediator = mediator;
     }
 
     private readonly IPasswordHasher _passwordHasher;
@@ -275,6 +283,189 @@ public class AdminStudentsController : ControllerBase
 
     // ===== Student profile drawer — per-student detail endpoints =====
 
+    /// <summary>
+    /// PR-6 (Student Center): full student detail for the admin drawer — identity, ban /
+    /// lockout state, must-change-password + archive flags, stats, academic path,
+    /// subscription summary, and the active device binding.
+    /// </summary>
+    [HttpGet("{studentId:guid}")]
+    [Authorize(Policy = Policies.StudentView)]
+    public async Task<IActionResult> GetStudentDetail(Guid studentId, CancellationToken ct = default)
+    {
+        var adminId = GetAdminId();
+        if (!await _permissions.IsInScopeAsync(adminId, "student", studentId, ct))
+            return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
+
+        // Soft-deleted students resolve here too (Student queries filter DeletedAt manually
+        // in LINQ — there is no global filter), so an archived student keeps a full drawer.
+        if (!await _db.Students.AnyAsync(s => s.Id == studentId, ct))
+            return NotFound(new ProblemDetails
+            {
+                Title = "Student not found",
+                Status = 404,
+                Detail = $"No student with id '{studentId}'",
+            });
+
+        var detail = await _mediator.Send(new GetStudentDetailQuery(adminId, studentId), ct);
+        return Ok(detail);
+    }
+
+    /// <summary>
+    /// PR-6 (Student Center): admin resets a student's password. Danger-zone operation —
+    /// the acting admin re-authenticates with their own password, the new secret is
+    /// policy-checked, hashed and never logged; all student sessions are revoked. Carries
+    /// the strict danger-zone rate limit (the handler runs Argon2 re-auth on every call).
+    /// </summary>
+    [HttpPost("{studentId:guid}/password-reset")]
+    [Authorize(Policy = Policies.StudentEdit)]
+    [EnableRateLimiting("danger-zone")]
+    public async Task<IActionResult> ResetStudentPassword(Guid studentId, [FromBody] ResetStudentPasswordRequest body, CancellationToken ct = default)
+    {
+        var adminId = GetAdminId();
+        if (!await _permissions.IsInScopeAsync(adminId, "student", studentId, ct))
+            return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
+
+        if (!await _db.Students.AnyAsync(s => s.Id == studentId, ct))
+            return NotFound(new ProblemDetails
+            {
+                Title = "Student not found",
+                Status = 404,
+                Detail = $"No student with id '{studentId}'",
+            });
+
+        await _mediator.Send(
+            new ResetStudentPasswordCommand(adminId, studentId, body.ActorPassword, body.NewPassword, body.ForceChangeOnNextLogin),
+            ct);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// PR-6 (Student Center): soft-archive a student (tombstone — never a hard delete).
+    /// Revokes all sessions and hides the student from the default list; fully restorable.
+    /// Idempotent (archiving an archived student is 204 with no side effects).
+    /// </summary>
+    [HttpPost("{studentId:guid}/archive")]
+    [Authorize(Policy = Policies.StudentEdit)]
+    public async Task<IActionResult> ArchiveStudent(Guid studentId, CancellationToken ct = default)
+    {
+        var adminId = GetAdminId();
+        if (!await _permissions.IsInScopeAsync(adminId, "student", studentId, ct))
+            return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
+
+        if (!await _db.Students.AnyAsync(s => s.Id == studentId, ct))
+            return NotFound(new ProblemDetails
+            {
+                Title = "Student not found",
+                Status = 404,
+                Detail = $"No student with id '{studentId}'",
+            });
+
+        await _mediator.Send(new ArchiveStudentCommand(adminId, studentId), ct);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// PR-6 (Student Center): restore a soft-archived student back to the active roster.
+    /// Idempotent (restoring a non-archived student is 204 with no side effects).
+    /// </summary>
+    [HttpPost("{studentId:guid}/restore")]
+    [Authorize(Policy = Policies.StudentEdit)]
+    public async Task<IActionResult> RestoreStudent(Guid studentId, CancellationToken ct = default)
+    {
+        var adminId = GetAdminId();
+        if (!await _permissions.IsInScopeAsync(adminId, "student", studentId, ct))
+            return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
+
+        if (!await _db.Students.AnyAsync(s => s.Id == studentId, ct))
+            return NotFound(new ProblemDetails
+            {
+                Title = "Student not found",
+                Status = 404,
+                Detail = $"No student with id '{studentId}'",
+            });
+
+        await _mediator.Send(new RestoreStudentCommand(adminId, studentId), ct);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// PR-6 (Student Center): unified per-student activity feed — every security audit row
+    /// for one student (student- and admin-attributed), paginated + filterable by event
+    /// type / severity / date. Mirrors SecurityController's audit-log parsing: invalid
+    /// enum filter values are ignored, never a 500.
+    /// </summary>
+    [HttpGet("{studentId:guid}/activity")]
+    [Authorize(Policy = Policies.LogView)]
+    public async Task<IActionResult> GetStudentActivity(
+        Guid studentId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? type = null,
+        [FromQuery] string? severity = null,
+        [FromQuery] DateTime? dateFrom = null,
+        [FromQuery] DateTime? dateTo = null,
+        CancellationToken ct = default)
+    {
+        var adminId = GetAdminId();
+        if (!await _permissions.IsInScopeAsync(adminId, "student", studentId, ct))
+            return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "لا تملك صلاحية تنفيذ هذا الإجراء"); // W14.2: 403 = ProblemDetails with detail
+
+        // Clamp pagination to safe bounds
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        // Parse enum filters safely (invalid values → null, no 500)
+        SecurityEventType? eventType = null;
+        if (!string.IsNullOrEmpty(type) && Enum.TryParse<SecurityEventType>(type, true, out var parsedType))
+            eventType = parsedType;
+
+        SecuritySeverity? severityFilter = null;
+        if (!string.IsNullOrEmpty(severity) && Enum.TryParse<SecuritySeverity>(severity, true, out var parsedSeverity))
+            severityFilter = parsedSeverity;
+
+        var query = _db.SecurityLogs.AsNoTracking().Where(log => log.StudentId == studentId);
+        if (eventType.HasValue) query = query.Where(log => log.EventType == eventType);
+        if (severityFilter.HasValue) query = query.Where(log => log.Severity == severityFilter);
+        if (dateFrom.HasValue) query = query.Where(log => log.CreatedAt >= dateFrom);
+        if (dateTo.HasValue) query = query.Where(log => log.CreatedAt <= dateTo);
+
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .OrderByDescending(log => log.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        // Batch-fetch actor names for human-readable display
+        var adminIds = items.Where(item => item.AdminId.HasValue).Select(item => item.AdminId!.Value).Distinct().ToList();
+        var admins = adminIds.Count > 0
+            ? await _db.Admins.AsNoTracking().Where(admin => adminIds.Contains(admin.Id)).ToDictionaryAsync(admin => admin.Id, ct)
+            : new Dictionary<Guid, Admin>();
+
+        var result = items.Select(log => new
+        {
+            id = log.Id,
+            eventType = log.EventType.ToString(),
+            severity = log.Severity.ToString(),
+            description = log.Description,
+            ipAddress = log.IpAddress?.ToString(),
+            deviceFingerprint = log.DeviceFingerprint,
+            correlationId = log.CorrelationId,
+            createdAt = log.CreatedAt,
+            adminName = log.AdminId.HasValue && admins.TryGetValue(log.AdminId.Value, out var actor) ? actor.FullName : null,
+            actorType = log.AdminId != null ? "admin" : "student",
+        });
+
+        return Ok(new
+        {
+            items = result,
+            total,
+            page,
+            pageSize,
+            totalPages = pageSize > 0 ? (int)Math.Ceiling((double)total / pageSize) : 1,
+        });
+    }
+
     private async Task<IActionResult> CheckStudentAccess(Guid studentId, CancellationToken ct)
     {
         var adminId = GetAdminId();
@@ -441,6 +632,18 @@ public class AdminStudentsController : ControllerBase
 public record UpdateStudentProfileRequest(
     string? FullName,
     string? Gender  // "male" | "female" | null to keep
+);
+
+/// <summary>
+/// PR-6 (Student Center): request body for POST /admin/students/{id}/password-reset.
+/// ActorPassword is the acting admin's own password (danger-zone re-authentication);
+/// NewPassword is the student's new secret (policy-checked, hashed, never logged);
+/// ForceChangeOnNextLogin flags the student for a forced password change at next login.
+/// </summary>
+public record ResetStudentPasswordRequest(
+    string ActorPassword,
+    string NewPassword,
+    bool ForceChangeOnNextLogin = false
 );
 
 /// <summary>Request body for POST /admin/students (manual creation).</summary>
