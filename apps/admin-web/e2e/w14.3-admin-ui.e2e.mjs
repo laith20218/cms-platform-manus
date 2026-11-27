@@ -39,7 +39,10 @@ const EXECUTABLE =
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ??
   '/home/z/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome';
 const SHOT_DIR = fileURLToPath(new URL('./screenshots/', import.meta.url));
-const AXE_JS = '/home/z/cms-work/cms-platform-manus/node_modules/.pnpm/axe-core@4.14.0/node_modules/axe-core/axe.js';
+// PR-10: AXE_JS now honors the E2E_AXE_JS env override so CI can point it at the
+// workspace-resolved axe-core (the hardcoded sandbox path only exists locally).
+const AXE_JS = process.env.E2E_AXE_JS
+  ?? '/home/z/cms-work/cms-platform-manus/node_modules/.pnpm/axe-core@4.14.0/node_modules/axe-core/axe.js';
 const WIDTHS = [375, 414, 768, 1024, 1440];
 const SUBJECT_URL = `${BASE_URL}/?univ=u1&college=c1&year=y1&semester=s1&subject=su1`;
 
