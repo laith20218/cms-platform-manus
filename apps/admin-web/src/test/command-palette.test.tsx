@@ -122,7 +122,9 @@ describe('CommandPalette — keyboard navigation', () => {
     const { input } = await openPalette();
 
     fireEvent.keyDown(input, { key: 'ArrowUp' });
-    const lastOption = screen.getByTestId('command-option-content');
+    // Phase 3 regroup: the palette derives its order from the sidebar groups,
+    // so the last item is now the offline-packages entry of «الإعدادات».
+    const lastOption = screen.getByTestId('command-option-offline');
     expect(lastOption).toHaveAttribute('aria-selected', 'true');
   });
 

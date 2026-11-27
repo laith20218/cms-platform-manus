@@ -49,6 +49,9 @@ export const serversDict = {
   summaryLoadError: { ar: 'تعذّر تحميل ملخص حالة الخوادم.', en: 'Unable to load the servers summary.' },
   forbidden: { ar: 'لا تملك صلاحية عرض حالة الخوادم', en: 'You do not have permission to view server statuses' },
   retry: { ar: 'إعادة المحاولة', en: 'Retry' },
+  // Phase 3 (command-center dashboard) — the compact Overview summary card.
+  summaryCardTitle: { ar: 'حالة الخدمات', en: 'Service health' },
+  summaryCardOpenCenter: { ar: 'فتح المركز', en: 'Open the center' },
   providerNavLabel: { ar: 'أقسام المزوّدين', en: 'Provider sections' },
   cardOpenDetail: { ar: 'الانتقال إلى تفاصيل {{provider}}', en: 'Jump to {{provider}} details' },
   sectionReasonUnavailable: { ar: 'بيانات هذا المزوّد غير متاحة الآن', en: 'This provider\u0027s data is unavailable right now' },
