@@ -40,6 +40,7 @@ import {
   X,
 } from 'lucide-react';
 import { API_BASE_URL, apiRequest, ApiError, type AdminRecord, type AdminUser, type PagedResult, type RoleRecord, login, refreshAccessToken } from './lib/api';
+import { resolveAdminEnvironment, apiOriginHost, environmentDictKey } from './lib/environment';
 import { Breadcrumbs, ConfirmDialog, ErrorState } from '@cms/ui';
 // PR-2 — command palette (ARIA combobox surface) + the real 404 view + URL query state.
 import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
@@ -248,6 +249,13 @@ function App() {
   // consumers (AdminsCenter, RolesCenter, DialogLayer, Overview, palette
   // labels) are untouched.
   const copy = useMemo(() => buildShellCopy(locale), [locale]);
+  // Phase 2 (deployment alignment) — the environment label is DERIVED from the
+  // configured API origin, never hardcoded: a preview deployment labels itself
+  // «بيئة المعاينة» instead of falsely claiming production. The public origin
+  // host is safe to display; no tokens, paths or secrets are surfaced.
+  const adminEnvironment = useMemo(() => resolveAdminEnvironment(API_BASE_URL), []);
+  const environmentLabel = t(locale, environmentDictKey(adminEnvironment));
+  const apiHost = useMemo(() => apiOriginHost(API_BASE_URL), []);
 
   // Apply theme to <html data-theme="…">.
   useEffect(() => {
@@ -665,7 +673,10 @@ function App() {
               <Languages size={16} />{copy.language}
             </button>
             <img src={FULL_LOGO} alt={copy.welcome} style={{ width: 56, height: 56, borderRadius: 'var(--cms-radius-md)', objectFit: 'cover', marginBottom: 'var(--cms-space-5)', boxShadow: 'var(--cms-shadow-sm)' }} />
-            <span style={{ display: 'block', fontSize: 'var(--cms-text-2xs)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--cms-text-muted)', fontWeight: 600, marginBottom: 'var(--cms-space-2)' }}>{copy.apiLabel} / A-01</span>
+            <span style={{ display: 'block', fontSize: 'var(--cms-text-2xs)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--cms-text-muted)', fontWeight: 600, marginBottom: 'var(--cms-space-2)' }}>
+              {environmentLabel} · {apiHost || '—'} / A-01
+              <span className="sr-only">{t(locale, 'environment.originTitle')}: {apiHost}</span>
+            </span>
             <h2>{copy.loginTitle}</h2>
             <p className="login-desc">{copy.loginDescription}</p>
             <form onSubmit={signIn}>
@@ -931,6 +942,14 @@ function App() {
               {/* W14.3 §13: opacity 0.6 → soft token — the hint failed contrast (2.68:1). */}
               <span style={{ fontSize: '11px', color: 'var(--cms-text-soft)' }}>⌘K</span>
             </button>
+            <div
+              className={`env-chip env-${adminEnvironment}`}
+              data-testid="environment-chip"
+              title={`${t(locale, 'environment.originTitle')}: ${apiHost}`}
+            >
+              <span className="dot" aria-hidden="true" />
+              {environmentLabel}
+            </div>
             <div className={`status-indicator ${apiStatus === 'healthy' ? '' : apiStatus === 'degraded' ? 'degraded' : 'unknown'}`} title={statusLabel}>
               <span className="dot" />
               {statusLabel}
