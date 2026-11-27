@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { apiRequest, ApiError } from '../lib/api';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { apiRequest, apiDownload, ApiError, login, NETWORK_ERROR_CODES } from '../lib/api';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -85,5 +85,89 @@ describe('apiRequest', () => {
       json: async () => { throw new Error('not JSON'); },
     });
     await expect(apiRequest('/error', 'token')).rejects.toThrow();
+  });
+});
+
+describe('bounded network calls (Phase 6 — login resilience)', () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    global.fetch = mockFetch as unknown as typeof fetch;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('login() rejects with NETWORK_TIMEOUT when the server stalls past the deadline', async () => {
+    // Simulate real fetch abort semantics: the promise only rejects when the
+    // AbortController signal fires — exactly what a stalled network does.
+    mockFetch.mockImplementation((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      }));
+
+    const pending = login('ops@example.edu', 'whatever-password');
+    const assertion = expect(pending).rejects.toMatchObject({
+      status: 0,
+      errorCode: NETWORK_ERROR_CODES.timeout,
+    });
+    // Still pending at the old 20s deadline (cold-start budget)…
+    await vi.advanceTimersByTimeAsync(20_500);
+    // …but the login bound is finite: 75s.
+    await vi.advanceTimersByTimeAsync(55_000);
+    await assertion;
+  });
+
+  it('login() translates a network-layer failure into NETWORK_UNREACHABLE', async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError('fetch failed'));
+
+    await expect(login('ops@example.edu', 'whatever-password')).rejects.toMatchObject({
+      status: 0,
+      errorCode: NETWORK_ERROR_CODES.unreachable,
+    });
+  });
+
+  it('login() timeout message is Arabic and leaks no infrastructure detail', async () => {
+    mockFetch.mockImplementation((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      }));
+
+    const pending = login('ops@example.edu', 'whatever-password');
+    const assertion = expect(pending).rejects.toSatisfy((error: unknown) => {
+      const apiError = error as ApiError;
+      return apiError.message.includes('انتهت مهلة الاتصال') && !apiError.message.includes('http');
+    });
+    await vi.advanceTimersByTimeAsync(75_500);
+    await assertion;
+  });
+
+  it('apiRequest() is bounded too (stalled data call recovers)', async () => {
+    mockFetch.mockImplementation((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      }));
+
+    const pending = apiRequest('/api/v1/admin/roles', 'token');
+    const assertion = expect(pending).rejects.toMatchObject({ errorCode: NETWORK_ERROR_CODES.timeout });
+    await vi.advanceTimersByTimeAsync(45_500);
+    await assertion;
+  });
+
+  it('apiDownload() is bounded with a long download budget', async () => {
+    mockFetch.mockImplementation((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      }));
+
+    const pending = apiDownload('/api/v1/admin/questions/export', 'token');
+    const assertion = expect(pending).rejects.toMatchObject({ errorCode: NETWORK_ERROR_CODES.timeout });
+    // Still pending at the apiRequest deadline — downloads get a longer budget…
+    await vi.advanceTimersByTimeAsync(45_500);
+    // …but not an infinite one.
+    await vi.advanceTimersByTimeAsync(300_000);
+    await assertion;
   });
 });

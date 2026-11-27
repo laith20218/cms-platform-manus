@@ -436,6 +436,11 @@ function App() {
         setTwoFactorRequired(true);
         setOtp('');
         setLoginError('');
+      } else if (error instanceof ApiError && (error.errorCode === 'NETWORK_TIMEOUT' || error.errorCode === 'NETWORK_UNREACHABLE')) {
+        // Phase 6 — bounded request failed at the network layer: a connection-level
+        // message only. It never reveals whether the account exists and never leaks
+        // infrastructure detail; the operator can safely retry immediately.
+        setLoginError(t(locale, 'login.errorConnection'));
       } else {
         setLoginError(error instanceof Error ? error.message : t(locale, 'login.errorGeneric'));
       }
@@ -694,7 +699,7 @@ function App() {
                 </>
               )}
               {loginError && <p className="login-error"><CircleAlert size={16} />{loginError}</p>}
-              <button type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={18} /> : <ArrowUpRight size={18} />}{copy.signIn}</button>
+              <button type="submit" disabled={busy} aria-busy={busy}>{busy ? <LoaderCircle className="spin" size={18} /> : <ArrowUpRight size={18} />}{busy ? copy.signingIn : copy.signIn}</button>
               {twoFactorRequired && (
                 <button
                   type="button"

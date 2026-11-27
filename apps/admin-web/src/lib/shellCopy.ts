@@ -20,6 +20,9 @@ export function buildShellCopy(locale: Locale): ShellCopy {
     loginTitle: t(locale, 'login.title'),
     loginDescription: t(locale, 'login.description'),
     signIn: t(locale, 'login.submit'),
+    // Phase 6 — bounded-login progress label (never a stuck spinner).
+    signingIn: t(locale, 'login.signingIn'),
+    errorConnection: t(locale, 'login.errorConnection'),
     email: t(locale, 'login.email'),
     password: t(locale, 'login.password'),
     systemReady: t(locale, 'login.systemReady'),

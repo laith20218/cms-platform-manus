@@ -102,6 +102,69 @@ function readProblem(payload: unknown): { message: string; humanMessage?: string
   return { message: 'تعذر إتمام الطلب. حاول مرة أخرى.' };
 }
 
+/**
+ * Phase 6 (login resilience) — bounded network calls. A stalled request can
+ * never leave the UI in an endless loading state: every fetch is wrapped with
+ * an AbortController deadline and network-level failures are translated into
+ * Arabic ApiErrors with stable errorCodes so callers can branch without
+ * parsing sentences and without leaking infrastructure details.
+ */
+export const NETWORK_ERROR_CODES = {
+  timeout: 'NETWORK_TIMEOUT',
+  unreachable: 'NETWORK_UNREACHABLE',
+} as const;
+
+const NETWORK_TIMEOUTS_MS = {
+  // Login gets the longest budget: the API's hosting tier cold-starts (observed
+  // 26–71s), and a login attempt that outlasts a cold start is far better UX
+  // than a false "connection failed" on the first attempt of the day. The
+  // bound stays finite — the button can never hang forever — and the visible
+  // progress label keeps the operator informed while it waits.
+  login: 75_000,
+  refresh: 30_000,
+  request: 45_000,
+  download: 300_000,
+} as const;
+
+function isAbortError(error: unknown): boolean {
+  // Deliberately NOT `instanceof Error`: DOMException does not inherit from
+  // Error in every runtime (Node/jsdom), and the abort signal is identified
+  // by its `name` per the fetch specification.
+  return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError';
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (isAbortError(error)) {
+      // Bounded timeout tripped — recoverable, no infrastructure detail leaked.
+      throw new ApiError(
+        'انتهت مهلة الاتصال بالخادم. تحقق من الشبكة ثم أعد المحاولة.',
+        0,
+        'انتهت مهلة الاتصال بالخادم. تحقق من الشبكة ثم أعد المحاولة.',
+        undefined,
+        NETWORK_ERROR_CODES.timeout,
+      );
+    }
+    if (error instanceof TypeError) {
+      // fetch() rejects with TypeError on network-layer failure (DNS, refused, offline).
+      throw new ApiError(
+        'تعذر الوصول إلى الخادم. تحقق من الاتصال بالشبكة ثم أعد المحاولة.',
+        0,
+        'تعذر الوصول إلى الخادم. تحقق من الاتصال بالشبكة ثم أعد المحاولة.',
+        undefined,
+        NETWORK_ERROR_CODES.unreachable,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function apiRequest<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Authorization', `Bearer ${token}`);
@@ -113,7 +176,7 @@ export async function apiRequest<T>(path: string, token: string, init?: RequestI
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  const response = await fetchWithTimeout(`${API_BASE_URL}${path}`, { ...init, headers }, NETWORK_TIMEOUTS_MS.request);
   if (response.status === 204) return undefined as T;
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
@@ -133,7 +196,7 @@ export async function apiRequest<T>(path: string, token: string, init?: RequestI
 export async function apiDownload(path: string, token: string, init?: RequestInit): Promise<{ blob: Blob; fileName: string }> {
   const headers = new Headers(init?.headers);
   headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  const response = await fetchWithTimeout(`${API_BASE_URL}${path}`, { ...init, headers }, NETWORK_TIMEOUTS_MS.download);
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null);
     const problem = readProblem(payload);
@@ -175,7 +238,7 @@ export async function login(
   password: string,
   twoFactorCode?: string,
 ): Promise<{ accessToken: string; refreshToken: string; user: AdminUser }> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/auth/admin/login`, {
+  const response = await fetchWithTimeout(`${API_BASE_URL}/api/v1/auth/admin/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -184,7 +247,7 @@ export async function login(
       twoFactorCode: twoFactorCode?.trim() || null,
       installationId: getOrCreateInstallationId(),
     }),
-  });
+  }, NETWORK_TIMEOUTS_MS.login);
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const problem = readProblem(payload);
@@ -198,11 +261,11 @@ export async function login(
 // FIX-1: Refresh token mechanism — calls /auth/refresh to get new accessToken
 export async function refreshAccessToken(refreshToken: string): Promise<string | null> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/v1/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken, installationId: getOrCreateInstallationId() }),
-    });
+    }, NETWORK_TIMEOUTS_MS.refresh);
     if (!response.ok) return null;
     const payload = await response.json().catch(() => null);
     return payload?.accessToken ?? null;
