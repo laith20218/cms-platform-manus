@@ -407,6 +407,23 @@ button:disabled { opacity: var(--cms-disabled-opacity); cursor: var(--cms-disabl
 .topbar .status-indicator.unknown { border-color: var(--cms-text-muted); color: var(--cms-text-muted); }
 .topbar .status-indicator.unknown .dot { background: var(--cms-text-muted); animation: none; }
 
+/* ===== Phase 2: environment chip (derived, honest labeling) =====
+   Visually distinct from the connectivity status: neutral ink, no pulse —
+   it answers "WHICH environment am I operating on", not "is it up". */
+.topbar .env-chip {
+  display: flex; align-items: center; gap: var(--cms-space-1);
+  padding: 5px var(--cms-space-3); border-radius: var(--cms-radius-full);
+  border: 1px solid var(--cms-border); color: var(--cms-text-soft);
+  font-size: var(--cms-text-2xs); font-weight: 600;
+}
+.topbar .env-chip .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--cms-text-muted); }
+.topbar .env-chip.env-production { border-color: var(--cms-teal-500); color: var(--cms-teal-700); }
+.topbar .env-chip.env-production .dot { background: var(--cms-teal-500); }
+.topbar .env-chip.env-preview { border-color: var(--cms-warning); color: var(--cms-warning); }
+.topbar .env-chip.env-preview .dot { background: var(--cms-warning); }
+.topbar .env-chip.env-local { border-color: var(--cms-info, var(--cms-teal-500)); color: var(--cms-info, var(--cms-teal-700)); }
+.topbar .env-chip.env-local .dot { background: var(--cms-info, var(--cms-teal-500)); }
+
 /* ===== Content Area ===== */
 /* W14.3 §13: min-width 0 — same flex-chain shrink rule as .workspace/.topbar. */
 .content { flex: 1; padding: var(--cms-space-6); max-width: var(--cms-content-max); margin: 0 auto; width: 100%; min-width: 0; }

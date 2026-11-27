@@ -28,7 +28,8 @@ export const coreDict = {
     errorInvalid: { ar: 'البريد أو كلمة المرور غير صحيحة', en: 'Invalid email or password' },
     errorRequired: { ar: 'هذا الحقل مطلوب', en: 'This field is required' },
     securityNote: { ar: 'لا تُحفظ بيانات الدخول في المتصفح. ينتهي الوصول عند تسجيل الخروج.', en: 'Credentials are not stored in the browser. Access ends when you sign out.' },
-    environment: { ar: 'بيئة الإنتاج', en: 'Production environment' },
+    // Phase 2 (deployment alignment) — the login environment line is DERIVED from the
+    // configured API origin (see lib/environment.ts) instead of this hardcoded claim.
     heroLine1: { ar: 'إدارة أكاديمية', en: 'Academic operations,' },
     heroLine2: { ar: 'بدقة مؤسسية.', en: 'institutional precision.' },
     heroBody: { ar: 'راجع الصلاحيات قبل نشر أي تغيير. هذه قناة التشغيل المؤسسية للتعليم الطبي.', en: 'Review access before publishing any change. This is the institutional operations channel for medical education.' },
@@ -53,6 +54,15 @@ export const coreDict = {
     access: { ar: 'المستخدمون والوصول', en: 'Users & Access' },
     audit: { ar: 'القياس والتدقيق', en: 'Measurement & Audit' },
     system: { ar: 'النظام', en: 'System' },
+  },
+
+  // ===== Environment labeling (Phase 2 — derived, never hardcoded) =====
+  environment: {
+    production: { ar: 'بيئة الإنتاج', en: 'Production environment' },
+    preview: { ar: 'بيئة المعاينة', en: 'Preview environment' },
+    local: { ar: 'بيئة محلية', en: 'Local environment' },
+    unknown: { ar: 'بيئة غير محددة', en: 'Unlabeled environment' },
+    originTitle: { ar: 'الأصل الحالي لواجهة البرمجة', en: 'Current API origin' },
   },
 
   // ===== Nav Items (preserved + PR-3 additions for every routable view) =====

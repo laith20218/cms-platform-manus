@@ -81,7 +81,6 @@ export function buildShellCopy(locale: Locale): ShellCopy {
     scopeLabel: t(locale, 'scope.label'),
     limited: t(locale, 'scope.limitedShell'),
     dataError: t(locale, 'shell.dataError'),
-    apiLabel: t(locale, 'login.environment'),
     welcome: t(locale, 'shell.brandWelcome'),
     tagline: t(locale, 'shell.brandTagline'),
     profile: t(locale, 'shell.operatorProfile'),
