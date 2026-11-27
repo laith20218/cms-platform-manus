@@ -1,5 +1,5 @@
 import { useCallback, type ReactNode } from 'react';
-import { LoaderCircle, RotateCcw, TriangleAlert, Inbox } from 'lucide-react';
+import { RotateCcw, TriangleAlert, Inbox } from 'lucide-react';
 import { cn } from '../utils/cn';
 import { Drawer } from './Drawer';
 import { Skeleton } from './Skeleton';
@@ -36,6 +36,8 @@ export interface DetailDrawerProps {
   description?: string;
   /** Identity/status chips rendered in the sticky header beside the close control. */
   headerExtra?: ReactNode;
+  /** Non-scrolling strip between the header and the body (tab rows, meta rows). */
+  subheader?: ReactNode;
   /** Body state — drives skeleton / content / empty / error. */
   status: DetailDrawerStatus;
   children?: ReactNode;
@@ -82,6 +84,7 @@ export function DetailDrawer({
   title,
   description,
   headerExtra,
+  subheader,
   status,
   children,
   footer,
@@ -159,6 +162,7 @@ export function DetailDrawer({
       title={title}
       description={description}
       headerExtra={headerExtra}
+      subheader={subheader}
       footer={footer}
       dir={dir}
       size={size}

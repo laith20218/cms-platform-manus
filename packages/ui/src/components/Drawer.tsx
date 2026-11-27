@@ -33,6 +33,8 @@ export interface DrawerProps {
   footer?: ReactNode;
   /** Identity/status chips rendered in the sticky header, beside the close control. */
   headerExtra?: ReactNode;
+  /** Non-scrolling strip between the header and the body (tab rows, meta rows). */
+  subheader?: ReactNode;
   /** Logical anchor side. Default `end` (inline-end). */
   side?: 'start' | 'end';
   dir?: 'rtl' | 'ltr';
@@ -51,6 +53,7 @@ export function Drawer({
   children,
   footer,
   headerExtra,
+  subheader,
   side = 'end',
   dir = 'rtl',
   size = 'lg',
@@ -127,6 +130,7 @@ export function Drawer({
                 </button>
               </div>
             </div>
+            {subheader}
             <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
             {footer && (
               <div className="border-t border-[color:var(--c-border)] bg-[color:var(--c-bg-elevated)] px-5 py-3.5">{footer}</div>

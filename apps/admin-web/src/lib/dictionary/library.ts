@@ -203,6 +203,7 @@ export const libraryDict = {
     purgePasswordLabel: { ar: 'كلمة مرورك للمدير العام (إعادة المصادقة)', en: 'Your admin password (re-authentication)' },
     purgePasswordPlaceholder: { ar: 'كلمة المرور', en: 'Password' },
     purgeButton: { ar: 'حذف نهائي من التخزين', en: 'Final delete from storage' },
+    purgeBusy: { ar: 'جارٍ الحذف النهائي…', en: 'Final deleting…' },
     purgePasswordRequired: { ar: 'أعد إدخال كلمة المرور للمتابعة.', en: 'Re-enter your password to continue.' },
     purgeBlockedActive: { ar: 'لا يمكن الحذف النهائي لملف نشط — احذفه أولاً (يبقى محتجزاً) ثم نفّذ الحذف النهائي.', en: 'An active file cannot be final-deleted — delete it first (it stays under retention), then run the final deletion.' },
     // Table surfaces: retention badge + metadata columns.

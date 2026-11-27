@@ -51,9 +51,9 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, Archive, CheckCircle2, FileText, FileImage, FileVideo,
   FileAudio, FileCode, Flame, HelpCircle, Images, Library, LoaderCircle, MonitorPlay, Plus,
-  Pencil, RefreshCw, RotateCcw, Search, ShieldAlert, ShieldCheck, Trash2, Upload, X, Film,
+  Pencil, RefreshCw, RotateCcw, Search, ShieldAlert, ShieldCheck, Trash2, Upload, Film,
 } from 'lucide-react';
-import { ConfirmDialog, Dialog, Pagination, RowActionsMenu } from '@cms/ui';
+import { ConfirmDialog, Dialog, Drawer, Pagination, RowActionsMenu, useUnsavedChanges } from '@cms/ui';
 import { HardDeleteDialog, type HardDeleteTarget } from './HardDeleteDialog';
 import { apiRequest, type PagedResult, type AdminLibraryFileListItem, type UploadUrlResponse } from '../lib/api';
 import { isPdfProcessingActive, pdfHealthBadge, pdfTimelineSteps } from '../lib/mediaProcessing';
@@ -876,6 +876,14 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
     setHtmlPreviewLoading(false);
   }
 
+  // Command Center final pass — unsaved-changes guard on the upload drawer.
+  // A picked file or a filled field means unfinished work: closing asks first.
+  const unsavedGuard = useUnsavedChanges({ dir: isArabic ? 'rtl' : 'ltr' });
+  const uploadDirty = showUpload && (selectedFile !== null || form.title.trim() !== '' || Boolean(form.subjectId));
+  function requestCloseUpload() {
+    unsavedGuard.closeIfClean(uploadDirty, closeUpload);
+  }
+
   // PR-3 — the legacy inline bilingual copy object now resolves through the
   // shared dictionary; the KEYS are unchanged so every `copy.*` consumer below
   // keeps working, the VALUES are dictionary-sourced (byte-identical strings).
@@ -1379,52 +1387,19 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
         />
       )}
 
-      {/* ===== Slide-in upload panel ===== */}
-      {showUpload && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/40"
-            onMouseDown={() => !busy && closeUpload()}
-            role="presentation"
-          />
-          <aside
-            className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-md lg:max-w-xl bg-white shadow-2xl overflow-y-auto cms-drawer-in"
-            role="dialog"
-            aria-modal="true"
-            onMouseDown={(event) => event.stopPropagation()}
-            style={{ boxShadow: 'var(--cms-shadow-xl)' }}
-          >
-            <form onSubmit={handleUpload} className="flex flex-col min-h-full">
-              {/* Panel header */}
-              <div
-                className="sticky top-0 z-10 flex items-start justify-between gap-3 px-5 py-4 border-b backdrop-blur"
-                style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface-glass)' }}
-              >
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                    {copy.upload}
-                  </p>
-                  <h3 className="text-base font-bold truncate" style={{ color: 'var(--cms-text)' }}>
-                    {t(locale, 'library.upload.panelTitle')}
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={closeUpload}
-                  disabled={busy}
-                  data-testid="upload-panel-close"
-                  aria-label={copy.close}
-                  className="p-1.5 rounded-md transition-colors disabled:opacity-50"
-                  style={{ color: 'var(--cms-text-muted)' }}
-                  onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-ivory-200)'; }}
-                  onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; }}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Panel body */}
-              <div className="flex-1 px-5 py-4 space-y-5">
+      {/* ===== Slide-in upload panel — shared Drawer shell (Command Center final pass) ===== */}
+      <Drawer
+        open={showUpload}
+        onOpenChange={(next) => { if (!next && !busy) requestCloseUpload(); }}
+        title={t(locale, 'library.upload.panelTitle')}
+        description={copy.upload}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="xl"
+        dismissGuard={busy}
+        testId="library-upload-drawer"
+      >
+            <form onSubmit={handleUpload} id="library-upload-form" className="flex h-full flex-col">
+              <div className="flex-1 space-y-5">
                 {/* File picker */}
                 <label className="block">
                   <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
@@ -1856,15 +1831,16 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                 )}
               </div>
 
-              {/* Action bar */}
+              {/* Action bar — sticky inside the shared Drawer body */}
               <div
-                className="sticky bottom-0 flex items-center gap-2 justify-end px-5 py-3 border-t bg-white"
-                style={{ borderColor: 'var(--cms-line)' }}
+                className="sticky bottom-0 -mx-5 mt-5 flex flex-wrap items-center gap-2 justify-end px-5 py-3 border-t"
+                style={{ borderColor: 'var(--cms-line)', background: 'var(--c-bg-elevated, var(--cms-surface))' }}
               >
                 <button
                   type="button"
-                  onClick={closeUpload}
+                  onClick={requestCloseUpload}
                   disabled={busy}
+                  data-testid="upload-panel-close"
                   className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50"
                   style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
                 >
@@ -1873,19 +1849,17 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                 <button
                   type="submit"
                   disabled={busy || !selectedFile || !form.subjectId || !form.title || htmlTooLarge}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
+                  className="inline-flex min-w-32 items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
                   style={{ background: 'var(--cms-teal-700)' }}
-                  onMouseEnter={(event) => { if (!busy) event.currentTarget.style.background = 'var(--cms-teal-600)'; }}
-                  onMouseLeave={(event) => { event.currentTarget.style.background = 'var(--cms-teal-700)'; }}
                 >
                   {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                  {copy.submit}
+                  {busy ? (t(locale, 'library.upload.busySubmit')) : copy.submit}
                 </button>
               </div>
             </form>
-          </aside>
-        </>
-      )}
+      </Drawer>
+
+      {unsavedGuard.dialog}
 
       {/* ===== W2 (admin-ui): explicit confirm gates for every file lifecycle
           action (publish / archive / delete) — previously publish+archive fired
@@ -2001,34 +1975,21 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
       {/* Final deletion (purge): password re-auth inside the dialog; the server
           enforces SuperAdmin + the Features:HardDeleteEnabled flag + the retention
           window. This is the ONLY path that physically destroys stored objects. */}
-      {purgeTarget && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-          role="presentation"
-          onMouseDown={() => !busy && setPurgeTarget(null)}
-        >
-          <div
-            className="bg-white rounded-xl max-w-md w-full"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t(locale, 'library.retention.purgeTitle')}
-            style={{ boxShadow: 'var(--cms-shadow-xl)' }}
-            onMouseDown={(event) => event.stopPropagation()}
-            data-testid="library-purge-dialog"
-          >
-            <div className="flex items-start gap-3 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
-              <div className="p-2 rounded-lg" style={{ background: 'var(--cms-danger-50)', color: 'var(--cms-danger)' }}>
-                <Flame className="w-6 h-6" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
-                  {t(locale, 'library.retention.purgeTitle')}
-                </h3>
-                <p className="text-sm mt-1" style={{ color: 'var(--cms-text-soft)' }}>
+      <Dialog
+        open={purgeTarget !== null}
+        onOpenChange={(next) => { if (!next && !busy) { setPurgeTarget(null); setPurgePassword(''); setPurgePasswordError(''); } }}
+        title={t(locale, 'library.retention.purgeTitle')}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="md"
+        dismissGuard={busy}
+        testId="library-purge-dialog"
+      >
+        {purgeTarget && (
+          <>
+            <div className="px-5 pt-4">
+              <div className="rounded-[10px] border p-3" style={{ borderColor: 'var(--cms-danger)', background: 'var(--cms-danger-50)' }} role="alert">
+                <p className="text-sm leading-relaxed" style={{ color: 'var(--cms-danger)' }}>
                   {t(locale, 'library.retention.purgeText', { title: purgeTarget.title })}
-                </p>
-                <p className="text-sm font-medium mt-2 truncate" style={{ color: 'var(--cms-text)' }}>
-                  "{purgeTarget.title}"
                 </p>
               </div>
             </div>
@@ -2055,7 +2016,7 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                   </p>
                 )}
               </div>
-              <div className="flex gap-3 justify-end">
+              <div className="flex flex-wrap gap-3 justify-end">
                 <button
                   type="button"
                   onClick={() => { setPurgeTarget(null); setPurgePassword(''); setPurgePasswordError(''); }}
@@ -2069,18 +2030,18 @@ export function LibraryCenter({ token, isArabic, onError, onNotice }: Props) {
                   type="button"
                   onClick={() => void handlePurge()}
                   disabled={busy || !purgePassword}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50"
+                  className="inline-flex min-w-32 items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50"
                   style={{ background: 'var(--cms-danger)' }}
                   data-testid="library-purge-confirm"
                 >
                   {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Flame className="w-4 h-4" />}
-                  {t(locale, 'library.retention.purgeButton')}
+                  {busy ? (t(locale, 'library.retention.purgeBusy')) : t(locale, 'library.retention.purgeButton')}
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Dialog>
 
       {/* ===== W-coverage (row 21): metadata edit modal (PUT /library/{id}) ===== */}
       {editTarget && (

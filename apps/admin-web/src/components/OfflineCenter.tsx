@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Ban, CloudOff, LoaderCircle, RefreshCw, Search } from 'lucide-react';
 import { apiRequest } from '../lib/api';
+import { ConfirmDialog } from '@cms/ui';
 import { t, localeOf } from '../lib/dictionary';
 
 /**
@@ -196,30 +197,21 @@ export function OfflineCenter({ token, isArabic, onError, onNotice }: Props) {
         </div>
       )}
 
-      {confirmTarget && (
-        <div className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-6" role="dialog" aria-modal="true" data-testid="offline-revoke-confirm">
-          <button type="button" aria-label="إغلاق" className="absolute inset-0 bg-black/40 cursor-default" onClick={() => setConfirmTarget(null)} />
-          <div className="relative max-w-sm w-full rounded-2xl border border-[var(--c-border)] bg-[var(--cms-surface,var(--c-bg))] p-6 space-y-3 text-center">
-            <p className="text-sm font-extrabold">{t(locale, 'codes.offline.confirmTitle')}</p>
-            <p className="text-[13px] leading-relaxed text-[var(--c-text-muted)]">
-              {t(locale, 'codes.offline.confirmText', { packageId: shortId(confirmTarget.packageId), studentName: confirmTarget.studentName })}
-            </p>
-            <div className="flex gap-2 justify-center pt-1">
-              <button type="button" onClick={() => setConfirmTarget(null)} className="min-h-10 px-4 rounded-xl border border-[var(--c-border)] text-sm font-bold">
-                {t(locale, 'codes.offline.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={() => void revoke(confirmTarget)}
-                className="min-h-10 px-4 rounded-xl text-sm font-bold text-white bg-[var(--c-danger-500)]"
-                data-testid="offline-revoke-confirm-go"
-              >
-                {t(locale, 'codes.offline.revokePackage')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={confirmTarget !== null}
+        onOpenChange={(next) => { if (!next) setConfirmTarget(null); }}
+        title={t(locale, 'codes.offline.confirmTitle')}
+        description={confirmTarget
+          ? t(locale, 'codes.offline.confirmText', { packageId: shortId(confirmTarget.packageId), studentName: confirmTarget.studentName })
+          : undefined}
+        confirmLabel={t(locale, 'codes.offline.revokePackage')}
+        cancelLabel={t(locale, 'codes.offline.cancel')}
+        variant="danger"
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={revoking === confirmTarget?.packageId}
+        onConfirm={() => { if (confirmTarget) void revoke(confirmTarget); }}
+        testId="offline-revoke-confirm"
+      />
     </section>
   );
 }

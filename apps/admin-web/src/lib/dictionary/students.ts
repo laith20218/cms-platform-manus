@@ -344,6 +344,7 @@ export const studentsDict = {
     banReason: { ar: 'سبب الحظر', en: 'Ban reason' },
     banReasonPlaceholder: { ar: 'أدخل سبباً واضحاً وآمناً للتدقيق.', en: 'Provide a clear, audit-safe reason.' },
     optionalExpiry: { ar: 'تاريخ انتهاء اختياري', en: 'Optional expiry date' },
+    executing: { ar: 'جارٍ التنفيذ…', en: 'Working…' },
   },
 
   // ===== Edit-profile modal =====
@@ -353,6 +354,7 @@ export const studentsDict = {
     gender: { ar: 'الجنس', en: 'Gender' },
     phone: { ar: 'الهاتف', en: 'Phone' },
     save: { ar: 'حفظ', en: 'Save' },
+    saving: { ar: 'جارٍ الحفظ…', en: 'Saving…' },
   },
 
   // ===== Create-student modal =====
@@ -369,6 +371,7 @@ export const studentsDict = {
     genderOptional: { ar: 'الجنس (اختياري)', en: 'Gender (optional)' },
     emailOptional: { ar: 'البريد الإلكتروني (اختياري)', en: 'Email (optional)' },
     submit: { ar: 'إنشاء الحساب', en: 'Create student' },
+    creating: { ar: 'جارٍ الإنشاء…', en: 'Creating…' },
   },
 
   // ===== Confirm-reactivation dialog =====

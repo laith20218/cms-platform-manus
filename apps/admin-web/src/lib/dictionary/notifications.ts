@@ -36,6 +36,7 @@ export const notificationsDict = {
     expiry: { ar: 'تاريخ الانتهاء (اختياري)', en: 'Expiry date (optional)' },
     preview: { ar: 'معاينة', en: 'Preview' },
     send: { ar: 'إرسال', en: 'Send' },
+    sending: { ar: 'جارٍ الإرسال…', en: 'Sending…' },
     selectTarget: { ar: 'اختر الهدف', en: 'Select target' },
     noTarget: { ar: 'لا يحتاج هدفاً', en: 'No target needed' },
     contextUniversity: { ar: 'الجامعة (للوصول إلى الهدف)', en: 'University (to reach the target)' },
