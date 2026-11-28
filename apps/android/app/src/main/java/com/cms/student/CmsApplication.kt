@@ -276,7 +276,50 @@ class CmsApplication : Application() {
             clock = Instant::now,
             sessionProvider = ::activeSessionForMedia,
             sessionRefresher = ::rotateNativeSessionForMedia,
-            onAuthDead = ::onNativeAuthRejected
+            onAuthDead = ::onNativeAuthRejected,
+            // Owner decision 2026-11-28: the 10 GiB cap is SHARED across media,
+            // chunked episodes AND question packages — the guarded sink counts
+            // every byte against this total before allowing the write.
+            sharedOfflineBytes = ::totalOfflineBytes
+        )
+    }
+
+    /**
+     * Total offline-content bytes on this installation (Owner decision 2026-11-28):
+     * library media + chunked course episodes + stored question packages. Read-only
+     * aggregation, safe from any thread; each store computes its own total.
+     */
+    fun totalOfflineBytes(): Long =
+        mediaCache().catalogEntries().sumOf { it.bytes } +
+            runCatching { courseChunkStore.listMetas().sumOf { it.totalBytes } }.getOrDefault(0L) +
+            runCatching { offlinePackageStore.totalBytes() }.getOrDefault(0L)
+
+    /** Per-type offline byte totals for the truthful storage summary surface. */
+    fun offlineStorageSummary(): StorageSummary = StorageSummary(
+        mediaBytes = mediaCache().catalogEntries().sumOf { it.bytes },
+        episodeBytes = runCatching { courseChunkStore.listMetas().sumOf { it.totalBytes } }.getOrDefault(0L),
+        packageBytes = runCatching { offlinePackageStore.totalBytes() }.getOrDefault(0L),
+        capBytes = com.cms.student.media.CachePolicy.MAX_CACHE_BYTES
+    )
+
+    /** Safe per-type storage totals surfaced through the bridge (no paths, no tokens). */
+    data class StorageSummary(
+        val mediaBytes: Long,
+        val episodeBytes: Long,
+        val packageBytes: Long,
+        val capBytes: Long
+    )
+
+    /** The bridge-facing JSON form of [offlineStorageSummary] (stable keys, numbers only). */
+    fun offlineStorageSummaryJson(): String {
+        val s = offlineStorageSummary()
+        return com.google.gson.Gson().toJson(
+            linkedMapOf(
+                "mediaBytes" to s.mediaBytes,
+                "episodeBytes" to s.episodeBytes,
+                "packageBytes" to s.packageBytes,
+                "capBytes" to s.capBytes
+            )
         )
     }
 
@@ -307,8 +350,10 @@ class CmsApplication : Application() {
             installationId = { installationId },
             executor = courseExecutor,
             clock = Instant::now,
-            // Honest combined cap: the library cache bytes + the chunked episode
-            // bytes share the 5 GiB CachePolicy.MAX_CACHE_BYTES budget.
+            // Honest combined cap (Owner decision 2026-11-28): the library cache
+            // bytes + the chunked episode bytes share the 10 GiB
+            // CachePolicy.MAX_CACHE_BYTES budget (packages count via the guarded
+            // media sink's shared total).
             mediaBytesUsed = { mediaCache().catalogEntries().sumOf { it.bytes } },
             // W5b-ii: the chunked loopback player launches on the MAIN thread
             // (FLAG_SECURE OfflineCoursePlayerActivity; the in-process

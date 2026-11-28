@@ -160,7 +160,7 @@ function CoursePlayerContent() {
           episodes={playableEpisodes}
           subjectId={course.subjectId}
           fallbackName={user?.fullName || ''}
-          fallbackPhone={user?.phone || ''}
+          fallbackStudentId={user?.id || ''}
         />
       )}
     </div>
@@ -169,13 +169,14 @@ function CoursePlayerContent() {
 
 // ===== Episode stage: player + episode list =====
 
-function EpisodeStage({ episodes, subjectId, fallbackName, fallbackPhone }: {
+function EpisodeStage({ episodes, subjectId, fallbackName, fallbackStudentId }: {
   episodes: CourseEpisode[];
   /** W5b-i: the course's subject — the offline CTA threads it so the native
    *  entitlement issuance for course episodes is subject-scoped. */
   subjectId: string;
   fallbackName: string;
-  fallbackPhone: string;
+  /** Owner decision (2026-11-28): watermark identity is the student ID, never the phone. */
+  fallbackStudentId: string;
 }) {
   const [searchParams] = useSearchParams();
 
@@ -333,7 +334,7 @@ function EpisodeStage({ episodes, subjectId, fallbackName, fallbackPhone }: {
                 />
                 {/* Anti-screen-recording watermark — rides on top of the custom
                     player exactly as it did over the old native stage. */}
-                <WatermarkLayer studentName={fallbackName} studentPhone={fallbackPhone} />
+                <WatermarkLayer studentName={fallbackName} studentId={fallbackStudentId} />
               </div>
             )}
             {/* 2.B — the episode metadata card (title/description/difficulty/
@@ -376,7 +377,7 @@ function EpisodeStage({ episodes, subjectId, fallbackName, fallbackPhone }: {
                 onLoadedMetadata={handleLoadedMetadata}
                 onError={handleMediaError}
                 fallbackName={fallbackName}
-                fallbackPhone={fallbackPhone}
+                fallbackStudentId={fallbackStudentId}
               />
             )}
           </div>
@@ -535,14 +536,15 @@ function LockedVideoCard({ failed }: { failed: boolean }) {
  * the hidden engine so the lease-refresh + watermark machinery works
  * unchanged, and every src swap preserves the exact playback position.
  */
-function AudioStage({ access, audioRef, title, onLoadedMetadata, onError, fallbackName, fallbackPhone }: {
+function AudioStage({ access, audioRef, title, onLoadedMetadata, onError, fallbackName, fallbackStudentId }: {
   access: EpisodeAccess;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   title: string;
   onLoadedMetadata: () => void;
   onError: () => void;
   fallbackName: string;
-  fallbackPhone: string;
+  /** Owner decision (2026-11-28): watermark identity is the student ID, never the phone. */
+  fallbackStudentId: string;
 }) {
   const [playing, setPlaying] = useState(false);
   const [currentSeconds, setCurrentSeconds] = useState(0);
@@ -601,7 +603,7 @@ function AudioStage({ access, audioRef, title, onLoadedMetadata, onError, fallba
 
   return (
     <div className="relative" data-testid="audio-stage">
-      <WatermarkLayer studentName={access.watermark.studentName || fallbackName} studentPhone={access.watermark.studentPhone || fallbackPhone} />
+      <WatermarkLayer studentName={access.watermark.studentName || fallbackName} studentId={access.watermark.studentId || fallbackStudentId} />
       <div
         className="flex flex-col items-center justify-center gap-7 py-12 px-6"
         style={{ background: 'linear-gradient(160deg, var(--c-primary-50) 0%, var(--c-surface) 55%, var(--c-bg) 100%)' }}
@@ -783,11 +785,12 @@ function AudioStage({ access, audioRef, title, onLoadedMetadata, onError, fallba
  * the video path passes the student's profile data). z-30 sits above the
  * custom player's control bar (z-20) — clicks pass through regardless.
  */
-function WatermarkLayer({ studentName, studentPhone }: {
+function WatermarkLayer({ studentName, studentId }: {
   studentName: string;
-  studentPhone: string;
+  studentId: string;
 }) {
-  const line = `${studentName} — ${studentPhone}`;
+  // Owner decision (2026-11-28): the watermark carries name + STUDENT ID — never the phone.
+  const line = studentId ? `${studentName} — ${studentId}` : studentName;
   return (
     <div className="course-watermark-layer absolute inset-0 z-30 pointer-events-none" data-testid="course-watermark">
       <div className="absolute inset-0 flex flex-col items-center justify-around gap-6 rotate-[-24deg] scale-125">

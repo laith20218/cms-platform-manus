@@ -320,7 +320,12 @@ class OfflinePackageBridgeService(
     // Session + store binding resolution
     // =====================================================================
 
-    /** Native session wins; else the web token routes an ephemeral session (server verifies it). */
+    /**
+     * Native session wins; else the web token routes an ephemeral session (server verifies it).
+     * Owner decision (2026-11-28): when an EXCHANGE client is wired, the web token is
+     * first swapped server-side for a proper access-only native session
+     * (POST auth/native-exchange) — the raw web JWT is used once, never stored.
+     */
     private fun resolveSession(accessToken: String?): OfflineSession? {
         sessionProvider()?.let { return it }
         val token = accessToken ?: return null
@@ -328,6 +333,19 @@ class OfflinePackageBridgeService(
         if (!WebJwtClaims.SUBJECT_UUID_PATTERN.matches(claims.subject)) return null
         val studentId = runCatching { UUID.fromString(claims.subject) }.getOrNull() ?: return null
         return OfflineSession(studentId, token, installationId())
+    }
+
+    /**
+     * Owner decision (offline-experience implementation, 2026-11-28) — the
+     * session-exchange seam: swaps a short-lived web access token for an
+     * ACCESS-ONLY native session (POST auth/native-exchange). Returns null when
+     * no exchange client is wired (older graphs) — the caller then falls back
+     * to the raw-token ephemeral session exactly as before. The exchanged
+     * session's token is used in-memory for THIS download only and never
+     * persisted, logged, or returned to JS.
+     */
+    fun interface NativeSessionExchange {
+        fun exchange(webAccessToken: String, installationId: String): com.cms.student.security.OfflineExchangeSession?
     }
 
     /** Student binding for store reads: native session, else the last web-bound student. */

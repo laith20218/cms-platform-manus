@@ -85,6 +85,7 @@ class OfflinePackageBridgeServiceTest {
             wipeAllCalls++
             records.clear()
         }
+        override fun totalBytes(): Long = records.size * 1024L
     }
 
     /** Facade that records every call; the outcome lambda fakes the coordinator result. */

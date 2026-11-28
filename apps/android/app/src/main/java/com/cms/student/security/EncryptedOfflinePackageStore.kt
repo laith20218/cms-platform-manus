@@ -127,6 +127,12 @@ class EncryptedOfflinePackageStore(context: Context) : IOfflinePackageStore {
         }
     }
 
+    /** Owner decision 2026-11-28 — at-rest bytes of the store directory (shared 10 GiB quota accounting). */
+    override fun totalBytes(): Long =
+        directory.listFiles { file -> file.isFile && (file.name.endsWith(".bin") || file.name.endsWith(".tmp")) }
+            ?.sumOf { it.length() }
+            ?: 0L
+
     private fun packageFile(packageId: UUID): File = File(directory, "$packageId.bin")
 
     private fun encryptedFile(file: File): EncryptedFile = EncryptedFile.Builder(

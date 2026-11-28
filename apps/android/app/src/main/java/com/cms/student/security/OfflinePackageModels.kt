@@ -109,6 +109,23 @@ data class OfflineTokenPair(
         "OfflineTokenPair(accessToken=<redacted>, refreshToken=<redacted>)"
 }
 
+/**
+ * Owner decision (offline-experience implementation, 2026-11-28) — the
+ * ACCESS-ONLY native session issued by POST auth/native-exchange. Carries no
+ * refresh token: renewal re-runs the exchange with a fresh web access token.
+ * Expiry gates new downloads/online opens only — saved offline content stays
+ * usable (durable offline policy).
+ */
+data class OfflineExchangeSession(
+    val accessToken: String,
+    val studentId: UUID,
+    val expiresInSeconds: Int
+) {
+    /** Tokens must never leak into logs, crash reports, or error messages. */
+    override fun toString(): String =
+        "OfflineExchangeSession(studentId=$studentId, accessToken=<redacted>, expiresInSeconds=$expiresInSeconds)"
+}
+
 data class OfflinePackageStatus(
     val packageId: UUID,
     val status: String,
@@ -154,6 +171,13 @@ interface IOfflinePackageStore {
      * (the record was already rejected as unbound/orphaned by then).
      */
     fun wipeAll()
+
+    /**
+     * Owner decision 2026-11-28 — total at-rest bytes of the store directory
+     * (all users, all packages), for the SHARED 10 GiB offline quota and the
+     * truthful per-type storage summary. Read-only; never throws.
+     */
+    fun totalBytes(): Long
 }
 
 data class OfflinePackageRequest(val subjectId: UUID, val examId: UUID? = null, val idempotencyKey: String)

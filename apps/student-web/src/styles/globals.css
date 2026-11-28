@@ -782,3 +782,25 @@ body {
   animation: shimmer 1.5s infinite;
 }
 
+
+/* --- Owner decision (offline-experience implementation, 2026-11-28): copy
+ * deterrence on protected reading surfaces. Blocks ordinary text selection /
+ * long-press copy on protected study content while leaving inputs, buttons and
+ * accessibility controls untouched (applied to content containers only, never
+ * to the app shell). This deters casual copying; it cannot prevent
+ * screenshots on another device or extraction on a compromised device. --- */
+.cms-protected-content {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* Inputs and interactive elements inside protected surfaces stay selectable. */
+.cms-protected-content input,
+.cms-protected-content textarea,
+.cms-protected-content button,
+.cms-protected-content [role='button'],
+.cms-protected-content [contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}

@@ -429,7 +429,10 @@ class OfflineCourseBridgeServiceTest {
     }
 
     @Test
-    fun `eviction removes the lru chunked episode but never the fresh one`() {
+    fun `an over-cap download is refused and existing episodes are never evicted`() {
+        // Owner decision (offline-experience implementation, 2026-11-28): NO automatic
+        // eviction. The fresh episode is deleted, the state answers error:quota, and
+        // every previously stored episode stays intact.
         val store = FakeChunkedFileStore()
         val older = "11111111-0000-4000-8000-000000000001"
         val newer = "11111111-0000-4000-8000-000000000002"
@@ -437,16 +440,18 @@ class OfflineCourseBridgeServiceTest {
         store.publish(newer, bytes = 2000, at = now.minusSeconds(3600))
         val facade = FakeFacade()
         facade.outcome = CourseEpisodeDownloadOutcome(bytes = 500)
-        // The combined-cap math is exercised with byte-sized fixtures: the library
+        // The shared-cap math is exercised with byte-sized fixtures: the library
         // cache already holds (cap - 5000) bytes, so the projected total crosses the
-        // 5 GiB cap exactly like a multi-GiB episode would.
+        // 10 GiB cap exactly like a multi-GiB episode would.
         val bridge = service(facade = facade, store = store, mediaBytes = { CachePolicy.MAX_CACHE_BYTES - 5000 })
         assertEquals(OfflineCourseBridgeService.QUEUED, bridge.ensureCourseEpisodeLocal(requestJson()))
-        // Projected 5 GiB + 500 > cap: the LRU (older) chunked episode goes; the fresh one stays.
-        assertNull(store.readMeta(older))
+        // Projected shared total exceeds the cap: the FRESH episode is refused...
+        assertEquals("${OfflineCourseBridgeService.ERROR}:quota", bridge.courseEpisodeStatus(episodeId))
+        assertNull(store.readMeta(episodeId))
+        assertNull(store.chunksOf(episodeId))
+        // ...and BOTH pre-existing episodes remain (no LRU eviction, ever).
+        assertNotNull(store.readMeta(older))
         assertNotNull(store.readMeta(newer))
-        assertNotNull(store.readMeta(episodeId))
-        assertEquals(OfflineCourseBridgeService.READY, bridge.courseEpisodeStatus(episodeId))
     }
 
     // ------------------------------------------------------------------

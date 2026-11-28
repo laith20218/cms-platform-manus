@@ -635,7 +635,10 @@ public class LibraryHandlers :
         student.FullName,
         student.Phone,
         DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm"),
-        "CMS"
+        "CMS",
+        // Owner decision (2026-11-28): the visible watermark is name + student id —
+        // the phone number is NEVER rendered (kept in the DTO for old clients only).
+        student.Id.ToString()
     );
 
     private static SubscriptionContentScope RequiredContentScope(LibraryFileType type) => type is LibraryFileType.Video or LibraryFileType.Audio

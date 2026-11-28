@@ -1,40 +1,27 @@
 package com.cms.student.media
 
 /**
- * Pure LRU/1 GiB planner (owner lock 4). Given the current index and an incoming
- * download size it computes which completed entries to evict — least-recently-used
- * (by [MediaCacheEntry.lastAccessAt]) first — until the projected total fits the cap.
+ * Shared-capacity planner (owner decision 2026-11-28: 10 GiB total, NO automatic
+ * eviction). Answers whether the shared offline-content cap still has room for an
+ * incoming download. It NEVER plans evictions anymore: existing content is only
+ * removed by an explicit student action (remove/clear) or a wipe (logout / auth
+ * rejection). A download that does not fit is refused by the caller with `quota`
+ * and existing content stays untouched.
  *
- * Guarantees:
- *  - Entries whose ids are in [protectedIds] (in-flight or open) are never evicted.
- *  - A plan is [EvictionPlan.sufficient] only when the cap is actually reachable
- *    after evictions; otherwise the caller must refuse the download (`quota`).
+ * Kept as a pure, injectable class so the JVM unit tests stay deterministic.
  */
 class CacheQuota(private val maxBytes: Long = CachePolicy.MAX_CACHE_BYTES) {
 
-    data class EvictionPlan(val evictIds: List<String>, val sufficient: Boolean, val projectedBytes: Long)
-
-    fun isWithinCap(totalBytes: Long): Boolean = totalBytes <= maxBytes
-
     /**
-     * Plans evictions for an incoming [incomingBytes] download given the current
-     * [entries]. In-flight/open ids are protected and never selected.
+     * Whether [usedBytes] + [incomingBytes] still fits the shared cap.
+     * The pre-download check: when false the caller refuses the download
+     * BEFORE writing any bytes (no partial files, no eviction).
      */
-    fun planEviction(entries: List<MediaCacheEntry>, incomingBytes: Long, protectedIds: Set<String>): EvictionPlan {
-        val evictable = entries
-            .filter { it.contentId !in protectedIds }
-            .sortedBy { it.lastAccessAt.toEpochMilli() } // LRU first
-        var projected = entries.sumOf { it.bytes } + incomingBytes
-        if (projected <= maxBytes) return EvictionPlan(emptyList(), sufficient = true, projectedBytes = projected)
+    fun fits(usedBytes: Long, incomingBytes: Long): Boolean =
+        usedBytes >= 0 && incomingBytes >= 0 && usedBytes + incomingBytes <= maxBytes
 
-        val toEvict = mutableListOf<String>()
-        for (entry in evictable) {
-            projected -= entry.bytes
-            toEvict.add(entry.contentId)
-            if (projected <= maxBytes) break
-        }
-        return EvictionPlan(toEvict, sufficient = projected <= maxBytes, projectedBytes = projected)
-    }
+    /** Whether a byte total alone is within the cap (post-write invariant check). */
+    fun isWithinCap(totalBytes: Long): Boolean = totalBytes in 0..maxBytes
 
     /** Convenience: cap constant exposure for tests/callers. */
     fun capBytes(): Long = maxBytes

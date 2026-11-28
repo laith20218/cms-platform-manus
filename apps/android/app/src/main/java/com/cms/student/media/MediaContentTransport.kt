@@ -131,8 +131,49 @@ class TransportAuthorizationException(val statusCode: Int) : RuntimeException("m
 /** Cooperative cancellation signal for in-flight media downloads. */
 class MediaDownloadCanceledException : RuntimeException("media download canceled")
 
-/** The 1 GiB cap cannot hold the fresh object even after LRU eviction (see [CacheQuota]). */
+/** The shared 10 GiB offline cap cannot hold the fresh object (no auto-eviction; see [CacheQuota]). */
 class MediaQuotaExceededException : RuntimeException("media cache quota exceeded")
+
+/**
+ * Owner decision 2026-11-28 — shared-capacity guarding sink. Wraps the encrypted
+ * store output and counts every byte written against the SHARED offline total
+ * reported by [usedBytes] (media + course chunks + question packages, EXCLUDING
+ * the object currently being written). The copy aborts with
+ * [MediaQuotaExceededException] the moment the cap would be exceeded, so a
+ * too-large download never lands and existing content is never evicted — the
+ * caller's failure path deletes the partial file and surfaces `quota`.
+ */
+class QuotaGuardedOutputStream(
+    private val delegate: OutputStream,
+    private val quota: CacheQuota,
+    private val usedBytes: () -> Long
+) : OutputStream() {
+
+    private var written: Long = 0L
+
+    private fun guard(count: Int) {
+        written += count
+        if (!quota.fits(usedBytes(), written)) throw MediaQuotaExceededException()
+    }
+
+    override fun write(b: Int) {
+        guard(1)
+        delegate.write(b)
+    }
+
+    override fun write(b: ByteArray) {
+        guard(b.size)
+        delegate.write(b)
+    }
+
+    override fun write(b: ByteArray, off: Int, len: Int) {
+        guard(len)
+        delegate.write(b, off, len)
+    }
+
+    override fun flush() = delegate.flush()
+    override fun close() = delegate.close()
+}
 
 /**
  * HTTPS-only media transport, mirroring [com.cms.student.security.HttpsOfflinePackageClient]:

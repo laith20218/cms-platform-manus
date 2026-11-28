@@ -217,6 +217,16 @@ public interface ITokenService
 {
     string GenerateAccessToken(Guid userId, string subject, string role, Guid sessionId, string installationId, int tokenVersion);
     bool ValidateToken(string token);
+
+    /// <summary>
+    /// Owner decision (offline-experience implementation, 2026-11-28) — the
+    /// subject (`sub`) claim of a VALIDATED token, or null when the token is
+    /// invalid or carries no parseable subject. Used by the native-session
+    /// exchange to resolve which student a web access token belongs to WITHOUT
+    /// exposing JWT parsing to the Application layer (and without consuming
+    /// anything — the caller's web session stays intact).
+    /// </summary>
+    string? ValidatedSubject(string token);
 }
 
 public record SessionTokenPair(string AccessToken, string RefreshToken, Guid SessionId, DateTime RefreshExpiresAt);

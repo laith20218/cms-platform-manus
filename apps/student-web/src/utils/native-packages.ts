@@ -18,6 +18,7 @@
  */
 
 import { hasNativeShell } from './native-bridge';
+import { OFFLINE_NOT_DOWNLOADED_MESSAGES } from './native-cache';
 
 /** Typed shape of the packages surface — mirrors the future Kotlin @JavascriptInterface methods. */
 interface CmsNativePackageBridge {
@@ -230,16 +231,17 @@ export function nativePackageDenyMessage(code: string): string | null {
     case 'denied_auth':
       return 'لم تعد هذه الحزمة متاحة لحسابك.';
     case 'denied_offline':
-      return 'لا يوجد اتصال بالإنترنت — تحميل الحزم يحتاج اتصالاً مرة واحدة.';
+      // Owner-approved base wording (2026-11-28), package suffix.
+      return OFFLINE_NOT_DOWNLOADED_MESSAGES.package;
     case 'denied_stale':
-      return 'انتهت صلاحية الحزمة المحفوظة.';
+      return 'انتهت صلاحية الحزمة المحفوظة — اتصل بالإنترنت وأعد تحميلها من صفحة المادة.';
     case 'denied_disabled':
       return 'ميزة الحزم دون اتصال غير مفعّلة في هذا الإصدار من التطبيق.';
     case 'error:exam_ui_pending':
       return 'بدء الامتحان دون اتصال يتوفر في تحديثٍ قادم للتطبيق.';
     case 'quota':
     case 'error:quota':
-      return 'مساحة التخزين دون اتصال ممتلئة — احذف بعض الحزم أو الملفات من «وضع بدون إنترنت».';
+      return 'مساحة التخزين دون اتصال ممتلئة (10 غيغابايت مشتركة) — احذف بعض المحتوى من «وضع بدون إنترنت» ثم أعد المحاولة.';
     case 'invalid_args':
       return null; // our own request shape is at fault — silent fallback, no user-facing noise
     default:

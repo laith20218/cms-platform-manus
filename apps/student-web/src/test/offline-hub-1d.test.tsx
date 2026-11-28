@@ -271,7 +271,7 @@ describe('offline packages wrapper (native-packages.ts)', () => {
   it('deny message map hits the exact Arabic strings (spot-check)', async () => {
     const { nativePackageDenyMessage } = await import('@/utils/native-packages');
     expect(nativePackageDenyMessage('denied_disabled')).toBe('ميزة الحزم دون اتصال غير مفعّلة في هذا الإصدار من التطبيق.');
-    expect(nativePackageDenyMessage('denied_offline')).toBe('لا يوجد اتصال بالإنترنت — تحميل الحزم يحتاج اتصالاً مرة واحدة.');
+    expect(nativePackageDenyMessage('denied_offline')).toBe('محتوى غير محمّل. تحقّق من الاتصال بالإنترنت وأضِف حزمة أسئلة المادة إلى وضع اللاإنترنت من صفحة المادة.');
     expect(nativePackageDenyMessage('denied_native_session')).toBe('لتخزين الحزم دون اتصال سجّل الدخول أولاً ثم أعد المحاولة.');
     expect(nativePackageDenyMessage('quota')).toBe('مساحة التخزين دون اتصال ممتلئة — احذف بعض الحزم أو الملفات من «وضع بدون إنترنت».');
     expect(nativePackageDenyMessage('invalid_args')).toBeNull();
@@ -334,7 +334,7 @@ describe('offline courses wrapper (native-courses.ts)', () => {
   it('exports the exact YouTube honesty note and tailored deny texts', async () => {
     const { YOUTUBE_EPISODE_OFFLINE_NOTE, nativeCourseDenyMessage } = await import('@/utils/native-courses');
     expect(YOUTUBE_EPISODE_OFFLINE_NOTE).toBe('حلقات يوتيوب تُشاهَد من الويب فقط عند توفر الاتصال — لا تُحمَّل للعرض دون اتصال.');
-    expect(nativeCourseDenyMessage('denied_offline')).toBe('لا يوجد اتصال — تحميل حلقات الكورس يحتاج اتصالاً مرة واحدة.');
+    expect(nativeCourseDenyMessage('denied_offline')).toBe('محتوى غير محمّل. تحقّق من الاتصال بالإنترنت وأضِف حلقة الكورس إلى وضع اللاإنترنت من زر التحميل بجانبها.');
     expect(nativeCourseDenyMessage('invalid_args')).toBeNull();
   });
 });
@@ -541,7 +541,7 @@ describe('OfflineDownloadCta', () => {
     installFullBridge({ downloadOfflinePackage: () => 'denied_offline' });
     render(<OfflineDownloadCta kind="package" subjectId="sub-1" testId="cta-package" />);
     fireEvent.click(screen.getByTestId('cta-package'));
-    expect(toastErrorMock).toHaveBeenCalledWith('لا يوجد اتصال بالإنترنت — تحميل الحزم يحتاج اتصالاً مرة واحدة.');
+    expect(toastErrorMock).toHaveBeenCalledWith('محتوى غير محمّل. تحقّق من الاتصال بالإنترنت وأضِف حزمة أسئلة المادة إلى وضع اللاإنترنت من صفحة المادة.');
   });
 
   it('package CTA: ready code means the package was saved earlier', () => {

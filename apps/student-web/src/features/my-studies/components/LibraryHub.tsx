@@ -4,8 +4,8 @@ import { useLocation, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
-  BookMarked, Bookmark, CalendarDays, ChevronDown, Eye, FileCode, FileSpreadsheet,
-  FileText, Image as ImageIcon, LoaderCircle, Music, Search, Target, Video, X,
+  BookMarked, Bookmark, CalendarDays, CheckSquare, ChevronDown, Download, Eye, FileCode, FileSpreadsheet,
+  FileText, Image as ImageIcon, LoaderCircle, Music, Search, Square, Target, Video, X,
 } from 'lucide-react';
 import { apiClient } from '@/services/api-client';
 import { entitlementRequestConfig } from '@/features/entitlements/services/entitlement-api';
@@ -18,6 +18,14 @@ import type { MySubjectEntry } from '../hooks/useMySubjects';
 import { LockedEmptyState } from './LockedEmptyState';
 import { CatalogEntitlementErrorCard, CatalogErrorCard } from './CatalogErrorCards';
 import { useEntitlementDeniedListener } from '@/features/my-studies/hooks/useEntitlementDeniedListener';
+import {
+  isNativeMediaCacheActive,
+  nativeCacheStatus,
+  nativeCacheTypeFor,
+  nativeEnsureLocal,
+  nativeCacheDenyMessage,
+} from '@/utils/native-cache';
+import { useOfflineBulkQueue } from '@/features/offline/useOfflineBulkQueue';
 
 /** Category tabs (Push 5 Task 3) — mirror the backend LibraryFileCategory enum. */
 const CATEGORIES = [
@@ -108,6 +116,13 @@ export function LibraryHub({
   const [activeCategory, setActiveCategory] = useState<CategoryKey>('all');
   const [activeFormat, setActiveFormat] = useState<FormatKey>('all');
   const [selectedFile, setSelectedFile] = useState<HubLibraryFile | null>(null);
+  // Owner decision (offline-experience implementation, 2026-11-28) — multi-select
+  // bulk-add state: `selectionMode` toggles checkbox mode; `selectedIds` holds the
+  // checked file ids. The bulk queue itself lives in useOfflineBulkQueue.
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const bulkQueue = useOfflineBulkQueue();
+  const nativeCacheActive = isNativeMediaCacheActive();
   // W20.4 (owner decision 2) — the file-open loading LAYER: a % progress
   // overlay between the card click and the viewer. Video/audio stream and
   // html reads its own token-gated channel (R51) — those three hand off
@@ -310,6 +325,56 @@ export function LibraryHub({
   // fallback, never a dead end.
   const [searchParams, setSearchParams] = useSearchParams();
   const openFileId = searchParams.get('openFile');
+
+  // ===== Owner decision (2026-11-28): per-file offline add + bulk add =====
+
+  /** Adds ONE file to the encrypted offline store without opening it. */
+  const addFileOffline = useCallback((file: HubLibraryFile) => {
+    const type = nativeCacheTypeFor((file.type ?? '').trim().toLowerCase());
+    if (!type) {
+      toast.error('نوع الملف غير مدعوم للعرض دون اتصال.');
+      return;
+    }
+    const code = nativeEnsureLocal(file.id, type, { title: file.title, subjectId: file.subjectId });
+    if (code == null) return; // bridge unavailable — nothing to do
+    if (code === 'ready') {
+      toast.success(`«${file.title}» محفوظ مسبقاً في وضع اللاإنترنت.`);
+      return;
+    }
+    if (code === 'started' || code === 'downloading') {
+      toast.message(`بدأ تحميل «${file.title}» دون اتصال — تابع التقدم من لوحة «وضع بدون إنترنت».`);
+      return;
+    }
+    const message = nativeCacheDenyMessage(code);
+    if (message) toast.error(message);
+  }, []);
+
+  /** Starts the bulk add for every checked file (idempotent: ready items skip instantly). */
+  const startBulkAdd = useCallback(() => {
+    const targets = visibleFiles.filter((file) => selectedIds.has(file.id));
+    if (targets.length === 0) return;
+    bulkQueue.start(targets.map((file) => ({
+      contentId: file.id,
+      title: file.title,
+      type: file.type,
+      cacheable: nativeCacheTypeFor((file.type ?? '').trim().toLowerCase()) !== null,
+    })));
+  }, [visibleFiles, selectedIds, bulkQueue]);
+
+  /** Per-file offline status for the card badge (ready | downloading | absent). */
+  const fileOfflineStatus = useCallback((fileId: string): string | null => {
+    if (!nativeCacheActive) return null;
+    return nativeCacheStatus(fileId);
+  }, [nativeCacheActive]);
+
+  const toggleSelected = useCallback((fileId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
+      return next;
+    });
+  }, []);
   useEffect(() => {
     if (!openFileId || files === undefined) return;
     const target = files.find((file) => file.id === openFileId);
@@ -531,6 +596,134 @@ export function LibraryHub({
         })}
       </div>
 
+      {/* Owner decision (2026-11-28): offline bulk-add toolbar — visible only
+          inside the Android shell. Toggle selection mode, select all/none,
+          then start the encrypted offline download for the checked files. */}
+      {nativeCacheActive && !bulkQueue.progress?.running && (
+        <div className="flex flex-wrap items-center gap-2 mb-4" data-testid="library-bulk-toolbar">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectionMode((mode) => !mode);
+              setSelectedIds(new Set());
+            }}
+            aria-pressed={selectionMode}
+            data-testid="library-bulk-toggle"
+            className={cn(
+              'press inline-flex min-h-11 items-center gap-1.5 rounded-xl border px-4 text-sm font-semibold transition-colors',
+              selectionMode
+                ? 'border-[var(--c-primary-400)] bg-[var(--c-primary-50)] text-[var(--c-primary-700)]'
+                : 'border-[var(--c-border)] bg-[var(--c-surface)] text-[var(--c-text-soft)] hover:border-[var(--c-primary-400)] hover:text-[var(--c-primary-700)]',
+            )}
+          >
+            <CheckSquare className="w-4 h-4" />
+            {selectionMode ? 'إنهاء التحديد المتعدد' : 'تحديد متعدد للتحميل دون اتصال'}
+          </button>
+          {selectionMode && (
+            <>
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set(visibleFiles.map((file) => file.id)))}
+                data-testid="library-bulk-select-all"
+                className="press inline-flex min-h-11 items-center rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] px-4 text-sm font-semibold text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-400)] hover:text-[var(--c-primary-700)]"
+              >
+                تحديد الكل
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
+                data-testid="library-bulk-clear"
+                className="press inline-flex min-h-11 items-center rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] px-4 text-sm font-semibold text-[var(--c-text-soft)] transition-colors hover:border-[var(--c-primary-400)]"
+              >
+                مسح التحديد
+              </button>
+              <button
+                type="button"
+                disabled={selectedIds.size === 0}
+                onClick={startBulkAdd}
+                data-testid="library-bulk-start"
+                className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl px-5 text-sm font-bold text-white shadow-sm transition-colors disabled:opacity-50"
+                style={{ background: 'var(--grad-primary)' }}
+              >
+                <Download className="w-4 h-4" />
+                تحميل المحدد دون اتصال (<span lang="en">{selectedIds.size}</span>)
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Bulk queue progress: per-item state, overall progress, cancel. */}
+      {bulkQueue.progress && (
+        <div
+          className="mb-4 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] p-4"
+          data-testid="library-bulk-progress"
+          role="region"
+          aria-label="تقدم التحميل المتعدد"
+        >
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <p className="text-sm font-bold text-[var(--c-text)]">
+              {bulkQueue.progress.running ? 'جارٍ التحميل دون اتصال…' : 'انتهى التحميل دون اتصال'}
+              <span className="ms-2 text-[var(--c-text-muted)] font-medium" lang="en">
+                {bulkQueue.progress.doneCount}/{bulkQueue.progress.items.length}
+              </span>
+              {bulkQueue.progress.failedCount > 0 && (
+                <span className="ms-2 text-[var(--c-danger-600)] font-medium">
+                  فشل <span lang="en">{bulkQueue.progress.failedCount}</span>
+                </span>
+              )}
+            </p>
+            <div className="flex items-center gap-2">
+              {bulkQueue.progress.running && (
+                <button
+                  type="button"
+                  onClick={bulkQueue.cancel}
+                  data-testid="library-bulk-cancel"
+                  className="press inline-flex min-h-9 items-center rounded-lg border border-[var(--c-border)] px-3 text-xs font-semibold text-[var(--c-text-soft)]"
+                >
+                  إلغاء
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={bulkQueue.dismiss}
+                data-testid="library-bulk-dismiss"
+                aria-label="إغلاق لوحة التقدم"
+                className="rounded-md p-1 text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          <div className="h-2 rounded-full bg-[var(--c-bg-hover)] overflow-hidden mb-3" role="progressbar" aria-valuemin={0} aria-valuemax={bulkQueue.progress.items.length} aria-valuenow={bulkQueue.progress.doneCount + bulkQueue.progress.failedCount}>
+            <div
+              className="h-full rounded-full transition-all"
+              style={{
+                width: `${Math.round(((bulkQueue.progress.doneCount + bulkQueue.progress.failedCount) / Math.max(1, bulkQueue.progress.items.length)) * 100)}%`,
+                background: 'var(--grad-primary)',
+              }}
+            />
+          </div>
+          <ul className="max-h-56 overflow-y-auto flex flex-col gap-1.5">
+            {bulkQueue.progress.items.map((item) => {
+              const state = bulkQueue.progress!.states[item.contentId];
+              return (
+                <li key={item.contentId} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="truncate text-[var(--c-text-soft)]">{item.title}</span>
+                  {state.status === 'ready' && <span className="shrink-0 text-[var(--c-success-600)] font-semibold">محفوظ</span>}
+                  {state.status === 'downloading' && (
+                    <span className="shrink-0 text-[var(--c-primary-700)] font-semibold" lang="en">{state.percent}%</span>
+                  )}
+                  {state.status === 'pending' && <span className="shrink-0 text-[var(--c-text-faint)]">بالانتظار</span>}
+                  {state.status === 'canceled' && <span className="shrink-0 text-[var(--c-text-faint)]">أُلغي</span>}
+                  {state.status === 'failed' && <span className="shrink-0 text-[var(--c-danger-600)] font-semibold">{state.message}</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex items-center justify-center py-16" data-testid="library-loading">
           <LoaderCircle className="w-8 h-8 animate-spin text-[var(--c-text-muted)]" />
@@ -571,19 +764,43 @@ export function LibraryHub({
                 <div
                   role="button"
                   tabIndex={0}
-                  onClick={() => void openFile(file)}
+                  onClick={() => {
+                    if (selectionMode) { toggleSelected(file.id); return; }
+                    void openFile(file);
+                  }}
                   onKeyDown={(e) => {
                     // The nested favorite button handles its own Enter/Space —
                     // a bubbled keydown from it must not also open the viewer.
                     if (e.target !== e.currentTarget) return;
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault(); // Space scrolls the page otherwise
+                      if (selectionMode) { toggleSelected(file.id); return; }
                       void openFile(file);
                     }
                   }}
-                  className="w-full text-start flex items-start gap-3 p-4 rounded-2xl border border-[var(--c-border)] bg-[var(--c-surface)] hover:border-[var(--c-primary-200)] hover:shadow-md hover:-translate-y-0.5 transition-all group cursor-pointer"
+                  className={cn(
+                    'w-full text-start flex items-start gap-3 p-4 rounded-2xl border transition-all group',
+                    selectionMode && selectedIds.has(file.id)
+                      ? 'border-[var(--c-primary-400)] bg-[var(--c-primary-50)]'
+                      : 'border-[var(--c-border)] bg-[var(--c-surface)] hover:border-[var(--c-primary-200)] hover:shadow-md hover:-translate-y-0.5',
+                    selectionMode ? 'cursor-pointer' : 'cursor-pointer',
+                  )}
                   data-testid="library-card"
                 >
+                  {selectionMode && (
+                    <button
+                      type="button"
+                      aria-label={selectedIds.has(file.id) ? `إلغاء تحديد ${file.title}` : `تحديد ${file.title}`}
+                      aria-pressed={selectedIds.has(file.id)}
+                      data-testid={`library-card-select-${file.id}`}
+                      onClick={(e) => { e.stopPropagation(); toggleSelected(file.id); }}
+                      className="shrink-0 self-center rounded-md p-1 text-[var(--c-primary-700)]"
+                    >
+                      {selectedIds.has(file.id)
+                        ? <CheckSquare className="w-5 h-5" />
+                        : <Square className="w-5 h-5 text-[var(--c-text-faint)]" />}
+                    </button>
+                  )}
                   <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: meta.bg, color: meta.color }}>
                     <Icon className="w-5 h-5" />
                   </div>
@@ -627,19 +844,38 @@ export function LibraryHub({
                           shown on student-facing cards anymore. */}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    data-testid={`library-card-favorite-${file.id}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleFavoriteMutation.mutate(file);
-                    }}
-                    disabled={toggleFavoriteMutation.isPending}
-                    aria-label={file.isFavorite ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة'}
-                    className="shrink-0 rounded-md p-1 transition-colors disabled:opacity-50 text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]"
-                  >
-                    <Bookmark className="w-4 h-4" fill={file.isFavorite ? 'currentColor' : 'none'} />
-                  </button>
+                  <div className="flex flex-col items-center gap-1 shrink-0">
+                    {nativeCacheActive && !selectionMode && (
+                      <button
+                        type="button"
+                        data-testid={`library-card-offline-add-${file.id}`}
+                        onClick={(e) => { e.stopPropagation(); addFileOffline(file); }}
+                        aria-label={`تحميل «${file.title}» دون اتصال`}
+                        title="تحميل دون اتصال"
+                        className="rounded-md p-1 transition-colors text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]"
+                      >
+                        {(() => {
+                          const status = fileOfflineStatus(file.id);
+                          if (status === 'ready') return <CheckSquare className="w-4 h-4 text-[var(--c-success-600)]" />;
+                          if (status?.startsWith('downloading')) return <LoaderCircle className="w-4 h-4 animate-spin" />;
+                          return <Download className="w-4 h-4" />;
+                        })()}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      data-testid={`library-card-favorite-${file.id}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFavoriteMutation.mutate(file);
+                      }}
+                      disabled={toggleFavoriteMutation.isPending}
+                      aria-label={file.isFavorite ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة'}
+                      className="rounded-md p-1 transition-colors disabled:opacity-50 text-[var(--c-text-muted)] hover:text-[var(--c-primary-700)]"
+                    >
+                      <Bookmark className="w-4 h-4" fill={file.isFavorite ? 'currentColor' : 'none'} />
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             );

@@ -359,21 +359,26 @@ class MediaCacheServiceTest {
     // ---- quota ------------------------------------------------------------
 
     @Test
-    fun `exceeding the cap evicts the least recently used completed entries`() {
+    fun `exceeding the cap refuses the new download and never evicts existing content`() {
+        // Owner decision (offline-experience implementation, 2026-11-28): the cap is
+        // a REFUSAL gate, not an eviction trigger - existing entries stay untouched.
         val service = newService(quotaBytes = 100)
         transport.payloadBytes = 60
-        service.ensureLocal(contentId, "pdf", null) // 60 bytes, accessed at T0
+        service.ensureLocal(contentId, "pdf", null) // 60 bytes - kept
         now = now.plusSeconds(60)
         transport.payloadBytes = 30
-        service.ensureLocal(otherId, "pdf", null) // 30 bytes, accessed at T1
+        service.ensureLocal(otherId, "pdf", null) // 30 bytes - kept (90/100 used)
         now = now.plusSeconds(60)
         transport.payloadBytes = 50
         val third = "99999999-8888-4777-8666-555555555555"
         assertEquals(CacheStatus.STARTED, service.ensureLocal(third, "pdf", null))
-        // 60 + 30 + 50 = 140 > 100 → the LRU entry (contentId, 60 bytes) is evicted.
-        assertEquals(setOf(otherId, third), service.catalogEntries().map { it.contentId }.toSet())
-        assertFalse(fileStore.exists(contentId))
+        // 90 + 50 = 140 > 100 - the THIRD download is refused with a quota error...
+        assertEquals("error:quota", service.cacheStatus(third))
+        // ...and both existing entries REMAIN usable (no automatic eviction).
+        assertEquals(setOf(contentId, otherId), service.catalogEntries().map { it.contentId }.toSet())
+        assertTrue(fileStore.exists(contentId))
         assertTrue(fileStore.exists(otherId))
+        assertFalse(fileStore.exists(third))
     }
 
     @Test

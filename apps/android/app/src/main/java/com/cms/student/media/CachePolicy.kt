@@ -5,20 +5,25 @@ package com.cms.student.media
  * media cache. Every value the JS bridge can observe lives here so the contract
  * stays auditable in one file.
  *
- * Owner locks encoded as constants:
- *  - [MAX_CACHE_BYTES] = 5 GiB total cached media, LRU eviction beyond it
- *    (Owner decision 2026-11-23: raised from 1 GiB).
- *  - Durable offline policy (Owner decision 2026-11-23, replaces the 72h-only gate):
- *    a cached object opens offline as long as its local ciphertext exists — until
- *    logout wipe, auth rejection/session end (401 path), or the server-issued
+ * Owner decisions (offline-experience implementation, 2026-11-28):
+ *  - [MAX_CACHE_BYTES] = 10 GiB TOTAL shared offline-content cap across library
+ *    files, question packages (envelopes count toward the same budget at the
+ *    application layer) and downloaded course episodes.
+ *  - NO automatic eviction: when the cap cannot fit a NEW download, that download
+ *    is refused with `quota` and existing content stays untouched. The student
+ *    is told to free space explicitly. (Supersedes the former 5 GiB LRU policy;
+ *    Owner decision 2026-11-23 quota number updated, durable offline policy kept.)
+ *  - Durable offline policy (Owner decision 2026-11-23, unchanged): a cached
+ *    object opens offline as long as its local ciphertext exists — until logout
+ *    wipe, auth rejection/session end (401 path), or the server-issued
  *    entitlement expiry embedded with the entry ([MediaCacheEntry.entitlementExpiresAt])
  *    has passed. No hour-count gate; a null expiry never fakes infinite rights —
  *    an online re-check still applies whenever the network is reachable.
  */
 object CachePolicy {
 
-    /** Total on-device cap for completed cached media (5 GiB, exact bytes). */
-    const val MAX_CACHE_BYTES: Long = 5_368_709_120L
+    /** Total on-device cap for ALL offline content (10 GiB, exact bytes). */
+    const val MAX_CACHE_BYTES: Long = 10_737_418_240L
 
     /**
      * Phase Q (Owner decision, hosted-course AV): chunk size of the encrypted
@@ -85,7 +90,7 @@ object CacheStatus {
     const val DENIED_ORIGIN = "denied_origin"       // bridge origin guard rejected the caller
     const val INVALID_ARGS = "invalid_args"         // blank / oversized / non-UUID contentId
     const val UNSUPPORTED_TYPE = "unsupported_type" // wire type not in [MediaKind]
-    const val QUOTA = "quota"                       // 5 GiB cap cannot be freed for the new download
+    const val QUOTA = "quota"                       // 10 GiB shared offline cap cannot fit the new download (no auto-eviction)
     const val ERROR = "error"
 
     // cacheStatus(contentId) → (plus DOWNLOADING with ":<percent>" suffix)

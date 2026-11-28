@@ -256,7 +256,7 @@ class CmsJsBridgeTest {
     }
 
     @Test
-    fun `the js surface is exactly the twenty four approved methods`() {
+    fun `the js surface is exactly the twenty five approved methods`() {
         val jsMethodNames = CmsJsBridge::class.java.methods
             .filter { it.isAnnotationPresent(JavascriptInterface::class.java) }
             .map { it.name }
@@ -270,7 +270,7 @@ class CmsJsBridgeTest {
                 "listOfflinePackages", "downloadOfflinePackage", "offlinePackageStatus",
                 "removeOfflinePackage", "openOfflineExam", "notifyWebSessionEnded",
                 "listOfflineCourseEpisodes", "ensureCourseEpisodeLocal", "courseEpisodeStatus",
-                "removeOfflineCourseEpisode", "openOfflineCourseEpisode"
+                "removeOfflineCourseEpisode", "openOfflineCourseEpisode", "getOfflineStorageSummary"
             ),
             jsMethodNames
         )

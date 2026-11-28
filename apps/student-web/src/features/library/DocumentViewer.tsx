@@ -380,7 +380,9 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
               <ViewerError onClose={onClose} />
             ) : (
               <>
-                {/* Invisible watermark layer — silent protection. */}
+                {/* Invisible watermark layer — silent protection.
+                    Owner decision (2026-11-28): the watermark carries the student's
+                    NAME + STUDENT ID — never the phone number. */}
                 <div
                   className="pointer-events-none absolute inset-0 z-10"
                   style={{
@@ -389,7 +391,7 @@ export function DocumentViewer({ file, onClose }: { file: LibraryFile; onClose: 
                   }}
                 >
                   <div className="absolute -rotate-45 whitespace-nowrap text-2xl font-bold text-[var(--c-primary-700)] opacity-[0.05]" style={{ top: '18%', left: '8%' }}>
-                    {access.watermark.studentName} - {access.watermark.studentPhone}
+                    {access.watermark.studentName}{access.watermark.studentId ? ` - ${access.watermark.studentId}` : ''}
                   </div>
                   <div className="absolute -rotate-45 whitespace-nowrap text-2xl font-bold text-[var(--c-primary-700)] opacity-[0.05]" style={{ top: '58%', left: '28%' }}>
                     {access.watermark.siteName} - {access.watermark.timestamp}

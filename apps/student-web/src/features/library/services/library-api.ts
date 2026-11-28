@@ -65,6 +65,8 @@ export interface FileAccess {
     studentPhone: string;
     timestamp: string;
     siteName: string;
+    /** Owner decision (2026-11-28): the rendered watermark is name + student id — never the phone. */
+    studentId?: string;
   };
 }
 

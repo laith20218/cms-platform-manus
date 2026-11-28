@@ -78,7 +78,11 @@ class ShellActivity : AppCompatActivity() {
                 tokenSeal = (application as CmsApplication).webTokenSeal(),
                 // Phase P (containment): the web session ended inside THIS shell —
                 // the offline stores wipe per the Phase P policy.
-                webSessionEnd = (application as CmsApplication).webSessionEndApi()
+                webSessionEnd = (application as CmsApplication).webSessionEndApi(),
+                // Owner decision 2026-11-28: truthful per-type storage totals
+                // (media / episodes / packages) + the shared 10 GiB cap for the
+                // offline panel's storage summary.
+                storageSummary = { (application as CmsApplication).offlineStorageSummaryJson() }
             )
         )
 

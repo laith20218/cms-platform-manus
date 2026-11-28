@@ -11,6 +11,12 @@ import {
   readRememberedUser,
 } from '@/services/session-store';
 import { isSessionEndingFailure } from '@/utils/api-error';
+// Owner decision (offline-experience implementation, 2026-11-28): explicit
+// logout warns about unsynchronized offline answers BEFORE the Phase P wipe;
+// deletion happens only after the student confirms. Also clears the
+// auto-package markers so a fresh login re-attempts first-visit downloads.
+import { countPendingOfflineAnswers } from '@/features/offline/offlineLogoutGuard';
+import { clearAutoPackageMarkers } from '@/features/offline/useAutoSubjectPackage';
 import { AuthContext, type User } from './auth-context';
 
 /** Wave A (remember-me hardening): max attempts for the background /me verify
@@ -115,6 +121,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
+    // Owner decision (2026-11-28): EXPLICIT logout only. Warn when unsynchronized
+    // offline answers exist; wipe them only after confirmation. (The 401 verdict
+    // and network-loss paths never reach this prompt — offline content stays.)
+    const pending = countPendingOfflineAnswers();
+    if (pending > 0) {
+      const confirmed = window.confirm(
+        `لديك ${pending} إجابة محفوظة دون اتصال لم تُزامَن بعد. تسجيل الخروج سيحذفها نهائياً من هذا الجهاز. هل أنت متأكد أنك تريد المتابعة؟`,
+      );
+      if (!confirmed) return;
+    }
     try {
       await authApi.logout();
     } catch {
@@ -122,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       clearSession();
       clearEntitlementToken();
+      clearAutoPackageMarkers();
       setUser(null);
       window.location.assign('/login');
     }
