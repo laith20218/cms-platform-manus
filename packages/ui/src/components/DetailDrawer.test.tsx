@@ -10,7 +10,7 @@ const Harness = (props: { status?: 'loading' | 'ready' | 'empty' | 'error'; onRe
       open={open}
       onOpenChange={setOpen}
       title="ملف الطالب"
-      description="سامر خالد · 0936185126"
+      description="سامر خالد · 0900000000"
       status={props.status ?? 'ready'}
       onRetry={props.onRetry}
       footer={props.footer}
@@ -54,7 +54,7 @@ describe('DetailDrawer', () => {
   it('is a labelled dialog with title and description', () => {
     render(<Harness status="ready" />);
     expect(screen.getByRole('dialog', { name: 'ملف الطالب' })).toBeInTheDocument();
-    expect(screen.getByText('سامر خالد · 0936185126')).toBeInTheDocument();
+    expect(screen.getByText('سامر خالد · 0900000000')).toBeInTheDocument();
   });
 
   it('closes on Escape and anchors logically (RTL → inline-end)', async () => {
