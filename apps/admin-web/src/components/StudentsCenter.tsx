@@ -1174,7 +1174,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
         onOpenChange={(next) => { if (!next && !busy) closeDrawer(); }}
         title={t(locale, 'students.drawer.ariaLabel')}
         description={selected
-          ? `${selected.phone || '—'} · ${selected.universityName || '—'} / ${selected.collegeName || '—'}`
+          ? `${selected.fullName || '—'} · ${selected.phone || '—'} · ${selected.universityName || '—'} / ${selected.collegeName || '—'}`
           : undefined}
         headerExtra={selected ? (
           <>

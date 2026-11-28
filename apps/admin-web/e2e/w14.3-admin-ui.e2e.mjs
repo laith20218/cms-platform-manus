@@ -171,7 +171,7 @@ try {
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${SHOT_DIR}w14.3-examcourses-picker-1440.png` });
     check('picker: subject bank modal renders', true);
-    await page.getByRole('button', { name: 'إغلاق', exact: true }).click();
+    await page.getByTestId('dialog-close').click();
 
     // Back to list → storefront preview modal.
     await page.getByRole('button', { name: 'رجوع إلى القائمة' }).click();

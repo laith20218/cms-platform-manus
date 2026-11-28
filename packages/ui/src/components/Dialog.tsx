@@ -33,6 +33,8 @@ export interface DialogProps {
   title: string;
   /** Secondary line (aria-describedby when present). */
   description?: string;
+  /** ID of an existing description element outside the dialog header. */
+  ariaDescribedBy?: string;
   children: ReactNode;
   /** Text direction of the portalled surface (it escapes the caller's dir scope). */
   dir?: 'rtl' | 'ltr';
@@ -49,6 +51,7 @@ export function Dialog({
   onOpenChange,
   title,
   description,
+  ariaDescribedBy,
   children,
   dir = 'rtl',
   size = 'md',
@@ -86,7 +89,7 @@ export function Dialog({
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            aria-describedby={description ? descriptionId : undefined}
+            aria-describedby={ariaDescribedBy ?? (description ? descriptionId : undefined)}
             tabIndex={-1}
             initial={{ opacity: 0, scale: 0.96, y: 14 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}

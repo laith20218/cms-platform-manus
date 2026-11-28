@@ -62,6 +62,7 @@ export function ConfirmDialog({
   testId,
 }: ConfirmDialogProps) {
   const reasonId = useId();
+  const consequenceId = useId();
   const [reason, setReason] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
   const reasonMin = requireReason?.minLength ?? 4;
@@ -87,6 +88,7 @@ export function ConfirmDialog({
       onOpenChange={onOpenChange}
       title={title}
       description={variant === 'danger' ? undefined : description}
+      ariaDescribedBy={variant === 'danger' && description ? consequenceId : undefined}
       dir={dir}
       size="sm"
       dismissGuard={busy}
@@ -96,7 +98,7 @@ export function ConfirmDialog({
         {variant === 'danger' && description && (
           <div className="flex items-start gap-2.5 rounded-[10px] border border-[color:var(--c-danger-500)] bg-[color:var(--c-danger-50)] p-3">
             <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--c-danger-500)]" />
-            <p className="text-xs leading-relaxed text-[color:var(--c-danger-500)]">{description}</p>
+            <p id={consequenceId} className="text-xs leading-relaxed text-[color:var(--c-danger-500)]">{description}</p>
           </div>
         )}
 
