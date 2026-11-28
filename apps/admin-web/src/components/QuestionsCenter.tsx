@@ -41,13 +41,13 @@
  */
 import { Fragment, FormEvent, useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle, Archive, CheckCircle2, ChevronLeft, ChevronRight, Copy, Download, Eye,
+  Archive, CheckCircle2, ChevronLeft, ChevronRight, Copy, Download, Eye,
   FileText, ImagePlus, Link2, ListFilter, LoaderCircle, Pencil, Plus, PlusCircle, Tags, Upload,
   Search, Send, Trash2, Undo2, X,
 } from 'lucide-react';
 import { apiRequest, apiDownload, type PagedResult } from '../lib/api';
 import { t, localeOf, statusLabel } from '../lib/dictionary';
-import { Dialog, Pagination, RowActionsMenu } from '@cms/ui';
+import { ConfirmDialog, Dialog, Drawer, Pagination, RowActionsMenu, useUnsavedChanges } from '@cms/ui';
 import { HardDeleteDialog, type HardDeleteTarget } from './HardDeleteDialog';
 import { QuestionImportModal } from './QuestionImportModal';
 import { questionDifficultyLabel as difficultyLabel, questionTypeLabel as typeLabel } from '../lib/questionLabels';
@@ -103,7 +103,7 @@ type FormState = {
   matching: MatchingFormState;
 };
 
-type ConfirmDialog =
+type ConfirmState =
   | { id: string; action: 'publish' | 'archive' | 'unpublish' }
   | { id: string; action: 'delete'; text: string }
   | null;
@@ -319,7 +319,7 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
   const [showEditor, setShowEditor] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [confirm, setConfirm] = useState<ConfirmDialog>(null);
+  const [confirm, setConfirm] = useState<ConfirmState>(null);
 
   // === W14.3 Phase B state (D5 tabs + missing actions + image upload) ===
   const [editorTab, setEditorTab] = useState<EditorTab>('content');
@@ -745,6 +745,28 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
     setForm(emptyForm());
     setEditingRow(null);
     setEditorTab('content');
+  }
+
+  // Command Center final pass — unsaved-changes guard on the editor drawer.
+  // The baseline is captured when the drawer opens; any field drift asks
+  // before the work is dropped. Programmatic closes (after save / context
+  // switch) bypass the guard by calling closeEditor directly.
+  const unsavedGuard = useUnsavedChanges({ dir: isArabic ? 'rtl' : 'ltr' });
+  const [editorBaseline, setEditorBaseline] = useState('');
+  useEffect(() => {
+    if (showEditor) setEditorBaseline(JSON.stringify(form));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showEditor]);
+  const editorDirty = showEditor && JSON.stringify(form) !== editorBaseline;
+  function requestCloseEditor() {
+    unsavedGuard.closeIfClean(editorDirty, closeEditor);
+  }
+
+  // ===== Command Center final pass — one confirm executor for the shared ConfirmDialog =====
+  function executeConfirm(id: string, action: NonNullable<ConfirmState>['action']) {
+    setConfirm(null);
+    if (action === 'delete') void deleteQuestion(id);
+    else void lifecycle(id, action);
   }
 
   // ===== W14.3 B.3 — preview / duplicate / bulk actions =====
@@ -1582,49 +1604,19 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
         />
       )}
 
-      {/* ===== Slide-in editor ===== */}
-          {showEditor && (
-            <>
-              <div
-                className="fixed inset-0 z-40 bg-black/40"
-                onMouseDown={closeEditor}
-                role="presentation"
-              />
-              <aside
-                className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-md lg:max-w-xl bg-white shadow-2xl overflow-y-auto"
-                role="dialog"
-                aria-modal="true"
-                onMouseDown={(event) => event.stopPropagation()}
-                style={{ boxShadow: 'var(--cms-shadow-xl)' }}
-              >
-                <form onSubmit={event => void submit(event)} className="flex flex-col min-h-full">
-                  {/* Editor header */}
-                  <div
-                    className="sticky top-0 z-10 flex items-start justify-between gap-3 px-5 py-4 border-b backdrop-blur"
-                    style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface-glass)' }}
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                        {form.id ? t(locale, 'questions.editor.editTitle') : t(locale, 'questions.header.newQuestion')}
-                      </p>
-                      <h3 className="text-base font-bold truncate" style={{ color: 'var(--cms-text)' }}>
-                        {activeSubject ? label(isArabic, activeSubject) : t(locale, 'questions.header.title')}
-                      </h3>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={closeEditor}
-                      className="p-1.5 rounded-md transition-colors"
-                      style={{ color: 'var(--cms-text-muted)' }}
-                      onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-ivory-200)'; }}
-                      onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; }}
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Editor body — W14.3 D5: 4-tab layout; one Save persists every tab */}
-                  <div className="flex-1 px-5 py-4 space-y-5">
+      {/* ===== Slide-in editor — shared Drawer shell (Command Center final pass) ===== */}
+      <Drawer
+        open={showEditor}
+        onOpenChange={(next) => { if (!next && !busy) requestCloseEditor(); }}
+        title={form.id ? t(locale, 'questions.editor.editTitle') : t(locale, 'questions.header.newQuestion')}
+        description={activeSubject ? label(isArabic, activeSubject) : t(locale, 'questions.header.title')}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="xl"
+        dismissGuard={busy}
+        testId="question-editor-drawer"
+      >
+        <form onSubmit={event => void submit(event)} id="question-editor-form" className="flex h-full flex-col">
+          <div className="flex-1 space-y-5">
                     <div role="tablist" aria-label={t(locale, 'questions.editor.tablistLabel')} className="flex gap-1 overflow-x-auto pb-1 border-b" style={{ borderColor: 'var(--cms-line)' }}>
                       {EDITOR_TABS.map(tab => (
                         <button
@@ -2253,15 +2245,15 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                     </div>
                   </div>
 
-                  {/* Action bar */}
+                  {/* Action bar — sticky inside the shared Drawer body */}
                   <div
-                    className="sticky bottom-0 flex items-center gap-2 justify-end px-5 py-3 border-t bg-white"
-                    style={{ borderColor: 'var(--cms-line)' }}
+                    className="sticky bottom-0 -mx-5 mt-5 flex flex-wrap items-center gap-2 justify-end px-5 py-3 border-t"
+                    style={{ borderColor: 'var(--cms-line)', background: 'var(--c-bg-elevated, var(--cms-surface))' }}
                   >
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={closeEditor}
+                      onClick={requestCloseEditor}
                       className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
                       style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
                     >
@@ -2343,125 +2335,47 @@ export function QuestionsCenter({ token, isArabic, onError, onNotice }: Props) {
                         : t(locale, 'questions.actionBar.saveAsDraft')}
                     </button>
                   </div>
-                </form>
-              </aside>
-            </>
-          )}
+        </form>
+      </Drawer>
         </>
       )}
 
-      {/* ===== Confirm dialog for publish / archive / delete ===== */}
-      {confirm && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-          role="presentation"
-          onMouseDown={() => !busy && setConfirm(null)}
-        >
-          <div
-            className="bg-white rounded-xl max-w-md w-full"
-            role="dialog"
-            aria-modal="true"
-            style={{ boxShadow: 'var(--cms-shadow-xl)' }}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start gap-3 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
-              <div
-                className="p-2 rounded-lg"
-                style={{
-                  background: confirm.action === 'archive' ? 'var(--cms-warning-50)'
-                    : confirm.action === 'delete' ? 'var(--cms-danger-50)'
-                    : confirm.action === 'unpublish' ? 'var(--cms-warning-50)'
-                    : 'var(--cms-teal-50)',
-                  color: confirm.action === 'archive' ? 'var(--cms-warning)'
-                    : confirm.action === 'delete' ? 'var(--cms-danger)'
-                    : confirm.action === 'unpublish' ? 'var(--cms-warning)'
-                    : 'var(--cms-teal-700)',
-                }}
-              >
-                <AlertCircle className="w-6 h-6" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
-                  {confirm.action === 'publish'
-                    ? t(locale, 'questions.confirm.publishTitle')
-                    : confirm.action === 'archive'
-                    ? t(locale, 'questions.confirm.archiveTitle')
-                    : confirm.action === 'unpublish'
-                    ? t(locale, 'questions.confirm.unpublishTitle')
-                    : t(locale, 'questions.confirm.deleteTitle')}
-                </h3>
-                <p className="text-sm mt-1" style={{ color: 'var(--cms-text-soft)' }}>
-                  {confirm.action === 'publish'
-                    ? t(locale, 'questions.confirm.publishBody')
-                    : confirm.action === 'archive'
-                    ? t(locale, 'questions.confirm.archiveBody')
-                    : confirm.action === 'unpublish'
-                    ? t(locale, 'questions.confirm.unpublishBody')
-                    : t(locale, 'questions.confirm.deleteBody')}
-                </p>
-                {confirm.action === 'delete' && (
-                  <p className="text-sm font-medium mt-2 truncate" style={{ color: 'var(--cms-text)' }}>
-                    "{confirm.text}"
-                  </p>
-                )}
-              </div>
-            </div>
-            <div className="flex gap-3 justify-end p-5">
-              <button
-                onClick={() => setConfirm(null)}
-                disabled={busy}
-                className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
-                style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
-              >
-                {t(locale, 'questions.confirm.cancel')}
-              </button>
-              <button
-                onClick={() => {
-                  const id = confirm.id;
-                  const action = confirm.action;
-                  setConfirm(null);
-                  if (action === 'delete') void deleteQuestion(id);
-                  else void lifecycle(id, action);
-                }}
-                disabled={busy}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors"
-                style={{
-                  background: confirm.action === 'archive' ? 'var(--cms-warning)'
-                    : confirm.action === 'delete' ? 'var(--cms-danger)'
-                    : confirm.action === 'unpublish' ? 'var(--cms-warning)'
-                    : 'var(--cms-teal-700)',
-                }}
-                onMouseEnter={(event) => {
-                  if (confirm.action === 'archive') event.currentTarget.style.background = '#8a5a18';
-                  else if (confirm.action === 'delete') event.currentTarget.style.background = '#9c3a31';
-                  else if (confirm.action === 'unpublish') event.currentTarget.style.background = '#8a5a18';
-                  else event.currentTarget.style.background = 'var(--cms-teal-600)';
-                }}
-                onMouseLeave={(event) => {
-                  if (confirm.action === 'archive') event.currentTarget.style.background = 'var(--cms-warning)';
-                  else if (confirm.action === 'delete') event.currentTarget.style.background = 'var(--cms-danger)';
-                  else if (confirm.action === 'unpublish') event.currentTarget.style.background = 'var(--cms-warning)';
-                  else event.currentTarget.style.background = 'var(--cms-teal-700)';
-                }}
-              >
-                {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : (
-                  confirm.action === 'archive' ? <Archive className="w-4 h-4" />
-                  : confirm.action === 'delete' ? <Trash2 className="w-4 h-4" />
-                  : confirm.action === 'unpublish' ? <Undo2 className="w-4 h-4" />
-                  : <Send className="w-4 h-4" />
-                )}
-                {confirm.action === 'publish'
-                  ? t(locale, 'questions.actions.publish')
-                  : confirm.action === 'archive'
-                  ? t(locale, 'questions.actions.archive')
-                  : confirm.action === 'unpublish'
-                  ? t(locale, 'questions.actions.unpublish')
-                  : t(locale, 'questions.actions.delete')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ===== Confirm dialog for publish / archive / delete — shared ConfirmDialog ===== */}
+      <ConfirmDialog
+        open={confirm !== null}
+        onOpenChange={(next) => { if (!next && !busy) setConfirm(null); }}
+        title={
+          confirm?.action === 'publish' ? t(locale, 'questions.confirm.publishTitle')
+            : confirm?.action === 'archive' ? t(locale, 'questions.confirm.archiveTitle')
+            : confirm?.action === 'unpublish' ? t(locale, 'questions.confirm.unpublishTitle')
+            : t(locale, 'questions.confirm.deleteTitle')
+        }
+        description={
+          confirm?.action === 'publish' ? t(locale, 'questions.confirm.publishBody')
+            : confirm?.action === 'archive' ? t(locale, 'questions.confirm.archiveBody')
+            : confirm?.action === 'unpublish' ? t(locale, 'questions.confirm.unpublishBody')
+            : t(locale, 'questions.confirm.deleteBody')
+        }
+        confirmLabel={
+          confirm?.action === 'publish' ? t(locale, 'questions.confirm.publishConfirm')
+            : confirm?.action === 'archive' ? t(locale, 'questions.confirm.archiveConfirm')
+            : confirm?.action === 'unpublish' ? t(locale, 'questions.confirm.unpublishConfirm')
+            : t(locale, 'questions.confirm.deleteConfirm')
+        }
+        cancelLabel={t(locale, 'questions.confirm.cancel')}
+        variant={confirm?.action === 'delete' || confirm?.action === 'archive' || confirm?.action === 'unpublish' ? 'danger' : 'primary'}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => { if (confirm) void executeConfirm(confirm.id, confirm.action); }}
+        testId="question-lifecycle-confirm"
+      >
+        {confirm?.action === 'delete' && confirm.text && (
+          <p className="mb-2 truncate text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
+            "{confirm.text}"
+          </p>
+        )}
+      </ConfirmDialog>
+      {unsavedGuard.dialog}
 
       {/* ===== PR-4: the UNIVERSAL preview (student-view simulation, zero mutations) ===== */}
       <UniversalPreviewDialog

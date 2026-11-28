@@ -5,8 +5,8 @@
  *  expires. Existing workflows (generate, copy, CSV, bulk revoke, manual
  *  activate, revoke) preserved 1:1. */
 import { FormEvent, useEffect, useState } from 'react';
-import { AlertCircle, BadgeCheck, Ban, Copy, Check, Download, Eye, KeyRound, LoaderCircle, Plus, RefreshCw, Search, UsersRound, Ticket, UserPlus } from 'lucide-react';
-import { ConfirmDialog } from '@cms/ui';
+import { BadgeCheck, Ban, Copy, Check, Download, Eye, KeyRound, LoaderCircle, Plus, RefreshCw, Search, UsersRound, Ticket, UserPlus } from 'lucide-react';
+import { ConfirmDialog, DetailDrawer, Dialog, RowActionsMenu } from '@cms/ui';
 import { apiRequest, type PagedResult } from '../lib/api';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 import { t, localeOf, statusLabel } from '../lib/dictionary';
@@ -95,7 +95,6 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
   const [subjectId, setSubjectId] = useState('');
   const [form, setForm] = useState({ contentScope: 'questions_exams' as ContentScope, isPublic: false, quantity: '1', durationDays: '0', prefix: '', codeExpiresAt: '' });
   const [revokeTarget, setRevokeTarget] = useState<CodeItem | null>(null);
-  const [revokeReason, setRevokeReason] = useState('');
   // W3 (admin-ui): bulk revoke is destructive over N subscriptions — it needs
   // an explicit confirm with a mandatory reason (debt D-09: it previously
   // fired on a single click, silently swallowed per-item failures, and sent a
@@ -230,7 +229,6 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
       await loadCodes();
       onNotice(t(locale, 'codes.toasts.revoked', { count: result.revokedSubscriptions }));
       setRevokeTarget(null);
-      setRevokeReason('');
     } catch (error) { onError(error instanceof Error ? error.message : 'Request failed.'); }
     finally { setBusy(false); }
   }
@@ -471,22 +469,43 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
                       <span className={`inline-block px-2 py-0.5 rounded-full text-xs border ${statusChipClass(code.status)}`}>{codeStatusLabel(code.status, isArabic)}</span>
                       {code.expiresAt && <small className="text-xs text-slate-500">{dateFmt.format(new Date(code.expiresAt))}</small>}
                     </div>
-                    <div className="flex items-center gap-1">
-                      {code.redemptionCount > 0 && (
-                        <button type="button" onClick={() => void openRedemptions(code)} title={t(locale, 'codes.redemptionDetail')} data-testid={`open-redemptions-${code.id}`} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 transition-colors">
-                          <Eye className="w-3.5 h-3.5" />
+                    <div className="flex items-center gap-1.5">
+                      {/* Command Center final pass — one labeled primary action
+                          (view details) + a labeled overflow menu for secondary
+                          and danger operations. The scattered icon-only
+                          view/activate and the free-floating danger revoke
+                          button are gone. */}
+                      {code.redemptionCount > 0 ? (
+                        <button type="button" onClick={() => void openRedemptions(code)} data-testid={`open-redemptions-${code.id}`} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 transition-colors">
+                          <Eye className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>{t(locale, 'codes.row.viewDetails')}</span>
                         </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-400" data-testid={`no-redemptions-${code.id}`}>{t(locale, 'codes.row.noRedemptionsYet')}</span>
                       )}
-                      {code.status.toLowerCase() === 'active' && (
-                        <button type="button" disabled={busy} title={t(locale, 'codes.row.activateForStudent')} onClick={() => { setActivateTarget(code); setActivateStudentQuery(''); setActivateStudents([]); setActivateStudentId(''); }} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-teal-200 text-xs font-medium text-teal-700 bg-white hover:bg-teal-50 transition-colors disabled:opacity-50">
-                          <UserPlus className="w-3.5 h-3.5" />{t(locale, 'codes.activate')}
-                        </button>
-                      )}
-                      {code.status.toLowerCase() === 'active' && can('btn:codes.revoke') && (
-                        <button type="button" disabled={busy} title={t(locale, 'codes.row.revokeAll')} onClick={() => { setRevokeTarget(code); setRevokeReason(''); }} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-600 bg-white hover:bg-red-50 transition-colors disabled:opacity-50">
-                          <Ban className="w-3.5 h-3.5" />{t(locale, 'codes.revoke')}
-                        </button>
-                      )}
+                      <RowActionsMenu
+                        label={t(locale, 'codes.row.rowActionsLabel', { code: code.code })}
+                        dir={isArabic ? 'rtl' : 'ltr'}
+                        items={[
+                          {
+                            key: 'activate',
+                            label: t(locale, 'codes.row.activateForStudent'),
+                            icon: <UserPlus className="w-4 h-4" />,
+                            disabled: busy || code.status.toLowerCase() !== 'active',
+                            onSelect: () => { setActivateTarget(code); setActivateStudentQuery(''); setActivateStudents([]); setActivateStudentId(''); },
+                          },
+                          ...(can('btn:codes.revoke')
+                            ? [{
+                                key: 'revoke',
+                                label: t(locale, 'codes.row.revokeAll'),
+                                danger: true,
+                                icon: <Ban className="w-4 h-4" />,
+                                disabled: busy || code.status.toLowerCase() !== 'active',
+                                onSelect: () => { setRevokeTarget(code); },
+                              }]
+                            : []),
+                        ]}
+                      />
                     </div>
                   </article>
                 );
@@ -496,20 +515,18 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
         </div>
       </section>
 
-      {/* ===== Night Task 5.4 — generate modal (was the permanent side form) ===== */}
-      {generateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onMouseDown={() => !busy && setGenerateOpen(false)}>
-          <div className="bg-white rounded-xl max-w-2xl w-full shadow-xl max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="flex items-start gap-3 p-5 border-b border-slate-200 sticky top-0 bg-white">
-              <div className="p-2 rounded-lg bg-teal-50 text-teal-600">
-                <KeyRound className="w-6 h-6" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-slate-900">{t(locale, 'codes.generateModal.title')}</h3>
-                <p className="text-sm text-slate-600 mt-0.5">{t(locale, 'codes.generateModal.subtitle')}</p>
-              </div>
-              <button type="button" onClick={() => setGenerateOpen(false)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors" aria-label={t(locale, 'codes.close')}>✕</button>
-            </div>
+      {/* ===== Night Task 5.4 — generate modal on the shared Dialog shell ===== */}
+      <Dialog
+        open={generateOpen}
+        onOpenChange={(next) => { if (!next && !busy) setGenerateOpen(false); }}
+        title={t(locale, 'codes.generateModal.title')}
+        description={t(locale, 'codes.generateModal.subtitle')}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="lg"
+        dismissGuard={busy}
+        testId="codes-generate-dialog"
+      >
+        {generateOpen && (
             <form onSubmit={generate} className="p-5 space-y-4">
               <label className="block">
                 <span className="block text-xs font-medium text-slate-700 mb-1">{t(locale, 'codes.generateModal.contentScope')}</span>
@@ -593,37 +610,35 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
                 <span className="text-xs">{`${scopeChoices.find((s) => s.value === form.contentScope)?.[isArabic ? 'ar' : 'en'] ?? ''}: ${form.isPublic ? t(locale, 'codes.generateModal.publicScopeNote') : t(locale, 'codes.generateModal.privateScopeNote')}`}</span>
               </div>
 
-              <div className="flex gap-3 justify-end pt-1">
+              <div className="flex flex-wrap gap-3 justify-end pt-1">
                 <button type="button" onClick={() => setGenerateOpen(false)} disabled={busy} className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50">{t(locale, 'codes.cancel')}</button>
-                <button className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-colors disabled:opacity-50" disabled={busy} type="submit">
-                  {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}{t(locale, 'codes.generateModal.submit')}
+                <button className="inline-flex min-w-32 items-center justify-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-colors disabled:opacity-50" disabled={busy} type="submit" data-testid="codes-generate-submit">
+                  {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  {busy ? t(locale, 'codes.generateModal.busySubmit') : t(locale, 'codes.generateModal.submit')}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+        )}
+      </Dialog>
 
-      {/* ===== Night Task 5.3 — redemptions detail modal ===== */}
-      {redemptionsTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onMouseDown={() => !redemptionsLoading && setRedemptionsTarget(null)}>
-          <div className="bg-white rounded-xl max-w-2xl w-full shadow-xl max-h-[85vh] flex flex-col" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()} data-testid="redemptions-modal">
-            <div className="flex items-start gap-3 p-5 border-b border-slate-200">
-              <div className="p-2 rounded-lg bg-teal-50 text-teal-600">
-                <UsersRound className="w-6 h-6" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-slate-900">{t(locale, 'codes.redemptionDetail')}</h3>
-                <p className="text-sm text-slate-600 mt-0.5">{t(locale, 'codes.redemptionsModal.subtitle')}</p>
-                <p className="text-sm font-mono font-medium text-slate-900 mt-1.5 break-all">{redemptionsTarget.code}</p>
-                <p className="text-xs text-slate-500 mt-1">
-                  {contentScopeLabel(redemptionsTarget.contentScope, isArabic)}
-                  {redemptionsTarget.scopeName ? ` · ${redemptionsTarget.scopeName}` : ''}
-                </p>
-              </div>
-              <button type="button" onClick={() => setRedemptionsTarget(null)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors" aria-label={t(locale, 'codes.close')}>✕</button>
-            </div>
-            <div className="p-5 overflow-y-auto">
+      {/* ===== Night Task 5.3 — redemptions detail on the shared DetailDrawer ===== */}
+      <DetailDrawer
+        open={redemptionsTarget !== null}
+        onOpenChange={(next) => { if (!next && !redemptionsLoading) setRedemptionsTarget(null); }}
+        title={t(locale, 'codes.redemptionDetail')}
+        description={redemptionsTarget
+          ? `${redemptionsTarget.code}${redemptionsTarget.scopeName ? ' · ' + redemptionsTarget.scopeName : ''}`
+          : undefined}
+        status={redemptionsLoading ? 'loading' : (redemptions ?? []).length === 0 ? 'empty' : 'ready'}
+        emptyTitle={t(locale, 'codes.redemptionsModal.empty')}
+        emptyDescription={t(locale, 'codes.redemptionsModal.emptyHint')}
+        loadingLabel={t(locale, 'codes.loading')}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="lg"
+        testId="redemptions-modal"
+      >
+        {redemptionsTarget && (
+            <div className="p-5">
               {redemptionsLoading ? (
                 <div className="flex items-center justify-center py-10">
                   <LoaderCircle className="w-6 h-6 animate-spin text-teal-600" />
@@ -655,24 +670,21 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
                 </ul>
               )}
             </div>
-          </div>
-        </div>
-      )}
+        )}
+      </DetailDrawer>
 
-      {/* Manual activation modal */}
-      {activateTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onMouseDown={() => !activateLoading && setActivateTarget(null)}>
-          <div className="bg-white rounded-xl max-w-lg w-full shadow-xl" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="flex items-start gap-3 p-5 border-b border-slate-200">
-              <div className="p-2 rounded-lg bg-teal-50 text-teal-600">
-                <UserPlus className="w-6 h-6" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-slate-900">{t(locale, 'codes.activateModal.title')}</h3>
-                <p className="text-sm text-slate-600 mt-1">{t(locale, 'codes.activateModal.subtitle')}</p>
-                <p className="text-sm font-mono font-medium text-slate-900 mt-2 break-all">{activateTarget.code}</p>
-              </div>
-            </div>
+      {/* Manual activation modal — shared Dialog shell */}
+      <Dialog
+        open={activateTarget !== null}
+        onOpenChange={(next) => { if (!next && !activateLoading) setActivateTarget(null); }}
+        title={t(locale, 'codes.activateModal.title')}
+        description={activateTarget?.code}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="md"
+        dismissGuard={activateLoading}
+        testId="codes-activate-dialog"
+      >
+        {activateTarget && (
             <div className="p-5 space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">{t(locale, 'codes.activateModal.searchLabel')}</label>
@@ -692,46 +704,32 @@ export function CodesCenter({ token, isArabic, onError, onNotice }: Props) {
                   ))}
                 </div>
               )}
-              <div className="flex gap-3 justify-end">
+              <div className="flex flex-wrap gap-3 justify-end">
                 <button type="button" onClick={() => setActivateTarget(null)} disabled={activateLoading} className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50">{t(locale, 'codes.cancel')}</button>
-                <button type="button" onClick={() => void manuallyActivate(activateTarget, activateStudentId)} disabled={activateLoading || !activateStudentId} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-colors disabled:opacity-50">
-                  {activateLoading ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}{t(locale, 'codes.activate')}
+                <button type="button" onClick={() => void manuallyActivate(activateTarget, activateStudentId)} disabled={activateLoading || !activateStudentId} className="inline-flex min-w-32 items-center justify-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-colors disabled:opacity-50">
+                  {activateLoading ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                  {activateLoading ? t(locale, 'codes.activateModal.busySubmit') : t(locale, 'codes.activate')}
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+        )}
+      </Dialog>
 
-      {/* Revoke confirmation modal */}
-      {revokeTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onMouseDown={() => !busy && setRevokeTarget(null)}>
-          <div className="bg-white rounded-xl max-w-md w-full shadow-xl" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="flex items-start gap-3 p-5 border-b border-slate-200">
-              <div className="p-2 rounded-lg bg-red-50 text-red-600">
-                <AlertCircle className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-slate-900">{t(locale, 'codes.revokeModal.title')}</h3>
-                <p className="text-sm text-slate-600 mt-1">{t(locale, 'codes.revokeModal.subtitle')}</p>
-                <p className="text-sm font-mono font-medium text-slate-900 mt-2 break-all">{revokeTarget.code}</p>
-              </div>
-            </div>
-            <form onSubmit={(event) => { event.preventDefault(); if (!revokeReason.trim()) { onError(t(locale, 'codes.revokeModal.provideReason')); return; } void revoke(revokeTarget, revokeReason.trim()); }} className="p-5 space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">{t(locale, 'codes.revokeReason')}</label>
-                <textarea required rows={3} value={revokeReason} onChange={(event) => setRevokeReason(event.target.value)} placeholder={t(locale, 'codes.revokeReasonPlaceholder')} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 resize-y" />
-              </div>
-              <div className="flex gap-3 justify-end">
-                <button type="button" onClick={() => setRevokeTarget(null)} disabled={busy} className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50">{t(locale, 'codes.cancel')}</button>
-                <button type="submit" disabled={busy} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50">
-                  {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}{t(locale, 'codes.confirmRevoke')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Revoke confirmation — shared ConfirmDialog with a mandatory reason */}
+      <ConfirmDialog
+        open={revokeTarget !== null}
+        onOpenChange={(next) => { if (!next) setRevokeTarget(null); }}
+        title={t(locale, 'codes.revokeModal.title')}
+        description={revokeTarget ? `${t(locale, 'codes.revokeModal.subtitle')} — ${revokeTarget.code}` : undefined}
+        confirmLabel={t(locale, 'codes.confirmRevoke')}
+        cancelLabel={t(locale, 'codes.cancel')}
+        variant="danger"
+        requireReason={{ label: t(locale, 'codes.revokeReason'), placeholder: t(locale, 'codes.revokeReasonPlaceholder') }}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={(reason) => { if (revokeTarget && reason) void revoke(revokeTarget, reason); }}
+        testId="codes-revoke-confirm"
+      />
 
       {/* W3 (admin-ui): bulk revoke — explicit danger confirm with a mandatory
           reason (previously a single unconfirmed click with a hardcoded

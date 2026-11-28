@@ -261,3 +261,25 @@ Stage Summary:
 - cms-api-key-01 usage is config-driven (no code change); runtime proof via the visible X-Amz-Credential in the new log.
 - Build 0 errors / 17 warnings; tests 440/440. Branch wip/10.13 pushed; main NOT touched (STOP GATE).
 - Leading hypothesis for the 401: old-provider Ready assets (HLS trees in R2/Upstash) never migrated to CMSmedia — presign succeeds locally, B2 401s the missing object. Decision tree in WIP_STATUS.md; fix options: migrate the trees or admin re-transcode.
+
+---
+Task ID: PR-228-ADMIN-FINAL-UI-SURFACES
+Agent: GLM (main)
+Task: One independent PR completing the Admin Web visual/interaction work: full surface inventory, one Modal/Drawer interaction system, action-hierarchy sweep, dashboard Command Center redesign, accessibility/responsive evidence. Base = latest main (77d21e3, PR-227). No backend/lifecycle/security changes.
+
+Work Log:
+- Verified remote main == documented baseline 77d21e3da25a1c27c4034f320a557191e3c62a42; branched feat/admin-final-ui-surfaces-polish.
+- Phase 0: audited every center (17 routes + shell) for inline/fixed/ad-hoc surfaces → docs/admin-ui-surface-inventory.md (67 rows: 31 migrated this PR, 4 justified permanent, 32 already-shared, 0 remaining).
+- Phase 1 (@cms/ui): DetailDrawer (loading/ready/empty/error + Retry, headerExtra + subheader slots), FormDialog (non-double-submitting busy footer, honest «جارٍ…» labels, danger variant separated), useUnsavedChanges guard; Drawer gained additive headerExtra/subheader slots. 18 new tests.
+- Phase 2: migrated every hand-rolled overlay — Students details <aside>→DetailDrawer (tabs=subheader), edit/ban/create modals→Dialog, unban→ConfirmDialog; Questions editor <aside>→Drawer + lifecycle→ConfirmDialog + unsaved guard; Exams editor→Drawer, results panel→DetailDrawer, report-notes→Dialog, lifecycle→ConfirmDialog + guard; Library upload→Drawer + purge→Dialog + guard; Codes generate/activate→Dialog, redemptions→DetailDrawer, revoke→ConfirmDialog(reason), row buttons→labeled view + overflow menu; ExamCourses picker/preview→Dialog + lifecycle→ConfirmDialog; Academic archive→ConfirmDialog; Admins DialogLayer(5 forms)→Dialog; permission matrix + UI-permissions editors→Dialog; Reports transition→Dialog; Offline revoke→ConfirmDialog; NotificationCompose→Dialog.
+- Phase 3: honest busy labels (جارٍ الحفظ/الإنشاء/الإرسال/التحديث…) replace spinner-only buttons; danger actions separated (overflow/ConfirmDialog variants); codes row consolidated to one primary + overflow.
+- Phase 4: dashboard restructured — CommandHeader (title/subtitle, derived env chip, truthful API pill, last-updated, single primary تحديث البيانات), NeedsAttention (real conditions only: pending reports/servers unavailable/failed metrics; calm clear-state), KPI grid (min-height, skeleton/error, source disclosure), ServiceHealthSummary state-mirroring, SecurityStatus (contract F, honest غير متاح), footer refresh stamp.
+- Phase 6/7 evidence: e2e/admin-mock-world.mjs (PR-10 world extracted for reuse) + e2e/cc-final-surfaces.e2e.mjs — 62 checks: dashboard desktop/mobile/dark, sidebar expanded/collapsed, servers card, 6 drawers, 2 modals (375+1440), confirm dialog, overflow menu (keyboard+Escape), loading/empty/unavailable, focus-visible — all with no-h-scroll + axe(2a/2aa/21aa/22aa) 0 critical/serious. 22 screenshots (cc-final-*.png), synthetic data only.
+- Real a11y bugs fixed at source (found by open-state scans): create/edit student inputs had no programmatic labels (axe label critical); security drawer dl groups held <svg> between dt/dd (definition-list serious); dark stat-trend below AA → dark-theme tones #4cc38a/#e08a81; needs-attention warning text #8a5a18 (5.36:1) via --cms-warning-text (light+dark).
+- Gates: admin tsc clean / lint 0 / tests 375/375 (51 files) / build green; student lint 0 / tests 839/839 / build green; ui tests 79/79; pr10 smoke 114/114; cc-final 62/62. @cms/ui lint has no ESLint config on main (pre-existing; not a CI gate).
+- 5 commits, PR opened against main, NOT merged (owner review gate). No secrets committed; tokens used only for push/PR creation.
+
+Stage Summary:
+- 67/67 surfaces inventoried; 0 flat hand-rolled overlays remain; every detail/form/confirm surface rides @cms/ui Dialog/Drawer/ConfirmDialog/DetailDrawer with portal, focus trap/return, Escape, scroll lock, RTL logical anchoring.
+- Dashboard is a Command Center (header/status strip → KPI → needs-attention → feeds → service health → security → footer), refreshable, with honest unavailable/empty/loading states and zero fabricated metrics.
+- One independent PR, reviewable commits, full local evidence matrix; production untouched (no Wipe/HardDelete/purge/restart anywhere; Servers read-only preserved).

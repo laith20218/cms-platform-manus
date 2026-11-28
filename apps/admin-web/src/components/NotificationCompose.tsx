@@ -16,9 +16,9 @@
  */
 import { useEffect, useState } from 'react';
 import {
-  X, Send, LoaderCircle, Bell, Calendar, Clock, Eye, Users,
+  Send, LoaderCircle, Bell, Calendar, Clock, Eye, Users,
 } from 'lucide-react';
-import { useModalA11y } from '@cms/ui';
+import { Dialog } from '@cms/ui';
 import { ApiError, apiRequest } from '../lib/api';
 import { t, localeOf } from '../lib/dictionary';
 
@@ -52,7 +52,6 @@ const NOTIFICATION_TYPES = [
 export function NotificationCompose({ token, isArabic, onClose, onError, onNotice }: Props) {
   // PR-2 — a11y retrofit (see the render comment): Escape busy-guarded, Tab
   // trap, scroll lock, focus capture + restore to the invoking bell button.
-  const { surfaceRef } = useModalA11y({ open: true, onClose: () => { if (!busy) onClose(); } });
   const locale = localeOf(isArabic);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -178,35 +177,24 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
     contextYear: t(locale, 'notifications.compose.contextYear'),
     contextSemester: t(locale, 'notifications.compose.contextSemester'),
     needTargetHint: t(locale, 'notifications.compose.needTargetHint'),
+    sending: t(locale, 'notifications.compose.sending'),
     placeholder_title: t(locale, 'notifications.compose.titlePlaceholder'),
     placeholder_body: t(locale, 'notifications.compose.bodyPlaceholder'),
   };
 
   return (
-    // PR-2 — a11y retrofit: outer layer is presentation; the panel carries
-    // role=dialog + the shared useModalA11y contract (Escape busy-guarded, Tab
-    // trap, scroll lock, focus capture + restore to the bell button).
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="presentation">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onMouseDown={() => !busy && onClose()} />
-      <div
-        ref={surfaceRef}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label={copy.title}
-        className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-xl border shadow-2xl flex flex-col outline-none"
-        style={{ background: 'var(--cms-surface)', borderColor: 'var(--cms-line)' }}>
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
-          <div className="flex items-center gap-2">
-            <Bell size={18} style={{ color: 'var(--cms-teal-700)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{copy.title}</h3>
-          </div>
-          <button onClick={() => !busy && onClose()} disabled={busy} className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-50">
-            <X size={18} style={{ color: 'var(--cms-text-muted)' }} />
-          </button>
-        </div>
-
+    // Command Center final pass — the compose surface rides the shared
+    // @cms/ui Dialog shell (portal, focus trap/return, Escape, scroll lock,
+    // deliberate backdrop) instead of the hand-rolled retrofit panel.
+    <Dialog
+      open
+      onOpenChange={(next) => { if (!next && !busy) onClose(); }}
+      title={copy.title}
+      dir={isArabic ? 'rtl' : 'ltr'}
+      size="lg"
+      dismissGuard={busy}
+      testId="notification-compose-dialog"
+    >
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {/* Type */}
@@ -393,12 +381,12 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-3 p-4 border-t" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
+        {/* Footer — secondary (preview/cancel) left, primary (send) right in RTL */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t p-4" style={{ borderColor: 'var(--cms-line)', background: 'var(--c-bg-elevated, var(--cms-ivory-50))' }}>
           <button onClick={() => setPreviewMode(!previewMode)} disabled={busy}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium disabled:opacity-50"
             style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
-            <Eye size={13} /> {copy.preview}
+            <Eye size={13} aria-hidden="true" /> {copy.preview}
           </button>
           <div className="flex gap-2">
             <button onClick={onClose} disabled={busy}
@@ -406,15 +394,14 @@ export function NotificationCompose({ token, isArabic, onClose, onError, onNotic
               style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
               {copy.cancel}
             </button>
-            <button onClick={() => void send()} disabled={!canSend || busy}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50"
+            <button onClick={() => void send()} disabled={!canSend || busy} data-testid="notification-compose-send"
+              className="inline-flex min-w-28 items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50"
               style={{ background: 'var(--cms-teal-700)' }}>
               {busy ? <LoaderCircle size={13} className="animate-spin" /> : <Send size={13} />}
-              {copy.send}
+              {busy ? copy.sending : copy.send}
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

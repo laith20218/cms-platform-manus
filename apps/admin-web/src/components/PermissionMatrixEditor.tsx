@@ -16,8 +16,9 @@
  * (CMS.Application.Interfaces.IPermissionService).
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Check, LoaderCircle, Lock, Save, X, ShieldCheck } from 'lucide-react';
+import { Check, LoaderCircle, Lock, Save, ShieldCheck } from 'lucide-react';
 import { ApiError, apiRequest } from '../lib/api';
+import { Dialog } from '@cms/ui';
 import { t, localeOf } from '../lib/dictionary';
 
 type Props = {
@@ -166,33 +167,36 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
     systemLocked: t(locale, 'admincenters.permissions.matrix.systemLocked'),
     loading: t(locale, 'common.loading'),
     noGrants: t(locale, 'admincenters.permissions.matrix.noGrants'),
+    saving: t(locale, 'admincenters.permissions.matrix.saving'),
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onMouseDown={() => !saving && onClose()} />
+    <Dialog
+      open
+      onOpenChange={(next) => { if (!next && !saving) onClose(); }}
+      title={copy.title}
+      dir={isArabic ? 'rtl' : 'ltr'}
+      size="xl"
+      dismissGuard={saving}
+      testId="permission-matrix-dialog"
+    >
       <div
-        className="relative w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-xl border shadow-2xl flex flex-col"
-        style={{ background: 'var(--cms-surface)', borderColor: 'var(--cms-line)' }}
+        className="flex flex-col"
       >
-        {/* Header */}
+        {/* Header ribbon (role name + chips) — the Dialog owns the title */}
         <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
           <div className="flex items-center gap-2">
-            <ShieldCheck size={18} style={{ color: 'var(--cms-teal-700)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{copy.title}</h3>
+            <ShieldCheck size={18} aria-hidden="true" style={{ color: 'var(--cms-teal-700)' }} />
             <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
               {roleName}
             </span>
             {isSystemRole && (
               <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border" style={{ borderColor: 'var(--cms-warning)', background: 'var(--cms-warning-50)', color: 'var(--cms-warning)' }}>
-                <Lock size={10} />
+                <Lock size={10} aria-hidden="true" />
                 {copy.systemLocked}
               </span>
             )}
           </div>
-          <button onClick={() => !saving && onClose()} disabled={saving} className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-50" aria-label={copy.close}>
-            <X size={18} style={{ color: 'var(--cms-text-muted)' }} />
-          </button>
         </div>
 
         {/* Description + dirty indicator */}
@@ -297,15 +301,16 @@ export function PermissionMatrixEditor({ token, isArabic, roleId, roleName, isSy
             <button
               onClick={save}
               disabled={!isDirty || saving || isSystemRole}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              data-testid="permission-matrix-save"
+              className="inline-flex min-w-28 items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ background: 'var(--cms-teal-700)' }}
             >
               {saving ? <LoaderCircle size={13} className="animate-spin" /> : <Save size={13} />}
-              {copy.save}
+              {saving ? copy.saving : copy.save}
             </button>
           </div>
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 }

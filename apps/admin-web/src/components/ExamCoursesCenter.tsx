@@ -26,9 +26,10 @@
  */
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle, Archive, ArrowDown, ArrowUp, ClipboardList, Eye, GraduationCap,
+  Archive, ArrowDown, ArrowUp, ClipboardList, Eye, GraduationCap,
   ImagePlus, Layers, LoaderCircle, PackageOpen, Plus, Search, Send, Trash2, X,
 } from 'lucide-react';
+import { ConfirmDialog, Dialog } from '@cms/ui';
 import { apiRequest } from '../lib/api';
 import { academicIdsOf, useAcademicContext } from '../lib/academicContext';
 import { t, localeOf, statusLabel as registryStatusLabel, type Locale } from '../lib/dictionary';
@@ -75,7 +76,7 @@ type CourseForm = {
 };
 
 type EditorState = { mode: 'create' } | { mode: 'edit'; detail: ExamCourseDetail } | null;
-type ConfirmDialog = { course: ExamCourseListItem; action: 'publish' | 'archive' | 'delete' } | null;
+type ConfirmState = { course: ExamCourseListItem; action: 'publish' | 'archive' | 'delete' } | null;
 
 type Props = { token: string; isArabic: boolean; onError: (message: string) => void; onNotice: (message: string) => void };
 
@@ -178,7 +179,7 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
   // === Preview + confirm state ===
   const [preview, setPreview] = useState<ExamCourseDetail | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [confirm, setConfirm] = useState<ConfirmDialog>(null);
+  const [confirm, setConfirm] = useState<ConfirmState>(null);
 
   const request = async <T,>(path: string, init?: RequestInit) => apiRequest<T>(path, token, init);
   const dir = isArabic ? 'rtl' : 'ltr';
@@ -1029,35 +1030,18 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
         </>
       )}
 
-      {/* ===== Exam picker modal (edit mode) ===== */}
-      {pickerOpen && editor?.mode === 'edit' && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-          role="presentation"
-          onMouseDown={() => !busy && setPickerOpen(false)}
-        >
-          <div
-            className="bg-white rounded-xl max-w-2xl w-full max-h-[85vh] flex flex-col"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t(locale, 'exams.examCourses.picker.dialogA11y')}
-            style={{ boxShadow: 'var(--cms-shadow-xl)' }}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-3 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
-              <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
-                {t(locale, 'exams.examCourses.picker.title')}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setPickerOpen(false)}
-                aria-label={t(locale, 'common.close')}
-                className="p-2 rounded-lg transition-colors hover:bg-slate-100"
-                style={{ color: 'var(--cms-text-soft)' }}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* ===== Exam picker modal — shared Dialog shell ===== */}
+      <Dialog
+        open={pickerOpen && editor?.mode === 'edit'}
+        onOpenChange={(next) => { if (!next && !busy) setPickerOpen(false); }}
+        title={t(locale, 'exams.examCourses.picker.title')}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="lg"
+        dismissGuard={busy}
+        testId="examcourse-picker-dialog"
+      >
+        {pickerOpen && editor?.mode === 'edit' && (
+          <div>
             <div className="p-4 border-b" style={{ borderColor: 'var(--cms-line)' }}>
               <div className="relative">
                 <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -1112,50 +1096,22 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
               )}
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </Dialog>
 
-      {/* ===== Preview modal (student storefront view) ===== */}
-      {preview && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-          role="presentation"
-          onMouseDown={() => setPreview(null)}
-        >
-          <div
-            className="bg-white rounded-xl max-w-2xl w-full max-h-[85vh] flex flex-col"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t(locale, 'exams.examCourses.preview.dialogA11y', { name: preview.nameAr })}
-            style={{ boxShadow: 'var(--cms-shadow-xl)' }}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
-              <div className="min-w-0">
-                <h3 className="font-semibold truncate" style={{ color: 'var(--cms-text)' }}>{preview.nameAr}</h3>
-                <div className="mt-1 flex items-center gap-2 flex-wrap text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full border ${courseTypeBadgeClass(preview.courseType)}`}>
-                    {courseTypeLabel(preview.courseType, locale)}
-                  </span>
-                  <span>{preview.year} · {semesterLabel(preview.semester, locale)}</span>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full border ${preview.freeOrPaid
-                    ? 'text-sky-700 bg-sky-50 border-sky-200'
-                    : 'text-emerald-700 bg-emerald-50 border-emerald-200'}`}
-                  >
-                    {preview.freeOrPaid ? (t(locale, 'exams.examCourses.pricing.paid')) : (t(locale, 'exams.examCourses.pricing.free'))}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPreview(null)}
-                aria-label={t(locale, 'common.close')}
-                className="p-2 rounded-lg transition-colors hover:bg-slate-100 shrink-0"
-                style={{ color: 'var(--cms-text-soft)' }}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* ===== Preview modal (student storefront view) — shared Dialog ===== */}
+      <Dialog
+        open={preview !== null}
+        onOpenChange={(next) => { if (!next) setPreview(null); }}
+        title={preview?.nameAr ?? ''}
+        description={preview
+          ? `${courseTypeLabel(preview.courseType, locale)} · ${preview.year} · ${semesterLabel(preview.semester, locale)} · ${preview.freeOrPaid ? (t(locale, 'exams.examCourses.pricing.paid')) : (t(locale, 'exams.examCourses.pricing.free'))}`
+          : undefined}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="lg"
+        testId="examcourse-preview-dialog"
+      >
+        {preview && (
             <div className="overflow-y-auto p-5 space-y-4">
               {preview.coverUrl && (
                 <img
@@ -1199,110 +1155,48 @@ export function ExamCoursesCenter({ token, isArabic, onError, onNotice }: Props)
                 )}
               </div>
             </div>
-          </div>
-        </div>
-      )}
+        )}
+      </Dialog>
 
-      {/* ===== Confirm dialog for publish / archive / delete ===== */}
-      {confirm && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-          role="presentation"
-          onMouseDown={() => !busy && setConfirm(null)}
-        >
-          <div
-            className="bg-white rounded-xl max-w-md w-full"
-            role="dialog"
-            aria-modal="true"
-            style={{ boxShadow: 'var(--cms-shadow-xl)' }}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start gap-3 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
-              <div
-                className="p-2 rounded-lg"
-                style={{
-                  background: confirm.action === 'archive' ? 'var(--cms-warning-50)'
-                    : confirm.action === 'delete' ? 'var(--cms-danger-50)'
-                    : 'var(--cms-teal-50)',
-                  color: confirm.action === 'archive' ? 'var(--cms-warning)'
-                    : confirm.action === 'delete' ? 'var(--cms-danger)'
-                    : 'var(--cms-teal-700)',
-                }}
-              >
-                <AlertCircle className="w-6 h-6" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
-                  {confirm.action === 'publish'
-                    ? (t(locale, 'exams.examCourses.confirm.publishTitle'))
-                    : confirm.action === 'archive'
-                    ? (t(locale, 'exams.examCourses.confirm.archiveTitle'))
-                    : (t(locale, 'exams.examCourses.confirm.deleteTitle'))}
-                </h3>
-                <p className="text-sm mt-1" style={{ color: 'var(--cms-text-soft)' }}>
-                  {confirm.action === 'publish'
-                    ? (t(locale, 'exams.examCourses.confirm.publishText'))
-                    : confirm.action === 'archive'
-                    ? (t(locale, 'exams.examCourses.confirm.archiveText'))
-                    : (t(locale, 'exams.examCourses.confirm.deleteText'))}
-                </p>
-                <p className="text-sm font-medium mt-2 truncate" style={{ color: 'var(--cms-text)' }}>
-                  "{confirm.course.nameAr}"
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-3 justify-end p-5">
-              <button
-                type="button"
-                onClick={() => setConfirm(null)}
-                disabled={busy}
-                className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
-                style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
-              >
-                {t(locale, 'common.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const course = confirm.course;
-                  const action = confirm.action;
-                  setConfirm(null);
-                  if (action === 'delete') void deleteCourse(course);
-                  else void lifecycle(course, action);
-                }}
-                disabled={busy}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors"
-                style={{
-                  background: confirm.action === 'archive' ? 'var(--cms-warning)'
-                    : confirm.action === 'delete' ? 'var(--cms-danger)'
-                    : 'var(--cms-teal-700)',
-                }}
-                onMouseEnter={(event) => {
-                  if (confirm.action === 'archive') event.currentTarget.style.background = '#8a5a18';
-                  else if (confirm.action === 'delete') event.currentTarget.style.background = '#9c3a31';
-                  else event.currentTarget.style.background = 'var(--cms-teal-600)';
-                }}
-                onMouseLeave={(event) => {
-                  if (confirm.action === 'archive') event.currentTarget.style.background = 'var(--cms-warning)';
-                  else if (confirm.action === 'delete') event.currentTarget.style.background = 'var(--cms-danger)';
-                  else event.currentTarget.style.background = 'var(--cms-teal-700)';
-                }}
-              >
-                {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : (
-                  confirm.action === 'archive' ? <Archive className="w-4 h-4" />
-                  : confirm.action === 'delete' ? <Trash2 className="w-4 h-4" />
-                  : <Send className="w-4 h-4" />
-                )}
-                {confirm.action === 'publish'
-                  ? (t(locale, 'common.publish'))
-                  : confirm.action === 'archive'
-                  ? (t(locale, 'common.archive'))
-                  : (t(locale, 'common.delete'))}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ===== Confirm dialog for publish / archive / delete — shared ConfirmDialog ===== */}
+      <ConfirmDialog
+        open={confirm !== null}
+        onOpenChange={(next) => { if (!next && !busy) setConfirm(null); }}
+        title={
+          confirm?.action === 'publish' ? (t(locale, 'exams.examCourses.confirm.publishTitle'))
+            : confirm?.action === 'archive' ? (t(locale, 'exams.examCourses.confirm.archiveTitle'))
+            : (t(locale, 'exams.examCourses.confirm.deleteTitle'))
+        }
+        description={
+          confirm?.action === 'publish' ? (t(locale, 'exams.examCourses.confirm.publishText'))
+            : confirm?.action === 'archive' ? (t(locale, 'exams.examCourses.confirm.archiveText'))
+            : (t(locale, 'exams.examCourses.confirm.deleteText'))
+        }
+        confirmLabel={
+          confirm?.action === 'publish' ? (t(locale, 'common.publish'))
+            : confirm?.action === 'archive' ? (t(locale, 'common.archive'))
+            : (t(locale, 'common.delete'))
+        }
+        cancelLabel={t(locale, 'common.cancel')}
+        variant={confirm?.action === 'archive' || confirm?.action === 'delete' ? 'danger' : 'primary'}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => {
+          if (!confirm) return;
+          const course = confirm.course;
+          const action = confirm.action;
+          setConfirm(null);
+          if (action === 'delete') void deleteCourse(course);
+          else void lifecycle(course, action);
+        }}
+        testId="examcourse-lifecycle-confirm"
+      >
+        {confirm && (
+          <p className="mb-2 truncate text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
+            "{confirm.course.nameAr}"
+          </p>
+        )}
+      </ConfirmDialog>
     </section>
   );
 }

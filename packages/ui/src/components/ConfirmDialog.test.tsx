@@ -41,9 +41,12 @@ describe('ConfirmDialog', () => {
   it('danger variant renders the consequence inside the red callout, not the header', () => {
     const props = makeProps();
     render(<ConfirmDialog {...props} variant="danger" description="سيُحذف المحتوى نهائيًا مع ملفاته." />);
-    expect(screen.getByText('سيُحذف المحتوى نهائيًا مع ملفاته.')).toBeInTheDocument();
+    const consequence = screen.getByText('سيُحذف المحتوى نهائيًا مع ملفاته.');
     // The dialog is still named by the title only.
-    expect(screen.getByRole('dialog', { name: 'حذف المدير' })).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: 'حذف المدير' });
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveAttribute('aria-describedby', consequence.id);
+    expect(consequence).toHaveTextContent('سيُحذف المحتوى نهائيًا مع ملفاته.');
     expect(screen.getByTestId('confirm-dialog-confirm').className).toContain('danger');
   });
 

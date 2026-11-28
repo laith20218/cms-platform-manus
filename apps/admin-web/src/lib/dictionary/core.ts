@@ -180,6 +180,33 @@ export const coreDict = {
     statsErrorShell: { ar: 'تعذّر تحميل المؤشرات.', en: 'Could not load metrics.' },
     // PR-3 — the App copy used the undetermined-form plural «اختبارات منشورة».
     statExamsShell: { ar: 'اختبارات منشورة', en: 'Published exams' },
+    // ===== Command Center final pass — command header + needs attention + security =====
+    commandRefresh: { ar: 'تحديث البيانات', en: 'Refresh data' },
+    commandRefreshing: { ar: 'جارٍ التحديث…', en: 'Refreshing…' },
+    commandApiLabel: { ar: 'الاتصال بالمنصة', en: 'API connectivity' },
+    commandApiHealthy: { ar: 'متصل', en: 'healthy' },
+    commandApiDegraded: { ar: 'متقطع', en: 'degraded' },
+    commandApiUnknown: { ar: 'غير معروف', en: 'unknown' },
+    commandStale: { ar: 'تعذّر تحديث بعض المؤشرات — القيم المعروضة قد تكون قديمة.', en: 'Some metrics could not be refreshed — displayed values may be stale.' },
+    kpiSourceTitle: { ar: 'مصدر البيانات وحداثتها', en: 'Data source & freshness' },
+    kpiSourceNote: { ar: 'المصدر: خدمة مؤشرات لوحة القيادة (/admin/dashboard). القيم محدّثة لحظة آخر تحديث أعلى الصفحة.', en: 'Source: the command-center metrics service (/admin/dashboard). Values are as fresh as the last refresh at the top of the page.' },
+    needs: {
+      title: { ar: 'يتطلب انتباهاً', en: 'Needs attention' },
+      clear: { ar: 'لا توجد بنود تتطلب انتباهاً الآن — جميع الخدمات والبنود في وضعها الطبيعي.', en: 'Nothing needs your attention right now — services and queues are in their normal state.' },
+      reports: { ar: '{{count}} بلاغ أسئلة معلّق بانتظار المراجعة.', en: '{{count}} question report(s) pending review.' },
+      openReports: { ar: 'فتح التقارير', en: 'Open reports' },
+      servers: { ar: 'تعذّر التحقق من حالة الخدمات — يلزم مراجعة مركز الخوادم.', en: 'Service health could not be verified — the Servers Dashboard needs a review.' },
+      openServers: { ar: 'فتح مركز الخوادم', en: 'Open servers' },
+      retry: { ar: 'إعادة المحاولة', en: 'Retry' },
+    },
+    securityTitle: { ar: 'الحالة الأمنية', en: 'Security status' },
+    securityOpenCenter: { ar: 'فتح مركز الأمان', en: 'Open security center' },
+    securityUnavailable: { ar: 'غير متاح — تعذّر جلب ملخص الأمان.', en: 'Unavailable — the security summary could not be loaded.' },
+    securityFailedLogins24h: { ar: 'محاولات دخول فاشلة (24 ساعة)', en: 'Failed sign-ins (24h)' },
+    securityActiveLockouts: { ar: 'حسابات مقفلة', en: 'Active lockouts' },
+    securityCritical7d: { ar: 'أحداث حرجة (7 أيام)', en: 'Critical events (7d)' },
+    securityNeedsAttention: { ar: 'توجد أحداث تتطلب مراجعة أمنية.', en: 'Security events require review.' },
+    securityNoAttention: { ar: 'لا توجد أحداث أمنية حرجة خلال الأيام السبعة الأخيرة.', en: 'No critical security events in the last seven days.' },
   },
 
   // ===== Admins (preserved + PR-3 shell additions) =====

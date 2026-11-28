@@ -42,7 +42,7 @@ import {
   Pencil, Plus, RotateCcw, Search, Send, Timer, Trash2, TrendingUp, Users, X, XCircle, CloudOff,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
-import { Dialog, Pagination, RowActionsMenu } from '@cms/ui';
+import { ConfirmDialog, DetailDrawer, Dialog, Drawer, Pagination, RowActionsMenu, useUnsavedChanges } from '@cms/ui';
 import { HardDeleteDialog, type HardDeleteTarget } from './HardDeleteDialog';
 import { questionDifficultyLabel, questionTypeLabel } from '../lib/questionLabels';
 import { t, localeOf, statusLabel as registryStatusLabel, type Locale } from '../lib/dictionary';
@@ -111,7 +111,7 @@ type ErrorReport = {
 type ReportPage = { items: ErrorReport[]; total: number; page: number; pageSize: number; totalPages: number };
 type Page<T> = { items: T[]; page: number; pageSize: number; totalCount: number };
 type Props = { token: string; isArabic: boolean; onError: (message: string) => void; onNotice: (message: string) => void; /** W14.3 D10: jump to the Question Bank — the D4 URL context already carries the subject. */ onNavigateToQuestions?: () => void };
-type ConfirmDialog = { exam: ExamSummary; action: 'publish' | 'archive' | 'delete' | 'unpublish' | 'duplicate' | 'restore' } | null;
+type ConfirmState = { exam: ExamSummary; action: 'publish' | 'archive' | 'delete' | 'unpublish' | 'duplicate' | 'restore' } | null;
 
 // PR-5 — pre-flight composition validation report (GET /{id}/composition-validation):
 // per-question issues collected (not thrown) so the editor can warn BEFORE publish.
@@ -321,7 +321,7 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
   const [results, setResults] = useState<Result[]>([]);
   const [resultsLoading, setResultsLoading] = useState(false);
 
-  const [confirm, setConfirm] = useState<ConfirmDialog>(null);
+  const [confirm, setConfirm] = useState<ConfirmState>(null);
 
   // W-coverage (row 18): student-view preview state.
   const [preview, setPreview] = useState<{ exam: ExamSummary; data: ExamPreview | null; loading: boolean; error: string | null } | null>(null);
@@ -481,6 +481,18 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
     setShowEditor(false); setForm(blankForm(subjectId)); setSelectedQuestions([]); setCandidateQuery('');
     // PR-5 — the report belongs to the edited exam; never leak it across editors.
     setCompositionCheck({ loading: false, report: null, error: null });
+  }
+
+  // Command Center final pass — unsaved-changes guard on the exam editor drawer.
+  const unsavedGuard = useUnsavedChanges({ dir: isArabic ? 'rtl' : 'ltr' });
+  const [editorBaseline, setEditorBaseline] = useState('');
+  useEffect(() => {
+    if (showEditor) setEditorBaseline(JSON.stringify(form));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showEditor]);
+  const editorDirty = showEditor && JSON.stringify(form) !== editorBaseline;
+  function requestCloseEditor() {
+    unsavedGuard.closeIfClean(editorDirty, closeEditor);
   }
 
   async function openEdit(exam: ExamSummary) {
@@ -1431,54 +1443,32 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
             </section>
           )}
 
-          {/* ===== Report notes dialog (resolve / reject) ===== */}
-          {reportNotes && (
-            <div
-              className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-              role="presentation"
-              onMouseDown={() => !reportsBusy && setReportNotes(null)}
-            >
-              <div
-                className="bg-white rounded-xl max-w-md w-full"
-                role="dialog"
-                aria-modal="true"
-                aria-label={reportNotes.action === 'resolve' ? (t(locale, 'exams.reports.resolveDialog')) : (t(locale, 'exams.reports.rejectDialog'))}
-                style={{ boxShadow: 'var(--cms-shadow-xl)' }}
-                onMouseDown={(event) => event.stopPropagation()}
-              >
-                <div className="flex items-start gap-3 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
-                  <div
-                    className="p-2 rounded-lg shrink-0"
-                    style={{ background: reportNotes.action === 'resolve' ? 'var(--cms-teal-50)' : 'var(--cms-danger-50)', color: reportNotes.action === 'resolve' ? 'var(--cms-teal-700)' : 'var(--cms-danger)' }}
-                  >
-                    {reportNotes.action === 'resolve' ? <CheckCircle2 className="w-6 h-6" /> : <XCircle className="w-6 h-6" />}
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
-                      {reportNotes.action === 'resolve'
-                        ? (t(locale, 'exams.reports.resolveDialog'))
-                        : (t(locale, 'exams.reports.rejectDialog'))}
-                    </h3>
-                    <p className="text-xs mt-1 line-clamp-2" style={{ color: 'var(--cms-text-soft)' }}>
-                      {reportNotes.report.questionText}
-                    </p>
-                  </div>
-                </div>
-                <div className="p-5">
-                  <label className="block">
-                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                      {t(locale, 'exams.reports.notesLabel')}
-                    </span>
-                    <textarea
-                      value={reportNotes.notes}
-                      onChange={(event) => setReportNotes(current => current ? { ...current, notes: event.target.value } : current)}
-                      rows={3}
-                      className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                      style={{ borderColor: 'var(--cms-line-strong)' }}
-                    />
-                  </label>
-                </div>
-                <div className="flex gap-3 justify-end p-5 pt-0">
+          {/* ===== Report notes dialog — shared Dialog shell (danger separated) ===== */}
+          <Dialog
+            open={reportNotes !== null}
+            onOpenChange={(next) => { if (!next && !reportsBusy) setReportNotes(null); }}
+            title={reportNotes?.action === 'resolve' ? (t(locale, 'exams.reports.resolveDialog')) : (t(locale, 'exams.reports.rejectDialog'))}
+            description={reportNotes?.report.questionText}
+            dir={isArabic ? 'rtl' : 'ltr'}
+            size="md"
+            dismissGuard={reportsBusy}
+            testId="exam-report-notes-dialog"
+          >
+            {reportNotes && (
+              <div className="px-5 py-4">
+                <label className="block">
+                  <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                    {t(locale, 'exams.reports.notesLabel')}
+                  </span>
+                  <textarea
+                    value={reportNotes.notes}
+                    onChange={(event) => setReportNotes(current => current ? { ...current, notes: event.target.value } : current)}
+                    rows={3}
+                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    style={{ borderColor: 'var(--cms-line-strong)' }}
+                  />
+                </label>
+                <div className="flex flex-wrap gap-3 justify-end mt-4">
                   <button
                     type="button"
                     onClick={() => setReportNotes(null)}
@@ -1492,60 +1482,33 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     type="button"
                     onClick={() => void actOnReport()}
                     disabled={reportsBusy}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors"
+                    data-testid="exam-report-notes-submit"
+                    className="inline-flex min-w-32 items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors"
                     style={{ background: reportNotes.action === 'resolve' ? 'var(--cms-teal-700)' : 'var(--cms-danger)' }}
                   >
                     {reportsBusy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : null}
-                    {reportNotes.action === 'resolve' ? (t(locale, 'exams.reports.resolveAction')) : (t(locale, 'exams.reports.rejectAction'))}
+                    {reportsBusy
+                      ? t(locale, 'exams.reports.busyAction')
+                      : reportNotes.action === 'resolve' ? (t(locale, 'exams.reports.resolveAction')) : (t(locale, 'exams.reports.rejectAction'))}
                   </button>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </Dialog>
 
-          {/* ===== Slide-in editor ===== */}
-          {showEditor && (
-            <>
-              <div
-                className="fixed inset-0 z-40 bg-black/40"
-                onMouseDown={closeEditor}
-                role="presentation"
-              />
-              <aside
-                className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-md lg:max-w-2xl bg-white shadow-2xl overflow-y-auto"
-                role="dialog"
-                aria-modal="true"
-                onMouseDown={(event) => event.stopPropagation()}
-                style={{ boxShadow: 'var(--cms-shadow-xl)' }}
-              >
-                <form onSubmit={event => void saveDraft(event)} className="flex flex-col min-h-full">
-                  {/* Editor header */}
-                  <div
-                    className="sticky top-0 z-10 flex items-start justify-between gap-3 px-5 py-4 border-b backdrop-blur"
-                    style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface-glass)' }}
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                        {form.id ? (t(locale, 'exams.editor.editTitle')) : (t(locale, 'exams.header.newExam'))}
-                      </p>
-                      <h3 className="text-base font-bold truncate" style={{ color: 'var(--cms-text)' }}>
-                        {activeSubject ? label(isArabic, activeSubject) : (t(locale, 'exams.header.title'))}
-                      </h3>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={closeEditor}
-                      className="p-1.5 rounded-md transition-colors"
-                      style={{ color: 'var(--cms-text-muted)' }}
-                      onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--cms-ivory-200)'; }}
-                      onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent'; }}
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Editor body */}
-                  <div className="flex-1 px-5 py-4 space-y-5">
+          {/* ===== Slide-in editor — shared Drawer shell (Command Center final pass) ===== */}
+      <Drawer
+        open={showEditor}
+        onOpenChange={(next) => { if (!next && !busy) requestCloseEditor(); }}
+        title={form.id ? (t(locale, 'exams.editor.editTitle')) : (t(locale, 'exams.header.newExam'))}
+        description={activeSubject ? label(isArabic, activeSubject) : (t(locale, 'exams.header.title'))}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="xl"
+        dismissGuard={busy}
+        testId="exam-editor-drawer"
+      >
+                <form onSubmit={event => void saveDraft(event)} id="exam-editor-form" className="flex h-full flex-col">
+                  <div className="flex-1 space-y-5">
                     {/* === Basic info section === */}
                     <section className="space-y-3">
                       <div className="flex items-center gap-2">
@@ -2027,15 +1990,15 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                     </section>
                   </div>
 
-                  {/* Action bar */}
+                  {/* Action bar — sticky inside the shared Drawer body */}
                   <div
-                    className="sticky bottom-0 flex items-center gap-2 justify-end px-5 py-3 border-t bg-white"
-                    style={{ borderColor: 'var(--cms-line)' }}
+                    className="sticky bottom-0 -mx-5 mt-5 flex flex-wrap items-center gap-2 justify-end px-5 py-3 border-t"
+                    style={{ borderColor: 'var(--cms-line)', background: 'var(--c-bg-elevated, var(--cms-surface))' }}
                   >
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={closeEditor}
+                      onClick={requestCloseEditor}
                       className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
                       style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
                     >
@@ -2053,37 +2016,27 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                       {t(locale, 'exams.editor.saveDraft')}
                     </button>
                   </div>
-                </form>
-              </aside>
-            </>
-          )}
+        </form>
+      </Drawer>
 
-          {/* ===== Results panel ===== */}
-          {resultExam && (
-            <section className="rounded-xl border bg-white overflow-hidden" style={{ borderColor: 'var(--cms-line)' }}>
-              <div
-                className="flex items-start justify-between gap-3 px-5 py-4 border-b"
-                style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-100)' }}
-              >
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                    {t(locale, 'exams.results.title')}
-                  </p>
-                  <h3 className="text-base font-bold" style={{ color: 'var(--cms-text)' }}>
-                    {resultExam.titleAr}
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setResultExam(null)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
-                  style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
-                >
-                  <X className="w-3.5 h-3.5" />
-                  {t(locale, 'common.close')}
-                </button>
-              </div>
-              <div className="p-5">
+      {unsavedGuard.dialog}
+
+          {/* ===== Results — shared DetailDrawer (read-only) ===== */}
+          <DetailDrawer
+            open={resultExam !== null}
+            onOpenChange={(next) => { if (!next) setResultExam(null); }}
+            title={t(locale, 'exams.results.title')}
+            description={resultExam?.titleAr}
+            status={resultsLoading ? 'loading' : results.length === 0 ? 'empty' : 'ready'}
+            emptyTitle={t(locale, 'exams.shared.noAttempts')}
+            emptyDescription={t(locale, 'exams.results.emptyHint')}
+            loadingLabel={t(locale, 'common.loading')}
+            dir={isArabic ? 'rtl' : 'ltr'}
+            size="xl"
+            testId="exam-results-drawer"
+          >
+            {resultExam && (
+              <div>
                 {resultsLoading ? (
                   <div className="space-y-2">
                     {[0, 1, 2, 3, 4].map((row) => (
@@ -2180,136 +2133,59 @@ export function ExamsCenter({ token, isArabic, onError, onNotice, onNavigateToQu
                   </div>
                 )}
               </div>
-            </section>
-          )}
+            )}
+          </DetailDrawer>
         </>
       )}
 
-      {/* ===== Confirm dialog for publish / archive / delete ===== */}
-      {confirm && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-          role="presentation"
-          onMouseDown={() => !busy && setConfirm(null)}
-        >
-          <div
-            className="bg-white rounded-xl max-w-md w-full"
-            role="dialog"
-            aria-modal="true"
-            style={{ boxShadow: 'var(--cms-shadow-xl)' }}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start gap-3 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
-              <div
-                className="p-2 rounded-lg"
-                style={{
-                  background: confirm.action === 'archive' || confirm.action === 'unpublish' || confirm.action === 'restore' ? 'var(--cms-warning-50)'
-                    : confirm.action === 'delete' ? 'var(--cms-danger-50)'
-                    : confirm.action === 'duplicate' ? 'var(--cms-teal-50)'
-                    : 'var(--cms-teal-50)',
-                  color: confirm.action === 'archive' || confirm.action === 'unpublish' || confirm.action === 'restore' ? 'var(--cms-warning)'
-                    : confirm.action === 'delete' ? 'var(--cms-danger)'
-                    : confirm.action === 'duplicate' ? 'var(--cms-teal-700)'
-                    : 'var(--cms-teal-700)',
-                }}
-              >
-                {confirm.action === 'duplicate'
-                  ? <Copy className="w-6 h-6" />
-                  : confirm.action === 'restore'
-                  ? <RotateCcw className="w-6 h-6" />
-                  : <AlertCircle className="w-6 h-6" />}
-              </div>
-              <div className="min-w-0">
-                <h3 className="font-semibold" style={{ color: 'var(--cms-text)' }}>
-                  {confirm.action === 'publish'
-                    ? (t(locale, 'exams.confirm.publishTitle'))
-                    : confirm.action === 'archive'
-                    ? (t(locale, 'exams.confirm.archiveTitle'))
-                    : confirm.action === 'unpublish'
-                    ? (t(locale, 'exams.confirm.unpublishTitle'))
-                    : confirm.action === 'duplicate'
-                    ? (t(locale, 'exams.confirm.duplicateTitle'))
-                    : confirm.action === 'restore'
-                    ? (t(locale, 'exams.confirm.restoreTitle'))
-                    : (t(locale, 'exams.confirm.deleteTitle'))}
-                </h3>
-                <p className="text-sm mt-1" style={{ color: 'var(--cms-text-soft)' }}>
-                  {confirm.action === 'publish'
-                    ? (t(locale, 'exams.confirm.publishText'))
-                    : confirm.action === 'archive'
-                    ? (t(locale, 'exams.confirm.archiveText'))
-                    : confirm.action === 'unpublish'
-                    ? (t(locale, 'exams.confirm.unpublishText'))
-                    : confirm.action === 'duplicate'
-                    ? (t(locale, 'exams.confirm.duplicateText'))
-                    : confirm.action === 'restore'
-                    ? (t(locale, 'exams.confirm.restoreText'))
-                    : (t(locale, 'exams.confirm.deleteText'))}
-                </p>
-                <p className="text-sm font-medium mt-2 truncate" style={{ color: 'var(--cms-text)' }}>
-                  "{confirm.exam.titleAr}"
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-3 justify-end p-5">
-              <button
-                onClick={() => setConfirm(null)}
-                disabled={busy}
-                className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
-                style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)' }}
-              >
-                {t(locale, 'common.cancel')}
-              </button>
-              <button
-                onClick={() => {
-                  const exam = confirm.exam;
-                  const action = confirm.action;
-                  setConfirm(null);
-                  if (action === 'delete') void deleteExam(exam);
-                  else void lifecycle(exam, action);
-                }}
-                disabled={busy}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors"
-                style={{
-                  background: confirm.action === 'archive' || confirm.action === 'unpublish' || confirm.action === 'restore' ? 'var(--cms-warning)'
-                    : confirm.action === 'delete' ? 'var(--cms-danger)'
-                    : 'var(--cms-teal-700)',
-                }}
-                onMouseEnter={(event) => {
-                  if (confirm.action === 'archive' || confirm.action === 'unpublish' || confirm.action === 'restore') event.currentTarget.style.background = '#8a5a18';
-                  else if (confirm.action === 'delete') event.currentTarget.style.background = '#9c3a31';
-                  else event.currentTarget.style.background = 'var(--cms-teal-600)';
-                }}
-                onMouseLeave={(event) => {
-                  if (confirm.action === 'archive' || confirm.action === 'unpublish' || confirm.action === 'restore') event.currentTarget.style.background = 'var(--cms-warning)';
-                  else if (confirm.action === 'delete') event.currentTarget.style.background = 'var(--cms-danger)';
-                  else event.currentTarget.style.background = 'var(--cms-teal-700)';
-                }}
-              >
-                {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : (
-                  confirm.action === 'archive' ? <Archive className="w-4 h-4" />
-                  : confirm.action === 'delete' ? <Trash2 className="w-4 h-4" />
-                  : confirm.action === 'unpublish' ? <CloudOff className="w-4 h-4" />
-                  : confirm.action === 'duplicate' ? <Copy className="w-4 h-4" />
-                  : confirm.action === 'restore' ? <RotateCcw className="w-4 h-4" />
-                  : <Send className="w-4 h-4" />
-                )}
-                {confirm.action === 'publish'
-                  ? (t(locale, 'common.publish'))
-                  : confirm.action === 'archive'
-                  ? (t(locale, 'common.archive'))
-                  : confirm.action === 'unpublish'
-                  ? (t(locale, 'exams.confirm.unpublishAction'))
-                  : confirm.action === 'duplicate'
-                  ? (t(locale, 'exams.confirm.duplicateAction'))
-                  : confirm.action === 'restore'
-                  ? (t(locale, 'exams.confirm.restoreAction'))
-                  : (t(locale, 'common.delete'))}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ===== Confirm dialog for publish / archive / delete — shared ConfirmDialog ===== */}
+      <ConfirmDialog
+        open={confirm !== null}
+        onOpenChange={(next) => { if (!next && !busy) setConfirm(null); }}
+        title={
+          confirm?.action === 'publish' ? (t(locale, 'exams.confirm.publishTitle'))
+            : confirm?.action === 'archive' ? (t(locale, 'exams.confirm.archiveTitle'))
+            : confirm?.action === 'unpublish' ? (t(locale, 'exams.confirm.unpublishTitle'))
+            : confirm?.action === 'duplicate' ? (t(locale, 'exams.confirm.duplicateTitle'))
+            : confirm?.action === 'restore' ? (t(locale, 'exams.confirm.restoreTitle'))
+            : (t(locale, 'exams.confirm.deleteTitle'))
+        }
+        description={
+          confirm?.action === 'publish' ? (t(locale, 'exams.confirm.publishText'))
+            : confirm?.action === 'archive' ? (t(locale, 'exams.confirm.archiveText'))
+            : confirm?.action === 'unpublish' ? (t(locale, 'exams.confirm.unpublishText'))
+            : confirm?.action === 'duplicate' ? (t(locale, 'exams.confirm.duplicateText'))
+            : confirm?.action === 'restore' ? (t(locale, 'exams.confirm.restoreText'))
+            : (t(locale, 'exams.confirm.deleteText'))
+        }
+        confirmLabel={
+          confirm?.action === 'publish' ? (t(locale, 'common.publish'))
+            : confirm?.action === 'archive' ? (t(locale, 'common.archive'))
+            : confirm?.action === 'unpublish' ? (t(locale, 'exams.confirm.unpublishAction'))
+            : confirm?.action === 'duplicate' ? (t(locale, 'exams.confirm.duplicateAction'))
+            : confirm?.action === 'restore' ? (t(locale, 'exams.confirm.restoreAction'))
+            : (t(locale, 'common.delete'))
+        }
+        cancelLabel={t(locale, 'common.cancel')}
+        variant={confirm?.action === 'delete' || confirm?.action === 'archive' || confirm?.action === 'unpublish' || confirm?.action === 'restore' ? 'danger' : 'primary'}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => {
+          if (!confirm) return;
+          const exam = confirm.exam;
+          const action = confirm.action;
+          setConfirm(null);
+          if (action === 'delete') void deleteExam(exam);
+          else void lifecycle(exam, action);
+        }}
+        testId="exam-lifecycle-confirm"
+      >
+        {confirm && (
+          <p className="mb-2 truncate text-sm font-medium" style={{ color: 'var(--cms-text)' }}>
+            "{confirm.exam.titleAr}"
+          </p>
+        )}
+      </ConfirmDialog>
 
       {/* ===== W-coverage (row 18): student-view preview — shared Dialog, no correctness flags ===== */}
       {preview && (

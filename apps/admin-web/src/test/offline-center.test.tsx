@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Mock the API layer — the offline package ledger is served from static fixtures.
 const { apiRequestMock } = vi.hoisted(() => ({ apiRequestMock: vi.fn() }));
 vi.mock('../lib/api', () => ({
+  fetchSecuritySummary: vi.fn(() => Promise.reject(new Error('security summary not stubbed for this test'))),
   apiRequest: (...args: unknown[]) => apiRequestMock(...args),
   ApiError: class ApiError extends Error { status = 500; },
 }));
@@ -65,7 +66,9 @@ describe('OfflineCenter (Wave 4)', () => {
       'test-token',
       expect.objectContaining({ method: 'POST' }),
     );
-    fireEvent.click(screen.getByTestId('offline-revoke-confirm-go'));
+    // Command Center final pass — the revoke confirm rides the shared
+    // ConfirmDialog; its confirm button is the standard testId.
+    fireEvent.click(within(screen.getByTestId('offline-revoke-confirm')).getByTestId('confirm-dialog-confirm'));
     await waitFor(() => {
       expect(apiRequestMock).toHaveBeenCalledWith(
         `/api/v1/admin/offline/packages/${ACTIVE.packageId}/revoke`,

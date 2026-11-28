@@ -39,7 +39,7 @@ import { t, localeOf, statusLabel, apiErrorHumanMessage, type Locale } from '../
 // PR-6 — the shared event-type glossary (extracted so SecurityCenter renders
 // the same wire enum identically; the local eventTypeLabel is retired).
 import { securityEventLabel, SECURITY_EVENT_TYPES } from '../lib/securityEventLabels';
-import { ConfirmDialog, Dialog, Pagination, RowActionsMenu } from '@cms/ui';
+import { ConfirmDialog, Dialog, DetailDrawer, Pagination, RowActionsMenu } from '@cms/ui';
 import { useUiPermissions } from '../hooks/uiPermissionsContext';
 import { useQueryState } from '../lib/useQueryState';
 
@@ -1163,92 +1163,65 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
         </div>
       )}
 
-      {/* ===== Slide-in drawer ===== */}
-      {selected && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]"
-            role="presentation"
-            onMouseDown={() => !busy && closeDrawer()}
-          />
-          <aside
+      {/* ===== Shared detail drawer (Command Center final pass) =====
+          The hand-rolled fixed <aside> is gone; the shared @cms/ui
+          DetailDrawer supplies the portal, focus trap/return, Escape,
+          scroll lock, RTL logical anchoring and the sticky header/footer.
+          Identity + row actions ride the headerExtra slot; the tab strip is
+          the non-scrolling subheader. */}
+      <DetailDrawer
+        open={selected !== null}
+        onOpenChange={(next) => { if (!next && !busy) closeDrawer(); }}
+        title={t(locale, 'students.drawer.ariaLabel')}
+        description={selected
+          ? `${selected.fullName || '—'} · ${selected.phone || '—'} · ${selected.universityName || '—'} / ${selected.collegeName || '—'}`
+          : undefined}
+        headerExtra={selected ? (
+          <>
+            <span
+              className="hidden h-9 w-9 items-center justify-center rounded-full text-sm font-semibold text-white sm:inline-flex"
+              style={{ background: 'linear-gradient(135deg, var(--cms-teal-700), var(--cms-teal-500))' }}
+              aria-hidden="true"
+            >
+              {selected.fullName?.[0]?.toUpperCase() ?? 'S'}
+            </span>
+            <RowActionsMenu
+              label={t(locale, 'students.table.rowActionsLabel', { name: selected.fullName })}
+              dir={isArabic ? 'rtl' : 'ltr'}
+              items={[
+                {
+                  key: 'reset-password',
+                  label: t(locale, 'students.passwordReset.title'),
+                  icon: <KeySquare className="w-4 h-4" />,
+                  disabled: busy || resetBusy,
+                  onSelect: () => openPasswordReset(selected),
+                },
+                (isArchivedRow(selected)
+                  ? {
+                      key: 'restore',
+                      label: t(locale, 'students.archive.restoreAction'),
+                      icon: <ArchiveRestore className="w-4 h-4" />,
+                      disabled: busy || lifecycleBusy,
+                      onSelect: () => setLifecycleTarget({ student: selected, mode: 'restore' }),
+                    }
+                  : {
+                      key: 'archive',
+                      label: t(locale, 'students.archive.archiveTitle'),
+                      danger: true,
+                      icon: <Archive className="w-4 h-4" />,
+                      disabled: busy || lifecycleBusy,
+                      onSelect: () => setLifecycleTarget({ student: selected, mode: 'archive' }),
+                    }),
+              ]}
+            />
+          </>
+        ) : undefined}
+        subheader={(
+          <nav
+            className="flex overflow-x-auto border-b border-[color:var(--c-border)]"
+            role="tablist"
             aria-label={t(locale, 'students.drawer.ariaLabel')}
-            className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-md lg:max-w-lg bg-white shadow-2xl flex flex-col"
-            style={{ borderInlineStart: '1px solid var(--cms-line)' }}
-            role="dialog"
-            aria-modal="true"
-            onMouseDown={(event) => event.stopPropagation()}
           >
-            {/* Drawer header */}
-            <header
-              className="flex items-start justify-between gap-4 p-5 border-b"
-              style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <div
-                  className="w-11 h-11 rounded-full flex items-center justify-center text-base font-semibold text-white shrink-0"
-                  style={{ background: 'linear-gradient(135deg, var(--cms-teal-700), var(--cms-teal-500))' }}
-                >
-                  {selected.fullName?.[0]?.toUpperCase() ?? 'S'}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                    {t(locale, 'students.drawer.recordLabel')}
-                  </p>
-                  <h3 className="text-lg font-bold truncate" style={{ color: 'var(--cms-text)' }}>{selected.fullName}</h3>
-                  <p className="text-xs truncate" style={{ color: 'var(--cms-text-muted)' }}>
-                    {selected.phone || '—'} · {selected.universityName || '—'} / {selected.collegeName || '—'}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                {/* PR-6 — drawer header actions: password reset + archive/restore. */}
-                <RowActionsMenu
-                  label={t(locale, 'students.table.rowActionsLabel', { name: selected.fullName })}
-                  dir={isArabic ? 'rtl' : 'ltr'}
-                  items={[
-                    {
-                      key: 'reset-password',
-                      label: t(locale, 'students.passwordReset.title'),
-                      icon: <KeySquare className="w-4 h-4" />,
-                      disabled: busy || resetBusy,
-                      onSelect: () => openPasswordReset(selected),
-                    },
-                    (isArchivedRow(selected)
-                      ? {
-                          key: 'restore',
-                          label: t(locale, 'students.archive.restoreAction'),
-                          icon: <ArchiveRestore className="w-4 h-4" />,
-                          disabled: busy || lifecycleBusy,
-                          onSelect: () => setLifecycleTarget({ student: selected, mode: 'restore' }),
-                        }
-                      : {
-                          key: 'archive',
-                          label: t(locale, 'students.archive.archiveTitle'),
-                          danger: true,
-                          icon: <Archive className="w-4 h-4" />,
-                          disabled: busy || lifecycleBusy,
-                          onSelect: () => setLifecycleTarget({ student: selected, mode: 'archive' }),
-                        }),
-                  ]}
-                />
-                <button
-                  onClick={closeDrawer}
-                  aria-label={t(locale, 'students.drawer.closeDetails')}
-                  className="p-1.5 rounded-md transition-colors"
-                  style={{ color: 'var(--cms-text-muted)' }}
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </header>
-
-            {/* Drawer tabs */}
-            <nav
-              className="flex border-b"
-              style={{ borderColor: 'var(--cms-line)' }}
-              role="tablist"
-            >
               {([
                 { key: 'overview', label: t(locale, 'students.drawer.tabs.overview') },
                 { key: 'activity', label: t(locale, 'students.activity.title') },
@@ -1258,29 +1231,32 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 { key: 'sessions', label: t(locale, 'students.drawer.tabs.sessions') },
                 { key: 'security', label: t(locale, 'students.common.securityLog') },
                 { key: 'reports', label: t(locale, 'students.drawer.tabs.reports') },
-              ] as { key: DrawerTab; label: string }[]).map((tab) => {
-                const active = drawerTab === tab.key;
-                return (
-                  <button
-                    key={tab.key}
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => setDrawerTab(tab.key)}
-                    className="flex-1 px-4 py-3 text-sm font-medium transition-colors border-b-2"
-                    style={{
-                      borderColor: active ? 'var(--cms-teal-600)' : 'transparent',
-                      color: active ? 'var(--cms-teal-700)' : 'var(--cms-text-muted)',
-                      background: active ? 'var(--cms-teal-50)' : 'transparent',
-                    }}
-                  >
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </nav>
-
-            {/* Drawer body */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            ] as { key: DrawerTab; label: string }[]).map((tab) => {
+              const active = drawerTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setDrawerTab(tab.key)}
+                  className="flex-1 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors"
+                  style={{
+                    borderColor: active ? 'var(--cms-teal-600)' : 'transparent',
+                    color: active ? 'var(--cms-teal-700)' : 'var(--cms-text-muted)',
+                    background: active ? 'var(--cms-teal-50)' : 'transparent',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+        )}
+        status="ready"
+        testId="student-details-drawer"
+      >
+        {selected && (
+        <div className="space-y-4">
               {drawerTab === 'overview' && (
                 <>
                   <div
@@ -1949,7 +1925,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
 
               {/* P1-01: Academic progress tab */}
               {drawerTab === 'academic' && (
-                <div className="p-5 space-y-3">
+                <div className="space-y-3">
                   <div className="flex items-center gap-2 mb-2">
                     <BookOpenCheck size={18} style={{ color: 'var(--cms-teal-600)' }} />
                     <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.common.academicProgress')}</h3>
@@ -2005,7 +1981,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
 
               {/* P1-01: Exams tab */}
               {drawerTab === 'exams' && (
-                <div className="p-5 space-y-3">
+                <div className="space-y-3">
                   <div className="flex items-center gap-2 mb-2">
                     <ClipboardCheck size={18} style={{ color: 'var(--cms-teal-600)' }} />
                     <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.exams.title')}</h3>
@@ -2044,7 +2020,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
 
               {/* P1-01: Subscriptions tab */}
               {drawerTab === 'subscriptions' && (
-                <div className="p-5 space-y-3">
+                <div className="space-y-3">
                   <div className="flex items-center gap-2 mb-2">
                     <KeyRound size={18} style={{ color: 'var(--cms-teal-600)' }} />
                     <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.subscriptions.title')}</h3>
@@ -2101,7 +2077,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
 
               {/* P1-01: Reports tab */}
               {drawerTab === 'reports' && (
-                <div className="p-5 space-y-3">
+                <div className="space-y-3">
                   <div className="flex items-center gap-2 mb-2">
                     <FileWarning size={18} style={{ color: 'var(--cms-teal-600)' }} />
                     <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.reports.title')}</h3>
@@ -2138,10 +2114,9 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                   )}
                 </div>
               )}
-            </div>
-          </aside>
-        </>
-      )}
+        </div>
+        )}
+      </DetailDrawer>
 
       {/* ===== W3 (admin-ui): confirm gates for the drawer's destructive actions ===== */}
       <ConfirmDialog
@@ -2172,35 +2147,19 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
         testId="subscription-revoke-confirm"
       />
 
-      {/* P1-01: Edit profile modal */}
-      {editStudent && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-          role="presentation"
-          onMouseDown={() => !busy && !avatarBusy && (setEditStudent(null), setAvatarPreview(null))}
-        >
-          <section
-            className="bg-white rounded-xl max-w-md w-full shadow-xl"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t(locale, 'students.common.editProfile')}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
-                  <Pencil className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.editProfile')}</p>
-                  <h2 className="text-lg font-bold" style={{ color: 'var(--cms-text)' }}>{editStudent.fullName}</h2>
-                </div>
-              </div>
-              <button aria-label={t(locale, 'students.common.close')} onClick={() => { setEditStudent(null); setAvatarPreview(null); }} disabled={busy || avatarBusy} className="p-1.5 rounded-md" style={{ color: 'var(--cms-text-muted)' }}>
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={submitEdit} className="p-5 space-y-4">
+      {/* P1-01: Edit profile modal — shared Dialog shell (Command Center final pass) */}
+      <Dialog
+        open={editStudent !== null}
+        onOpenChange={(next) => { if (!next && !busy && !avatarBusy) { setEditStudent(null); setAvatarPreview(null); } }}
+        title={t(locale, 'students.common.editProfile')}
+        description={editStudent?.fullName}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="md"
+        dismissGuard={busy || avatarBusy}
+        testId="student-edit-dialog"
+      >
+        {editStudent && (
+          <form onSubmit={submitEdit} className="space-y-4 px-5 py-4">
               {/* Avatar upload */}
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-bold overflow-hidden" style={{ background: 'linear-gradient(135deg, var(--cms-teal-700), var(--cms-teal-500))' }}>
@@ -2217,98 +2176,71 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               </div>
               {/* Full name */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.common.fullName')}</label>
-                <input
-                  required
-                  value={editForm.fullName}
-                  onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border text-sm"
-                  style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
-                />
+                <label className="block">
+                  <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.common.fullName')}</span>
+                  <input
+                    required
+                    value={editForm.fullName}
+                    onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border text-sm"
+                    style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+                  />
+                </label>
               </div>
               {/* Gender */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.editModal.gender')}</label>
-                <select
-                  value={editForm.gender}
-                  onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}
-                  aria-label={t(locale, 'students.editModal.gender')}
-                  className="w-full px-3 py-2 rounded-lg border text-sm"
-                  style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
-                >
-                  <option value="">{t(locale, 'students.common.notSpecified')}</option>
-                  <option value="male">{t(locale, 'students.common.male')}</option>
-                  <option value="female">{t(locale, 'students.common.female')}</option>
-                </select>
+                <label className="block">
+                  <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.editModal.gender')}</span>
+                  <select
+                    value={editForm.gender}
+                    onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border text-sm"
+                    style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+                  >
+                    <option value="">{t(locale, 'students.common.notSpecified')}</option>
+                    <option value="male">{t(locale, 'students.common.male')}</option>
+                    <option value="female">{t(locale, 'students.common.female')}</option>
+                  </select>
+                </label>
               </div>
               {/* Phone (read-only) */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.editModal.phone')}</label>
-                <input
-                  value={editStudent.phone}
-                  disabled
-                  className="w-full px-3 py-2 rounded-lg border text-sm opacity-60"
-                  style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)', color: 'var(--cms-text-soft)' }}
-                />
+                <label className="block">
+                  <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.editModal.phone')}</span>
+                  <input
+                    value={editStudent.phone}
+                    disabled
+                    className="w-full px-3 py-2 rounded-lg border text-sm opacity-60"
+                    style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)', color: 'var(--cms-text-soft)' }}
+                  />
+                </label>
               </div>
-              <div className="flex gap-3 justify-end pt-2 border-t" style={{ borderColor: 'var(--cms-line)' }}>
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-2" style={{ borderColor: 'var(--cms-line)' }}>
                 <button type="button" onClick={() => { setEditStudent(null); setAvatarPreview(null); }} disabled={busy} className="px-4 py-2 rounded-lg border text-sm font-medium" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}>
                   {t(locale, 'students.common.cancel')}
                 </button>
-                <button type="submit" disabled={busy} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium" style={{ background: 'var(--cms-teal-700)' }}>
+                <button type="submit" disabled={busy} className="inline-flex min-w-32 items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium" style={{ background: 'var(--cms-teal-700)' }}>
                   {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  {t(locale, 'students.editModal.save')}
+                  {busy ? t(locale, 'students.editModal.saving') : t(locale, 'students.editModal.save')}
                 </button>
               </div>
             </form>
-          </section>
-        </div>
-      )}
+        )}
+      </Dialog>
 
-      {/* ===== Protected-action dialog ===== */}
-      {dialog && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-          role="presentation"
-          onMouseDown={() => !busy && setDialog(null)}
-        >
-          <section
-            className="bg-white rounded-xl max-w-md w-full shadow-xl"
-            role="dialog"
-            aria-modal="true"
-            aria-label={dialog.kind}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
-              <div className="flex items-start gap-3">
-                <div
-                  className="p-2 rounded-lg"
-                  style={
-                    dialog.kind === 'ban'
-                      ? { background: 'var(--cms-danger-50)', color: 'var(--cms-danger)' }
-                      : { background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }
-                  }
-                >
-                  <ShieldAlert className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                    {t(locale, 'students.dialog.protectedAction')}
-                  </p>
-                  <h2 className="text-lg font-bold" style={{ color: 'var(--cms-text)' }}>{dialogTitle}</h2>
-                </div>
-              </div>
-              <button
-                aria-label={t(locale, 'students.common.close')}
-                onClick={() => setDialog(null)}
-                disabled={busy}
-                className="p-1.5 rounded-md transition-colors"
-                style={{ color: 'var(--cms-text-muted)' }}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={executeDialog} className="p-5 space-y-4">
+      {/* ===== Protected-action dialog — shared Dialog shell (danger separated) ===== */}
+      <Dialog
+        open={dialog !== null}
+        onOpenChange={(next) => { if (!next && !busy) setDialog(null); }}
+        title={dialogTitle}
+        description={t(locale, 'students.dialog.protectedAction')}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="md"
+        dismissGuard={busy}
+        testId="student-protected-dialog"
+      >
+        {dialog && (
+          <form onSubmit={executeDialog} className="space-y-4 px-5 py-4">
               <div className="rounded-lg border p-3" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
                 <p className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{dialog.student.fullName}</p>
                 <p className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>{dialog.student.phone || '—'}</p>
@@ -2350,7 +2282,7 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 <CircleAlert className="w-4 h-4 mt-0.5 shrink-0" />
                 <p>{dialogScopeNote}</p>
               </div>
-              <div className="flex gap-3 justify-end pt-1">
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
                 <button
                   type="button"
                   className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
@@ -2362,96 +2294,85 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                 </button>
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors"
+                  className="inline-flex min-w-32 items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors"
                   style={{ background: dialog.kind === 'ban' ? 'var(--cms-danger)' : 'var(--cms-teal-700)' }}
                   disabled={busy}
                 >
                   {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : dialog.kind === 'ban' ? <Ban className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
-                  {dialogConfirm}
+                  {busy ? t(locale, 'students.dialog.executing') : dialogConfirm}
                 </button>
               </div>
             </form>
-          </section>
-        </div>
-      )}
+        )}
+      </Dialog>
 
-      {/* ITEM-3-STUDENT-CREATE: create-student modal — mirrors the edit-profile modal style */}
-      {createOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-          role="presentation"
-          onMouseDown={() => !createBusy && setCreateOpen(false)}
-        >
-          <section
-            className="bg-white rounded-xl max-w-lg w-full shadow-xl max-h-[90vh] flex flex-col"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t(locale, 'students.common.addStudent')}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4 p-5 border-b" style={{ borderColor: 'var(--cms-line)' }}>
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
-                  <UserPlus className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'students.common.userManagement')}</p>
-                  <h2 className="text-lg font-bold" style={{ color: 'var(--cms-text)' }}>{t(locale, 'students.createModal.title')}</h2>
-                </div>
-              </div>
-              <button aria-label={t(locale, 'students.common.close')} onClick={() => !createBusy && setCreateOpen(false)} disabled={createBusy} className="p-1.5 rounded-md" style={{ color: 'var(--cms-text-muted)' }}>
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={submitCreate} className="p-5 space-y-4 overflow-y-auto">
+      {/* ITEM-3-STUDENT-CREATE: create-student modal — shared Dialog shell */}
+      <Dialog
+        open={createOpen}
+        onOpenChange={(next) => { if (!next && !createBusy) setCreateOpen(false); }}
+        title={t(locale, 'students.createModal.title')}
+        description={t(locale, 'students.common.userManagement')}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="lg"
+        dismissGuard={createBusy}
+        testId="student-create-dialog"
+      >
+        {createOpen && (
+          <form onSubmit={submitCreate} className="space-y-4 overflow-y-auto px-5 py-4">
               {/* Full name */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                  {t(locale, 'students.common.fullName')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                <label className="block">
+                  <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                    {t(locale, 'students.common.fullName')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                  </span>
+                  <input
+                    required
+                    value={createForm.fullName}
+                    onChange={(e) => setCreateForm({ ...createForm, fullName: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                  />
                 </label>
-                <input
-                  required
-                  value={createForm.fullName}
-                  onChange={(e) => setCreateForm({ ...createForm, fullName: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                  style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
-                />
               </div>
               {/* Phone + Password */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.createModal.phone')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.createModal.phone')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    </span>
+                    <input
+                      required
+                      inputMode="tel"
+                      dir="ltr"
+                      pattern="09\d{8}"
+                      maxLength={10}
+                      value={createForm.phone}
+                      onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value.replace(/[^\d]/g, '') })}
+                      placeholder="09XXXXXXXX"
+                      className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-left"
+                      style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                    />
                   </label>
-                  <input
-                    required
-                    inputMode="tel"
-                    dir="ltr"
-                    pattern="09\d{8}"
-                    maxLength={10}
-                    value={createForm.phone}
-                    onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value.replace(/[^\d]/g, '') })}
-                    placeholder="09XXXXXXXX"
-                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-left"
-                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
-                  />
                   <p className="text-[10px] mt-1" style={{ color: 'var(--cms-text-muted)' }}>
                     {t(locale, 'students.createModal.phoneHint')}
                   </p>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.createModal.password')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.createModal.password')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    </span>
+                    <input
+                      required
+                      type="password"
+                      minLength={8}
+                      value={createForm.password}
+                      onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                      style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                    />
                   </label>
-                  <input
-                    required
-                    type="password"
-                    minLength={8}
-                    value={createForm.password}
-                    onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
-                  />
                   <p className="text-[10px] mt-1" style={{ color: 'var(--cms-text-muted)' }}>
                     {t(locale, 'students.createModal.passwordHint')}
                   </p>
@@ -2460,10 +2381,11 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               {/* University → College → Academic year cascade */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.common.university')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
-                  </label>
-                  <select
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.common.university')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    </span>
+                    <select
                     required
                     value={createUniversityId}
                     onChange={(e) => void chooseCreateUniversity(e.target.value)}
@@ -2476,12 +2398,14 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       <option key={u.id} value={u.id}>{isArabic ? u.nameAr : (u.nameEn || u.nameAr)}</option>
                     ))}
                   </select>
+                  </label>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.common.college')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
-                  </label>
-                  <select
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.common.college')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    </span>
+                    <select
                     required
                     value={createCollegeId}
                     onChange={(e) => void chooseCreateCollege(e.target.value)}
@@ -2495,12 +2419,14 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       <option key={c.id} value={c.id}>{isArabic ? c.nameAr : (c.nameEn || c.nameAr)}</option>
                     ))}
                   </select>
+                  </label>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.createModal.year')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
-                  </label>
-                  <select
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.createModal.year')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    </span>
+                    <select
                     required
                     value={createYearId}
                     onChange={(e) => setCreateYearId(e.target.value)}
@@ -2514,18 +2440,19 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       <option key={y.id} value={y.id}>{isArabic ? y.nameAr : (y.nameEn || y.nameAr)}</option>
                     ))}
                   </select>
+                  </label>
                 </div>
               </div>
               {/* Gender + Email (both optional) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.createModal.genderOptional')}
-                  </label>
-                  <select
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.createModal.genderOptional')}
+                    </span>
+                    <select
                     value={createForm.gender}
                     onChange={(e) => setCreateForm({ ...createForm, gender: e.target.value })}
-                    aria-label={t(locale, 'students.createModal.genderOptional')}
                     className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
                   >
@@ -2533,90 +2460,50 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <option value="male">{t(locale, 'students.common.male')}</option>
                     <option value="female">{t(locale, 'students.common.female')}</option>
                   </select>
+                  </label>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.createModal.emailOptional')}
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.createModal.emailOptional')}
+                    </span>
+                    <input
+                      type="email"
+                      value={createForm.email}
+                      onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                      style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                    />
                   </label>
-                  <input
-                    type="email"
-                    value={createForm.email}
-                    onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
-                  />
                 </div>
               </div>
-              <div className="flex gap-3 justify-end pt-2 border-t" style={{ borderColor: 'var(--cms-line)' }}>
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-2" style={{ borderColor: 'var(--cms-line)' }}>
                 <button type="button" onClick={() => !createBusy && setCreateOpen(false)} disabled={createBusy} className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-50" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}>
                   {t(locale, 'students.common.cancel')}
                 </button>
-                <button type="submit" disabled={createBusy} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50" style={{ background: 'var(--cms-teal-700)' }}>
+                <button type="submit" disabled={createBusy} className="inline-flex min-w-32 items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50" style={{ background: 'var(--cms-teal-700)' }}>
                   {createBusy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                  {t(locale, 'students.createModal.submit')}
+                  {createBusy ? t(locale, 'students.createModal.creating') : t(locale, 'students.createModal.submit')}
                 </button>
               </div>
             </form>
-          </section>
-        </div>
-      )}
+        )}
+      </Dialog>
 
-      {/* ===== Confirm unban dialog ===== */}
-      {confirmUnban && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-          role="presentation"
-          onMouseDown={() => !busy && setConfirmUnban(null)}
-        >
-          <section
-            className="bg-white rounded-xl max-w-sm w-full shadow-xl"
-            role="dialog"
-            aria-modal="true"
-            aria-label="confirm-unban"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="p-5">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="p-2 rounded-lg" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
-                  <RotateCcw className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                    {t(locale, 'students.unban.title')}
-                  </p>
-                  <h2 className="text-base font-bold" style={{ color: 'var(--cms-text)' }}>
-                    {t(locale, 'students.unban.question', { name: confirmUnban.fullName })}
-                  </h2>
-                </div>
-              </div>
-              <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                {t(locale, 'students.unban.description')}
-              </p>
-              <div className="flex gap-3 justify-end mt-5">
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
-                  style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}
-                  onClick={() => setConfirmUnban(null)}
-                  disabled={busy}
-                >
-                  {t(locale, 'students.common.cancel')}
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors"
-                  style={{ background: 'var(--cms-teal-700)' }}
-                  disabled={busy}
-                  onClick={() => { void unban(confirmUnban).finally(() => setConfirmUnban(null)); }}
-                >
-                  {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-                  {t(locale, 'students.common.reactivate')}
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
-      )}
+      {/* ===== Confirm unban — shared ConfirmDialog ===== */}
+      <ConfirmDialog
+        open={confirmUnban !== null}
+        onOpenChange={(next) => { if (!next) setConfirmUnban(null); }}
+        title={t(locale, 'students.unban.question', { name: confirmUnban?.fullName ?? '' })}
+        description={t(locale, 'students.unban.description')}
+        confirmLabel={t(locale, 'students.common.reactivate')}
+        cancelLabel={t(locale, 'students.common.cancel')}
+        variant="primary"
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => { if (confirmUnban) void unban(confirmUnban).finally(() => setConfirmUnban(null)); }}
+        testId="student-unban-confirm"
+      />
 
       {/* ===== PR-6 — password reset dialog (contract A) =====
           Typed confirmation (the student's phone number) mirrors the

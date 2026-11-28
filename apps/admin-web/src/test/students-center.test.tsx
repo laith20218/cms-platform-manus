@@ -35,6 +35,7 @@ const {
 }));
 
 vi.mock('../lib/api', () => ({
+  fetchSecuritySummary: vi.fn(() => Promise.reject(new Error('security summary not stubbed for this test'))),
   ApiError: class ApiError extends Error {
     status = 500;
     errorCode?: string;
@@ -369,6 +370,10 @@ describe('PR-6 StudentsCenter — deep link (?student=<id>)', () => {
       expect(fetchStudentDetailMock).toHaveBeenCalledWith('s-1', 'test-token');
     });
     expect(await screen.findByTestId('student-detail-panel')).toBeInTheDocument();
-    expect(screen.getByRole('dialog', { name: 'تفاصيل الطالب' })).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: 'تفاصيل الطالب' });
+    expect(dialog).toBeInTheDocument();
+    const descriptionId = dialog.getAttribute('aria-describedby');
+    expect(descriptionId).toBeTruthy();
+    expect(document.getElementById(descriptionId!)?.textContent).toContain('طالب تجريبي');
   });
 });

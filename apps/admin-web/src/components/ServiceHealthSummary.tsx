@@ -27,10 +27,13 @@ export function ServiceHealthSummary({
   token,
   isArabic,
   onOpenCenter,
+  onStateChange,
 }: {
   token: string;
   isArabic: boolean;
   onOpenCenter: () => void;
+  /** Command Center final pass — mirrors the feed state to the Overview's Needs-Attention area. */
+  onStateChange?: (state: LoadState) => void;
 }) {
   const locale = localeOf(isArabic);
   const [state, setState] = useState<LoadState>('loading');
@@ -45,14 +48,16 @@ export function ServiceHealthSummary({
       setSummary(result);
       setUpdatedAt(new Date());
       setState('ready');
+      onStateChange?.('ready');
     } catch {
       // Honest unavailable — never a fabricated "all systems up".
       setSummary(null);
       setState('unavailable');
+      onStateChange?.('unavailable');
     } finally {
       setRefreshing(false);
     }
-  }, [token]);
+  }, [token, onStateChange]);
 
   useEffect(() => {
     void load(false);

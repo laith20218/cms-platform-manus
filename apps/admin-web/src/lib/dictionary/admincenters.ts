@@ -218,6 +218,7 @@ export const admincentersDict = {
       reset: { ar: 'تراجع', en: 'Reset' },
       systemLocked: { ar: 'دور نظام — للقراءة فقط', en: 'System role — read only' },
       noGrants: { ar: 'لا توجد صلاحيات ممنوحة بعد', en: 'No permissions granted yet' },
+      saving: { ar: 'جارٍ الحفظ…', en: 'Saving…' },
     },
     ui: {
       title: { ar: 'صلاحيات الواجهة المتقدمة', en: 'Advanced UI Permissions' },
@@ -230,6 +231,7 @@ export const admincentersDict = {
       notConfigured: { ar: 'غير مُهيأ — وصول كامل', en: 'Not configured — full access' },
       systemLocked: { ar: 'دور نظام — للقراءة فقط (يشمل المدير العام)', en: 'System role — read only (includes super_admin)' },
       save: { ar: 'حفظ المفاتيح', en: 'Save keys' },
+      saving: { ar: 'جارٍ الحفظ…', en: 'Saving…' },
       resetToFull: { ar: 'إعادة إلى الوصول الكامل', en: 'Reset to full access' },
       selected: { ar: 'مفاتيح محددة', en: 'keys selected' },
       searchPlaceholder: { ar: 'ابحث بالاسم أو المفتاح… (مثال: btn:codes.export)', en: 'Search by label or key… (e.g. btn:codes.export)' },

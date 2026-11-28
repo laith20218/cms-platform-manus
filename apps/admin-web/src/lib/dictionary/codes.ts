@@ -18,6 +18,7 @@ import type { DictSection } from './types';
 export const codesDict = {
   // ===== Cross-modal shared labels (Cancel/Close/Activate/Revoke + revoke-reason copy) =====
   cancel: { ar: 'إلغاء', en: 'Cancel' },
+  loading: { ar: 'جارٍ تحميل التفاصيل…', en: 'Loading details…' },
   close: { ar: 'إغلاق', en: 'Close' },
   activate: { ar: 'تفعيل', en: 'Activate' },
   revoke: { ar: 'إبطال', en: 'Revoke' },
@@ -76,6 +77,8 @@ export const codesDict = {
     publicCode: { ar: 'عام', en: 'Public' },
     privateCode: { ar: 'خاص', en: 'Private' },
     redemptionCount: { ar: '{{count}} تفعيل — اضغط العين للتفاصيل', en: '{{count}} redemption(s) — open the eye for detail' },
+    viewDetails: { ar: 'عرض التفاصيل', en: 'View details' },
+    rowActionsLabel: { ar: 'إجراءات الرمز {{code}}', en: 'Actions for code {{code}}' },
     noRedemptionsYet: { ar: 'لم يُفعَّل بعد', en: 'No redemptions yet' },
     activateForStudent: { ar: 'تفعيل يدوي لطالب', en: 'Activate for student' },
     revokeAll: { ar: 'إبطال شامل', en: 'Revoke all' },
@@ -104,12 +107,14 @@ export const codesDict = {
     publicScopeNote: { ar: 'متاح لكل طالب مسجل مرة واحدة.', en: 'available once to every registered student.' },
     privateScopeNote: { ar: 'يملكه أول طالب مسجل يسترده — ولا يمكن ربطه بطالب ثانٍ.', en: 'owned by the first student to redeem it — never a second student.' },
     submit: { ar: 'إنشاء الرموز', en: 'Generate codes' },
+    busySubmit: { ar: 'جارٍ إنشاء الرموز…', en: 'Generating codes…' },
   },
 
   // ===== Redemptions detail modal =====
   redemptionsModal: {
     subtitle: { ar: 'من فعّل هذا الرمز، وماذا يفتح، ومتى ينتهي.', en: 'Who activated this code, what it unlocks, and when it ends.' },
     empty: { ar: 'لم يُفعّل هذا الرمز بعد.', en: 'No redemptions yet.' },
+    emptyHint: { ar: 'عندما يُفعّل طلاب هذا الرمز ستظهر تفاصيل التفعيلات هنا.', en: 'Redemption details appear here once students activate this code.' },
     from: { ar: 'من', en: 'from' },
     until: { ar: 'إلى', en: 'until' },
     permanent: { ar: 'دائم', en: 'permanent' },
@@ -121,6 +126,7 @@ export const codesDict = {
     subtitle: { ar: 'اختر طالبًا لتفعيل هذا الكود له مباشرة.', en: 'Select a student to activate this code for.' },
     searchLabel: { ar: 'بحث عن طالب', en: 'Search student' },
     searchPlaceholder: { ar: 'الاسم أو الهاتف...', en: 'Name or phone...' },
+    busySubmit: { ar: 'جارٍ التفعيل…', en: 'Activating…' },
   },
 
   // ===== Revoke confirmation modal =====

@@ -173,6 +173,7 @@ export const examsDict = {
     resolutionNotes: { ar: 'ملاحظات الحل:', en: 'Resolution notes:' },
     screenshot: { ar: 'لقطة الشاشة', en: 'Screenshot' },
     resolveButton: { ar: 'حل البلاغ', en: 'Resolve' },
+    busyAction: { ar: 'جارٍ التنفيذ…', en: 'Working…' },
     rejectButton: { ar: 'رفض البلاغ', en: 'Reject' },
     resolveDialog: { ar: 'حل البلاغ', en: 'Resolve report' },
     rejectDialog: { ar: 'رفض البلاغ', en: 'Reject report' },
@@ -226,6 +227,7 @@ export const examsDict = {
   // Per-exam results panel.
   results: {
     title: { ar: 'النتائج', en: 'Results' },
+    emptyHint: { ar: 'لم يسجّل أي طالب محاولة في هذا الاختبار حتى الآن.', en: 'No student has attempted this exam yet.' },
     studentCol: { ar: 'الطالب', en: 'Student' },
     scoreCol: { ar: 'الدرجة', en: 'Score' },
     resultCol: { ar: 'النتيجة', en: 'Result' },

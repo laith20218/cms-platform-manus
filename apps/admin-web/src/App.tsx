@@ -44,6 +44,11 @@ import { resolveAdminEnvironment, apiOriginHost, environmentDictKey } from './li
 import { Breadcrumbs, ConfirmDialog, ErrorState } from '@cms/ui';
 // PR-2 — command palette (ARIA combobox surface) + the real 404 view + URL query state.
 import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
+// Command Center final pass — the dashboard's command header, needs-attention
+// area and security line (real feeds only; no fabricated metrics).
+import { CommandHeader } from './components/dashboard/CommandHeader';
+import { NeedsAttention } from './components/dashboard/NeedsAttention';
+import { SecurityStatus } from './components/dashboard/SecurityStatus';
 import { NotFoundView } from './components/NotFoundView';
 import { useQueryState, useClearQueryParams } from './lib/useQueryState';
 // PR-10: the shared academic context keys (URL params carried across view switches).
@@ -1010,7 +1015,7 @@ function App() {
               {view === 'overview' && (can('view:overview')
                 ? (
                   <>
-                    <Overview copy={copy} isArabic={isArabic} isSuperAdmin={isSuperAdmin} token={token} onNavigate={setView} />
+                    <Overview copy={copy} isArabic={isArabic} isSuperAdmin={isSuperAdmin} token={token} onNavigate={setView} apiStatus={apiStatus} environmentLabel={environmentLabel} />
                     {/* W4: 2FA self-service — visible to every operator (API gates by role, not by UI permission). */}
                     <TwoFactorCard token={token} isArabic={isArabic} adminName={user?.fullName} onError={reportError} onNotice={notify} />
                   </>
@@ -1257,7 +1262,15 @@ function App() {
   );
 }
 
-type OverviewProps = { copy: Record<string, string>; isArabic: boolean; isSuperAdmin: boolean; token: string; onNavigate: (view: View) => void };
+type OverviewProps = {
+  copy: Record<string, string>;
+  isArabic: boolean;
+  isSuperAdmin: boolean;
+  token: string;
+  onNavigate: (view: View) => void;
+  apiStatus: ApiStatus;
+  environmentLabel: string;
+};
 
 /** Push 3: fallback shown when the active view's key is not granted to this admin. */
 function LimitedNotice({ copy, isArabic }: { copy: Record<string, string>; isArabic: boolean }) {
@@ -1269,7 +1282,7 @@ function LimitedNotice({ copy, isArabic }: { copy: Record<string, string>; isAra
   );
 }
 
-function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewProps) {
+function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate, apiStatus, environmentLabel }: OverviewProps) {
   // PR-3 — the Overview subcomponent resolves its locale from the isArabic
   // prop (the dictionary is the string source; copy remains prop-drilled).
   const locale = localeOf(isArabic);
@@ -1277,6 +1290,11 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  // Command Center final pass — a manual refresh key: the command header's
+  // single primary action re-runs the KPI feed without a full reload.
+  const [refreshKey, setRefreshKey] = useState(0);
+  // Mirrors the ServiceHealthSummary feed state for the Needs-Attention area.
+  const [serviceHealthState, setServiceHealthState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   // PR-2 — the selected overview tab lives in the URL (?tab=metrics|activity):
   // refresh and shared links restore the exact section. Whitelisted, so a
   // hand-edited value falls back to the default tab.
@@ -1304,8 +1322,9 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+    // Manual refresh (command header) re-runs the feed via refreshKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, isSuperAdmin]);
+  }, [token, isSuperAdmin, refreshKey]);
 
   const localeTag = isArabic ? 'ar' : 'en';
   const updatedLabel = updatedAt
@@ -1386,12 +1405,30 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
 
   return (
     <>
-      <section className="overview-hero" style={{ backgroundImage: `linear-gradient(135deg, rgba(8,26,38,0.92), rgba(16,47,69,0.96)), url(${OPERATIONS_IMAGE})` }}>
-        <div className="hero-content">
-          <h2>{copy.command}</h2>
-          <p>{copy.commandSub}</p>
-        </div>
-      </section>
+      {/* ===== 1+2. Command Header + environment/API status strip =====
+          The single primary action is تحديث البيانات; the environment chip
+          and connectivity pill are derived (never fabricated), and the
+          last-updated timestamp mirrors the metrics feed. */}
+      <CommandHeader
+        isArabic={isArabic}
+        environmentLabel={environmentLabel}
+        apiStatus={apiStatus}
+        updatedLabel={updatedLabel}
+        onRefresh={() => setRefreshKey((k) => k + 1)}
+        refreshing={loading}
+        statsFailed={failed}
+      />
+
+      {/* ===== 4. Needs attention — real conditions only ===== */}
+      <NeedsAttention
+        isArabic={isArabic}
+        pendingReports={stats ? stats.pendingReports : null}
+        serviceHealth={serviceHealthState}
+        statsFailed={failed && !stats}
+        onOpenReports={() => onNavigate('reports')}
+        onOpenServers={() => onNavigate('servers')}
+        onRetryStats={() => setRefreshKey((k) => k + 1)}
+      />
 
       {/* Push 2 / Track 2: tab switch between metrics and the activity monitor (super-admin only).
           Push 3: each tab additionally gated by its tab key (activity stays super-only AND). */}
@@ -1478,6 +1515,21 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
         )}
       </section>
 
+      {/* Data-freshness disclosure — where the numbers come from (spec §4:
+          "source or confidence state… explain the reason through a details
+          disclosure"). */}
+      <details
+        data-testid="dashboard-kpi-source"
+        style={{ marginTop: 'var(--cms-space-3)' }}
+      >
+        <summary style={{ fontSize: 'var(--cms-text-2xs)', color: 'var(--cms-text-muted)', cursor: 'pointer' }}>
+          {t(locale, 'dashboard.kpiSourceTitle')}
+        </summary>
+        <p style={{ marginTop: 6, fontSize: 'var(--cms-text-2xs)', color: 'var(--cms-text-muted)', lineHeight: 1.6 }}>
+          {t(locale, 'dashboard.kpiSourceNote')}
+        </p>
+      </details>
+
       <section style={{ marginTop: 'var(--cms-space-4)', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cms-space-4)' }}>
         {quickActions.map((action) => (
           <button
@@ -1505,12 +1557,25 @@ function Overview({ copy, isArabic, isSuperAdmin, token, onNavigate }: OverviewP
           gates both surfaces to SuperAdmin + ServersView. */}
       {isSuperAdmin && (
         <>
+          {/* ===== 5. Activity and academic insights ===== */}
           <DashboardFeeds token={token} isArabic={isArabic} />
-          <ServiceHealthSummary token={token} isArabic={isArabic} onOpenCenter={() => onNavigate('servers')} />
+          {/* ===== 6. Service health — read-only summary linking to /servers ===== */}
+          <ServiceHealthSummary
+            token={token}
+            isArabic={isArabic}
+            onOpenCenter={() => onNavigate('servers')}
+            onStateChange={setServiceHealthState}
+          />
+          {/* ===== 7. Security status — real contract-F metrics, honest unavailable ===== */}
+          <SecurityStatus token={token} isArabic={isArabic} onOpenCenter={() => onNavigate('security')} />
         </>
       )}
 
-      <p style={{ marginTop: 'var(--cms-space-4)', fontSize: 'var(--cms-text-2xs)', color: 'var(--cms-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+      {/* ===== 8. Last-refresh footer ===== */}
+      <p
+        data-testid="dashboard-footer-updated"
+        style={{ marginTop: 'var(--cms-space-4)', fontSize: 'var(--cms-text-2xs)', color: 'var(--cms-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}
+      >
         {t(locale, 'dashboard.lastUpdated')}: {updatedLabel}
       </p>
         </>

@@ -41,6 +41,9 @@
   --cms-success-50: #e8f5ee;
   --cms-warning: #a36c1f;
   --cms-warning-50: #fbf3e6;
+  /* Command Center final pass (a11y): text-grade amber — #a36c1f is 4.04:1 on
+     warning-50 (below AA); #8a5a18 holds 5.36:1. Non-text borders keep the base tone. */
+  --cms-warning-text: #8a5a18;
   --cms-danger: #b6473d;
   --cms-danger-50: #faecea;
   --cms-info: #35718a;
@@ -219,6 +222,7 @@
   --cms-teal-50: #0a2220;
   --cms-success-50: #0e2a1e;
   --cms-warning-50: #2a2410;
+  --cms-warning-text: #e5b95c;
   --cms-danger-50: #2a1210;
   --cms-info-50: #0e1e28;
   --cms-shadow-xs: 0 1px 2px rgba(0,0,0,0.2);
@@ -520,11 +524,31 @@ button:disabled { opacity: var(--cms-disabled-opacity); cursor: var(--cms-disabl
 .overview-hero .hero-content { position: relative; z-index: 1; }
 .overview-hero h2 { font-size: var(--cms-text-xl); font-weight: 700; margin: 0 0 var(--cms-space-2); }
 .overview-hero p { color: rgba(255,255,255,0.55); font-size: var(--cms-text-sm); margin: 0; line-height: var(--cms-leading-normal); }
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--cms-space-4); margin-bottom: var(--cms-space-6); }
+
+/* ===== Command Center final pass — dashboard command header ===== */
+.command-header {
+  background: var(--cms-grad-navy); border-radius: var(--cms-radius-lg);
+  padding: var(--cms-space-8); color: #fff;
+  position: relative; overflow: hidden; margin-bottom: var(--cms-space-6);
+}
+.command-header::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 80% 20%, rgba(18, 135, 125, 0.12), transparent 50%);
+}
+.command-header .command-header-main { position: relative; z-index: 1; }
+.command-header h2 { font-size: var(--cms-text-xl); font-weight: 700; margin: 0 0 var(--cms-space-2); }
+.command-header p { color: rgba(255,255,255,0.55); font-size: var(--cms-text-sm); margin: 0; line-height: var(--cms-leading-normal); }
+.command-header .command-header-strip { position: relative; z-index: 1; }
+.command-header .command-env-chip,
+.command-header .command-api-chip,
+.command-header .command-updated { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.25); color: rgba(255,255,255,0.85); backdrop-filter: blur(4px); }
+.command-header .command-updated { border: 0; background: transparent; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--cms-space-4); margin-bottom: var(--cms-space-4); }
 .stat-card {
   background: var(--cms-surface); border: 1px solid var(--cms-line);
   border-radius: var(--cms-radius-md); padding: var(--cms-space-5);
   transition: all var(--cms-duration-normal) var(--cms-ease);
+  min-height: 148px;
 }
 .stat-card:hover { border-color: var(--cms-teal-400); box-shadow: var(--cms-shadow-sm); transform: translateY(-1px); }
 .stat-card .stat-label { font-size: var(--cms-text-2xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--cms-text-muted); font-weight: 600; margin-bottom: var(--cms-space-2); }
@@ -534,6 +558,12 @@ button:disabled { opacity: var(--cms-disabled-opacity); cursor: var(--cms-disabl
 .stat-card .stat-trend.up { color: var(--cms-success); }
 .stat-card .stat-trend.down { color: var(--cms-danger); }
 .stat-card .stat-trend.flat { color: var(--cms-text-muted); }
+/* Command Center final pass (a11y): the light-theme status tones sit below AA
+   on the dark card surface (#198566 ≈ 3.2:1 on #121f2a). Dark-theme trend
+   tones hold 6.4–7.9:1; white-on-success BUTTONS keep the base token. */
+[data-theme="dark"] .stat-trend.up { color: #4cc38a; }
+[data-theme="dark"] .stat-trend.down { color: #e08a81; }
+[data-theme="dark"] .stat-trend.flat { color: var(--cms-text-muted); }
 
 /* ===== Skeleton ===== */
 .skeleton {

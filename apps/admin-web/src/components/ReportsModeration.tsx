@@ -405,17 +405,18 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
         </Dialog>
       )}
 
-      {/* Transition modal */}
-      {transitioningReport && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onMouseDown={() => !busy && setTransitioningReport(null)} />
-          <div className="relative w-full max-w-md rounded-xl border shadow-2xl" style={{ background: 'var(--cms-surface)', borderColor: 'var(--cms-line)' }}>
-            <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
-              <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{t(locale, 'reports.moderation.transition')}</h3>
-              <button onClick={() => !busy && setTransitioningReport(null)} disabled={busy} className="p-1">
-                <X size={16} style={{ color: 'var(--cms-text-muted)' }} />
-              </button>
-            </div>
+      {/* Transition modal — shared Dialog shell */}
+      <Dialog
+        open={transitioningReport !== null}
+        onOpenChange={(next) => { if (!next && !busy) setTransitioningReport(null); }}
+        title={t(locale, 'reports.moderation.transition')}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="md"
+        dismissGuard={busy}
+        testId="report-transition-dialog"
+      >
+        {transitioningReport && (
+          <>
             <div className="p-4 space-y-3">
               <div className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
                 {t(locale, 'reports.moderation.currentStatus')}:
@@ -455,21 +456,21 @@ export function ReportsModeration({ token, isArabic, onError, onNotice }: Props)
                 </div>
               )}
             </div>
-            <div className="flex gap-2 justify-end p-4 border-t" style={{ borderColor: 'var(--cms-line)' }}>
+            <div className="flex flex-wrap gap-2 justify-end border-t p-4" style={{ borderColor: 'var(--cms-line)', background: 'var(--c-bg-elevated, transparent)' }}>
               <button onClick={() => setTransitioningReport(null)} disabled={busy}
                 className="px-3 py-1.5 rounded-lg border text-xs" style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)' }}>
                 {t(locale, 'reports.moderation.cancel')}
               </button>
-              <button onClick={() => void submitTransition()} disabled={!transitionTarget || busy}
+              <button onClick={() => void submitTransition()} disabled={!transitionTarget || busy} data-testid="report-transition-submit"
                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-white disabled:opacity-50"
                 style={{ background: 'var(--cms-teal-700)' }}>
                 {busy ? <LoaderCircle size={12} className="animate-spin" /> : <CheckCircle size={12} />}
-                {t(locale, 'reports.moderation.save')}
+                {busy ? t(locale, 'reports.moderation.saving') : t(locale, 'reports.moderation.save')}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Dialog>
     </div>
   );
 }

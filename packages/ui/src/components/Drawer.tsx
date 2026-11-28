@@ -31,6 +31,10 @@ export interface DrawerProps {
   children: ReactNode;
   /** Sticky footer slot (form actions). */
   footer?: ReactNode;
+  /** Identity/status chips rendered in the sticky header, beside the close control. */
+  headerExtra?: ReactNode;
+  /** Non-scrolling strip between the header and the body (tab rows, meta rows). */
+  subheader?: ReactNode;
   /** Logical anchor side. Default `end` (inline-end). */
   side?: 'start' | 'end';
   dir?: 'rtl' | 'ltr';
@@ -48,6 +52,8 @@ export function Drawer({
   description,
   children,
   footer,
+  headerExtra,
+  subheader,
   side = 'end',
   dir = 'rtl',
   size = 'lg',
@@ -110,17 +116,21 @@ export function Drawer({
                   <p id={descriptionId} className="mt-0.5 text-xs text-[color:var(--c-text-muted)]">{description}</p>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={close}
-                disabled={dismissGuard}
-                aria-label={closeLabel}
-                data-testid="drawer-close"
-                className="shrink-0 rounded-md p-1.5 text-[color:var(--c-text-muted)] transition-colors hover:bg-slate-100 disabled:opacity-40"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                {headerExtra}
+                <button
+                  type="button"
+                  onClick={close}
+                  disabled={dismissGuard}
+                  aria-label={closeLabel}
+                  data-testid="drawer-close"
+                  className="rounded-md p-1.5 text-[color:var(--c-text-muted)] transition-colors hover:bg-slate-100 disabled:opacity-40"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
+            {subheader}
             <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
             {footer && (
               <div className="border-t border-[color:var(--c-border)] bg-[color:var(--c-bg-elevated)] px-5 py-3.5">{footer}</div>

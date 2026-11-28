@@ -4,6 +4,7 @@ import { AuditLogViewer } from '../components/AuditLogViewer';
 
 // Mock the apiRequest dependency
 vi.mock('../lib/api', () => ({
+  fetchSecuritySummary: vi.fn(() => Promise.reject(new Error('security summary not stubbed for this test'))),
   apiRequest: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 25, totalPages: 0 }),
   ApiError: class ApiError extends Error { status = 500; },
 }));

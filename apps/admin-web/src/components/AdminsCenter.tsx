@@ -19,7 +19,7 @@ import {
   CircleAlert, Edit3, Eye, Fingerprint, KeyRound, LoaderCircle, LockKeyhole,
   Plus, Search, ShieldCheck, ShieldOff, Trash2, UsersRound, X,
 } from 'lucide-react';
-import { Drawer, EmptyState, ErrorState, PageHeader, Skeleton, useModalA11y } from '@cms/ui';
+import { Dialog, Drawer, EmptyState, ErrorState, PageHeader, Skeleton } from '@cms/ui';
 import type { AdminEffectivePermissionsDto, AdminRecord, RoleRecord } from '../lib/api';
 import { fetchAdminEffectivePermissions } from '../lib/api';
 import { t, localeOf } from '../lib/dictionary';
@@ -669,12 +669,9 @@ export function DialogLayer(props: DialogLayerProps) {
 
   const locale = localeOf(isArabic);
 
-  // PR-2 — a11y retrofit: the layer predates @cms/ui Dialog; the shared
-  // useModalA11y contract adds Escape-close (busy-guarded), the Tab focus
-  // trap, body scroll lock, initial focus on the panel, and focus restore to
-  // the invoking row action when the dialog unmounts.
-  const { surfaceRef } = useModalA11y({ open: true, onClose: () => { if (!busy) onClose(); } });
-
+  // Command Center final pass — the layer rides the shared @cms/ui Dialog
+  // shell (portal, focus trap/return, Escape, scroll lock, deliberate
+  // backdrop). The five forms below are unchanged.
   const title =
     dialog.kind === 'create-admin' ? copy.newAdmin
     : dialog.kind === 'edit-admin' ? copy.updateAdmin
@@ -682,60 +679,22 @@ export function DialogLayer(props: DialogLayerProps) {
     : dialog.kind === 'delete-admin' ? copy.deleteTitle
     : copy.addRole;
 
-  const isDanger = dialog.kind === 'delete-admin';
   const labelClass = 'block text-xs font-semibold mb-1.5';
   const fieldClass = 'w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors';
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-      role="presentation"
-      onMouseDown={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => { if (!next && !busy) onClose(); }}
+      title={title}
+      description={t(locale, 'admincenters.adminsCenter.dialogEyebrow')}
       dir={isArabic ? 'rtl' : 'ltr'}
+      size="lg"
+      dismissGuard={busy}
+      testId="admins-form-dialog"
     >
-      <section
-        ref={surfaceRef}
-        tabIndex={-1}
-        className="bg-white rounded-xl max-w-xl w-full shadow-xl max-h-[calc(100vh-40px)] overflow-y-auto outline-none"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        {/* Dialog header */}
-        <div
-          className="flex items-start justify-between gap-4 p-5 border-b sticky top-0 z-10"
-          style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-surface)' }}
-        >
-          <div className="flex items-start gap-3">
-            <div
-              className="p-2 rounded-lg shrink-0"
-              style={
-                isDanger
-                  ? { background: 'var(--cms-danger-50)', color: 'var(--cms-danger)' }
-                  : { background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }
-              }
-            >
-              {dialog.kind === 'create-role' ? <KeyRound className="w-5 h-5" /> : <ShieldCheck className="w-5 h-5" />}
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                {t(locale, 'admincenters.adminsCenter.dialogEyebrow')}
-              </p>
-              <h2 className="text-lg font-bold" style={{ color: 'var(--cms-text)' }}>{title}</h2>
-            </div>
-          </div>
-          <button
-            type="button"
-            aria-label={t(locale, 'admincenters.adminsCenter.dialogClose')}
-            onClick={onClose}
-            disabled={busy}
-            className="p-1.5 rounded-md transition-colors hover:bg-slate-100 disabled:opacity-50"
-            style={{ color: 'var(--cms-text-muted)' }}
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+      <div className="max-h-[calc(100vh-16rem)] overflow-y-auto">
+        {/* Header icon ribbon — the Dialog owns the title + close control */}
 
         {/* ===== Create / Edit admin ===== */}
         {(dialog.kind === 'create-admin' || dialog.kind === 'edit-admin') && (
@@ -1024,7 +983,7 @@ export function DialogLayer(props: DialogLayerProps) {
             </div>
           </form>
         )}
-      </section>
-    </div>
+      </div>
+    </Dialog>
   );
 }

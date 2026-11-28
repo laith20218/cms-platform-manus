@@ -9,6 +9,7 @@ const { apiRequestMock, fetchFeatureFlagsMock, fetchSettingHistoryMock } = vi.ho
   fetchSettingHistoryMock: vi.fn(),
 }));
 vi.mock('../lib/api', () => ({
+  fetchSecuritySummary: vi.fn(() => Promise.reject(new Error('security summary not stubbed for this test'))),
   apiRequest: (...args: unknown[]) => apiRequestMock(...args),
   fetchFeatureFlags: (...args: unknown[]) => fetchFeatureFlagsMock(...args),
   fetchSettingHistory: (...args: unknown[]) => fetchSettingHistoryMock(...args),

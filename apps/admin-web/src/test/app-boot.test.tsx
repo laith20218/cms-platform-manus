@@ -15,6 +15,7 @@ const { apiRequestMock, loginMock } = vi.hoisted(() => ({
   loginMock: vi.fn(),
 }));
 vi.mock('../lib/api', () => ({
+  fetchSecuritySummary: vi.fn(() => Promise.reject(new Error('security summary not stubbed for this test'))),
   API_BASE_URL: 'http://e2e.test',
   apiRequest: (...args: unknown[]) => apiRequestMock(...args),
   login: (...args: unknown[]) => loginMock(...args),

@@ -112,6 +112,7 @@ export const reportsDict = {
     transition: { ar: 'تغيير الحالة', en: 'Transition status' },
     notes: { ar: 'ملاحظات الحل (مطلوبة للرفض)', en: 'Resolution notes (required for rejection)' },
     save: { ar: 'حفظ', en: 'Save' },
+    saving: { ar: 'جارٍ الحفظ…', en: 'Saving…' },
     cancel: { ar: 'إلغاء', en: 'Cancel' },
     noTransitions: { ar: 'لا توجد انتقالات متاحة', en: 'No transitions available' },
     noNotes: { ar: 'لا توجد ملاحظات', en: 'No notes' },

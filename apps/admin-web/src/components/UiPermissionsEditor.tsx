@@ -23,7 +23,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Check, LoaderCircle, Lock, RotateCcw, Save, Search, SlidersHorizontal, X } from 'lucide-react';
-import { ConfirmDialog } from '@cms/ui';
+import { ConfirmDialog, Dialog } from '@cms/ui';
 import { ApiError, clearRoleUiPermissions, fetchRoleUiPermissions, replaceRoleUiPermissions } from '../lib/api';
 import { t, localeOf } from '../lib/dictionary';
 import { ALL_UI_KEYS, ROLE_TEMPLATES, UI_PERMISSION_LABELS, UI_PERMISSIONS_TREE, VIEW_KEYS } from '../lib/uiPermissions';
@@ -82,6 +82,7 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
     systemLocked: t(locale, 'admincenters.permissions.ui.systemLocked'),
     dirty: t(locale, 'admincenters.permissions.unsavedChanges'),
     save: t(locale, 'admincenters.permissions.ui.save'),
+    saving: t(locale, 'admincenters.permissions.ui.saving'),
     resetToFull: t(locale, 'admincenters.permissions.ui.resetToFull'),
     selected: t(locale, 'admincenters.permissions.ui.selected'),
     searchPlaceholder: t(locale, 'admincenters.permissions.ui.searchPlaceholder'),
@@ -169,17 +170,23 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onMouseDown={() => !saving && onClose()} />
-      <div
-        className="relative w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-xl border shadow-2xl flex flex-col"
-        style={{ background: 'var(--cms-surface)', borderColor: 'var(--cms-line)' }}
+    <>
+      <Dialog
+        open
+        onOpenChange={(next) => { if (!next && !saving) onClose(); }}
+        title={copy.title}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        size="xl"
+        dismissGuard={saving}
+        testId="ui-permissions-editor-dialog"
       >
-        {/* Header */}
+      <div
+        className="flex flex-col"
+      >
+        {/* Header ribbon (role name + state chips) — the Dialog owns the title */}
         <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
           <div className="flex items-center gap-2 flex-wrap">
-            <SlidersHorizontal size={18} style={{ color: 'var(--cms-teal-700)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--cms-text)' }}>{copy.title}</h3>
+            <SlidersHorizontal size={18} aria-hidden="true" style={{ color: 'var(--cms-teal-700)' }} />
             <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }}>
               {roleName}
             </span>
@@ -355,8 +362,8 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-3 p-4 border-t" style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)' }}>
+        {/* Footer — count left, secondary reset + primary save in RTL order */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t p-4" style={{ borderColor: 'var(--cms-line)', background: 'var(--c-bg-elevated, var(--cms-ivory-50))' }}>
           <span className="text-xs" style={{ color: 'var(--cms-text-muted)' }}>
             {selection.size} / {ALL_UI_KEYS.length} {copy.selected}
           </span>
@@ -368,22 +375,24 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ borderColor: 'var(--cms-line)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}
             >
-              <RotateCcw size={13} />
+              <RotateCcw size={13} aria-hidden="true" />
               {copy.resetToFull}
             </button>
             <button
               type="button"
               onClick={save}
               disabled={!dirty || saving || isSystemRole}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              data-testid="ui-permissions-save"
+              className="inline-flex min-w-28 items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ background: 'var(--cms-teal-700)' }}
             >
               {saving ? <LoaderCircle size={13} className="animate-spin" /> : <Save size={13} />}
-              {copy.save}
+              {saving ? copy.saving : copy.save}
             </button>
           </div>
         </div>
       </div>
+      </Dialog>
 
       {/* W4: explicit danger confirm for the reset-to-full grant (was window.confirm). */}
       <ConfirmDialog
@@ -402,6 +411,6 @@ export function UiPermissionsEditor({ token, isArabic, roleId, roleName, isSyste
         onConfirm={() => void resetToFull()}
         testId="ui-permissions-reset-confirm"
       />
-    </div>
+    </>
   );
 }

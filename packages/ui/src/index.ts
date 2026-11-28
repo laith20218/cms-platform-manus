@@ -24,6 +24,12 @@ export { Accordion, type AccordionItemData, type AccordionProps } from './compon
 export { Dialog, type DialogProps } from './components/Dialog';
 export { ConfirmDialog, type ConfirmDialogProps } from './components/ConfirmDialog';
 export { Drawer, type DrawerProps } from './components/Drawer';
+// Command Center final pass — the two standardized interaction surfaces:
+// DetailDrawer (read-only details, normalized loading/empty/error states)
+// and FormDialog (short forms with a non-double-submitting busy footer).
+export { DetailDrawer, type DetailDrawerProps, type DetailDrawerStatus } from './components/DetailDrawer';
+export { FormDialog, type FormDialogProps } from './components/FormDialog';
+export { useUnsavedChanges, type UseUnsavedChangesOptions, type UnsavedChangesGuard } from './hooks/useUnsavedChanges';
 export { Select, type SelectProps, type SelectOption } from './components/Select';
 export { Checkbox, type CheckboxProps } from './components/Checkbox';
 // Command Center P1 — anchored action menus for dense data tables (the row

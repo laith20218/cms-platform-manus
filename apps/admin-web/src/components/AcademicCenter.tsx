@@ -831,77 +831,29 @@ export function AcademicCenter({ token, isSuperAdmin, isArabic, onError, onNotic
         testId="lecture-publish-confirm"
       />
 
-      {/* ===== Confirm archive / restore dialog ===== */}
-      {confirmArchive && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-          role="presentation"
-          onMouseDown={() => !busy && setConfirmArchive(null)}
-        >
-          <section
-            className="bg-white rounded-xl max-w-sm w-full shadow-xl"
-            role="dialog"
-            aria-modal="true"
-            aria-label="confirm-archive"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="p-5">
-              <div className="flex items-start gap-3 mb-4">
-                <div
-                  className="p-2 rounded-lg"
-                  style={
-                    confirmArchive.restore
-                      ? { background: 'var(--cms-teal-50)', color: 'var(--cms-teal-700)' }
-                      : { background: 'var(--cms-warning-50)', color: 'var(--cms-warning)' }
-                  }
-                >
-                  {confirmArchive.restore ? <RotateCcw className="w-5 h-5" /> : <Archive className="w-5 h-5" />}
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--cms-text-muted)' }}>
-                    {confirmArchive.restore ? t(locale, 'academic.restore') : t(locale, 'academic.archive')}
-                  </p>
-                  <h2 className="text-base font-bold" style={{ color: 'var(--cms-text)' }}>
-                    {confirmArchive.restore
-                      ? t(locale, 'academic.archiveConfirm.restoreTitle', { name: confirmArchive.name })
-                      : t(locale, 'academic.archiveConfirm.archiveTitle', { name: confirmArchive.name })}
-                  </h2>
-                </div>
-              </div>
-              <p className="text-xs" style={{ color: 'var(--cms-text-soft)' }}>
-                {confirmArchive.restore
-                  ? t(locale, 'academic.archiveConfirm.restoreText')
-                  : t(locale, 'academic.archiveConfirm.archiveText')}
-              </p>
-              <div className="flex gap-3 justify-end mt-5">
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
-                  style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}
-                  onClick={() => setConfirmArchive(null)}
-                  disabled={busy}
-                >
-                  {t(locale, 'academic.cancel')}
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors"
-                  style={{ background: confirmArchive.restore ? 'var(--cms-teal-700)' : 'var(--cms-warning)' }}
-                  disabled={busy}
-                  onClick={() => {
-                    const payload = confirmArchive;
-                    setConfirmArchive(null);
-                    void setArchiveState(payload.kind, payload.id, payload.restore);
-                  }}
-                >
-                  {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : confirmArchive.restore ? <RotateCcw className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
-                  {confirmArchive.restore ? t(locale, 'academic.restore') : t(locale, 'academic.archive')}
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
-      )}
+      {/* ===== Confirm archive / restore — shared ConfirmDialog ===== */}
+      <ConfirmDialog
+        open={confirmArchive !== null}
+        onOpenChange={(next) => { if (!next && !busy) setConfirmArchive(null); }}
+        title={confirmArchive?.restore
+          ? t(locale, 'academic.archiveConfirm.restoreTitle', { name: confirmArchive?.name ?? '' })
+          : t(locale, 'academic.archiveConfirm.archiveTitle', { name: confirmArchive?.name ?? '' })}
+        description={confirmArchive?.restore
+          ? t(locale, 'academic.archiveConfirm.restoreText')
+          : t(locale, 'academic.archiveConfirm.archiveText')}
+        confirmLabel={confirmArchive?.restore ? t(locale, 'academic.restore') : t(locale, 'academic.archive')}
+        cancelLabel={t(locale, 'academic.cancel')}
+        variant={confirmArchive?.restore ? 'primary' : 'danger'}
+        dir={isArabic ? 'rtl' : 'ltr'}
+        busy={busy}
+        onConfirm={() => {
+          if (!confirmArchive) return;
+          const payload = confirmArchive;
+          setConfirmArchive(null);
+          void setArchiveState(payload.kind, payload.id, payload.restore);
+        }}
+        testId="academic-archive-confirm"
+      />
     </section>
   );
 }
