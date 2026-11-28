@@ -124,7 +124,11 @@ public record WatermarkDto(
     string StudentName,
     string StudentPhone,
     string Timestamp,
-    string SiteName
+    string SiteName,
+    // Owner decision (offline-experience implementation, 2026-11-28): the watermark
+    // carries the STUDENT ID, never the phone number. StudentPhone stays in the DTO
+    // for backward compatibility with older clients, but new UIs must not render it.
+    string? StudentId = null
 );
 
 // ===== View Recording =====

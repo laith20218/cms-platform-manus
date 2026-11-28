@@ -116,7 +116,9 @@ class CmsJsBridge(
     private val packageApi: OfflinePackageBridgeSurface,
     private val courseApi: OfflineCourseBridgeSurface,
     private val tokenSeal: TokenSeal,
-    private val webSessionEnd: WebSessionEndApi
+    private val webSessionEnd: WebSessionEndApi,
+    /** Owner decision 2026-11-28: shared per-type storage totals for the offline panel. */
+    private val storageSummary: () -> String = { EMPTY_STORAGE_SUMMARY_JSON }
 ) {
 
     /**
@@ -329,6 +331,17 @@ class CmsJsBridge(
         } else CacheStatus.DENIED_ORIGIN
 
     /**
+     * Owner decision 2026-11-28 — truthful shared-storage summary for the offline
+     * panel: per-type byte totals (media files / course episodes / question
+     * packages) and the shared 10 GiB cap. Read-only aggregate numbers only —
+     * no paths, no tokens, no content metadata. Empty JSON when the origin is
+     * not allowlisted.
+     */
+    @JavascriptInterface
+    fun getOfflineStorageSummary(): String =
+        if (isOriginAllowed()) guarded({ storageSummary() }, EMPTY_STORAGE_SUMMARY_JSON) else EMPTY_STORAGE_SUMMARY_JSON
+
+    /**
      * Ids are ALWAYS canonical hyphenated UUIDs — anything else (blank,
      * oversized, path-shaped) is rejected at the bridge, before the service.
      * Generalized from the W2 package-id validator (the shapes are the same
@@ -347,6 +360,10 @@ class CmsJsBridge(
     companion object {
         /** The object name the shell injects this bridge under: `window.CmsNative`. */
         const val JS_NAME = "CmsNative"
+
+        /** Safe empty storage summary — the answer outside the allowlisted origin. */
+        const val EMPTY_STORAGE_SUMMARY_JSON =
+            """{"mediaBytes":0,"episodeBytes":0,"packageBytes":0,"capBytes":0}"""
 
         /** Stable platform identifier returned by [getPlatform]. */
         const val PLATFORM = "android"

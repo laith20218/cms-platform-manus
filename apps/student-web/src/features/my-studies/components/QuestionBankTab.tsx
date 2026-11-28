@@ -7,6 +7,10 @@ import { LockedEmptyState } from '@/features/my-studies/components/LockedEmptySt
 import { ExamCoursesCatalog } from '@/features/exam-courses/components/ExamCoursesCatalog';
 import { CascadeFilters, type CascadeValue } from '@/features/exam-courses/components/CascadeFilters';
 import { TrainingBuilderModal } from './TrainingBuilderModal';
+// Owner decision (offline-experience implementation, 2026-11-28): the first
+// visit to a subject's question bank auto-downloads THAT subject's full
+// question package (idempotent, one attempt per subject per install).
+import { useAutoSubjectPackage } from '@/features/offline/useAutoSubjectPackage';
 
 /**
  * W16.2b — "بنك الأسئلة" tab panel: the bank's own gate over the exam-courses
@@ -41,6 +45,11 @@ export function QuestionBankTab() {
   const subjectId = routeSubjectId ?? subjects[0]?.id ?? null;
   const isActive = subjectId != null && subjects.some((s) => s.id === subjectId);
   const subject = subjects.find((s) => s.id === subjectId) ?? null;
+
+  // Owner decision (2026-11-28): first visit to THIS subject's bank → auto
+  // download its full question package. Only for ACTIVE (entitled) subjects;
+  // inert outside the shell; one attempt per subject per install.
+  const autoPackage = useAutoSubjectPackage(isActive ? subjectId : null);
 
   const cascade: CascadeValue = {
     universityId: searchParams.get('universityId'),
@@ -114,6 +123,19 @@ export function QuestionBankTab() {
           بناء اختبار تدريبي
         </button>
       </header>
+
+      {/* Auto offline-package feedback (honest, dismiss-free): started shows the
+          one-time progress hint; failed shows nothing noisy — the manual CTA on
+          the subject page remains the retry path. */}
+      {autoPackage === 'started' && (
+        <div
+          className="mb-4 rounded-2xl border border-[var(--c-primary-200)] bg-[var(--c-primary-50)] px-4 py-3 text-sm text-[var(--c-primary-700)]"
+          data-testid="bank-auto-package-started"
+          role="status"
+        >
+          بدأ تحميل حزمة أسئلة هذه المادة تلقائياً لتعمل دون اتصال — تابع التقدم من لوحة «وضع بدون إنترنت».
+        </div>
+      )}
 
       {/* The bank's cascade — same params the catalog wrote (deep links stay
           canonical); every semester subject stays SELECTABLE so the activation

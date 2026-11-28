@@ -53,8 +53,13 @@ internal class DownloadState(val contentId: String) {
  *    expiry stored with the entry ([MediaCacheEntry.entitlementExpiresAt]) has
  *    passed (`denied_stale`). Entries without stored expiry stay usable offline —
  *    an online open still re-checks the server, so rights are never faked.
- *  - Over-cap (5 GiB) downloads evict LRU completed entries; protected (in-flight)
- *    entries are never evicted; an un-trimmable plan refuses the download (`quota`).
+ *  - Shared 10 GiB offline cap, NO automatic eviction (Owner decision 2026-11-28):
+ *    a download whose bytes would not fit the SHARED total (media + course chunks
+ *    + question packages, via [sharedOfflineBytes]) is refused with `quota` and
+ *    existing content is never touched. Because the exact object size is only
+ *    known after streaming, the transport sink enforces the cap DURING the copy
+ *    (a [MediaQuotaExceededException] aborts the write, the partial file is
+ *    deleted, and no eviction ever happens).
  */
 class MediaCacheService(
     private val index: CacheIndex,
@@ -68,7 +73,9 @@ class MediaCacheService(
     private val clock: () -> Instant,
     private val sessionProvider: () -> OfflineSession?,
     private val sessionRefresher: () -> OfflineSession?,
-    private val onAuthDead: () -> Unit
+    private val onAuthDead: () -> Unit,
+    /** Total offline bytes across ALL stores (media + chunked episodes + packages). */
+    private val sharedOfflineBytes: () -> Long = { 0L }
 ) : CmsNativeCacheApi {
 
     private val states = ConcurrentHashMap<String, DownloadState>()
@@ -231,7 +238,7 @@ class MediaCacheService(
                     entitlementExpiresAt = transport.currentEntitlementExpiresAt()
                 )
             )
-            trimToQuota(contentId)
+            trimToCap(contentId)
             states.remove(contentId)
             progressBus.publish(contentId, CacheProgressBus.Phase.READY, 100)
         } catch (auth: TransportAuthorizationException) {
@@ -250,7 +257,7 @@ class MediaCacheService(
         try {
             return transport.download(
                 contentId = contentId,
-                sink = { fileStore.openOutput(contentId) },
+                sink = { quotaGuardedOutput(contentId) },
                 onProgress = { percent ->
                     state.percent = percent
                     progressBus.publish(contentId, CacheProgressBus.Phase.DOWNLOADING, percent)
@@ -266,7 +273,7 @@ class MediaCacheService(
             }
             return transport.download(
                 contentId = contentId,
-                sink = { fileStore.openOutput(contentId) },
+                sink = { quotaGuardedOutput(contentId) },
                 onProgress = { percent ->
                     state.percent = percent
                     progressBus.publish(contentId, CacheProgressBus.Phase.DOWNLOADING, percent)
@@ -276,20 +283,41 @@ class MediaCacheService(
         }
     }
 
-    /** LRU eviction pass after a successful insert; refuses the fresh object when the cap cannot hold it. */
-    private fun trimToQuota(freshContentId: String) {
-        val protected = states.keys.toSet() + freshContentId
-        val plan = quota.planEviction(index.all(), incomingBytes = 0, protectedIds = protected)
-        if (!plan.sufficient) {
-            // The cap cannot hold even after evicting every unprotected entry — refuse the new object.
-            index.remove(freshContentId)
-            fileStore.delete(freshContentId)
+    /**
+     * Shared-capacity guarding sink (Owner decision 2026-11-28): wraps the encrypted
+     * store output and counts every byte written against the SHARED offline total
+     * (media + chunks + packages, excluding the object currently being written).
+     * The copy aborts with [MediaQuotaExceededException] the moment the 10 GiB cap
+     * would be exceeded — BEFORE the entry is indexed. No eviction ever runs; the
+     * partial file is removed by the caller's failure path.
+     */
+    private fun quotaGuardedOutput(contentId: String): java.io.OutputStream =
+        QuotaGuardedOutputStream(fileStore.openOutput(contentId), quota, sharedOfflineBytes)
+
+    /**
+     * In-flight byte accounting for the cap: the shared total (all offline
+     * content) PLUS this service's own media index, excluding the object being
+     * written/replaced. Tests inject sharedOfflineBytes=0, so the media index
+     * keeps the guarded sink honest even without an app-level aggregator.
+     */
+    private fun usedSharedBytesExcluding(contentId: String): Long =
+        sharedOfflineBytes() + index.all().filter { it.contentId != contentId }.sumOf { it.bytes }
+
+    /**
+     * Shared-capacity verification (Owner decision 2026-11-28, replaces the old LRU
+     * trimToQuota): the guarded sink already aborted over-cap writes mid-copy; this
+     * is the post-write invariant. NEVER evicts — when the entry does not fit it is
+     * the FRESH entry that is rolled back, existing content stays untouched.
+     */
+    private fun verifySharedCap(contentId: String) {
+        if (!quota.fits(usedSharedBytesExcluding(contentId), index.get(contentId)?.bytes ?: 0L)) {
+            index.remove(contentId)
+            fileStore.delete(contentId)
             throw MediaQuotaExceededException()
         }
-        plan.evictIds.forEach { evictId ->
-            if (index.remove(evictId) != null) fileStore.delete(evictId)
-        }
     }
+
+    private fun trimToCap(freshContentId: String) = verifySharedCap(freshContentId)
 
     private fun fail(state: DownloadState, contentId: String, phase: CacheProgressBus.Phase, code: String) {
         fileStore.delete(contentId) // partial writes never become cache entries

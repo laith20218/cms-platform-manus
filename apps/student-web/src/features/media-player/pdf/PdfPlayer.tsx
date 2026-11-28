@@ -1303,7 +1303,7 @@ export function PdfPlayer({ assetId, pagesCount, watermark, testId }: PdfPlayerP
           }}
         >
           <div className="absolute whitespace-nowrap text-2xl font-bold text-white opacity-[0.05]" style={{ top: '18%', left: '8%', transform: 'rotate(-45deg)' }}>
-            {watermark.studentName} - {watermark.studentPhone}
+            {watermark.studentName}{watermark.studentId ? ` - ${watermark.studentId}` : ''}
           </div>
           <div className="absolute whitespace-nowrap text-2xl font-bold text-white opacity-[0.05]" style={{ top: '58%', left: '28%', transform: 'rotate(-45deg)' }}>
             {watermark.siteName} - {watermark.timestamp}

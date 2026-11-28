@@ -99,3 +99,22 @@ public record TokenResponse(
     string TokenType,
     int ExpiresIn
 );
+
+/// <summary>
+/// Owner decision (offline-experience implementation, 2026-11-28) — native
+/// session exchange. The Android shell's Kotlin layer exchanges a SHORT-LIVED
+/// web access token (JWT, ≤10 min) for a native session bound to the same
+/// student + installation. The response deliberately carries NO refresh token:
+/// the native session renews by re-running the exchange with a fresh web
+/// access token, so a long-lived web credential never persists inside Kotlin
+/// and never crosses the JavaScript bridge in the other direction.
+/// </summary>
+public record NativeSessionExchangeRequest(string WebAccessToken);
+
+/// <summary>Short-lived, access-only native session (no refresh token).</summary>
+public record NativeSessionResponse(
+    string AccessToken,
+    string TokenType,
+    int ExpiresIn,
+    Guid StudentId
+);

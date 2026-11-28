@@ -19,6 +19,12 @@ interface CmsNativeCacheBridge {
   ensureLocal(contentId: string, type: string, hintsJson?: string): string;
   openLocal(contentId: string): string;
   cacheStatus(contentId: string): string;
+  cancelDownload?(contentId: string): string;
+}
+
+/** Owner decision 2026-11-28 — the shared per-type storage summary surface. */
+interface CmsNativeStorageSummaryBridge {
+  getOfflineStorageSummary(): string;
 }
 
 /** Night Task 3 — the catalog surface (listCached/removeCached) the Batch-4
@@ -152,11 +158,13 @@ export function nativeCachePercent(status: string): number | null {
 // ===== Night Task 3 — offline catalog surface (feature-detected) =====
 
 /**
- * On-device encrypted media cache cap, mirrored from the Kotlin
- * `CachePolicy.MAX_CACHE_BYTES` (Owner decision 2026-11-23: 5 GiB exact).
- * Display-only — the native side enforces the real quota.
+ * On-device encrypted offline-content cap, mirrored from the Kotlin
+ * `CachePolicy.MAX_CACHE_BYTES` (Owner decision 2026-11-28: 10 GiB SHARED
+ * across library media, question packages and course episodes; no automatic
+ * eviction — a full cache blocks new downloads). Display-only — the native
+ * side enforces the real quota.
  */
-export const NATIVE_MEDIA_CACHE_MAX_BYTES = 5 * 1024 * 1024 * 1024;
+export const NATIVE_MEDIA_CACHE_MAX_BYTES = 10 * 1024 * 1024 * 1024;
 
 /**
  * Arabic honesty (Owner decision 5): YouTube-hosted videos and course episodes
@@ -170,6 +178,67 @@ export const UNCACHEABLE_OFFLINE_NOTE =
 export function isNativeCatalogActive(): boolean {
   if (!hasNativeShell()) return false;
   return readCatalogBridge() !== null;
+}
+
+// ===== Owner decision 2026-11-28 — shared storage summary + cancellation =====
+
+/** Per-type offline byte totals as the native side reports them (numbers only). */
+export interface NativeStorageSummary {
+  mediaBytes: number;
+  episodeBytes: number;
+  packageBytes: number;
+  capBytes: number;
+}
+
+/** True when the shell exposes the storage-summary surface. */
+export function isNativeStorageSummaryActive(): boolean {
+  if (!hasNativeShell()) return false;
+  const candidate = (globalThis as unknown as Record<string, unknown>)[NATIVE_BRIDGE_NAME];
+  if (!candidate || typeof candidate !== 'object') return false;
+  return typeof (candidate as Record<string, unknown>).getOfflineStorageSummary === 'function';
+}
+
+/**
+ * Reads the truthful shared-storage summary (media / episodes / packages bytes +
+ * the 10 GiB cap). Returns null outside the shell, on bridge errors, or when the
+ * payload is malformed — callers fall back to computing display totals from rows.
+ */
+export function nativeStorageSummary(): NativeStorageSummary | null {
+  if (!isNativeStorageSummaryActive()) return null;
+  const candidate = (globalThis as unknown as Record<string, unknown>)[NATIVE_BRIDGE_NAME] as CmsNativeStorageSummaryBridge;
+  try {
+    const raw = candidate.getOfflineStorageSummary();
+    if (typeof raw !== 'string' || raw.length === 0) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const row = parsed as Record<string, unknown>;
+    const mediaBytes = typeof row.mediaBytes === 'number' ? row.mediaBytes : null;
+    const episodeBytes = typeof row.episodeBytes === 'number' ? row.episodeBytes : null;
+    const packageBytes = typeof row.packageBytes === 'number' ? row.packageBytes : null;
+    const capBytes = typeof row.capBytes === 'number' ? row.capBytes : null;
+    if (mediaBytes === null || episodeBytes === null || packageBytes === null || capBytes === null) return null;
+    return { mediaBytes, episodeBytes, packageBytes, capBytes };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cancels one in-flight library-file download. Returns the native code
+ * ("canceled" | "not_downloading" | "absent"), or null outside the shell /
+ * when the shell predates the cancel surface.
+ */
+export function nativeCancelDownload(contentId: string): string | null {
+  const bridge = readCacheBridge();
+  if (!bridge || typeof bridge.cancelDownload !== 'function') return null;
+  const id = contentId.trim();
+  if (!id || id.length > MAX_CONTENT_ID_LENGTH) return null;
+  try {
+    const code = bridge.cancelDownload(id);
+    return typeof code === 'string' && code.length > 0 ? code : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -221,6 +290,29 @@ export function nativeRemoveCached(contentId: string): string | null {
   }
 }
 
+/**
+ * Owner-approved base wording (offline-experience implementation, 2026-11-28) for
+ * content that is unavailable offline. The suffix adapts by content type without
+ * changing the meaning; callers pass the type-appropriate suffix.
+ */
+export const OFFLINE_NOT_DOWNLOADED_BASE =
+  'محتوى غير محمّل. تحقّق من الاتصال بالإنترنت وأضِف المحتوى إلى وضع اللاإنترنت.';
+
+/** Type-adapted variants: same base meaning, actionable suffix per content type. */
+export const OFFLINE_NOT_DOWNLOADED_MESSAGES = {
+  file: 'محتوى غير محمّل. تحقّق من الاتصال بالإنترنت وأضِف الملف إلى وضع اللاإنترنت من زر «تحميل دون اتصال».',
+  package: 'محتوى غير محمّل. تحقّق من الاتصال بالإنترنت وأضِف حزمة أسئلة المادة إلى وضع اللاإنترنت من صفحة المادة.',
+  episode: 'محتوى غير محمّل. تحقّق من الاتصال بالإنترنت وأضِف حلقة الكورس إلى وضع اللاإنترنت من زر التحميل بجانبها.',
+  course: 'محتوى غير محمّل. تحقّق من الاتصال بالإنترنت وأضِف حلقات الكورس المطلوبة إلى وضع اللاإنترنت من صفحة الكورس.',
+} as const;
+
+export type OfflineNotDownloadedKind = keyof typeof OFFLINE_NOT_DOWNLOADED_MESSAGES;
+
+/** The type-specific message for content that is not downloaded. */
+export function offlineNotDownloadedMessage(kind: OfflineNotDownloadedKind): string {
+  return OFFLINE_NOT_DOWNLOADED_MESSAGES[kind];
+}
+
 /** Arabic-first denial/error messages for every deny code the bridge can return. */
 export function nativeCacheDenyMessage(code: string): string | null {
   switch (code) {
@@ -229,12 +321,12 @@ export function nativeCacheDenyMessage(code: string): string | null {
     case 'denied_auth':
       return 'لم يعد هذا المحتوى متاحاً لحسابك.';
     case 'denied_offline':
-      return 'لا توجد نسخة محفوظة — اتصل بالإنترنت ثم أعد فتح الملف.';
+      return OFFLINE_NOT_DOWNLOADED_MESSAGES.file;
     case 'denied_stale':
       return 'انتهت صلاحية النسخة المحفوظة — اتصل بالإنترنت ثم أعد فتح الملف.';
     case 'quota':
     case 'error:quota':
-      return 'مساحة التخزين دون اتصال ممتلئة — احذف بعض الملفات من «وضع بدون إنترنت».';
+      return 'مساحة التخزين دون اتصال ممتلئة (10 غيغابايت مشتركة) — احذف بعض المحتوى من «وضع بدون إنترنت» ثم أعد المحاولة.';
     case 'unsupported_type':
       return 'نوع الملف غير مدعوم للعرض دون اتصال.';
     case 'invalid_args':

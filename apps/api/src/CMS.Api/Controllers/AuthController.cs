@@ -129,6 +129,33 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
+    /// Owner decision (offline-experience implementation, 2026-11-28) — native
+    /// session exchange for the Android shell: validates a short-lived WEB
+    /// access token server-side and issues an ACCESS-ONLY native session bound
+    /// to the same student + installation (same device-binding rules as login).
+    /// No refresh token is returned: the native side renews by re-running the
+    /// exchange, so a long-lived web credential never persists in Kotlin and
+    /// the bridge stays one-directional (web→native, never back).
+    /// Rate-limited under the same "auth" policy as refresh.
+    /// </summary>
+    [HttpPost("native-exchange")]
+    [EnableRateLimiting("auth")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(NativeSessionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<NativeSessionResponse>> NativeExchange(
+        [FromBody] NativeSessionExchangeRequest request, CancellationToken ct)
+    {
+        var installationId = Request.Headers["X-Device-Fingerprint"].FirstOrDefault()
+            ?? Request.Headers["X-Installation-Id"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(installationId)) return Unauthorized();
+        var result = await _mediator.Send(new NativeSessionExchangeCommand(
+            request.WebAccessToken, installationId,
+            Request.Headers["X-Device-Name"].FirstOrDefault()), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Logout - invalidate tokens.
     /// </summary>
     [HttpPost("logout")]

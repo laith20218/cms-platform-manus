@@ -190,4 +190,38 @@ public class JwtTokenService : ITokenService
         }
     }
 
+    /// <summary>
+    /// Owner decision (offline-experience implementation, 2026-11-28) — the
+    /// validated `sub` claim of a token, or null when invalid/absent. Runs the
+    /// SAME validation as <see cref="ValidateToken"/> (signature, issuer,
+    /// audience, lifetime) and then reads the subject from the validated
+    /// principal — never from an unverified parse.
+    /// </summary>
+    public string? ValidatedSubject(string token)
+    {
+        try
+        {
+            var tokenHandler = new JwtSecurityTokenHandler();
+            var validationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = _configuration["Jwt:Issuer"],
+                ValidAudience = _configuration["Jwt:Audience"],
+                IssuerSigningKey = _signingKey,
+                ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256 },
+                ClockSkew = TimeSpan.Zero
+            };
+
+            var principal = tokenHandler.ValidateToken(token, validationParameters, out _);
+            return principal.FindFirst("sub")?.Value?.Trim() is { Length: > 0 } subject ? subject : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
 }

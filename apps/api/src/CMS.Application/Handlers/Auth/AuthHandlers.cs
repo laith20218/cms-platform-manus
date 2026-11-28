@@ -322,6 +322,64 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, T
 }
 
 /// <summary>
+/// Owner decision (offline-experience implementation, 2026-11-28) — native
+/// session exchange: validates a short-lived WEB access token server-side
+/// (signature, issuer, audience, lifetime — the same TokenService the API's
+/// own bearer auth uses) and issues an ACCESS-ONLY native session bound to
+/// the same student + installation. No refresh token is returned; the Kotlin
+/// side renews by re-running the exchange with a fresh web access token, so a
+/// long-lived web credential never persists in Kotlin. Requires the student's
+/// active device binding (CreateAsync enforces it for the student role).
+/// Lifetime: the configured access-token lifetime (clamped 1–60 min; default
+/// 15) — chosen deliberately so an exchanged session expires quickly and is
+/// useless outside the app that can re-run the exchange.
+/// </summary>
+public class NativeSessionExchangeCommandHandler : IRequestHandler<NativeSessionExchangeCommand, NativeSessionResponse>
+{
+    private readonly ISessionService _sessionService;
+    private readonly ITokenService _tokenService;
+    private readonly IStudentRepository _students;
+
+    public NativeSessionExchangeCommandHandler(ISessionService sessionService, ITokenService tokenService, IStudentRepository students)
+    {
+        _sessionService = sessionService;
+        _tokenService = tokenService;
+        _students = students;
+    }
+
+    public async Task<NativeSessionResponse> Handle(NativeSessionExchangeCommand request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.WebAccessToken) || string.IsNullOrWhiteSpace(request.InstallationId))
+            throw new UnauthorizedAccessException("رمز التبادل غير مكتمل");
+
+        // Stateless, NON-consuming validation of the web access token: the
+        // caller's own web session stays intact (unlike a refresh rotation).
+        // ValidatedSubject runs the SAME signature/issuer/audience/lifetime
+        // validation as the API's bearer auth, then reads the sub claim from
+        // the validated principal — never from an unverified parse.
+        var sub = _tokenService.ValidatedSubject(request.WebAccessToken);
+        if (string.IsNullOrWhiteSpace(sub) || !Guid.TryParse(sub, out var studentId))
+            throw new UnauthorizedAccessException("رمز الوصول غير صالح أو لا يحمل هوية طالب");
+
+        var student = await _students.GetByIdAsync(studentId, ct);
+        if (student is null || student.IsBanned())
+            throw new UnauthorizedAccessException("الطالب غير مؤهل لجلسة أصلية");
+
+        var pair = await _sessionService.CreateAsync(
+            studentId,
+            student.Phone,
+            Roles.Student,
+            request.InstallationId,
+            request.DeviceName,
+            ct);
+
+        // ExpiresIn mirrors the configured access-token lifetime (1–60 min,
+        // default 15 — 900 s advertised); the authoritative expiry is inside the JWT.
+        return new NativeSessionResponse(pair.AccessToken, "Bearer", 900, studentId);
+    }
+}
+
+/// <summary>
 /// Handles logout - blacklists tokens.
 /// </summary>
 public class LogoutCommandHandler : IRequestHandler<LogoutCommand, Unit>

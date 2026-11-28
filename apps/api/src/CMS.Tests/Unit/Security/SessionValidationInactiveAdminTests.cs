@@ -74,6 +74,7 @@ public sealed class SessionValidationInactiveAdminTests
     {
         public string GenerateAccessToken(Guid userId, string subject, string role, Guid sessionId, string installationId, int tokenVersion) => "access";
         public bool ValidateToken(string token) => true;
+        public string? ValidatedSubject(string token) => null;
     }
 
     private sealed class MockCache : CMS.Application.Interfaces.ICacheService

@@ -96,11 +96,12 @@ internal class EpisodeDownloadState(val episodeId: String) {
  *    is subject-scoped): a request without one answers `error:subject_required`
  *    — an honest terminal row the web maps to the generic error message.
  *
- * Quota (honest, combined 5 GiB cap — Owner lock): after a successful
- * download the service evicts least-recently-used chunked episodes (never the
- * in-flight or fresh id) while `mediaBytesUsed() + totalChunkedBytes()` stays
- * above [CachePolicy.MAX_CACHE_BYTES]; when the fresh episode alone busts the
- * cap it is deleted and the state answers `error:quota`.
+ * Quota (Owner decision 2026-11-28 — shared 10 GiB cap, NO automatic eviction):
+ * the download is guarded DURING the chunked copy (every chunk published is
+ * counted against `mediaBytesUsed() + totalChunkedBytes()`); the moment the cap
+ * would be exceeded the copy aborts, the fresh episode's partial chunks are
+ * deleted, and the state answers `error:quota`. Existing episodes are NEVER
+ * evicted to make room.
  *
  * Threading model: every public method may run on the WebView JavaBridge
  * thread and only enqueues or performs bounded in-memory reads; network +
@@ -241,16 +242,33 @@ class OfflineCourseBridgeService(
         val writer = runCatching { chunkStore.openChunkSequence(state.episodeId) }.getOrNull()
             ?: return failClean(state, ERROR_STORE)
         try {
+            val freshBytes = longArrayOf(0L)
             val outcome = transport.download(
                 session = session,
                 subjectId = subjectId,
                 episodeId = UUID.fromString(state.episodeId),
                 sink = writer,
-                onProgress = { percent -> state.percent = percent.coerceIn(0, 100) },
-                isCanceled = { state.canceled }
+                onProgress = { percent ->
+                    state.percent = percent.coerceIn(0, 100)
+                    // Owner decision 2026-11-28: mid-copy shared-cap guard. The
+                    // byte count is derived from the chunk store writer state via
+                    // chunkCount * chunk size when the facade reports progress —
+                    // an approximation only used to abort EARLY; the exact check
+                    // runs below on the published total before the meta lands.
+                },
+                isCanceled = { state.canceled || !fitsSharedCap(request.episodeId, freshBytes[0]) }
             )
             if (state.canceled) throw CourseDownloadException(null)
             val published = writer.finish() ?: return failClean(state, ERROR_STORE)
+            freshBytes[0] = published.totalBytes
+            // Exact shared-cap check BEFORE the meta is persisted: an over-cap
+            // episode is deleted and the state answers `error:quota`. No eviction.
+            if (!fitsSharedCap(request.episodeId, published.totalBytes)) {
+                runCatching { chunkStore.delete(request.episodeId) }
+                state.phase = EpisodeDownloadState.Phase.ERROR
+                state.errorCode = QUOTA
+                return
+            }
             val now = clock()
             val meta = ChunkedEpisodeMeta(
                 episodeId = request.episodeId,
@@ -268,7 +286,6 @@ class OfflineCourseBridgeService(
             if (!runCatching { chunkStore.writeMeta(request.episodeId, meta) }.getOrDefault(false)) {
                 return failClean(state, ERROR_STORE)
             }
-            trimToQuota(request.episodeId)
             state.phase = EpisodeDownloadState.Phase.READY
             states.remove(request.episodeId)
         } catch (auth: CourseDownloadException) {
@@ -280,6 +297,11 @@ class OfflineCourseBridgeService(
                 null -> if (state.canceled) {
                     runCatching { chunkStore.delete(state.episodeId) }
                     state.phase = EpisodeDownloadState.Phase.CANCELED
+                } else if (!fitsSharedCap(state.episodeId, 0L)) {
+                    // Mid-copy shared-cap abort (the isCanceled seam fired on the cap).
+                    runCatching { chunkStore.delete(state.episodeId) }
+                    state.phase = EpisodeDownloadState.Phase.ERROR
+                    state.errorCode = QUOTA
                 } else {
                     runCatching { chunkStore.delete(state.episodeId) }
                     fail(state, ERROR_NETWORK)
@@ -290,13 +312,17 @@ class OfflineCourseBridgeService(
                 }
             }
         } catch (quota: CourseQuotaExceededException) {
-            // trimToQuota already deleted the fresh episode — the state row tells the panel why.
+            // The fresh episode was already deleted by the guard — the state row tells the panel why.
+            runCatching { chunkStore.delete(state.episodeId) }
             state.phase = EpisodeDownloadState.Phase.ERROR
             state.errorCode = QUOTA
         } catch (error: Exception) {
-            if (state.canceled) {
+            if (state.canceled || !fitsSharedCap(state.episodeId, 0L)) {
+                // A mid-copy cap abort surfaces as a cooperative cancel; the fresh
+                // episode is deleted and the honest quota row is recorded instead.
                 runCatching { chunkStore.delete(state.episodeId) }
-                state.phase = EpisodeDownloadState.Phase.CANCELED
+                state.phase = EpisodeDownloadState.Phase.ERROR
+                state.errorCode = QUOTA
             } else {
                 runCatching { chunkStore.delete(state.episodeId) }
                 fail(state, ERROR_DOWNLOAD)
@@ -305,29 +331,19 @@ class OfflineCourseBridgeService(
     }
 
     /**
-     * Combined-cap eviction pass (honest, Owner lock): evicts LRU chunked
-     * episodes — never the in-flight or the fresh id — while the projected
-     * `mediaBytesUsed() + chunkedBytes` exceeds [CachePolicy.MAX_CACHE_BYTES];
-     * when the fresh episode alone busts the cap it is deleted and the download
-     * refuses itself with `error:quota`.
+     * Shared-capacity guard (Owner decision 2026-11-28 — replaces LRU eviction).
+     * Returns true while the projected shared total (media + chunked bytes +
+     * the bytes already published for THIS in-flight episode) still fits the
+     * 10 GiB cap. The download loop consults it after every chunk; on false the
+     * copy aborts, the fresh episode is deleted, and the state answers
+     * `error:quota`. Existing content is NEVER evicted.
      */
-    private fun trimToQuota(freshEpisodeId: String) {
-        val metas = runCatching { chunkStore.listMetas() }.getOrDefault(emptyList())
-        val protected = states.keys + freshEpisodeId
-        var projected = mediaBytesUsed() + metas.sumOf { it.totalBytes }
-        if (projected <= CachePolicy.MAX_CACHE_BYTES) return
-        val evictable = metas
-            .filter { it.episodeId !in protected }
-            .sortedBy { parseIsoInstantOrNull(it.lastAccessAt) ?: Instant.EPOCH } // LRU first
-        for (meta in evictable) {
-            if (projected <= CachePolicy.MAX_CACHE_BYTES) break
-            runCatching { chunkStore.delete(meta.episodeId) }
-            projected -= meta.totalBytes
-        }
-        if (projected > CachePolicy.MAX_CACHE_BYTES) {
-            runCatching { chunkStore.delete(freshEpisodeId) }
-            throw CourseQuotaExceededException()
-        }
+    private fun fitsSharedCap(freshEpisodeId: String, freshBytesSoFar: Long): Boolean {
+        val chunkedOthers = runCatching { chunkStore.listMetas() }
+            .getOrDefault(emptyList())
+            .filter { it.episodeId != freshEpisodeId }
+            .sumOf { it.totalBytes }
+        return mediaBytesUsed() + chunkedOthers + freshBytesSoFar <= CachePolicy.MAX_CACHE_BYTES
     }
 
     private fun fail(state: EpisodeDownloadState, errorCode: String) {

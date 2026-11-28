@@ -128,6 +128,8 @@ export interface PdfWatermark {
   studentPhone: string;
   timestamp: string;
   siteName: string;
+  /** Owner decision (2026-11-28): the rendered watermark is name + student id — never the phone. */
+  studentId?: string;
 }
 
 /** Wave 11.10 — 'shape' (diagram shapes) and 'note' (sticky notes) join Phase 1's tools.

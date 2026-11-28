@@ -103,7 +103,7 @@ function youtubeCourse(): CourseDetail {
 const access = (url: string) => ({
   accessUrl: url,
   expiresAt: '2026-10-24T13:00:00Z',
-  watermark: { studentName: 'طالب تجريبي', studentPhone: '0999000111', timestamp: '2026-10-24', siteName: 'CMS' },
+  watermark: { studentName: 'طالب تجريبي', studentPhone: '0999000111', studentId: '11111111-2222-4333-8444-555555555555', timestamp: '2026-10-24', siteName: 'CMS' },
 });
 
 /** GET router: my-subjects / per-subject courses / course detail. The
@@ -290,7 +290,7 @@ describe('CoursePlayerPage — rendering', () => {
     // The anti-recording watermark still rides on top of the player.
     const watermark = screen.getByTestId('course-watermark');
     expect(watermark.textContent).toContain('طالب تجريبي');
-    expect(watermark.textContent).toContain('0999000111');
+    expect(watermark.textContent).toContain('11111111-2222-4333-8444-555555555555');
 
     expect(screen.getByTestId('episode-list')).toBeInTheDocument();
     expect(within(screen.getByTestId('episode-list')).getByText('الحلقة الأولى')).toBeInTheDocument();

@@ -166,6 +166,7 @@ class OfflineRuntimeCoordinatorTest {
             wipeAllCalls++
             records.clear()
         }
+        override fun totalBytes(): Long = records.size * 1024L
 
         var wipeAllCalls = 0
             private set

@@ -153,10 +153,12 @@ android {
 
     defaultConfig {
         applicationId = "com.cms.student"
-        minSdk = 26
+        // Owner decision (offline-experience implementation, 2026-11-28): Android 10
+        // (API 29) is the minimum supported student device; raised from 26.
+        minSdk = 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Safe defaults: release pipeline may inject public configuration only; never a private key.
         // Repo default OFF; -POFFLINE_TRUSTED_CLIENT_IMPLEMENTED=true (with full public

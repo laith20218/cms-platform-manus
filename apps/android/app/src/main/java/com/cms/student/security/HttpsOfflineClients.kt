@@ -57,6 +57,33 @@ class HttpsOfflinePackageClient(
         )
     }
 
+    /**
+     * Owner decision (offline-exchange implementation, 2026-11-28) — native session
+     * exchange: swaps a SHORT-LIVED web access token (JWT) for an ACCESS-ONLY native
+     * session bound to the same student + installation (POST auth/native-exchange).
+     *
+     * Security shape:
+     *  - The web token is used ONCE, server-side, and never stored on this side;
+     *    the response carries NO refresh token, so no long-lived web credential
+     *    ever persists inside Kotlin.
+     *  - Renewal = re-running the exchange with a FRESH web access token (the web
+     *    side supplies one at the next bridge call that needs a native session).
+     *  - Expiry of this session does NOT lock saved offline content — it only
+     *    gates NEW downloads/opens-while-online, exactly like the media cache's
+     *    native-session rule.
+     *  - Tokens are never logged and never returned to JavaScript.
+     */
+    fun exchangeNativeSession(webAccessToken: String, installationId: String): OfflineExchangeSession {
+        require(webAccessToken.isNotBlank() && installationId.isNotBlank()) { "Exchange inputs are required" }
+        val body = JsonObject().apply { addProperty("webAccessToken", webAccessToken) }
+        val response = unauthenticatedRequest("POST", "auth/native-exchange", gson.toJson(body), OfflineRequestHeaders.installation(installationId))
+        return OfflineExchangeSession(
+            accessToken = response.requiredString("accessToken"),
+            studentId = UUID.fromString(response.requiredString("studentId")),
+            expiresInSeconds = response.get("expiresIn")?.takeUnless { it.isJsonNull }?.asInt ?: 900
+        )
+    }
+
     override fun issueEntitlement(session: OfflineSession): String {
         val response = request("POST", "entitlements/issue", session, null, emptyMap())
         return response.get("token")?.asString?.takeIf(String::isNotBlank)

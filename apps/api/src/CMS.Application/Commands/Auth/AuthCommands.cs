@@ -73,3 +73,18 @@ public record ChangePasswordCommand(
     string CurrentPassword,
     string NewPassword
 ) : IRequest<Unit>;
+
+// ===== Native Session Exchange (Owner decision 2026-11-28) =====
+/// <summary>
+/// Exchanges a short-lived WEB access token (JWT) for a native session bound to
+/// the same student + installation. The web token is VALIDATED server-side
+/// (signature, issuer, audience, lifetime) and never stored; the issued native
+/// session is access-only (no refresh token) and renews by re-running the
+/// exchange. Requires an active device binding for the student role — same
+/// rule as a normal login.
+/// </summary>
+public record NativeSessionExchangeCommand(
+    string WebAccessToken,
+    string InstallationId,
+    string? DeviceName
+) : IRequest<NativeSessionResponse>;

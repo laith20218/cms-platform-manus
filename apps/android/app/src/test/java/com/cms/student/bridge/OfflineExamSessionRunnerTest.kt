@@ -82,6 +82,7 @@ class OfflineExamSessionRunnerTest {
             wipeAllCalls++
             records.clear()
         }
+        override fun totalBytes(): Long = records.size * 1024L
     }
 
     /** One recorded capture facade call (package, question, option, duration). */
@@ -370,5 +371,6 @@ class OfflineExamSessionRunnerTest {
         override fun updateConfirmedStatus(packageId: UUID, status: RevocationStatus, confirmedAt: Instant?, userId: UUID, installationId: String) = Unit
         override fun invalidate(packageId: UUID, userId: UUID, installationId: String) = Unit
         override fun wipeAll() = Unit
+        override fun totalBytes(): Long = 0L
     }
 }

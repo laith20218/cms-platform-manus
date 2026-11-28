@@ -9,6 +9,7 @@ import {
   nativeListCached,
   nativeOpenLocal,
   nativeRemoveCached,
+  nativeStorageSummary,
   NATIVE_MEDIA_CACHE_MAX_BYTES,
   UNCACHEABLE_OFFLINE_NOTE,
   type NativeCachedItem,
@@ -195,11 +196,17 @@ export function OfflinePanel({ open, onClose }: { open: boolean; onClose: () => 
 
   return (
     <div dir="rtl" className="fixed inset-0 z-[var(--z-modal)]" role="dialog" aria-modal="true" aria-label="وضع بدون إنترنت" data-testid="offline-panel-root">
-      {/* click-outside closes */}
-      <button type="button" aria-label="إغلاق لوحة وضع بدون إنترنت" onClick={onClose} className="absolute inset-0 bg-black/35 backdrop-blur-[2px] cursor-default" data-testid="offline-panel-backdrop" />
+      {/* Click-outside closes. Ghost-rendering fix (owner report 2026-11-28): the
+          old layer used backdrop-blur, which some Android WebView/GPU stacks
+          composite as a duplicated translucent frame (the reported «double /
+          transparent» Offline screen). The replacement is a FLAT dim layer —
+          no blur, no filters, no transparency stacking — plus an explicitly
+          opaque, isolated panel surface below. */}
+      <button type="button" aria-label="إغلاق لوحة وضع بدون إنترنت" onClick={onClose} className="absolute inset-0 bg-black/45 cursor-default" data-testid="offline-panel-backdrop" />
       <section
         data-testid="offline-panel"
         className="absolute top-0 end-0 h-full w-full sm:w-[420px] flex flex-col bg-[var(--cms-surface)] border-s border-[var(--c-border-strong)] shadow-2xl"
+        style={{ backgroundColor: 'var(--cms-surface)', isolation: 'isolate', backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
       >
         {/* Header */}
         <header className="flex items-center gap-3 px-5 py-4 border-b border-[var(--c-border)]">
@@ -240,27 +247,70 @@ export function OfflinePanel({ open, onClose }: { open: boolean; onClose: () => 
           {offline ? 'يبدو أنك دون اتصال الآن — يمكنك فتح المحتوى المحفوظ فقط' : 'أنت متصل — يمكن فتح المحتوى المحفوظ وتحديثه'}
         </div>
 
-        {/* Storage meter — real media bytes from the bridge vs the native 5 GiB cap
-            (media only: the meter sums cached library files, so it shows on that tab). */}
-        {tab === 'media' && catalogActive && items && items.length > 0 && (
-          <div className="px-5 py-3 border-b border-[var(--c-border)]" data-testid="offline-panel-meter">
-            <div className="flex items-center justify-between text-[11.5px] font-semibold text-[var(--c-text-muted)]">
-              <span>مساحة التخزين دون اتصال</span>
-              <span dir="rtl" data-testid="offline-panel-meter-value">
-                {formatBytes(totalCachedBytes(items))} من {formatBytes(NATIVE_MEDIA_CACHE_MAX_BYTES)}
-              </span>
+        {/* Shared storage summary (Owner decision 2026-11-28): the truthful
+            per-type breakdown — media + course episodes + question packages —
+            against the SHARED 10 GiB cap, whenever the native summary surface
+            is available; otherwise the honest media-only fallback below. */}
+        {(() => {
+          const summary = nativeStorageSummary();
+          if (!summary || summary.capBytes <= 0) {
+            // Older shell (no summary surface): keep the previous honest
+            // media-only meter so the panel never shows a fake total.
+            if (!(tab === 'media' && catalogActive && items && items.length > 0)) return null;
+            return (
+              <div className="px-5 py-3 border-b border-[var(--c-border)]" data-testid="offline-panel-meter">
+                <div className="flex items-center justify-between text-[11.5px] font-semibold text-[var(--c-text-muted)]">
+                  <span>مساحة التخزين دون اتصال (ملفات المكتبة)</span>
+                  <span dir="rtl" data-testid="offline-panel-meter-value">
+                    {formatBytes(totalCachedBytes(items))} من {formatBytes(NATIVE_MEDIA_CACHE_MAX_BYTES)}
+                  </span>
+                </div>
+                <div className="mt-1.5 h-1.5 w-full rounded-full bg-[var(--c-border)] overflow-hidden">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${Math.min(100, Math.max(1, (totalCachedBytes(items) / NATIVE_MEDIA_CACHE_MAX_BYTES) * 100))}%`,
+                      background: 'var(--grad-primary)',
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          }
+          const used = summary.mediaBytes + summary.episodeBytes + summary.packageBytes;
+          const ratio = Math.min(100, (used / summary.capBytes) * 100);
+          return (
+            <div className="px-5 py-3 border-b border-[var(--c-border)]" data-testid="offline-panel-meter">
+              <div className="flex items-center justify-between text-[11.5px] font-semibold text-[var(--c-text-muted)]">
+                <span>مساحة التخزين دون اتصال (مشتركة لكل المحتوى)</span>
+                <span dir="rtl" data-testid="offline-panel-meter-value">
+                  {formatBytes(used)} من {formatBytes(summary.capBytes)}
+                </span>
+              </div>
+              <div className="mt-1.5 h-1.5 w-full rounded-full bg-[var(--c-border)] overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(ratio)}>
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${Math.max(1, ratio)}%`, background: ratio >= 95 ? 'var(--c-danger-500)' : 'var(--grad-primary)' }}
+                />
+              </div>
+              {/* Per-type breakdown — truthful bytes by content type. */}
+              <div className="mt-2 grid grid-cols-3 gap-1.5 text-center">
+                <div className="rounded-lg bg-[var(--c-bg-hover)] px-1 py-1.5">
+                  <p className="text-[10px] text-[var(--c-text-faint)]">ملفات</p>
+                  <p className="text-[11px] font-bold text-[var(--c-text-soft)]" data-testid="offline-panel-meter-media">{formatBytes(summary.mediaBytes) ?? '—'}</p>
+                </div>
+                <div className="rounded-lg bg-[var(--c-bg-hover)] px-1 py-1.5">
+                  <p className="text-[10px] text-[var(--c-text-faint)]">حزم الأسئلة</p>
+                  <p className="text-[11px] font-bold text-[var(--c-text-soft)]" data-testid="offline-panel-meter-packages">{formatBytes(summary.packageBytes) ?? '—'}</p>
+                </div>
+                <div className="rounded-lg bg-[var(--c-bg-hover)] px-1 py-1.5">
+                  <p className="text-[10px] text-[var(--c-text-faint)]">حلقات الكورسات</p>
+                  <p className="text-[11px] font-bold text-[var(--c-text-soft)]" data-testid="offline-panel-meter-episodes">{formatBytes(summary.episodeBytes) ?? '—'}</p>
+                </div>
+              </div>
             </div>
-            <div className="mt-1.5 h-1.5 w-full rounded-full bg-[var(--c-border)] overflow-hidden">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${Math.min(100, Math.max(1, (totalCachedBytes(items) / NATIVE_MEDIA_CACHE_MAX_BYTES) * 100))}%`,
-                  background: 'var(--grad-primary)',
-                }}
-              />
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Segmented tab control — media is the DEFAULT tab (existing suite parity) */}
         <div

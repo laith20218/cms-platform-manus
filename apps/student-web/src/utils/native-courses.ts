@@ -16,6 +16,7 @@
  */
 
 import { hasNativeShell } from './native-bridge';
+import { OFFLINE_NOT_DOWNLOADED_MESSAGES } from './native-cache';
 
 /** Typed shape of the course-episode surface — mirrors the future Kotlin @JavascriptInterface methods. */
 interface CmsNativeCourseBridge {
@@ -223,14 +224,15 @@ export function nativeCourseDenyMessage(code: string): string | null {
     case 'denied_auth':
       return 'لم تعد هذه الحلقة متاحة لحسابك.';
     case 'denied_offline':
-      return 'لا يوجد اتصال — تحميل حلقات الكورس يحتاج اتصالاً مرة واحدة.';
+      // Owner-approved base wording (2026-11-28), episode suffix.
+      return OFFLINE_NOT_DOWNLOADED_MESSAGES.episode;
     case 'denied_stale':
-      return 'انتهت صلاحية النسخة المحفوظة من هذه الحلقة.';
+      return 'انتهت صلاحية النسخة المحفوظة من هذه الحلقة — اتصل بالإنترنت وأعد تحميلها من صفحة الكورس.';
     case 'denied_disabled':
       return 'تحميل حلقات الكورس دون اتصال غير مفعّل في هذا الإصدار من التطبيق.';
     case 'quota':
     case 'error:quota':
-      return 'مساحة التخزين دون اتصال ممتلئة — احذف بعض الحلقات أو الملفات من «وضع بدون إنترنت».';
+      return 'مساحة التخزين دون اتصال ممتلئة (10 غيغابايت مشتركة) — احذف بعض المحتوى من «وضع بدون إنترنت» ثم أعد المحاولة.';
     case 'invalid_args':
       return null; // our own request shape is at fault — silent fallback, no user-facing noise
     case 'error:playback_pending':
