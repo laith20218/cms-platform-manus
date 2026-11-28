@@ -156,7 +156,7 @@ export function NeedsAttention({
                   flex: '1 1 240px',
                   fontSize: 'var(--cms-text-sm, 13px)',
                   fontWeight: 600,
-                  color: condition.tone === 'danger' ? 'var(--cms-danger)' : 'var(--cms-warning)',
+                  color: condition.tone === 'danger' ? 'var(--cms-danger)' : 'var(--cms-warning-text, var(--cms-warning))',
                 }}
               >
                 {condition.title}

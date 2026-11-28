@@ -662,36 +662,30 @@ export function SecurityCenter({ token, isArabic, onError, onNotice }: Props) {
               <p className="text-xs font-semibold" style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'security.detail.technicalTitle')}</p>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 <div className="flex items-center gap-2">
-                  <History className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-text-muted)' }} />
-                  <dt style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'security.detail.createdAt')}:</dt>
+                  <dt style={{ color: 'var(--cms-text-muted)' }}><History className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-text-muted)' }} /> {t(locale, 'security.detail.createdAt')}:</dt>
                   <dd className="font-mono" style={{ color: 'var(--cms-text)' }}>{dateLabel(selectedEvent.createdAt, isArabic)}</dd>
                 </div>
                 <div className="flex items-center gap-2">
-                  <ShieldAlert className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-text-muted)' }} />
-                  <dt style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'security.detail.eventType')}:</dt>
+                  <dt style={{ color: 'var(--cms-text-muted)' }}><ShieldAlert className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-text-muted)' }} /> {t(locale, 'security.detail.eventType')}:</dt>
                   <dd dir="ltr" className="font-mono" style={{ color: 'var(--cms-text)' }}>{selectedEvent.eventType}</dd>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CalendarClock className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-text-muted)' }} />
-                  <dt style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'security.detail.actor')}:</dt>
+                  <dt style={{ color: 'var(--cms-text-muted)' }}><CalendarClock className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-text-muted)' }} /> {t(locale, 'security.detail.actor')}:</dt>
                   <dd style={{ color: 'var(--cms-text)' }}>{actorLabel(selectedEvent, locale)}</dd>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Ban className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-text-muted)' }} />
-                  <dt style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'security.detail.ipAddress')}:</dt>
+                  <dt style={{ color: 'var(--cms-text-muted)' }}><Ban className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-text-muted)' }} /> {t(locale, 'security.detail.ipAddress')}:</dt>
                   <dd dir="ltr" className="font-mono" style={{ color: 'var(--cms-text)' }}>{selectedEvent.ipAddress || '—'}</dd>
                 </div>
                 {selectedEvent.correlationId && (
                   <div className="flex items-center gap-2 sm:col-span-2">
-                    <Info className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-text-muted)' }} />
-                    <dt style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'security.detail.correlationId')}:</dt>
+                                        <dt style={{ color: 'var(--cms-text-muted)' }}><Info className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-text-muted)' }} /> {t(locale, 'security.detail.correlationId')}:</dt>
                     <dd dir="ltr" className="font-mono break-all" style={{ color: 'var(--cms-text)' }} data-testid="security-event-correlation">{selectedEvent.correlationId}</dd>
                   </div>
                 )}
                 {selectedEvent.deviceFingerprint && (
                   <div className="flex items-center gap-2 sm:col-span-2">
-                    <Fingerprint className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-text-muted)' }} />
-                    <dt style={{ color: 'var(--cms-text-muted)' }}>{t(locale, 'security.detail.fingerprint')}:</dt>
+                                        <dt style={{ color: 'var(--cms-text-muted)' }}><Fingerprint className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--cms-text-muted)' }} /> {t(locale, 'security.detail.fingerprint')}:</dt>
                     <dd dir="ltr" className="font-mono" style={{ color: 'var(--cms-text)' }} title={selectedEvent.deviceFingerprint}>
                       {selectedEvent.deviceFingerprint.slice(0, 8) + '…'}
                     </dd>

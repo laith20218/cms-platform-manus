@@ -2176,39 +2176,44 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               </div>
               {/* Full name */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.common.fullName')}</label>
-                <input
-                  required
-                  value={editForm.fullName}
-                  onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border text-sm"
-                  style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
-                />
+                <label className="block">
+                  <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.common.fullName')}</span>
+                  <input
+                    required
+                    value={editForm.fullName}
+                    onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border text-sm"
+                    style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+                  />
+                </label>
               </div>
               {/* Gender */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.editModal.gender')}</label>
-                <select
-                  value={editForm.gender}
-                  onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}
-                  aria-label={t(locale, 'students.editModal.gender')}
-                  className="w-full px-3 py-2 rounded-lg border text-sm"
-                  style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
-                >
-                  <option value="">{t(locale, 'students.common.notSpecified')}</option>
-                  <option value="male">{t(locale, 'students.common.male')}</option>
-                  <option value="female">{t(locale, 'students.common.female')}</option>
-                </select>
+                <label className="block">
+                  <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.editModal.gender')}</span>
+                  <select
+                    value={editForm.gender}
+                    onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border text-sm"
+                    style={{ borderColor: 'var(--cms-line-strong)', background: 'var(--cms-surface)', color: 'var(--cms-text)' }}
+                  >
+                    <option value="">{t(locale, 'students.common.notSpecified')}</option>
+                    <option value="male">{t(locale, 'students.common.male')}</option>
+                    <option value="female">{t(locale, 'students.common.female')}</option>
+                  </select>
+                </label>
               </div>
               {/* Phone (read-only) */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.editModal.phone')}</label>
-                <input
-                  value={editStudent.phone}
-                  disabled
-                  className="w-full px-3 py-2 rounded-lg border text-sm opacity-60"
-                  style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)', color: 'var(--cms-text-soft)' }}
-                />
+                <label className="block">
+                  <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>{t(locale, 'students.editModal.phone')}</span>
+                  <input
+                    value={editStudent.phone}
+                    disabled
+                    className="w-full px-3 py-2 rounded-lg border text-sm opacity-60"
+                    style={{ borderColor: 'var(--cms-line)', background: 'var(--cms-ivory-50)', color: 'var(--cms-text-soft)' }}
+                  />
+                </label>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-2" style={{ borderColor: 'var(--cms-line)' }}>
                 <button type="button" onClick={() => { setEditStudent(null); setAvatarPreview(null); }} disabled={busy} className="px-4 py-2 rounded-lg border text-sm font-medium" style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text-soft)', background: 'var(--cms-surface)' }}>
@@ -2316,52 +2321,58 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
           <form onSubmit={submitCreate} className="space-y-4 overflow-y-auto px-5 py-4">
               {/* Full name */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                  {t(locale, 'students.common.fullName')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                <label className="block">
+                  <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                    {t(locale, 'students.common.fullName')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                  </span>
+                  <input
+                    required
+                    value={createForm.fullName}
+                    onChange={(e) => setCreateForm({ ...createForm, fullName: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                  />
                 </label>
-                <input
-                  required
-                  value={createForm.fullName}
-                  onChange={(e) => setCreateForm({ ...createForm, fullName: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                  style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
-                />
               </div>
               {/* Phone + Password */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.createModal.phone')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.createModal.phone')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    </span>
+                    <input
+                      required
+                      inputMode="tel"
+                      dir="ltr"
+                      pattern="09\d{8}"
+                      maxLength={10}
+                      value={createForm.phone}
+                      onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value.replace(/[^\d]/g, '') })}
+                      placeholder="09XXXXXXXX"
+                      className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-left"
+                      style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                    />
                   </label>
-                  <input
-                    required
-                    inputMode="tel"
-                    dir="ltr"
-                    pattern="09\d{8}"
-                    maxLength={10}
-                    value={createForm.phone}
-                    onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value.replace(/[^\d]/g, '') })}
-                    placeholder="09XXXXXXXX"
-                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-left"
-                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
-                  />
                   <p className="text-[10px] mt-1" style={{ color: 'var(--cms-text-muted)' }}>
                     {t(locale, 'students.createModal.phoneHint')}
                   </p>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.createModal.password')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.createModal.password')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    </span>
+                    <input
+                      required
+                      type="password"
+                      minLength={8}
+                      value={createForm.password}
+                      onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                      style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                    />
                   </label>
-                  <input
-                    required
-                    type="password"
-                    minLength={8}
-                    value={createForm.password}
-                    onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
-                  />
                   <p className="text-[10px] mt-1" style={{ color: 'var(--cms-text-muted)' }}>
                     {t(locale, 'students.createModal.passwordHint')}
                   </p>
@@ -2370,10 +2381,11 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
               {/* University → College → Academic year cascade */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.common.university')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
-                  </label>
-                  <select
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.common.university')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    </span>
+                    <select
                     required
                     value={createUniversityId}
                     onChange={(e) => void chooseCreateUniversity(e.target.value)}
@@ -2386,12 +2398,14 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       <option key={u.id} value={u.id}>{isArabic ? u.nameAr : (u.nameEn || u.nameAr)}</option>
                     ))}
                   </select>
+                  </label>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.common.college')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
-                  </label>
-                  <select
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.common.college')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    </span>
+                    <select
                     required
                     value={createCollegeId}
                     onChange={(e) => void chooseCreateCollege(e.target.value)}
@@ -2405,12 +2419,14 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       <option key={c.id} value={c.id}>{isArabic ? c.nameAr : (c.nameEn || c.nameAr)}</option>
                     ))}
                   </select>
+                  </label>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.createModal.year')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
-                  </label>
-                  <select
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.createModal.year')} <span style={{ color: 'var(--cms-danger)' }}>*</span>
+                    </span>
+                    <select
                     required
                     value={createYearId}
                     onChange={(e) => setCreateYearId(e.target.value)}
@@ -2424,18 +2440,19 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                       <option key={y.id} value={y.id}>{isArabic ? y.nameAr : (y.nameEn || y.nameAr)}</option>
                     ))}
                   </select>
+                  </label>
                 </div>
               </div>
               {/* Gender + Email (both optional) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.createModal.genderOptional')}
-                  </label>
-                  <select
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.createModal.genderOptional')}
+                    </span>
+                    <select
                     value={createForm.gender}
                     onChange={(e) => setCreateForm({ ...createForm, gender: e.target.value })}
-                    aria-label={t(locale, 'students.createModal.genderOptional')}
                     className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
                     style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
                   >
@@ -2443,18 +2460,21 @@ export function StudentsCenter({ token, isArabic, onError, onNotice }: Props) {
                     <option value="male">{t(locale, 'students.common.male')}</option>
                     <option value="female">{t(locale, 'students.common.female')}</option>
                   </select>
+                  </label>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
-                    {t(locale, 'students.createModal.emailOptional')}
+                  <label className="block">
+                    <span className="block text-xs font-medium mb-1" style={{ color: 'var(--cms-text-soft)' }}>
+                      {t(locale, 'students.createModal.emailOptional')}
+                    </span>
+                    <input
+                      type="email"
+                      value={createForm.email}
+                      onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                      style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
+                    />
                   </label>
-                  <input
-                    type="email"
-                    value={createForm.email}
-                    onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                    style={{ borderColor: 'var(--cms-line-strong)', color: 'var(--cms-text)' }}
-                  />
                 </div>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-2" style={{ borderColor: 'var(--cms-line)' }}>
